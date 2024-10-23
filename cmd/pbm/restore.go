@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type restoreOpts struct {
@@ -40,6 +40,8 @@ type restoreOpts struct {
 	rsMap         string
 	conf          string
 	ts            string
+
+	numParallelColls int32
 }
 
 type restoreRet struct {
@@ -98,7 +100,18 @@ func (r externRestoreRet) String() string {
 		r.Name, r.Name)
 }
 
-func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf outFormat) (fmt.Stringer, error) {
+func runRestore(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	o *restoreOpts,
+	node string,
+	outf outFormat,
+) (fmt.Stringer, error) {
+	numParallelColls, err := parseCLINumParallelCollsOption(o.numParallelColls)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
+	}
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -116,18 +129,22 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		return nil, errors.New("either a backup name or point in time should be set, non both together!")
 	}
 
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
+	}
+
 	clusterTime, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "read cluster time")
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, nss, rsMap, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, nss, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
 	if o.extern && outf == outText {
-		err = waitRestore(ctx, conn, m, defs.StatusCopyReady, tdiff)
+		err = waitRestore(ctx, conn, m, node, defs.StatusCopyReady, tdiff)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -153,7 +170,7 @@ func runRestore(ctx context.Context, conn connect.Client, o *restoreOpts, outf o
 		typ = " physical restore.\nWaiting to finish"
 	}
 	fmt.Printf("Started%s", typ)
-	err = waitRestore(ctx, conn, m, defs.StatusDone, tdiff)
+	err = waitRestore(ctx, conn, m, node, defs.StatusDone, tdiff)
 	if err == nil {
 		return restoreRet{
 			Name:     m.Name,
@@ -180,13 +197,14 @@ func waitRestore(
 	ctx context.Context,
 	conn connect.Client,
 	m *restore.RestoreMeta,
+	node string,
 	status defs.Status,
 	tskew int64,
 ) error {
 	ep, _ := config.GetEpoch(ctx, conn)
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorage(ctx, conn, l)
+	stg, err := util.GetStorage(ctx, conn, node, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -311,15 +329,13 @@ func doRestore(
 	ctx context.Context,
 	conn connect.Client,
 	o *restoreOpts,
+	numParallelColls *int32,
 	nss []string,
 	rsMapping map[string]string,
+	node string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
-	if err != nil {
-		return nil, err
-	}
-	err = checkConcurrentOp(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -329,12 +345,13 @@ func doRestore(
 	cmd := ctrl.Cmd{
 		Cmd: ctrl.CmdRestore,
 		Restore: &ctrl.RestoreCmd{
-			Name:          name,
-			BackupName:    bcp,
-			Namespaces:    nss,
-			UsersAndRoles: o.usersAndRoles,
-			RSMap:         rsMapping,
-			External:      o.extern,
+			Name:             name,
+			BackupName:       bcp,
+			NumParallelColls: numParallelColls,
+			Namespaces:       nss,
+			UsersAndRoles:    o.usersAndRoles,
+			RSMap:            rsMapping,
+			External:         o.extern,
 		},
 	}
 	if o.pitr != "" {
@@ -407,7 +424,7 @@ func doRestore(
 		ep, _ := config.GetEpoch(ctx, conn)
 		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
 
-		stg, err := util.GetStorage(ctx, conn, l)
+		stg, err := util.GetStorage(ctx, conn, node, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -422,18 +439,17 @@ func doRestore(
 	return waitForRestoreStatus(startCtx, conn, name, fn)
 }
 
-func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
-	stg, err := getRestoreMetaStg(o.cfg)
+func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
+	stg, err := getRestoreMetaStg(o.cfg, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
 
 	path := fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, o.restore)
-	return outMsg{"Command sent. Check `pbm describe-restore ...` for the result."},
-		stg.Save(path+"."+string(defs.StatusCopyDone),
-			bytes.NewReader([]byte(
-				fmt.Sprintf("%d", time.Now().Unix()),
-			)), -1)
+	msg := outMsg{"Command sent. Check `pbm describe-restore ...` for the result."}
+	err = stg.Save(path+"."+string(defs.StatusCopyDone),
+		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())), -1)
+	return msg, err
 }
 
 func parseTS(t string) (primitive.Timestamp, error) {
@@ -534,6 +550,7 @@ type describeRestoreResult struct {
 	Namespaces         []string         `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
 	StartTS            *int64           `json:"start_ts,omitempty" yaml:"-"`
 	StartTime          *string          `json:"start,omitempty" yaml:"start,omitempty"`
+	FinishTime         *string          `json:"finish,omitempty" yaml:"finish,omitempty"`
 	PITR               *int64           `json:"ts_to_restore,omitempty" yaml:"-"`
 	PITRTime           *string          `json:"time_to_restore,omitempty" yaml:"time_to_restore,omitempty"`
 	LastTransitionTS   int64            `json:"last_transition_ts" yaml:"-"`
@@ -569,7 +586,7 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
+func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
 	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")
@@ -582,17 +599,22 @@ func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(&cfg.Storage, l)
+	return util.StorageFromConfig(&cfg.Storage, node, l)
 }
 
-func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpts) (fmt.Stringer, error) {
+func describeRestore(
+	ctx context.Context,
+	conn connect.Client,
+	o descrRestoreOpts,
+	node string,
+) (fmt.Stringer, error) {
 	var (
 		meta *restore.RestoreMeta
 		err  error
 		res  describeRestoreResult
 	)
 	if o.cfg != "" {
-		stg, err := getRestoreMetaStg(o.cfg)
+		stg, err := getRestoreMetaStg(o.cfg, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -620,18 +642,16 @@ func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpt
 	res.OPID = meta.OPID
 	res.LastTransitionTS = meta.LastTransitionTS
 	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).UTC().Format(time.RFC3339)
+	res.StartTime = util.Ref(time.Unix(meta.StartTS, 0).UTC().Format(time.RFC3339))
+	if meta.Status == defs.StatusDone {
+		res.FinishTime = util.Ref(time.Unix(meta.LastTransitionTS, 0).UTC().Format(time.RFC3339))
+	}
 	if meta.Status == defs.StatusError {
 		res.Error = &meta.Error
 	}
-	if meta.StartPITR != 0 {
-		res.StartTS = &meta.StartPITR
-		s := time.Unix(meta.StartPITR, 0).UTC().Format(time.RFC3339)
-		res.StartTime = &s
-	}
 	if meta.PITR != 0 {
 		res.PITR = &meta.PITR
-		s := time.Unix(meta.PITR, 0).UTC().Format(time.RFC3339)
-		res.PITRTime = &s
+		res.PITRTime = util.Ref(time.Unix(meta.PITR, 0).UTC().Format(time.RFC3339))
 	}
 
 	for _, rs := range meta.Replsets {

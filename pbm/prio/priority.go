@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	defaultScore    = 1.0
-	scoreForPrimary = defaultScore / 2
-	scoreForHidden  = defaultScore * 2
+	defaultScore     = 1.0
+	scoreForPrimary  = defaultScore / 2
+	scoreForHidden   = defaultScore * 2
+	scoreForExcluded = 0
 )
 
 // NodesPriority groups nodes by priority according to
@@ -107,6 +108,8 @@ func CalcPriorityForAgent(
 func CalcPriorityForNode(node *topo.NodeInfo) float64 {
 	if node.IsPrimary {
 		return scoreForPrimary
+	} else if node.IsDelayed() {
+		return scoreForExcluded
 	} else if node.Hidden {
 		return scoreForHidden
 	}
@@ -122,6 +125,8 @@ func implicitPrioCalc(a *topo.AgentStat, rule map[string]float64) float64 {
 		return defaultScore * coeff
 	} else if a.State == defs.NodeStatePrimary {
 		return scoreForPrimary
+	} else if a.DelaySecs > 0 {
+		return scoreForExcluded
 	} else if a.Hidden {
 		return scoreForHidden
 	}

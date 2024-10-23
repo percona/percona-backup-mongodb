@@ -12,11 +12,11 @@ import (
 )
 
 func (c *Cluster) OplogReplay() {
-	bcpName := c.LogicalBackup()
-
 	c.pitrOn()
 	log.Println("turn on PITR")
 	defer c.pitrOff()
+
+	bcpName := c.LogicalBackup()
 
 	counters := make(map[string]shardCounter)
 	for name, cn := range c.shards {

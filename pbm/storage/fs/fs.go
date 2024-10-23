@@ -11,6 +11,21 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
+type RetryableError struct {
+	Err error
+}
+
+func (e *RetryableError) Error() string {
+	return e.Err.Error()
+}
+
+func IsRetryableError(err error) bool {
+	var e *RetryableError
+	return errors.As(err, &e)
+}
+
+const tmpFileSuffix = ".tmp"
+
 type Config struct {
 	Path string `bson:"path" json:"path" yaml:"path"`
 }
@@ -79,8 +94,11 @@ func (*FS) Type() storage.Type {
 	return storage.Filesystem
 }
 
-func WriteSync(filepath string, data io.Reader) error {
-	err := os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
+//nolint:nonamedreturns
+func writeSync(finalpath string, data io.Reader) (err error) {
+	filepath := finalpath + tmpFileSuffix
+
+	err = os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
 	if err != nil {
 		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
 	}
@@ -89,7 +107,20 @@ func WriteSync(filepath string, data io.Reader) error {
 	if err != nil {
 		return errors.Wrapf(err, "create destination file <%s>", filepath)
 	}
-	defer fw.Close()
+	defer func() {
+		if err != nil {
+			if fw != nil {
+				fw.Close()
+			}
+
+			if os.IsNotExist(err) {
+				err = &RetryableError{Err: err}
+			} else {
+				os.Remove(filepath)
+			}
+
+		}
+	}()
 
 	err = os.Chmod(filepath, 0o644)
 	if err != nil {
@@ -102,22 +133,26 @@ func WriteSync(filepath string, data io.Reader) error {
 	}
 
 	err = fw.Sync()
-	return errors.Wrapf(err, "sync file <%s>", filepath)
-}
-
-
-func (fs *FS) Save(name string, data io.Reader, _ int64) error {
-	filepath := path.Join(fs.root, name+".tmp")
-	finalpath := path.Join(fs.root, name)
-
-	err := WriteSync(filepath, data)
 	if err != nil {
-		os.Remove(filepath)
-		return errors.Wrapf(err, "write-sync %s", path.Dir(filepath))
+		return errors.Wrapf(err, "sync file <%s>", filepath)
 	}
 
+	err = fw.Close()
+	if err != nil {
+		return errors.Wrapf(err, "close file <%s>", filepath)
+	}
+	fw = nil
+
 	err = os.Rename(filepath, finalpath)
-	return errors.Wrapf(err, "rename <%s> to <%s>", filepath, finalpath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fs *FS) Save(name string, data io.Reader, _ int64) error {
+	return writeSync(path.Join(fs.root, name), data)
 }
 
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
@@ -173,6 +208,11 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		if f[0] == '/' {
 			f = f[1:]
 		}
+
+		// ignore temp file unless it is not requested explicitly
+		if suffix == "" && strings.HasSuffix(f, tmpFileSuffix) {
+			return nil
+		}
 		if strings.HasSuffix(f, suffix) {
 			files = append(files, storage.FileInfo{Name: f, Size: info.Size()})
 		}
@@ -188,17 +228,7 @@ func (fs *FS) Copy(src, dst string) error {
 		return errors.Wrap(err, "open src")
 	}
 
-	destFilename := path.Join(fs.root, dst+".tmp")
-	finalFilename := path.Join(fs.root, dst)
-
-	err = WriteSync(destFilename, from)
-	if err != nil {
-		os.Remove(destFilename)
-		return errors.Wrapf(err, "write-sync %s", path.Dir(destFilename))
-	}
-
-	err = os.Rename(destFilename, finalFilename)
-	return errors.Wrapf(err, "rename <%s> to <%s>", destFilename, finalFilename)
+	return writeSync(path.Join(fs.root, dst), from)
 }
 
 // Delete deletes given file from FS.

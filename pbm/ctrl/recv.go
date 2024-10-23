@@ -44,6 +44,9 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 		var lastCmd Command
 		for {
 			select {
+			case <-ctx.Done():
+				errc <- ctx.Err()
+				return
 			case <-cl:
 				return
 			default:

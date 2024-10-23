@@ -81,16 +81,18 @@ func (b *Backup) doLogical(
 			return errors.Wrap(err, "check cluster for backup started")
 		}
 
+		// TODO(improve): do setClusterFirstWrite between
+		// all replsets status are StatusRunning and setting the global status
 		err = b.setClusterFirstWrite(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "set cluster first write ts")
 		}
-	}
-
-	// Waiting for cluster's StatusRunning to move further.
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
-	if err != nil {
-		return errors.Wrap(err, "waiting for running")
+	} else {
+		// Waiting for cluster's StatusRunning to move further.
+		err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
+		if err != nil {
+			return errors.Wrap(err, "waiting for running")
+		}
 	}
 
 	stopOplogSlicer := startOplogSlicer(ctx,
@@ -135,7 +137,19 @@ func (b *Backup) doLogical(
 	if len(nssSize) == 0 {
 		dump = snapshot.DummyBackup{}
 	} else {
-		dump, err = snapshot.NewBackup(b.brief.URI, b.dumpConns, db, coll)
+		numParallelColls := b.numParallelColls
+		if bcp.NumParallelColls != nil {
+			if *bcp.NumParallelColls > 0 {
+				numParallelColls = int(*bcp.NumParallelColls)
+			} else {
+				l.Warning("invalid value of NumParallelCollections (%v). fallback to %v",
+					numParallelColls, b.numParallelColls)
+			}
+		}
+
+		l.Debug("dumping up to %d collections in parallel", numParallelColls)
+
+		dump, err = snapshot.NewBackup(b.brief.URI, numParallelColls, db, coll)
 		if err != nil {
 			return errors.Wrap(err, "init mongodump options")
 		}
@@ -156,11 +170,10 @@ func (b *Backup) doLogical(
 	snapshotSize, err := snapshot.UploadDump(ctx,
 		dump,
 		func(ns, ext string, r io.Reader) error {
-			stg, err := util.StorageFromConfig(&b.config.Storage, l)
+			stg, err := util.StorageFromConfig(&b.config.Storage, b.brief.Me, l)
 			if err != nil {
 				return errors.Wrap(err, "get storage")
 			}
-
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, nssSize[ns])
 		},
@@ -185,11 +198,11 @@ func (b *Backup) doLogical(
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
 		}
-	}
-
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
-	if err != nil {
-		return errors.Wrap(err, "waiting for dump done")
+	} else {
+		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
+		if err != nil {
+			return errors.Wrap(err, "waiting for dump done")
+		}
 	}
 
 	lastSavedTS, oplogSize, err := stopOplogSlicer()

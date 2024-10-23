@@ -47,7 +47,18 @@ func (c confVals) String() string {
 	return s
 }
 
-func runConfig(ctx context.Context, conn connect.Client, pbm *sdk.Client, c *configOpts) (fmt.Stringer, error) {
+func runConfig(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	c *configOpts,
+) (fmt.Stringer, error) {
+	if len(c.set) != 0 || c.rsync || c.file != "" {
+		if err := checkForAnotherOperation(ctx, pbm); err != nil {
+			return nil, err
+		}
+	}
+
 	switch {
 	case len(c.set) > 0:
 		var o confVals
@@ -73,6 +84,9 @@ func runConfig(ctx context.Context, conn connect.Client, pbm *sdk.Client, c *con
 	case len(c.key) > 0:
 		k, err := config.GetConfigVar(ctx, conn, c.key)
 		if err != nil {
+			if errors.Is(err, config.ErrUnsetConfigPath) {
+				return confKV{c.key, ""}, nil // unset config path
+			}
 			return nil, errors.Wrap(err, "unable to get config key")
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil

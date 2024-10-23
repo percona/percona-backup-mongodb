@@ -38,6 +38,8 @@ type backupOpts struct {
 	wait             bool
 	waitTime         time.Duration
 	externList       bool
+
+	numParallelColls int32
 }
 
 type backupOut struct {
@@ -46,7 +48,7 @@ type backupOut struct {
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf("Backup '%s' to remote store '%s' has started", b.Name, b.Storage)
+	return fmt.Sprintf("Backup '%s' to remote store '%s'", b.Name, b.Storage)
 }
 
 type externBcpOut struct {
@@ -87,6 +89,10 @@ func runBackup(
 	b *backupOpts,
 	outf outFormat,
 ) (fmt.Stringer, error) {
+	numParallelColls, err := parseCLINumParallelCollsOption(b.numParallelColls)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
+	}
 	nss, err := parseCLINSOption(b.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -102,15 +108,8 @@ func runBackup(
 		return nil, errors.Wrap(err, "backup pre-check")
 	}
 
-	if err := checkConcurrentOp(ctx, conn); err != nil {
-		// PITR slicing can be run along with the backup start - agents will resolve it.
-		var e *concurentOpError
-		if !errors.As(err, &e) {
-			return nil, err
-		}
-		if e.op.Type != ctrl.CmdPITR {
-			return nil, err
-		}
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
+		return nil, err
 	}
 
 	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
@@ -143,6 +142,7 @@ func runBackup(
 			Namespaces:       nss,
 			Compression:      compression,
 			CompressionLevel: level,
+			NumParallelColls: numParallelColls,
 			Filelist:         b.externList,
 			Profile:          b.profile,
 		},
@@ -151,20 +151,20 @@ func runBackup(
 		return nil, errors.Wrap(err, "send command")
 	}
 
-	if outf != outText {
-		return backupOut{b.name, cfg.Storage.Path()}, nil
-	}
+	showProgress := outf == outText
 
-	fmt.Printf("Starting backup '%s'", b.name)
+	if showProgress {
+		fmt.Printf("Starting backup '%s'", b.name)
+	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
-	err = waitForBcpStatus(startCtx, conn, b.name)
+	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
 	if err != nil {
 		return nil, err
 	}
 
 	if b.typ == string(defs.ExternalBackup) {
-		s, err := waitBackup(ctx, conn, b.name, defs.StatusCopyReady)
+		s, err := waitBackup(ctx, conn, b.name, defs.StatusCopyReady, showProgress)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -198,15 +198,19 @@ func runBackup(
 			defer cancel()
 		}
 
-		fmt.Printf("\nWaiting for '%s' backup...", b.name)
-		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone)
-		if s != nil {
+		if showProgress {
+			fmt.Printf("\nWaiting for '%s' backup...", b.name)
+		}
+		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone, showProgress)
+		if s != nil && showProgress {
 			fmt.Printf(" %s\n", *s)
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = errWaitTimeout
 		}
-		return outMsg{}, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return backupOut{b.name, cfg.Storage.Path()}, nil
@@ -228,7 +232,13 @@ func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Str
 		backup.ChangeBackupState(conn, bcp, defs.StatusCopyDone, "")
 }
 
-func waitBackup(ctx context.Context, conn connect.Client, name string, status defs.Status) (*defs.Status, error) {
+func waitBackup(
+	ctx context.Context,
+	conn connect.Client,
+	name string,
+	status defs.Status,
+	showProgress bool,
+) (*defs.Status, error) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
@@ -250,11 +260,13 @@ func waitBackup(ctx context.Context, conn connect.Client, name string, status de
 			}
 		}
 
-		fmt.Print(".")
+		if showProgress {
+			fmt.Print(".")
+		}
 	}
 }
 
-func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string) error {
+func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
@@ -262,7 +274,9 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string) 
 	for {
 		select {
 		case <-tk.C:
-			fmt.Print(".")
+			if showProgress {
+				fmt.Print(".")
+			}
 			var err error
 			bmeta, err = backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if errors.Is(err, errors.ErrNotFound) {
@@ -364,7 +378,12 @@ func byteCountIEC(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-func describeBackup(ctx context.Context, pbm *sdk.Client, b *descBcp) (fmt.Stringer, error) {
+func describeBackup(
+	ctx context.Context,
+	pbm *sdk.Client,
+	b *descBcp,
+	node string,
+) (fmt.Stringer, error) {
 	bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{})
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup meta")
@@ -374,7 +393,7 @@ func describeBackup(ctx context.Context, pbm *sdk.Client, b *descBcp) (fmt.Strin
 	if b.coll || bcp.Size == 0 {
 		// to read backed up collection names
 		// or calculate size of files for legacy backups
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -654,4 +673,15 @@ func (incompatibleMongodVersionError) Is(err error) bool {
 
 func (e incompatibleMongodVersionError) Unwrap() error {
 	return errIncompatible
+}
+
+func parseCLINumParallelCollsOption(value int32) (*int32, error) {
+	if value < 0 {
+		return nil, errors.New("value cannot be negative")
+	}
+	if value == 0 {
+		return nil, nil //nolint:nilnil
+	}
+
+	return &value, nil
 }

@@ -32,17 +32,17 @@ type Backup struct {
 	typ                 defs.BackupType
 	incrBase            bool
 	timeouts            *config.BackupTimeouts
-	dumpConns           int
+	numParallelColls    int
 	oplogSlicerInterval time.Duration
 }
 
 func New(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dumpConns int) *Backup {
 	return &Backup{
-		leadConn:  leadConn,
-		nodeConn:  conn,
-		brief:     brief,
-		typ:       defs.LogicalBackup,
-		dumpConns: dumpConns,
+		leadConn:         leadConn,
+		nodeConn:         conn,
+		brief:            brief,
+		typ:              defs.LogicalBackup,
+		numParallelColls: dumpConns,
 	}
 }
 
@@ -166,6 +166,18 @@ func (b *Backup) Init(
 //
 //nolint:nonamedreturns
 func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
+	if b.brief.Sharded &&
+		b.brief.Version.IsConfigShardSupported() &&
+		util.IsSelective(bcp.Namespaces) {
+		hasConfigShard, err := topo.HasConfigShard(ctx, b.leadConn)
+		if err != nil {
+			return errors.Wrap(err, "check for Config Shard")
+		}
+		if hasConfigShard {
+			return errors.New("selective backup is not supported with Config Shard")
+		}
+	}
+
 	inf, err := topo.GetNodeInfoExt(ctx, b.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
@@ -189,7 +201,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		rsMeta.IsConfigSvr = &v
 	}
 
-	stg, err := util.StorageFromConfig(&b.config.Storage, l)
+	stg, err := util.StorageFromConfig(&b.config.Storage, inf.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
@@ -238,7 +250,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		hbstop := make(chan struct{})
 		defer close(hbstop)
 
-		err = BackupHB(ctx, b.leadConn, bcp.Name)
+		err := BackupHB(ctx, b.leadConn, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "init heartbeat")
 		}
@@ -250,7 +262,6 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			for {
 				select {
 				case <-ctx.Done():
-					err = ctx.Err()
 					return
 				case <-tk.C:
 					err = BackupHB(ctx, b.leadConn, bcp.Name)
@@ -271,7 +282,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		}
 
 		if inf.IsLeader() {
-			err = storage.Initialize(ctx, stg)
+			err = util.Initialize(ctx, stg)
 			if err != nil {
 				return errors.Wrap(err, "init storage")
 			}
@@ -299,14 +310,11 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 
 	defer func() {
-		if !inf.IsLeader() {
-			return
-		}
-		if !errors.Is(err, storage.ErrCancelled) && !errors.Is(err, context.Canceled) {
+		if err == nil || !inf.IsLeader() {
 			return
 		}
 
-		if err := DeleteBackupFiles(bcpm, stg); err != nil {
+		if err := DeleteBackupFiles(stg, bcp.Name); err != nil {
 			l.Error("Failed to delete leftover files for canceled backup %q", bcpm.Name)
 		}
 	}()
@@ -329,9 +337,15 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 
 	if inf.IsLeader() {
-		err = b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDone, nil)
+		shards, err := topo.ClusterMembers(ctx, b.leadConn.MongoClient())
 		if err != nil {
-			return errors.Wrap(err, "check cluster for backup done")
+			return errors.Wrap(err, "check cluster for backup done: get cluster members")
+		}
+
+		err = b.convergeCluster(ctx, bcp.Name, opid.String(), shards, defs.StatusDone)
+		err = errors.Wrap(err, "check cluster for backup done: convergeCluster")
+		if err != nil {
+			return err
 		}
 
 		bcpm, err = NewDBManager(b.leadConn).GetBackupByName(ctx, bcp.Name)
@@ -339,15 +353,33 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return errors.Wrap(err, "get backup metadata")
 		}
 
+		// PBM-1114: update file metadata with the same values as in database
+		unix := time.Now().Unix()
+		bcpm.Status = defs.StatusDone
+		bcpm.LastTransitionTS = unix
+		bcpm.Conditions = append(bcpm.Conditions, Condition{
+			Timestamp: unix,
+			Status:    defs.StatusDone,
+		})
+
 		err = writeMeta(stg, bcpm)
 		if err != nil {
 			return errors.Wrap(err, "dump metadata")
 		}
-	}
 
-	// to be sure the locks released only after the "done" status had written
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
-	return errors.Wrap(err, "waiting for done")
+		err = CheckBackupFiles(ctx, stg, bcp.Name)
+		if err != nil {
+			return errors.Wrap(err, "check backup files")
+		}
+
+		err = ChangeBackupStateWithUnixTime(ctx, b.leadConn, bcp.Name, defs.StatusDone, unix, "")
+		return errors.Wrapf(err, "check cluster for backup done: update backup meta with %s",
+			defs.StatusDone)
+	} else {
+		// to be sure the locks released only after the "done" status had written
+		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
+		return errors.Wrap(err, "waiting for done")
+	}
 }
 
 func waitForBalancerOff(ctx context.Context, conn connect.Client, t time.Duration, l log.LogEvent) topo.BalancerMode {
@@ -404,11 +436,11 @@ func (b *Backup) toState(
 			}
 			return errors.Wrapf(err, "check cluster for backup `%s`", status)
 		}
-	}
-
-	err = b.waitForStatus(ctx, bcp, status, wait)
-	if err != nil {
-		return errors.Wrapf(err, "waiting for %s", status)
+	} else {
+		err = b.waitForStatus(ctx, bcp, status, wait)
+		if err != nil {
+			return errors.Wrapf(err, "waiting for %s", status)
+		}
 	}
 
 	return nil
@@ -426,14 +458,18 @@ func (b *Backup) reconcileStatus(
 	}
 
 	if timeout != nil {
-		return errors.Wrap(
-			b.convergeClusterWithTimeout(ctx, bcpName, opid, shards, status, *timeout),
-			"convergeClusterWithTimeout")
+		err = b.convergeClusterWithTimeout(ctx, bcpName, opid, shards, status, *timeout)
+		err = errors.Wrap(err, "convergeClusterWithTimeout")
+	} else {
+		err = b.convergeCluster(ctx, bcpName, opid, shards, status)
+		err = errors.Wrap(err, "convergeCluster")
+	}
+	if err != nil {
+		return err
 	}
 
-	return errors.Wrap(
-		b.convergeCluster(ctx, bcpName, opid, shards, status),
-		"convergeCluster")
+	err = ChangeBackupState(b.leadConn, bcpName, status, "")
+	return errors.Wrapf(err, "update backup meta with %s", status)
 }
 
 // convergeCluster waits until all given shards reached `status` and updates a cluster status
@@ -474,10 +510,11 @@ func (b *Backup) convergeClusterWithTimeout(
 	status defs.Status,
 	t time.Duration,
 ) error {
-	tk := time.NewTicker(time.Second * 1)
+	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	tout := time.After(t)
+	tout := time.NewTimer(t)
+	defer tout.Stop()
 
 	for {
 		select {
@@ -489,7 +526,7 @@ func (b *Backup) convergeClusterWithTimeout(
 			if ok {
 				return nil
 			}
-		case <-tout:
+		case <-tout.C:
 			return errors.Wrap(errConvergeTimeOut, t.String())
 		case <-ctx.Done():
 			return ctx.Err()
@@ -548,15 +585,7 @@ func (b *Backup) converged(
 		}
 	}
 
-	if shardsToFinish == 0 {
-		err := ChangeBackupState(b.leadConn, bcpName, status, "")
-		if err != nil {
-			return false, errors.Wrapf(err, "update backup meta with %s", status)
-		}
-		return true, nil
-	}
-
-	return false, nil
+	return shardsToFinish == 0, nil
 }
 
 func (b *Backup) waitForStatus(
@@ -721,7 +750,37 @@ func setClusterLastWriteImpl(
 			break
 		}
 
-		time.Sleep(time.Second)
+		// before we try another time, let's check if we have lost agent
+		clusterTime, err := topo.GetClusterTime(ctx, conn)
+		if err != nil {
+			return errors.Wrap(err, "read cluster time")
+		}
+
+		locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{
+			Type: ctrl.CmdBackup,
+			OPID: bcp.OPID,
+		})
+		if err != nil {
+			return errors.Wrap(err, "get locks")
+		}
+
+		for _, replset := range bcp.Replsets {
+			var lck *lock.LockData
+			for _, l := range locks {
+				if l.Replset == replset.Name {
+					lck = &l
+					break
+				}
+			}
+			if lck == nil {
+				continue
+			}
+			if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
+				return errors.Errorf("lost shard %s, last beat ts: %d", replset.Name, lck.Heartbeat.T)
+			}
+		}
+
+		time.Sleep(10 * time.Second)
 	}
 
 	lw := bcp.Replsets[0].LastWriteTS

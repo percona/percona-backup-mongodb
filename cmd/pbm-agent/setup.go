@@ -110,6 +110,14 @@ func setupNewDB(ctx context.Context, conn connect.Client) error {
 		return errors.Wrap(err, "ensure pitr chunks index")
 	}
 
+	err = conn.AdminCommand(
+		ctx,
+		bson.D{{"create", defs.PITRCollection}},
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure pitr collection")
+	}
+
 	_, err = conn.BcpCollection().Indexes().CreateMany(
 		ctx,
 		[]mongo.IndexModel{
@@ -124,6 +132,25 @@ func setupNewDB(ctx context.Context, conn connect.Client) error {
 			},
 		},
 	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure backup collection index")
+	}
 
-	return err
+	err = conn.AdminCommand(
+		ctx,
+		bson.D{{"create", defs.RestoresCollection}},
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure restore collection")
+	}
+
+	err = conn.AdminCommand(
+		ctx,
+		bson.D{{"create", defs.AgentsStatusCollection}},
+	).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure agent status collection")
+	}
+
+	return nil
 }

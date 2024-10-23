@@ -330,12 +330,12 @@ func (b *Backup) doPhysical(
 		if err != nil {
 			return errors.Wrap(err, "set cluster last write ts")
 		}
-	}
-
-	// Waiting for cluster's StatusRunning to move further.
-	err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
-	if err != nil {
-		return errors.Wrap(err, "waiting for running")
+	} else {
+		// Waiting for cluster's StatusRunning to move further.
+		err = b.waitForStatus(ctx, bcp.Name, defs.StatusRunning, nil)
+		if err != nil {
+			return errors.Wrap(err, "waiting for running")
+		}
 	}
 
 	_, lwTS, err := b.waitForFirstLastWrite(ctx, bcp.Name)
@@ -524,7 +524,7 @@ func (b *Backup) uploadPhysical(
 	if err != nil {
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
-	l.Info("uploaded: %q %s", filelistPath, fmtSize(flSize))
+	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
 
 	err = IncBackupSize(ctx, b.leadConn, bcp.Name, size+flSize)
 	if err != nil {
@@ -690,7 +690,6 @@ func writeFile(
 		}
 		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
 	}
-	l.Debug("uploading: %s %s", src, fmtSize(sz))
 
 	_, err = storage.Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
 	if err != nil {
@@ -710,28 +709,4 @@ func writeFile(
 		Off:     src.Off,
 		Len:     src.Len,
 	}, nil
-}
-
-func fmtSize(size int64) string {
-	const (
-		_          = iota
-		KB float64 = 1 << (10 * iota)
-		MB
-		GB
-		TB
-	)
-
-	s := float64(size)
-
-	switch {
-	case s >= TB:
-		return fmt.Sprintf("%.2fTB", s/TB)
-	case s >= GB:
-		return fmt.Sprintf("%.2fGB", s/GB)
-	case s >= MB:
-		return fmt.Sprintf("%.2fMB", s/MB)
-	case s >= KB:
-		return fmt.Sprintf("%.2fKB", s/KB)
-	}
-	return fmt.Sprintf("%.2fB", s)
 }

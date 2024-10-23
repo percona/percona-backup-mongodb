@@ -114,7 +114,11 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	case defs.LogicalBackup:
 		fallthrough
 	default:
-		bcp = backup.New(a.leadConn, a.nodeConn, a.brief, a.dumpConns)
+		numParallelColls := a.numParallelColls
+		if cfg.Backup != nil && cfg.Backup.NumParallelCollections > 0 {
+			numParallelColls = cfg.Backup.NumParallelCollections
+		}
+		bcp = backup.New(a.leadConn, a.nodeConn, a.brief, numParallelColls)
 	}
 
 	bcp.SetConfig(cfg)
@@ -165,22 +169,15 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			}
 		}
 
-		agents, err := topo.ListAgentStatuses(ctx, a.leadConn)
+		agents, err := topo.ListSteadyAgents(ctx, a.leadConn)
 		if err != nil {
 			l.Error("get agents list: %v", err)
 			return
 		}
 
-		validCandidates := make([]topo.AgentStat, 0, len(agents))
-		for _, s := range agents {
-			if version.FeatureSupport(s.MongoVersion()).BackupType(cmd.Type) != nil {
-				continue
-			}
+		candidates := a.getValidCandidates(agents, cmd.Type)
 
-			validCandidates = append(validCandidates, s)
-		}
-
-		nodes := prio.CalcNodesPriority(c, cfg.Backup.Priority, validCandidates)
+		nodes := prio.CalcNodesPriority(c, cfg.Backup.Priority, candidates)
 
 		shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 		if err != nil {
@@ -254,6 +251,19 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	} else {
 		l.Info("backup finished")
 	}
+}
+
+// getValidCandidates filters out all agents that are not suitable for the backup.
+func (a *Agent) getValidCandidates(agents []topo.AgentStat, backupType defs.BackupType) []topo.AgentStat {
+	validCandidates := []topo.AgentStat{}
+	for _, agent := range agents {
+		if version.FeatureSupport(agent.MongoVersion()).BackupType(backupType) != nil {
+			continue
+		}
+		validCandidates = append(validCandidates, agent)
+	}
+
+	return validCandidates
 }
 
 const renominationFrame = 5 * time.Second

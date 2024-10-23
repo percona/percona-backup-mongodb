@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"path"
 	"runtime"
@@ -31,12 +32,14 @@ const (
 	maxBlocks = 50_000
 )
 
+//nolint:lll
 type Config struct {
-	Account     string      `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
-	Container   string      `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
-	EndpointURL string      `bson:"endpointUrl" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
-	Prefix      string      `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
+	Account        string            `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
+	Container      string            `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
+	EndpointURL    string            `bson:"endpointUrl" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
+	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
+	Prefix         string            `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
+	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -45,6 +48,7 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
 	return &rv
 }
 
@@ -62,6 +66,9 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.EndpointURL != other.EndpointURL {
 		return false
 	}
+	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
+		return false
+	}
 	if cfg.Prefix != other.Prefix {
 		return false
 	}
@@ -72,23 +79,39 @@ func (cfg *Config) Equal(other *Config) bool {
 	return true
 }
 
+// resolveEndpointURL returns endpoint url based on provided
+// EndpointURL or associated EndpointURLMap configuration fields.
+// If specified EndpointURLMap overrides EndpointURL field.
+func (cfg *Config) resolveEndpointURL(node string) string {
+	ep := cfg.EndpointURL
+	if epm, ok := cfg.EndpointURLMap[node]; ok {
+		ep = epm
+	}
+	if ep == "" {
+		ep = fmt.Sprintf(BlobURL, cfg.Account)
+	}
+	return ep
+}
+
 type Credentials struct {
 	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }
 
 type Blob struct {
 	opts *Config
+	node string
 	log  log.LogEvent
 	// url  *url.URL
 	c *azblob.Client
 }
 
-func New(opts *Config, l log.LogEvent) (*Blob, error) {
+func New(opts *Config, node string, l log.LogEvent) (*Blob, error) {
 	if l == nil {
 		l = log.DiscardEvent
 	}
 	b := &Blob{
 		opts: opts,
+		node: node,
 		log:  l,
 	}
 
@@ -295,10 +318,7 @@ func (b *Blob) client() (*azblob.Client, error) {
 	opts.Retry = policy.RetryOptions{
 		MaxRetries: defaultRetries,
 	}
-	epURL := b.opts.EndpointURL
-	if epURL == "" {
-		epURL = fmt.Sprintf(BlobURL, b.opts.Account)
-	}
+	epURL := b.opts.resolveEndpointURL(b.node)
 	return azblob.NewClientWithSharedKeyCredential(epURL, cred, opts)
 }
 

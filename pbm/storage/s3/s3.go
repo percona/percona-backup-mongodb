@@ -6,8 +6,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"reflect"
@@ -19,16 +19,13 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/defaults"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/minio/minio-go"
-	"github.com/minio/minio-go/pkg/encrypt"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -44,17 +41,18 @@ const (
 
 //nolint:lll
 type Config struct {
-	Provider             S3Provider  `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
-	Region               string      `bson:"region" json:"region" yaml:"region"`
-	EndpointURL          string      `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
-	ForcePathStyle       *bool       `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
-	Bucket               string      `bson:"bucket" json:"bucket" yaml:"bucket"`
-	Prefix               string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials          Credentials `bson:"credentials" json:"-" yaml:"credentials"`
-	ServerSideEncryption *AWSsse     `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
-	UploadPartSize       int         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
-	MaxUploadParts       int         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
-	StorageClass         string      `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
+	Provider             string            `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
+	Region               string            `bson:"region" json:"region" yaml:"region"`
+	EndpointURL          string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
+	EndpointURLMap       map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
+	ForcePathStyle       *bool             `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
+	Bucket               string            `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Prefix               string            `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
+	Credentials          Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	ServerSideEncryption *AWSsse           `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+	UploadPartSize       int               `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	MaxUploadParts       int               `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	StorageClass         string            `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
@@ -136,6 +134,7 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
 	if cfg.ForcePathStyle != nil {
 		a := *cfg.ForcePathStyle
 		rv.ForcePathStyle = &a
@@ -157,13 +156,13 @@ func (cfg *Config) Equal(other *Config) bool {
 		return cfg == other
 	}
 
-	if cfg.Provider != other.Provider {
-		return false
-	}
 	if cfg.Region != other.Region {
 		return false
 	}
 	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
 		return false
 	}
 	if cfg.Bucket != other.Bucket {
@@ -206,18 +205,6 @@ func (cfg *Config) Cast() error {
 	if cfg.ForcePathStyle == nil {
 		cfg.ForcePathStyle = aws.Bool(true)
 	}
-	if cfg.Provider == S3ProviderUndef {
-		cfg.Provider = S3ProviderAWS
-		if cfg.EndpointURL != "" {
-			eu, err := url.Parse(cfg.EndpointURL)
-			if err != nil {
-				return errors.Wrap(err, "parse EndpointURL")
-			}
-			if eu.Host == GCSEndpointURL {
-				cfg.Provider = S3ProviderGCS
-			}
-		}
-	}
 	if cfg.MaxUploadParts <= 0 {
 		cfg.MaxUploadParts = s3manager.MaxUploadParts
 	}
@@ -235,6 +222,17 @@ func (cfg *Config) Cast() error {
 	}
 
 	return nil
+}
+
+// resolveEndpointURL returns endpoint url based on provided
+// EndpointURL or associated EndpointURLMap configuration fields.
+// If specified EndpointURLMap overrides EndpointURL field.
+func (cfg *Config) resolveEndpointURL(node string) string {
+	ep := cfg.EndpointURL
+	if epm, ok := cfg.EndpointURLMap[node]; ok {
+		ep = epm
+	}
+	return ep
 }
 
 // SDKLogLevel returns AWS SDK log level value from comma-separated
@@ -283,23 +281,16 @@ type Credentials struct {
 	} `bson:"vault" json:"vault" yaml:"vault,omitempty"`
 }
 
-type S3Provider string
-
-const (
-	S3ProviderUndef S3Provider = ""
-	S3ProviderAWS   S3Provider = "aws"
-	S3ProviderGCS   S3Provider = "gcs"
-)
-
 type S3 struct {
 	opts *Config
+	node string
 	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts *Config, l log.LogEvent) (*S3, error) {
+func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
@@ -311,6 +302,7 @@ func New(opts *Config, l log.LogEvent) (*S3, error) {
 	s := &S3{
 		opts: opts,
 		log:  l,
+		node: node,
 	}
 
 	s.s3s, err = s.s3session()
@@ -335,125 +327,88 @@ func (*S3) Type() storage.Type {
 }
 
 func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
-	switch s.opts.Provider {
-	default:
-		awsSession, err := s.session()
-		if err != nil {
-			return errors.Wrap(err, "create AWS session")
-		}
-		cc := runtime.NumCPU() / 2
-		if cc == 0 {
-			cc = 1
-		}
-
-		uplInput := &s3manager.UploadInput{
-			Bucket:       aws.String(s.opts.Bucket),
-			Key:          aws.String(path.Join(s.opts.Prefix, name)),
-			Body:         data,
-			StorageClass: &s.opts.StorageClass,
-		}
-
-		sse := s.opts.ServerSideEncryption
-		if sse != nil {
-			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-				uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-				uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
-			} else if sse.SseCustomerAlgorithm != "" {
-				uplInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-				uplInput.SSECustomerKey = aws.String(string(decodedKey))
-				if err != nil {
-					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
-				}
-				keyMD5 := md5.Sum(decodedKey)
-				uplInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
-			}
-		}
-
-		// MaxUploadParts is 1e4 so with PartSize 10Mb the max allowed file size
-		// would be ~ 97.6Gb. Hence if the file size is bigger we're enlarging PartSize
-		// so PartSize * MaxUploadParts could fit the file.
-		// If calculated PartSize is smaller than the default we leave the default.
-		// If UploadPartSize option was set we use it instead of the default. Even
-		// with the UploadPartSize set the calculated PartSize woulbe used if it's bigger.
-		partSize := defaultPartSize
-		if s.opts.UploadPartSize > 0 {
-			if s.opts.UploadPartSize < int(s3manager.MinUploadPartSize) {
-				s.opts.UploadPartSize = int(s3manager.MinUploadPartSize)
-			}
-
-			partSize = int64(s.opts.UploadPartSize)
-		}
-		if sizeb > 0 {
-			ps := sizeb / s3manager.MaxUploadParts * 11 / 10 // add 10% just in case
-			if ps > partSize {
-				partSize = ps
-			}
-		}
-
-		if s.log != nil {
-			s.log.Info("s3.uploadPartSize is set to %d (~%dMb)", partSize, partSize>>20)
-			s.log.Info("s3.maxUploadParts is set to %d", s.opts.MaxUploadParts)
-		}
-
-		_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
-			u.MaxUploadParts = s.opts.MaxUploadParts
-			u.PartSize = partSize      // 10MB part size
-			u.LeavePartsOnError = true // Don't delete the parts if the upload fails.
-			u.Concurrency = cc
-
-			u.RequestOptions = append(u.RequestOptions, func(r *request.Request) {
-				if s.opts.Retryer != nil {
-					r.Retryer = client.DefaultRetryer{
-						NumMaxRetries: s.opts.Retryer.NumMaxRetries,
-						MinRetryDelay: s.opts.Retryer.MinRetryDelay,
-						MaxRetryDelay: s.opts.Retryer.MaxRetryDelay,
-					}
-				}
-			})
-		}).Upload(uplInput)
-		return errors.Wrap(err, "upload to S3")
-	case S3ProviderGCS:
-		// using minio client with GCS because it
-		// allows to disable chuncks muiltipertition for upload
-		mc, err := minio.NewWithRegion(GCSEndpointURL,
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			true,
-			s.opts.Region)
-		if err != nil {
-			return errors.Wrap(err, "NewWithRegion")
-		}
-		putOpts := minio.PutObjectOptions{
-			StorageClass: s.opts.StorageClass,
-		}
-
-		// Enable server-side encryption if configured
-		sse := s.opts.ServerSideEncryption
-		if sse != nil {
-			if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-				sseKms, err := encrypt.NewSSEKMS(sse.KmsKeyID, nil)
-				if err != nil {
-					return errors.Wrap(err, "Could not create SSE KMS")
-				}
-				putOpts.ServerSideEncryption = sseKms
-			} else if sse.SseCustomerAlgorithm != "" {
-				decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-				if err != nil {
-					return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
-				}
-
-				sseCus, err := encrypt.NewSSEC(decodedKey)
-				if err != nil {
-					return errors.Wrap(err, "Could not create SSE-C SSE key")
-				}
-				putOpts.ServerSideEncryption = sseCus
-			}
-		}
-
-		_, err = mc.PutObject(s.opts.Bucket, path.Join(s.opts.Prefix, name), data, -1, putOpts)
-		return errors.Wrap(err, "upload to GCS")
+	awsSession, err := s.session()
+	if err != nil {
+		return errors.Wrap(err, "create AWS session")
 	}
+	cc := runtime.NumCPU() / 2
+	if cc == 0 {
+		cc = 1
+	}
+
+	uplInput := &s3manager.UploadInput{
+		Bucket:       aws.String(s.opts.Bucket),
+		Key:          aws.String(path.Join(s.opts.Prefix, name)),
+		Body:         data,
+		StorageClass: &s.opts.StorageClass,
+	}
+
+	sse := s.opts.ServerSideEncryption
+	if sse != nil {
+		if sse.SseAlgorithm == s3.ServerSideEncryptionAes256 {
+			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+		} else if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
+			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+			uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		} else if sse.SseCustomerAlgorithm != "" {
+			uplInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			uplInput.SSECustomerKey = aws.String(string(decodedKey))
+			if err != nil {
+				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
+			}
+			keyMD5 := md5.Sum(decodedKey)
+			uplInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+		}
+	}
+
+	// MaxUploadParts is 1e4 so with PartSize 10Mb the max allowed file size
+	// would be ~ 97.6Gb. Hence if the file size is bigger we're enlarging PartSize
+	// so PartSize * MaxUploadParts could fit the file.
+	// If calculated PartSize is smaller than the default we leave the default.
+	// If UploadPartSize option was set we use it instead of the default. Even
+	// with the UploadPartSize set the calculated PartSize woulbe used if it's bigger.
+	partSize := defaultPartSize
+	if s.opts.UploadPartSize > 0 {
+		if s.opts.UploadPartSize < int(s3manager.MinUploadPartSize) {
+			s.opts.UploadPartSize = int(s3manager.MinUploadPartSize)
+		}
+
+		partSize = int64(s.opts.UploadPartSize)
+	}
+	if sizeb > 0 {
+		ps := sizeb / s3manager.MaxUploadParts * 11 / 10 // add 10% just in case
+		if ps > partSize {
+			partSize = ps
+		}
+	}
+
+	if s.log != nil {
+		s.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
+			name,
+			sizeb,
+			storage.PrettySize(sizeb),
+			partSize,
+			storage.PrettySize(partSize))
+	}
+
+	_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
+		u.MaxUploadParts = s.opts.MaxUploadParts
+		u.PartSize = partSize      // 10MB part size
+		u.LeavePartsOnError = true // Don't delete the parts if the upload fails.
+		u.Concurrency = cc
+
+		u.RequestOptions = append(u.RequestOptions, func(r *request.Request) {
+			if s.opts.Retryer != nil {
+				r.Retryer = client.DefaultRetryer{
+					NumMaxRetries: s.opts.Retryer.NumMaxRetries,
+					MinRetryDelay: s.opts.Retryer.MinRetryDelay,
+					MaxRetryDelay: s.opts.Retryer.MaxRetryDelay,
+				}
+			}
+		})
+	}).Upload(uplInput)
+	return errors.Wrap(err, "upload to S3")
 }
 
 func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
@@ -463,7 +418,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		prfx += "/"
 	}
 
-	lparams := &s3.ListObjectsInput{
+	lparams := &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.opts.Bucket),
 	}
 
@@ -472,8 +427,8 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	}
 
 	var files []storage.FileInfo
-	err := s.s3s.ListObjectsPages(lparams,
-		func(page *s3.ListObjectsOutput, lastPage bool) bool {
+	err := s.s3s.ListObjectsV2Pages(lparams,
+		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
 			for _, o := range page.Contents {
 				f := aws.StringValue(o.Key)
 				f = strings.TrimPrefix(f, aws.StringValue(lparams.Prefix))
@@ -637,10 +592,6 @@ func (s *S3) session() (*session.Session, error) {
 		))
 	}
 
-	providers = append(providers, &ec2rolecreds.EC2RoleProvider{
-		Client: ec2metadata.New(awsSession),
-	})
-
 	httpClient := &http.Client{}
 	if s.opts.InsecureSkipTLSVerify {
 		httpClient = &http.Client{
@@ -650,15 +601,21 @@ func (s *S3) session() (*session.Session, error) {
 		}
 	}
 
-	return session.NewSession(&aws.Config{
+	cfg := &aws.Config{
 		Region:           aws.String(s.opts.Region),
-		Endpoint:         aws.String(s.opts.EndpointURL),
-		Credentials:      credentials.NewChainCredentials(providers),
+		Endpoint:         aws.String(s.opts.resolveEndpointURL(s.node)),
 		S3ForcePathStyle: s.opts.ForcePathStyle,
 		HTTPClient:       httpClient,
 		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
 		Logger:           awsLogger(s.log),
-	})
+	}
+
+	// fetch credentials from remote endpoints like EC2 or ECS roles
+	providers = append(providers, defaults.RemoteCredProvider(*cfg, defaults.Handlers()))
+
+	cfg.Credentials = credentials.NewChainCredentials(providers)
+
+	return session.NewSession(cfg)
 }
 
 func awsLogger(l log.LogEvent) aws.Logger {

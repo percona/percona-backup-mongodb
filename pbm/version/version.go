@@ -16,7 +16,7 @@ import (
 )
 
 // current PBM version
-const version = "2.5.0"
+const version = "2.7.0"
 
 var (
 	platform  string
@@ -193,6 +193,10 @@ func (v MongoVersion) IsShardedTimeseriesSupported() bool {
 	return v.Version[0] >= 6 // sharded timeseries introduced in 5.1
 }
 
+func (v MongoVersion) IsConfigShardSupported() bool {
+	return v.Version[0] >= 8
+}
+
 func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error) {
 	res := m.Database("admin").RunCommand(ctx, bson.D{{"buildInfo", 1}})
 	if err := res.Err(); err != nil {
@@ -212,11 +216,11 @@ type FeatureSupport MongoVersion
 func (f FeatureSupport) PBMSupport() error {
 	v := MongoVersion(f)
 
-	if (v.Version[0] >= 5 && v.Version[0] <= 7) && v.Version[1] == 0 {
+	if (v.Version[0] >= 5 && v.Version[0] <= 8) && v.Version[1] == 0 {
 		return nil
 	}
 
-	return errors.New("Unsupported MongoDB version. PBM works with v5.0, v6.0, v7.0")
+	return errors.New("Unsupported MongoDB version. PBM works with v5.0, v6.0, v7.0, v8.0")
 }
 
 func (f FeatureSupport) FullPhysicalBackup() bool {

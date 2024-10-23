@@ -136,6 +136,8 @@ const (
 
 const StaleFrameSec uint32 = 30
 
+const MaxReplicationLagTimeSec = 21
+
 const (
 	// MetadataFileSuffix is a suffix for the metadata file on a storage
 	MetadataFileSuffix = ".pbm.json"

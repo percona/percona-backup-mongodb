@@ -1,19 +1,18 @@
 package sharded
 
 import (
+	"bytes"
 	"context"
-	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go"
-	"gopkg.in/yaml.v2"
-
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 func (c *Cluster) BackupCancellation(storage string) {
@@ -29,7 +28,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 	time.Sleep(20 * time.Second)
 
-	// checkNoBackupFiles(bcpName, storage)
+	checkNoBackupFiles(bcpName, storage)
 
 	log.Println("check backup state")
 	m, err := c.mongopbm.GetBackupMeta(context.TODO(), bcpName)
@@ -50,42 +49,39 @@ func (c *Cluster) BackupCancellation(storage string) {
 
 func checkNoBackupFiles(backupName, conf string) {
 	log.Println("check no artifacts left for backup", backupName)
-	buf, err := os.ReadFile(conf)
+
+	files, err := listAllFiles(conf)
 	if err != nil {
-		log.Fatalln("Error: unable to read config file:", err)
+		log.Fatalln("ERROR: list files:", err)
 	}
 
-	var cfg config.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		log.Fatalln("Error: unmarshal yaml:", err)
-	}
-
-	stg := cfg.Storage
-
-	endopintURL := awsurl
-	if stg.S3.EndpointURL != "" {
-		eu, err := url.Parse(stg.S3.EndpointURL)
-		if err != nil {
-			log.Fatalln("Error: parse EndpointURL:", err)
-		}
-		endopintURL = eu.Host
-	}
-
-	mc, err := minio.NewWithRegion(endopintURL,
-		stg.S3.Credentials.AccessKeyID, stg.S3.Credentials.SecretAccessKey, false, stg.S3.Region)
-	if err != nil {
-		log.Fatalln("Error: NewWithRegion:", err)
-	}
-
-	for object := range mc.ListObjects(stg.S3.Bucket, stg.S3.Prefix, true, nil) {
-		if object.Err != nil {
-			fmt.Println("Error: ListObjects: ", object.Err)
-			continue
-		}
-
-		if strings.Contains(object.Key, backupName) {
-			log.Fatalln("Error: failed to delete lefover", object.Key)
+	for _, file := range files {
+		if strings.Contains(file.Name, backupName) {
+			log.Fatalln("ERROR: failed to delete lefover", file.Name)
 		}
 	}
+}
+
+func listAllFiles(confFilepath string) ([]storage.FileInfo, error) {
+	buf, err := os.ReadFile(confFilepath)
+	if err != nil {
+		return nil, errors.Wrap(err, "read config file")
+	}
+
+	cfg, err := config.Parse(bytes.NewBuffer(buf))
+	if err != nil {
+		return nil, errors.Wrap(err, "parse config")
+	}
+
+	stg, err := util.StorageFromConfig(&cfg.Storage, "", nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "storage from config")
+	}
+
+	files, err := stg.List("", "")
+	if err != nil {
+		return nil, errors.Wrap(err, "list files")
+	}
+
+	return files, nil
 }

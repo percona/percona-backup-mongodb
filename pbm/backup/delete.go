@@ -55,31 +55,36 @@ type CleanupInfo struct {
 
 // DeleteBackup deletes backup with the given name from the current storage
 // and pbm database
-func DeleteBackup(ctx context.Context, conn connect.Client, name string) error {
+func DeleteBackup(ctx context.Context, conn connect.Client, name, node string) error {
 	bcp, err := NewDBManager(conn).GetBackupByName(ctx, name)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
 	}
 
 	if bcp.Type == defs.IncrementalBackup {
-		return deleteIncremetalChainImpl(ctx, conn, bcp)
+		return deleteIncremetalChainImpl(ctx, conn, bcp, node)
 	}
 
-	return deleteBackupImpl(ctx, conn, bcp)
+	return deleteBackupImpl(ctx, conn, bcp, node)
 }
 
-func deleteBackupImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta) error {
+func deleteBackupImpl(
+	ctx context.Context,
+	conn connect.Client,
+	bcp *BackupMeta,
+	node string,
+) error {
 	err := CanDeleteBackup(ctx, conn, bcp)
 	if err != nil {
 		return err
 	}
 
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
 
-	err = DeleteBackupFiles(bcp, stg)
+	err = DeleteBackupFiles(stg, bcp.Name)
 	if err != nil {
 		return errors.Wrap(err, "delete files from storage")
 	}
@@ -92,7 +97,7 @@ func deleteBackupImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta)
 	return nil
 }
 
-func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta) error {
+func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta, node string) error {
 	increments, err := FetchAllIncrements(ctx, conn, bcp)
 	if err != nil {
 		return err
@@ -108,7 +113,7 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 		all = append(all, bcps...)
 	}
 
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -116,7 +121,7 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 	for i := len(all) - 1; i >= 0; i-- {
 		bcp := all[i]
 
-		err = DeleteBackupFiles(bcp, stg)
+		err = DeleteBackupFiles(stg, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "delete files from storage")
 		}
@@ -316,6 +321,7 @@ func DeleteBackupBefore(
 	conn connect.Client,
 	t time.Time,
 	bcpType defs.BackupType,
+	node string,
 ) error {
 	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType)
 	if err != nil {
@@ -325,7 +331,7 @@ func DeleteBackupBefore(
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
+	stg, err := util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -333,7 +339,7 @@ func DeleteBackupBefore(
 	for i := range backups {
 		bcp := &backups[i]
 
-		err := DeleteBackupFiles(bcp, stg)
+		err := DeleteBackupFiles(stg, bcp.Name)
 		if err != nil {
 			return errors.Wrapf(err, "delete files from storage for %q", bcp.Name)
 		}
@@ -497,6 +503,11 @@ func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Ti
 	f := bson.D{
 		{"store.profile", nil},
 		{"last_write_ts", bson.M{"$lt": ts}},
+		{"status", bson.M{"$in": bson.A{
+			defs.StatusDone,
+			defs.StatusCancelled,
+			defs.StatusError,
+		}}},
 	}
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := conn.BcpCollection().Find(ctx, f, o)

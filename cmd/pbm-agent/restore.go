@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -90,7 +91,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		l.Info("backup: %s", r.BackupName)
 
 		// XXX: why is backup searched on storage?
-		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName)
+		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName, a.brief.Me)
 		if err != nil {
 			l.Error("define base backup: %v", err)
 			return
@@ -105,6 +106,12 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		r.BackupName = bcp.Name
 	}
 
+	cfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		l.Error("get PBM configuration: %v", err)
+		return
+	}
+
 	l.Info("recovery started")
 
 	switch bcpType {
@@ -113,10 +120,19 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			l.Info("This node is not the primary. Check pbm agent on the primary for restore progress")
 			return
 		}
+
+		numParallelColls := runtime.NumCPU() / 2
+		if r.NumParallelColls != nil && *r.NumParallelColls > 0 {
+			numParallelColls = int(*r.NumParallelColls)
+		} else if cfg.Restore != nil && cfg.Restore.NumParallelCollections > 0 {
+			numParallelColls = cfg.Restore.NumParallelCollections
+		}
+
+		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls)
 		if r.OplogTS.IsZero() {
-			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).Snapshot(ctx, r, opid, bcp)
+			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {
-			err = restore.New(a.leadConn, a.nodeConn, a.brief, r.RSMap).PITR(ctx, r, opid, bcp)
+			err = rr.PITR(ctx, r, opid, bcp)
 		}
 	case defs.PhysicalBackup, defs.IncrementalBackup, defs.ExternalBackup:
 		if lck != nil {

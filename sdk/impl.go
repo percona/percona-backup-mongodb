@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"path"
 	"runtime"
 	"time"
 
@@ -37,6 +36,7 @@ var (
 
 type Client struct {
 	conn connect.Client
+	node string
 }
 
 func (c *Client) Close(ctx context.Context) error {
@@ -166,7 +166,7 @@ func (c *Client) getBackupHelper(
 	}
 
 	if options.FetchFilelist {
-		err := fillFilelistForBackup(ctx, bcp)
+		err := c.fillFilelistForBackup(ctx, bcp)
 		if err != nil {
 			return nil, errors.Wrap(err, "fetch filelist")
 		}
@@ -175,7 +175,7 @@ func (c *Client) getBackupHelper(
 	return bcp, nil
 }
 
-func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
+func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	var err error
 	var stg storage.Storage
 
@@ -183,7 +183,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
@@ -192,7 +192,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 			rs := &bcp.Replsets[i]
 
 			eg.Go(func() error {
-				filelist, err := getFilelistForReplset(stg, bcp.Name, rs.Name)
+				filelist, err := backup.ReadFilelistForReplset(stg, bcp.Name, rs.Name)
 				if err != nil {
 					return errors.Wrapf(err, "get filelist for %q [rs: %s] backup", bcp.Name, rs.Name)
 				}
@@ -216,7 +216,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 
 			if stg == nil {
 				// in case if it is the first backup made with filelist file
-				stg, err = getStorageForRead(ctx, bcp)
+				stg, err = c.getStorageForRead(ctx, bcp)
 				if err != nil {
 					return errors.Wrap(err, "get storage")
 				}
@@ -226,7 +226,7 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 				rs := &bcp.Replsets[i]
 
 				eg.Go(func() error {
-					filelist, err := getFilelistForReplset(stg, bcp.Name, rs.Name)
+					filelist, err := backup.ReadFilelistForReplset(stg, bcp.Name, rs.Name)
 					if err != nil {
 						return errors.Wrapf(err, "fetch files for %q [rs: %s] backup", bcp.Name, rs.Name)
 					}
@@ -241,8 +241,8 @@ func fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	return eg.Wait()
 }
 
-func getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+func (c *Client) getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -252,22 +252,6 @@ func getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Sto
 	}
 
 	return stg, nil
-}
-
-func getFilelistForReplset(stg storage.Storage, bcpName, rsName string) (backup.Filelist, error) {
-	pfFilepath := path.Join(bcpName, rsName, backup.FilelistName)
-	rdr, err := stg.SourceReader(pfFilepath)
-	if err != nil {
-		return nil, errors.Wrapf(err, "open %q", pfFilepath)
-	}
-	defer rdr.Close()
-
-	filelist, err := backup.ReadFilelist(rdr)
-	if err != nil {
-		return nil, errors.Wrapf(err, "parse filelist %q", pfFilepath)
-	}
-
-	return filelist, nil
 }
 
 func (c *Client) GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error) {

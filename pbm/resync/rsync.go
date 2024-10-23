@@ -2,7 +2,6 @@ package resync
 
 import (
 	"context"
-	"encoding/json"
 	"runtime"
 	"strings"
 	"sync"
@@ -27,10 +26,10 @@ import (
 //
 // It checks for read and write permissions, drops all meta from the database
 // and populate it again by reading meta from the storage.
-func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) error {
+func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf, node string) error {
 	l := log.LogEventFromContext(ctx)
 
-	stg, err := util.StorageFromConfig(cfg, l)
+	stg, err := util.StorageFromConfig(cfg, node, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
@@ -41,19 +40,19 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) e
 			return errors.Wrap(err, "check read access")
 		}
 
-		err = storage.Initialize(ctx, stg)
+		err = util.Initialize(ctx, stg)
 		if err != nil {
 			return errors.Wrap(err, "init storage")
 		}
 	} else {
 		// check write permission and update PBM version
-		err = storage.Reinitialize(ctx, stg)
+		err = util.Reinitialize(ctx, stg)
 		if err != nil {
 			return errors.Wrap(err, "reinit storage")
 		}
 	}
 
-	err = SyncBackupList(ctx, conn, cfg, "")
+	err = SyncBackupList(ctx, conn, cfg, "", node)
 	if err != nil {
 		l.Error("failed sync backup metadata: %v", err)
 	}
@@ -98,10 +97,11 @@ func SyncBackupList(
 	conn connect.Client,
 	cfg *config.StorageConf,
 	profile string,
+	node string,
 ) error {
 	l := log.LogEventFromContext(ctx)
 
-	stg, err := util.StorageFromConfig(cfg, l)
+	stg, err := util.StorageFromConfig(cfg, node, l)
 	if err != nil {
 		return errors.Wrap(err, "storage from config")
 	}
@@ -293,21 +293,13 @@ func getAllBackupMetaFromStorage(
 
 	backupMeta := make([]*backup.BackupMeta, 0, len(backupFiles))
 	for _, b := range backupFiles {
-		d, err := stg.SourceReader(b.Name)
+		meta, err := backup.ReadMetadata(stg, b.Name)
 		if err != nil {
-			l.Error("read meta for %v", b.Name)
+			l.Error("read metadata of backup %s: %v", b.Name, err)
 			continue
 		}
 
-		var meta *backup.BackupMeta
-		err = json.NewDecoder(d).Decode(&meta)
-		d.Close()
-		if err != nil {
-			l.Error("unmarshal backup meta [%s]", b.Name)
-			continue
-		}
-
-		err = backup.CheckBackupFiles(ctx, meta, stg)
+		err = backup.CheckBackupDataFiles(ctx, stg, meta)
 		if err != nil {
 			l.Warning("skip snapshot %s: %v", meta.Name, err)
 			meta.Status = defs.StatusError

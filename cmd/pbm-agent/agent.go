@@ -34,7 +34,7 @@ type Agent struct {
 
 	brief topo.NodeBrief
 
-	dumpConns int
+	numParallelColls int
 
 	closeCMD chan struct{}
 	pauseHB  int32
@@ -44,7 +44,12 @@ type Agent struct {
 	monStopSig chan struct{}
 }
 
-func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConns int) (*Agent, error) {
+func newAgent(
+	ctx context.Context,
+	leadConn connect.Client,
+	uri string,
+	numParallelColls int,
+) (*Agent, error) {
 	nodeConn, err := connect.MongoConnect(ctx, uri, connect.Direct(true))
 	if err != nil {
 		return nil, err
@@ -72,7 +77,7 @@ func newAgent(ctx context.Context, leadConn connect.Client, uri string, dumpConn
 			ConfigSvr: info.IsConfigSrv(),
 			Version:   mongoVersion,
 		},
-		dumpConns: dumpConns,
+		numParallelColls: numParallelColls,
 	}
 	return a, nil
 }
@@ -104,16 +109,16 @@ func (a *Agent) CanStart(ctx context.Context) error {
 		return ErrDelayedNode
 	}
 
-	ver, err := version.GetMongoVersion(ctx, a.leadConn.MongoClient())
-	if err != nil {
-		return errors.Wrap(err, "get mongo version")
-	}
-	if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
+	return nil
+}
+
+func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
+	if err := version.FeatureSupport(a.brief.Version).PBMSupport(); err != nil {
 		log.FromContext(ctx).
 			Warning("", "", "", primitive.Timestamp{}, "WARNING: %v", err)
 	}
 
-	if ver.IsShardedTimeseriesSupported() {
+	if a.brief.Sharded && a.brief.Version.IsShardedTimeseriesSupported() {
 		tss, err := topo.ListShardedTimeseries(ctx, a.leadConn)
 		if err != nil {
 			log.FromContext(ctx).
@@ -127,7 +132,18 @@ func (a *Agent) CanStart(ctx context.Context) error {
 		}
 	}
 
-	return nil
+	if a.brief.Sharded && a.brief.Version.IsConfigShardSupported() {
+		hasConfigShard, err := topo.HasConfigShard(ctx, a.leadConn)
+		if err != nil {
+			log.FromContext(ctx).
+				Error("", "", "", primitive.Timestamp{},
+					"failed to check for Config Shard: %v", err)
+		} else if hasConfigShard {
+			log.FromContext(ctx).
+				Warning("", "", "", primitive.Timestamp{},
+					"WARNING: selective backup and restore is not supported with Config Shard")
+		}
+	}
 }
 
 // Start starts listening the commands stream.
@@ -151,7 +167,7 @@ func (a *Agent) Start(ctx context.Context) error {
 				return nil
 			}
 
-			logger.Printf("got command %s", cmd)
+			logger.Printf("got command %s, opid: %s", cmd, cmd.OPID)
 
 			ep, err := config.GetEpoch(ctx, a.leadConn)
 			if err != nil {
@@ -266,8 +282,17 @@ func (a *Agent) HbStatus(ctx context.Context) {
 		MongoVer:   nodeVersion.VersionString,
 		PerconaVer: nodeVersion.PSMDBVersion,
 	}
+
+	updateAgentStat(ctx, a, l, true, &hb)
+	err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
+	if err != nil {
+		l.Error("set status: %v", err)
+	}
+
 	defer func() {
-		if err := topo.RemoveAgentStatus(ctx, a.leadConn, hb); err != nil {
+		l.Debug("deleting agent status")
+		err := topo.RemoveAgentStatus(context.Background(), a.leadConn, hb)
+		if err != nil {
 			logger := logger.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
 			logger.Error("remove agent heartbeat: %v", err)
 		}
@@ -276,67 +301,128 @@ func (a *Agent) HbStatus(ctx context.Context) {
 	tk := time.NewTicker(defs.AgentsStatCheckRange)
 	defer tk.Stop()
 
+	storageCheckTime := time.Now()
+	parallelAgentCheckTime := time.Now()
+
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
-	const checkStoreIn = int(60 / (defs.AgentsStatCheckRange / time.Second))
-	cc := 0
-	for range tk.C {
-		// don't check if on pause (e.g. physical restore)
-		if !a.HbIsRun() {
-			continue
-		}
+	const storageCheckInterval = 15 * time.Second
+	const parallelAgentCheckInternval = time.Minute
 
-		hb.PBMStatus = a.pbmStatus(ctx)
-		logHbStatus("PBM connection", hb.PBMStatus, l)
-
-		hb.NodeStatus = a.nodeStatus(ctx)
-		logHbStatus("node connection", hb.NodeStatus, l)
-
-		cc++
-		hb.StorageStatus = a.storStatus(ctx, l, cc == checkStoreIn)
-		logHbStatus("storage connection", hb.StorageStatus, l)
-		if cc == checkStoreIn {
-			cc = 0
-		}
-
-		hb.Err = ""
-		hb.Hidden = false
-		hb.Passive = false
-
-		inf, err := topo.GetNodeInfo(ctx, a.nodeConn)
-		if err != nil {
-			l.Error("get NodeInfo: %v", err)
-			hb.Err += fmt.Sprintf("get NodeInfo: %v", err)
-		} else {
-			hb.Hidden = inf.Hidden
-			hb.Passive = inf.Passive
-			hb.Arbiter = inf.ArbiterOnly
-			if inf.SecondaryDelayOld != 0 {
-				hb.DelaySecs = inf.SecondaryDelayOld
-			} else {
-				hb.DelaySecs = inf.SecondaryDelaySecs
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tk.C:
+			// don't check if on pause (e.g. physical restore)
+			if !a.HbIsRun() {
+				continue
 			}
-		}
 
-		if inf != nil && inf.ArbiterOnly {
-			hb.State = defs.NodeStateArbiter
-			hb.StateStr = "ARBITER"
-		} else {
-			n, err := topo.GetNodeStatus(ctx, a.nodeConn, a.brief.Me)
+			now := time.Now()
+			if now.Sub(parallelAgentCheckTime) >= parallelAgentCheckInternval {
+				a.warnIfParallelAgentDetected(ctx, l, hb.Heartbeat)
+				parallelAgentCheckTime = now
+			}
+
+			if now.Sub(storageCheckTime) >= storageCheckInterval {
+				updateAgentStat(ctx, a, l, true, &hb)
+				err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
+				if err == nil {
+					storageCheckTime = now
+				}
+			} else {
+				updateAgentStat(ctx, a, l, false, &hb)
+				err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
+			}
 			if err != nil {
-				l.Error("get replSetGetStatus: %v", err)
-				hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
-				hb.State = defs.NodeStateUnknown
-				hb.StateStr = "UNKNOWN"
-			} else {
-				hb.State = n.State
-				hb.StateStr = n.StateStr
+				l.Error("set status: %v", err)
 			}
 		}
+	}
+}
 
-		err = topo.SetAgentStatus(ctx, a.leadConn, hb)
-		if err != nil {
-			l.Error("set status: %v", err)
+func updateAgentStat(
+	ctx context.Context,
+	agent *Agent,
+	l log.LogEvent,
+	checkStore bool,
+	hb *topo.AgentStat,
+) {
+	hb.PBMStatus = agent.pbmStatus(ctx)
+	logHbStatus("PBM connection", hb.PBMStatus, l)
+
+	hb.NodeStatus = agent.nodeStatus(ctx)
+	logHbStatus("node connection", hb.NodeStatus, l)
+
+	hb.StorageStatus = agent.storStatus(ctx, l, checkStore, hb)
+	logHbStatus("storage connection", hb.StorageStatus, l)
+
+	hb.Err = ""
+	hb.Hidden = false
+	hb.Passive = false
+
+	inf, err := topo.GetNodeInfo(ctx, agent.nodeConn)
+	if err != nil {
+		l.Error("get NodeInfo: %v", err)
+		hb.Err += fmt.Sprintf("get NodeInfo: %v", err)
+	} else {
+		hb.Hidden = inf.Hidden
+		hb.Passive = inf.Passive
+		hb.Arbiter = inf.ArbiterOnly
+		if inf.SecondaryDelayOld != 0 {
+			hb.DelaySecs = inf.SecondaryDelayOld
+		} else {
+			hb.DelaySecs = inf.SecondaryDelaySecs
 		}
+
+		hb.Heartbeat, err = topo.ClusterTimeFromNodeInfo(inf)
+		if err != nil {
+			hb.Err += fmt.Sprintf("get cluster time: %v", err)
+		}
+	}
+
+	if inf != nil && inf.ArbiterOnly {
+		hb.State = defs.NodeStateArbiter
+		hb.StateStr = "ARBITER"
+	} else {
+		n, err := topo.GetNodeStatus(ctx, agent.nodeConn, agent.brief.Me)
+		if err != nil {
+			l.Error("get replSetGetStatus: %v", err)
+			hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
+			hb.State = defs.NodeStateUnknown
+			hb.StateStr = "UNKNOWN"
+		} else {
+			hb.State = n.State
+			hb.StateStr = n.StateStr
+
+			rLag, err := topo.ReplicationLag(ctx, agent.nodeConn, agent.brief.Me)
+			if err != nil {
+				l.Error("get replication lag: %v", err)
+				hb.Err += fmt.Sprintf("get replication lag: %v", err)
+			}
+			hb.ReplicationLag = rLag
+		}
+	}
+}
+
+func (a *Agent) warnIfParallelAgentDetected(
+	ctx context.Context,
+	l log.LogEvent,
+	lastHeartbeat primitive.Timestamp,
+) {
+	s, err := topo.GetAgentStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return
+		}
+		l.Error("detecting parallel agent: get status: %v", err)
+		return
+	}
+	if !s.Heartbeat.Equal(lastHeartbeat) {
+		l.Warning("detected possible parallel agent for the node: "+
+			"expected last heartbeat to be %d.%d, actual is %d.%d",
+			lastHeartbeat.T, lastHeartbeat.I, s.Heartbeat.T, s.Heartbeat.I)
+		return
 	}
 }
 
@@ -358,18 +444,19 @@ func (a *Agent) nodeStatus(ctx context.Context) topo.SubsysStatus {
 	return topo.SubsysStatus{OK: true}
 }
 
-func (a *Agent) storStatus(ctx context.Context, log log.LogEvent, forceCheckStorage bool) topo.SubsysStatus {
+func (a *Agent) storStatus(
+	ctx context.Context,
+	log log.LogEvent,
+	forceCheckStorage bool,
+	stat *topo.AgentStat,
+) topo.SubsysStatus {
 	// check storage once in a while if all is ok (see https://jira.percona.com/browse/PBM-647)
 	// but if storage was(is) failed, check it always
-	stat, err := topo.GetAgentStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
-	if err != nil {
-		log.Warning("get current storage status: %v", err)
-	}
 	if !forceCheckStorage && stat.StorageStatus.OK {
 		return topo.SubsysStatus{OK: true}
 	}
 
-	stg, err := util.GetStorage(ctx, a.leadConn, log)
+	stg, err := util.GetStorage(ctx, a.leadConn, a.brief.Me, log)
 	if err != nil {
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}

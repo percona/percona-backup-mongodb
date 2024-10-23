@@ -53,8 +53,6 @@ const (
 
 	tryConnCount   = 5
 	tryConnTimeout = 5 * time.Minute
-
-	maxShutdownTriesOnStandaloneRecovery = 10
 )
 
 type files struct {
@@ -285,14 +283,13 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 	}
 
 	if r.nodeInfo.IsPrimary {
-		err = r.stg.Save(r.syncPathRS+"."+string(defs.StatusDown),
-			okStatus(), -1)
+		err = util.RetryableWrite(r.stg, r.syncPathRS+"."+string(defs.StatusDown), okStatus())
 		if err != nil {
 			return errors.Wrap(err, "write replset StatusDown")
 		}
 	}
 
-	r.log.Debug("revome old data")
+	r.log.Debug("remove old data")
 	err = removeAll(r.dbpath, r.log)
 	if err != nil {
 		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
@@ -386,15 +383,15 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 	defer func() {
 		if err != nil {
 			if r.nodeInfo.IsPrimary && status != defs.StatusDone {
-				serr := r.stg.Save(r.syncPathRS+"."+string(defs.StatusError),
-					errStatus(err), -1)
+				serr := util.RetryableWrite(r.stg,
+					r.syncPathRS+"."+string(defs.StatusError), errStatus(err))
 				if serr != nil {
 					r.log.Error("toState: write replset error state `%v`: %v", err, serr)
 				}
 			}
 			if r.nodeInfo.IsClusterLeader() && status != defs.StatusDone {
-				serr := r.stg.Save(r.syncPathCluster+"."+string(defs.StatusError),
-					errStatus(err), -1)
+				serr := util.RetryableWrite(r.stg,
+					r.syncPathCluster+"."+string(defs.StatusError), errStatus(err))
 				if serr != nil {
 					r.log.Error("toState: write cluster error state `%v`: %v", err, serr)
 				}
@@ -404,8 +401,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 
 	r.log.Info("moving to state %s", status)
 
-	err = r.stg.Save(r.syncPathNode+"."+string(status),
-		okStatus(), -1)
+	err = util.RetryableWrite(r.stg, r.syncPathNode+"."+string(status), okStatus())
 	if err != nil {
 		return defs.StatusError, errors.Wrap(err, "write node state")
 	}
@@ -417,8 +413,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 			return defs.StatusError, errors.Wrap(err, "wait for nodes in rs")
 		}
 
-		err = r.stg.Save(r.syncPathRS+"."+string(cstat),
-			okStatus(), -1)
+		err = util.RetryableWrite(r.stg, r.syncPathRS+"."+string(cstat), okStatus())
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "write replset state")
 		}
@@ -431,10 +426,9 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 			return defs.StatusError, errors.Wrap(err, "wait for shards")
 		}
 
-		err = r.stg.Save(r.syncPathCluster+"."+string(cstat),
-			okStatus(), -1)
+		err = util.RetryableWrite(r.stg, r.syncPathCluster+"."+string(cstat), okStatus())
 		if err != nil {
-			return defs.StatusError, errors.Wrap(err, "write replset state")
+			return defs.StatusError, errors.Wrap(err, "write cluster state")
 		}
 	}
 
@@ -481,16 +475,12 @@ func (r *PhysRestore) getTSFromSyncFile(path string) (primitive.Timestamp, error
 	}, nil
 }
 
-func errStatus(err error) io.Reader {
-	return bytes.NewReader([]byte(
-		fmt.Sprintf("%d:%v", time.Now().Unix(), err),
-	))
+func errStatus(err error) []byte {
+	return []byte(fmt.Sprintf("%d:%v", time.Now().Unix(), err))
 }
 
-func okStatus() io.Reader {
-	return bytes.NewReader([]byte(
-		fmt.Sprintf("%d", time.Now().Unix()),
-	))
+func okStatus() []byte {
+	return []byte(fmt.Sprintf("%d", time.Now().Unix()))
 }
 
 type nodeError struct {
@@ -1026,7 +1016,7 @@ func (r *PhysRestore) writeStat(stat any) error {
 		return errors.Wrap(err, "marshal")
 	}
 
-	err = r.stg.Save(r.syncPathNodeStat, bytes.NewBuffer(b), -1)
+	err = util.RetryableWrite(r.stg, r.syncPathNodeStat, b)
 	if err != nil {
 		return errors.Wrap(err, "write")
 	}
@@ -1067,14 +1057,11 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 		meta.Error = fmt.Sprintf("%s/%s: %s", r.nodeInfo.SetName, r.nodeInfo.Me, msg)
 	}
 
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "\t")
-	err = enc.Encode(meta)
+	buf, err := json.MarshalIndent(meta, "", "\t")
 	if err != nil {
 		return errors.Wrap(err, "encode restore meta")
 	}
-	err = r.stg.Save(name, &buf, int64(buf.Len()))
+	err = util.RetryableWrite(r.stg, name, buf)
 	if err != nil {
 		return errors.Wrap(err, "write restore meta")
 	}
@@ -1102,10 +1089,7 @@ func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
-			src := filepath.Join(set.BcpName, setName, f.Name+set.Cmpr.Suffix())
-			if f.Len != 0 {
-				src += fmt.Sprintf(".%d-%d", f.Off, f.Len)
-			}
+			src := filepath.Join(set.BcpName, setName, f.Path(set.Cmpr))
 			// cut dbpath from destination if there is any (see PBM-1058)
 			fname := f.Name
 			if set.dbpath != "" {
@@ -1198,12 +1182,8 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 		return ts, errors.Errorf("get the timestamp of record %v", rb)
 	}
 
-	err = shutdown(c, r.dbpath)
-	if err != nil {
-		return ts, errors.Wrap(err, "shutdown mongo")
-	}
-
-	return ts, nil
+	err = r.shutdown(c)
+	return ts, err
 }
 
 func (r *PhysRestore) prepareData() error {
@@ -1252,20 +1232,22 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
 	}
 
-	err = shutdown(c, r.dbpath)
+	return r.shutdown(c)
+}
+
+func (r *PhysRestore) shutdown(c *mongo.Client) error {
+	err := shutdownImpl(c, r.dbpath, false)
 	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
+		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
+			r.log.Warning("try force shutdown. reason: %v", err)
+			err = shutdownImpl(c, r.dbpath, true)
+			return errors.Wrap(err, "force shutdown mongo")
+		}
+
+		return errors.Wrap(err, "shutdown mongo") // unexpected
 	}
 
 	return nil
-}
-
-func shutdown(c *mongo.Client, dbpath string) error {
-	return shutdownImpl(c, dbpath, false)
-}
-
-func forceShutdown(c *mongo.Client, dbpath string) error {
-	return shutdownImpl(c, dbpath, true)
 }
 
 func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
@@ -1273,12 +1255,12 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
 		bson.D{{"shutdown", 1}, {"force", force}})
 	err := res.Err()
 	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
-		return err
+		return errors.Wrapf(err, "run shutdown (force: %v)", force)
 	}
 
 	err = waitMgoShutdown(dbpath)
 	if err != nil {
-		return errors.Wrap(err, "shutdown")
+		return errors.Wrap(err, "wait")
 	}
 
 	return nil
@@ -1297,24 +1279,7 @@ func (r *PhysRestore) recoverStandalone() error {
 		return errors.Wrap(err, "connect to mongo")
 	}
 
-	for i := 0; i != maxShutdownTriesOnStandaloneRecovery; i++ {
-		err = shutdown(c, r.dbpath)
-		if err == nil {
-			return nil // OK
-		}
-
-		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
-			r.log.Warning("retry shutdown in 5 seconds. reason: %v", err)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		return errors.Wrap(err, "shutdown mongo") // unexpected
-	}
-
-	r.log.Debug("force shutdown")
-	err = forceShutdown(c, r.dbpath)
-	return errors.Wrap(err, "force shutdown mongo")
+	return r.shutdown(c)
 }
 
 func (r *PhysRestore) replayOplog(
@@ -1350,12 +1315,12 @@ func (r *PhysRestore) replayOplog(
 		},
 	)
 	if err != nil {
-		return errors.Wrapf(err, "upate rs.member host to %s", r.nodeInfo.Me)
+		return errors.Wrapf(err, "update rs.member host to %s", r.nodeInfo.Me)
 	}
 
-	err = shutdown(nodeConn, r.dbpath)
+	err = r.shutdown(nodeConn)
 	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
+		return errors.Wrap(err, "after update member host")
 	}
 
 	flags := []string{
@@ -1406,23 +1371,17 @@ func (r *PhysRestore) replayOplog(
 			tops = append(tops, t.Oplog...)
 		}
 
-		var b bytes.Buffer
-		err := json.NewEncoder(&b).Encode(tops)
+		buf, err := json.Marshal(tops)
 		if err != nil {
 			return errors.Wrap(err, "encode")
 		}
-		err = r.stg.Save(r.syncPathRS+".partTxn", &b, int64(b.Len()))
+		err = util.RetryableWrite(r.stg, r.syncPathRS+".partTxn", buf)
 		if err != nil {
 			return errors.Wrap(err, "write partial transactions")
 		}
 	}
 
-	err = shutdown(nodeConn, r.dbpath)
-	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
-	}
-
-	return nil
+	return r.shutdown(nodeConn)
 }
 
 func (r *PhysRestore) resetRS() error {
@@ -1562,18 +1521,13 @@ func (r *PhysRestore) resetRS() error {
 			return errors.Wrap(err, "turn off pitr")
 		}
 
-		r.dropPBMCollections(ctx, c)
+		r.cleanUpPBMCollections(ctx, c)
 	}
 
-	err = shutdown(c, r.dbpath)
-	if err != nil {
-		return errors.Wrap(err, "shutdown mongo")
-	}
-
-	return nil
+	return r.shutdown(c)
 }
 
-func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
+func (r *PhysRestore) cleanUpPBMCollections(ctx context.Context, c *mongo.Client) {
 	pbmCollections := []string{
 		defs.LockCollection,
 		defs.LogCollection,
@@ -1597,9 +1551,9 @@ func (r *PhysRestore) dropPBMCollections(ctx context.Context, c *mongo.Client) {
 			defer wg.Done()
 
 			r.log.Debug("dropping 'admin.%s'", coll)
-			err := c.Database(defs.DB).Collection(coll).Drop(ctx)
+			_, err := c.Database(defs.DB).Collection(coll).DeleteMany(ctx, bson.D{})
 			if err != nil {
-				r.log.Warning("failed to drop 'admin.%s': %v", coll, err)
+				r.log.Warning("failed to delete all from 'admin.%s': %v", coll, err)
 			}
 		}()
 	}
@@ -1648,12 +1602,11 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 		return ts, errors.Wrap(err, "define last op time")
 	}
 
-	bts := bytes.NewReader([]byte(
-		fmt.Sprintf("%d:%d,%d", time.Now().Unix(), cts.T, cts.I),
-	))
 	// saving straight for RS as backup for nodes in the RS the same,
 	// hence TS would be the same as well
-	err = r.stg.Save(r.syncPathRS+"."+string(defs.StatusExtTS), bts, -1)
+	err = util.RetryableWrite(r.stg,
+		r.syncPathRS+"."+string(defs.StatusExtTS),
+		[]byte(fmt.Sprintf("%d:%d,%d", time.Now().Unix(), cts.T, cts.I)))
 	if err != nil {
 		return ts, errors.Wrap(err, "write RS timestamp")
 	}
@@ -1674,10 +1627,10 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 				mints = ts
 			}
 		}
-		bts := bytes.NewReader([]byte(
-			fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I),
-		))
-		err = r.stg.Save(r.syncPathCluster+"."+string(defs.StatusExtTS), bts, -1)
+
+		err = util.RetryableWrite(r.stg,
+			r.syncPathCluster+"."+string(defs.StatusExtTS),
+			[]byte(fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I)))
 		if err != nil {
 			return ts, errors.Wrap(err, "write")
 		}
@@ -1700,14 +1653,11 @@ func (r *PhysRestore) setcommittedTxn(_ context.Context, txn []phys.RestoreTxn) 
 	if txn == nil {
 		txn = []phys.RestoreTxn{}
 	}
-	var b bytes.Buffer
-	err := json.NewEncoder(&b).Encode(txn)
+	b, err := json.Marshal(txn)
 	if err != nil {
 		return errors.Wrap(err, "encode")
 	}
-	return r.stg.Save(r.syncPathRS+".txn",
-		&b, int64(b.Len()),
-	)
+	return util.RetryableWrite(r.stg, r.syncPathRS+".txn", b)
 }
 
 func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]primitive.Timestamp, error) {
@@ -1847,7 +1797,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(&cfg.Storage, l)
+	r.stg, err = util.StorageFromConfig(&cfg.Storage, r.nodeInfo.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -1926,22 +1876,19 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 const syncHbSuffix = "hb"
 
 func (r *PhysRestore) hb() error {
-	ts := time.Now().Unix()
+	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
 
-	err := r.stg.Save(r.syncPathNode+"."+syncHbSuffix,
-		bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
+	err := util.RetryableWrite(r.stg, r.syncPathNode+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write node hb")
 	}
 
-	err = r.stg.Save(r.syncPathRS+"."+syncHbSuffix,
-		bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
+	err = util.RetryableWrite(r.stg, r.syncPathRS+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write rs hb")
 	}
 
-	err = r.stg.Save(r.syncPathCluster+"."+syncHbSuffix,
-		bytes.NewReader([]byte(strconv.FormatInt(ts, 10))), -1)
+	err = util.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write rs hb")
 	}
@@ -2209,7 +2156,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get backup metadata")
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -2338,8 +2285,8 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
 		meta.Replsets[0].Error = e.Error()
 	}
 
-	err := r.stg.Save(r.syncPathNode+"."+string(defs.StatusError),
-		errStatus(e), -1)
+	err := util.RetryableWrite(r.stg,
+		r.syncPathNode+"."+string(defs.StatusError), errStatus(e))
 	if err != nil {
 		r.log.Error("write error state `%v` to storage: %v", e, err)
 	}
@@ -2348,15 +2295,15 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
 	// (in `toState` method).
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
 	if r.nodeInfo.IsPrimary && markCluster {
-		serr := r.stg.Save(r.syncPathRS+"."+string(defs.StatusError),
-			errStatus(e), -1)
+		serr := util.RetryableWrite(r.stg,
+			r.syncPathRS+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
 			r.log.Error("MarkFailed: write replset error state `%v`: %v", e, serr)
 		}
 	}
 	if r.nodeInfo.IsClusterLeader() && markCluster {
-		serr := r.stg.Save(r.syncPathCluster+"."+string(defs.StatusError),
-			errStatus(e), -1)
+		serr := util.RetryableWrite(r.stg,
+			r.syncPathCluster+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
 			r.log.Error("MarkFailed: write cluster error state `%v`: %v", e, serr)
 		}

@@ -16,7 +16,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -198,6 +197,8 @@ func main() {
 	backupCmd.Flag("profile", "Config profile name").StringVar(&backupOptions.profile)
 	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
 		IntsVar(&backupOptions.compressionLevel)
+	backupCmd.Flag("num-parallel-collections", "Number of parallel collections").
+		Int32Var(&backupOptions.numParallelColls)
 	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).
 		StringVar(&backupOptions.ns)
 	backupCmd.Flag("wait", "Wait for the backup to finish").
@@ -241,6 +242,8 @@ func main() {
 	restoreCmd.Flag("base-snapshot",
 		"Override setting: Name of older snapshot that PITR will be based on during restore.").
 		StringVar(&restore.pitrBase)
+	restoreCmd.Flag("num-parallel-collections", "Number of parallel collections").
+		Int32Var(&restore.numParallelColls)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
 		StringVar(&restore.ns)
 	restoreCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
@@ -268,7 +271,7 @@ func main() {
 	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).
 		Required().
 		StringVar(&replayOpts.start)
-	replayCmd.Flag("end", "Replay oplog to the time. Set in format %s").
+	replayCmd.Flag("end", fmt.Sprintf("Replay oplog to the time. Set in format %s", datetimeFormat)).
 		Required().
 		StringVar(&replayOpts.end)
 	replayCmd.Flag("wait", "Wait for the restore to finish.").
@@ -466,6 +469,7 @@ func main() {
 
 	var conn connect.Client
 	var pbm *sdk.Client
+	var node string
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
@@ -489,6 +493,12 @@ func main() {
 			exitErr(errors.Wrap(err, "init sdk"), pbmOutF)
 		}
 		defer pbm.Close(context.Background())
+
+		inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
+		if err != nil {
+			exitErr(errors.Wrap(err, "unable to obtain node info"), pbmOutF)
+		}
+		node = inf.Me
 	}
 
 	switch cmd {
@@ -512,13 +522,13 @@ func main() {
 	case backupFinishCmd.FullCommand():
 		out, err = runFinishBcp(ctx, conn, finishBackupName)
 	case restoreFinishCmd.FullCommand():
-		out, err = runFinishRestore(finishRestore)
+		out, err = runFinishRestore(finishRestore, node)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, pbm, &descBcp)
+		out, err = describeBackup(ctx, pbm, &descBcp, node)
 	case restoreCmd.FullCommand():
-		out, err = runRestore(ctx, conn, &restore, pbmOutF)
+		out, err = runRestore(ctx, conn, pbm, &restore, node, pbmOutF)
 	case replayCmd.FullCommand():
-		out, err = replayOplog(ctx, conn, replayOpts, pbmOutF)
+		out, err = replayOplog(ctx, conn, pbm, replayOpts, node, pbmOutF)
 	case listCmd.FullCommand():
 		out, err = runList(ctx, conn, pbm, &list)
 	case deleteBcpCmd.FullCommand():
@@ -532,7 +542,7 @@ func main() {
 	case statusCmd.FullCommand():
 		out, err = status(ctx, conn, pbm, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	case describeRestoreCmd.FullCommand():
-		out, err = describeRestore(ctx, conn, describeRestoreOpts)
+		out, err = describeRestore(ctx, conn, describeRestoreOpts, node)
 	}
 
 	if err != nil {
@@ -774,56 +784,4 @@ func parseDateT(v string) (time.Time, error) {
 	}
 
 	return time.Time{}, errInvalidFormat
-}
-
-type concurentOpError struct {
-	op *lock.LockHeader
-}
-
-func (e *concurentOpError) Error() string {
-	return fmt.Sprintf("another operation in progress, %s/%s [%s/%s]", e.op.Type, e.op.OPID, e.op.Replset, e.op.Node)
-}
-
-func (e *concurentOpError) As(err any) bool {
-	if err == nil {
-		return false
-	}
-
-	er, ok := err.(*concurentOpError)
-	if !ok {
-		return false
-	}
-
-	er.op = e.op
-	return true
-}
-
-func (e *concurentOpError) MarshalJSON() ([]byte, error) {
-	s := make(map[string]interface{})
-	s["error"] = "another operation in progress"
-	s["operation"] = e.op
-	return json.Marshal(s)
-}
-
-func checkConcurrentOp(ctx context.Context, conn connect.Client) error {
-	locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{})
-	if err != nil {
-		return errors.Wrap(err, "get locks")
-	}
-
-	ts, err := topo.GetClusterTime(ctx, conn)
-	if err != nil {
-		return errors.Wrap(err, "read cluster time")
-	}
-
-	// Stop if there is some live operation.
-	// But in case of stale lock just move on
-	// and leave it for agents to deal with.
-	for _, l := range locks {
-		if l.Heartbeat.T+defs.StaleFrameSec >= ts.T {
-			return &concurentOpError{&l.LockHeader}
-		}
-	}
-
-	return nil
 }

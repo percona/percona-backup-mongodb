@@ -10,6 +10,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
 type replayOptions struct {
@@ -40,7 +41,14 @@ func (r oplogReplayResult) String() string {
 	return fmt.Sprintf("Oplog replay %q has started", r.Name)
 }
 
-func replayOplog(ctx context.Context, conn connect.Client, o replayOptions, outf outFormat) (fmt.Stringer, error) {
+func replayOplog(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	o replayOptions,
+	node string,
+	outf outFormat,
+) (fmt.Stringer, error) {
 	rsMap, err := parseRSNamesMapping(o.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
@@ -55,8 +63,7 @@ func replayOplog(ctx context.Context, conn connect.Client, o replayOptions, outf
 		return nil, errors.Wrap(err, "parse end time")
 	}
 
-	err = checkConcurrentOp(ctx, conn)
-	if err != nil {
+	if err := checkForAnotherOperation(ctx, pbm); err != nil {
 		return nil, err
 	}
 
@@ -99,7 +106,7 @@ func replayOplog(ctx context.Context, conn connect.Client, o replayOptions, outf
 	}
 
 	fmt.Print("Started.\nWaiting to finish")
-	err = waitRestore(ctx, conn, m, defs.StatusDone, 0)
+	err = waitRestore(ctx, conn, m, node, defs.StatusDone, 0)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = errWaitTimeout
