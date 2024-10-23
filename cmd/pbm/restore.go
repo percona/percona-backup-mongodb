@@ -141,7 +141,7 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, nss, rsMap, node, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
@@ -333,6 +333,8 @@ func doRestore(
 	o *restoreOpts,
 	numParallelColls *int32,
 	nss []string,
+	nsFrom string,
+	nsTo string,
 	rsMapping map[string]string,
 	node string,
 	outf outFormat,
@@ -351,6 +353,8 @@ func doRestore(
 			BackupName:       bcp,
 			NumParallelColls: numParallelColls,
 			Namespaces:       nss,
+			NamespaceFrom:    nsFrom,
+			NamespaceTo:      nsTo,
 			UsersAndRoles:    o.usersAndRoles,
 			RSMap:            rsMapping,
 			External:         o.extern,
