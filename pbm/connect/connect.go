@@ -201,6 +201,7 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 
 	inf, err := getNodeInfo(ctx, client)
 	if err != nil {
+		_ = client.Disconnect(ctx)
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}
 	if inf.isMongos() {
@@ -212,6 +213,7 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 
 	inf.Opts, err = getMongodOpts(ctx, client, nil)
 	if err != nil {
+		_ = client.Disconnect(ctx)
 		return nil, errors.Wrap(err, "get mongod options")
 	}
 
@@ -224,6 +226,7 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 
 	csvr, err := getConfigsvrURI(ctx, client)
 	if err != nil {
+		_ = client.Disconnect(ctx)
 		return nil, errors.Wrap(err, "get config server connection URI")
 	}
 	// no need in this connection anymore, we need a new one with the ConfigServer
