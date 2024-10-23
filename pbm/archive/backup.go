@@ -19,7 +19,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-var configCollectionsToKeep = []string{
+var RouterConfigCollections = []string{
 	"chunks",
 	"collections",
 	"databases",
@@ -191,7 +191,7 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 	case "admin":
 		filter = bson.D{{"name", bson.M{"$ne": "system.keys"}}}
 	case "config":
-		filter = bson.D{{"name", bson.M{"$in": configCollectionsToKeep}}}
+		filter = bson.D{{"name", bson.M{"$in": RouterConfigCollections}}}
 	}
 
 	cur, err := bcp.conn.Database(db).ListCollections(ctx, filter)
@@ -279,6 +279,14 @@ func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV
 }
 
 func (bcp *backupImpl) dumpCollection(ctx context.Context, ns *NamespaceV2) error {
+	count, err := bcp.conn.Database(ns.DB).Collection(ns.Name).EstimatedDocumentCount(ctx)
+	if err != nil {
+		return errors.Wrap(err, "estimate document count")
+	}
+	if count == 0 {
+		return nil
+	}
+
 	file, err := bcp.newFile(ns.NS())
 	if err != nil {
 		return errors.Wrap(err, "new file")

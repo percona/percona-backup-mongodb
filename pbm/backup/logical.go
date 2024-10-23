@@ -41,19 +41,7 @@ func (b *Backup) doLogical(
 			return errors.Wrap(err, "check for timeseries")
 		}
 	}
-
-	var db, coll string
-	if util.IsSelective(bcp.Namespaces) {
-		// for selective backup, configsvr does not hold any data.
-		// only some collections from config db is required to restore cluster state
-		if inf.IsConfigSrv() {
-			db = "config"
-		} else {
-			db, coll = util.ParseNS(bcp.Namespaces[0])
-		}
-	}
-
-	nssSize, err := getNamespacesSize(ctx, b.nodeConn, db, coll)
+	nssSize, err := getNamespacesSize(ctx, b.nodeConn, bcp.Namespaces)
 	if err != nil {
 		return errors.Wrap(err, "get namespaces size")
 	}
@@ -153,8 +141,9 @@ func (b *Backup) doLogical(
 				return errors.Wrap(err, "fetch uuids")
 			}
 
-			nsFilter = makeConfigsvrNSFilter()
 			docFilter = makeConfigsvrDocFilter(bcp.Namespaces, chunkSelector)
+			nsFilter = makeConfigsvrNSFilter(bcp.Namespaces)
+
 		} else {
 			nsFilter = util.MakeSelectedPred(bcp.Namespaces)
 		}
@@ -358,17 +347,16 @@ func createBackupChunkSelector(ctx context.Context, m connect.Client, nss []stri
 	return chunkSelector, nil
 }
 
-func makeConfigsvrNSFilter() archive.NSFilterFn {
+func makeConfigsvrNSFilter(nss []string) archive.NSFilterFn {
+	selected := make([]string, len(nss)+len(archive.RouterConfigCollections))
+	n := copy(selected, nss)
+
 	// list of required namespaces for further selective restore
-	allowed := map[string]bool{
-		"config.databases":   true,
-		"config.collections": true,
-		"config.chunks":      true,
+	for i, name := range archive.RouterConfigCollections {
+		selected[n+i] = "config." + name
 	}
 
-	return func(ns string) bool {
-		return allowed[ns]
-	}
+	return util.MakeSelectedPred(selected)
 }
 
 func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.DocFilterFn {
@@ -395,20 +383,18 @@ func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.D
 	}
 }
 
-func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (map[string]int64, error) {
+func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[string]int64, error) {
 	rv := make(map[string]int64)
 
-	q := bson.D{}
-	if db != "" {
-		q = append(q, bson.E{"name", db})
-	}
-	dbs, err := m.ListDatabaseNames(ctx, q)
+	dbs, err := m.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
 		return nil, errors.Wrap(err, "list databases")
 	}
 	if len(dbs) == 0 {
 		return rv, nil
 	}
+
+	isSelected := util.MakeSelectedPred(nss)
 
 	mu := sync.Mutex{}
 	eg, ctx := errgroup.WithContext(ctx)
@@ -417,11 +403,7 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 		db := db
 
 		eg.Go(func() error {
-			q := bson.D{}
-			if coll != "" {
-				q = append(q, bson.E{"name", coll})
-			}
-			res, err := m.Database(db).ListCollectionSpecifications(ctx, q)
+			res, err := m.Database(db).ListCollectionSpecifications(ctx, bson.D{})
 			if err != nil {
 				return errors.Wrapf(err, "list collections for %q", db)
 			}
@@ -432,14 +414,16 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, db, coll string) (m
 			eg, ctx := errgroup.WithContext(ctx)
 
 			for _, coll := range res {
-				coll := coll
-
 				if coll.Type == "view" || strings.HasPrefix(coll.Name, "system.buckets.") {
 					continue
 				}
 
+				ns := db + "." + coll.Name
+				if !isSelected(ns) {
+					continue
+				}
+
 				eg.Go(func() error {
-					ns := db + "." + coll.Name
 					res := m.Database(db).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
 					if err := res.Err(); err != nil {
 						return errors.Wrapf(err, "collStats %q", ns)

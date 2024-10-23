@@ -68,6 +68,7 @@ func convertMetaToV1(metaV2 *ArchiveMetaV2) (*archiveMeta, error) {
 			ServerVersion: metaV2.ServerVersion,
 			ToolVersion:   metaV2.Version,
 		},
+		Namespaces: []*Namespace{},
 	}
 
 	for _, coll := range metaV2.Namespaces {
