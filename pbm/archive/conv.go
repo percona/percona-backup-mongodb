@@ -2,6 +2,7 @@ package archive
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"runtime"
@@ -12,22 +13,27 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-func GenerateV1FromV2(stg storage.Storage, bcp, rs string) error {
+func GenerateV1FromV2(ctx context.Context, stg storage.Storage, bcp, rs string) error {
 	metaV2Filename := fmt.Sprintf("%s/%s/%s", bcp, rs, MetaFileV2)
 	rdr, err := stg.SourceReader(metaV2Filename)
 	if err != nil {
 		return errors.Wrapf(err, "open file: %q", metaV2Filename)
 	}
-	defer rdr.Close()
+	defer func() {
+		err := rdr.Close()
+		if err != nil {
+			log.LogEventFromContext(ctx).Error("close %q: %v", metaV2Filename, err)
+		}
+	}()
 
 	data, err := io.ReadAll(rdr)
 	if err != nil {
 		return errors.Wrap(err, "read")
 	}
-	rdr.Close()
 
 	metaV2 := &ArchiveMetaV2{}
 	err = bson.Unmarshal(data, &metaV2)

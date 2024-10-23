@@ -14,8 +14,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/pkg/errors"
-
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -168,10 +168,6 @@ func (bcp *backupImpl) listAllNamespaces(ctx context.Context) ([]*NamespaceV2, e
 	eg, grpCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(bcp.concurrency)
 	for _, db := range dbs {
-		if db == "local" {
-			continue
-		}
-
 		eg.Go(func() error {
 			nss, err := bcp.listDBNamespaces(grpCtx, db)
 			if err != nil {
@@ -207,7 +203,7 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 	rv := []*NamespaceV2{}
 	for cur.Next(ctx) {
 		ns := &NamespaceV2{}
-		err = cur.Decode(&ns)
+		err = cur.Decode(ns)
 		if err != nil {
 			return nil, errors.Wrap(err, "decode")
 		}
@@ -215,6 +211,13 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 		if !bcp.nsFilter(db + "." + ns.Name) {
 			continue
 		}
+
+		// allow following namespaces only:
+		// - admin.*
+		// - config.(chunks|collections|databases|settings|shards|tags|version)
+		// - <database>.buckets.*
+		// - <database>.system.js
+		// but not system collections like <database>.system.views
 		if db != "admin" && db != "config" &&
 			ns.IsSystemCollection() && !ns.IsBucketCollection() &&
 			ns.Name != "system.js" {
@@ -254,6 +257,7 @@ func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]*Ind
 }
 
 func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV2) error {
+	l := log.LogEventFromContext(ctx)
 	eg, grpCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(bcp.concurrency)
 
@@ -261,7 +265,12 @@ func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV
 		if ns.IsCollection() {
 			eg.Go(func() error {
 				err := bcp.dumpCollection(grpCtx, ns)
-				return errors.Wrap(err, ns.NS())
+				if err != nil {
+					return errors.Wrap(err, ns.NS())
+				}
+
+				l.Info("dump collection %q done (size: %d)", ns.NS(), ns.Size)
+				return nil
 			})
 		}
 	}
@@ -333,6 +342,10 @@ func (bcp *backupImpl) writeMeta(collections []*NamespaceV2) error {
 	if err != nil {
 		return errors.Wrap(err, "new file")
 	}
+	defer func() {
+		err1 := errors.Wrap(file.Close(), "close")
+		err = errors.Join(err, err1)
+	}()
 
 	n, err := file.Write(data)
 	if err != nil {
@@ -340,11 +353,6 @@ func (bcp *backupImpl) writeMeta(collections []*NamespaceV2) error {
 	}
 	if n != len(data) {
 		return io.ErrShortWrite
-	}
-
-	err = file.Close()
-	if err != nil {
-		return errors.Wrap(err, "close")
 	}
 
 	return nil

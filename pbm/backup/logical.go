@@ -189,7 +189,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "dump")
 	}
 
-	err = archive.GenerateV1FromV2(stg, bcp.Name, rsMeta.Name)
+	err = archive.GenerateV1FromV2(ctx, stg, bcp.Name, rsMeta.Name)
 	if err != nil {
 		return errors.Wrap(err, "generate archive meta v1")
 	}
