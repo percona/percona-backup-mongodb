@@ -246,6 +246,10 @@ func main() {
 		Int32Var(&restore.numParallelColls)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
 		StringVar(&restore.ns)
+	restoreCmd.Flag("ns-from", "Allows collection cloning (creating from the backup with different name) and specifies source collection for cloning from.").
+		StringVar(&restore.nsFrom)
+	restoreCmd.Flag("ns-to", "Allows collection cloning (creating from the backup with different name) and specifies destination collection for cloning to.").
+		StringVar(&restore.nsTo)
 	restoreCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
 		BoolVar(&restore.usersAndRoles)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").

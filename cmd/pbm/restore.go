@@ -36,6 +36,8 @@ type restoreOpts struct {
 	waitTime      time.Duration
 	extern        bool
 	ns            string
+	nsFrom        string
+	nsTo          string
 	usersAndRoles bool
 	rsMap         string
 	conf          string
