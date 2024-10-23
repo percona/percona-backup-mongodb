@@ -43,7 +43,13 @@ var ExcludeFromRestore = []string{
 
 type restorer struct{ *mongorestore.MongoRestore }
 
-func NewRestore(uri string, cfg *config.Config, numParallelColls int) (io.ReaderFrom, error) {
+func NewRestore(
+	uri string,
+	cfg *config.Config,
+	nsFrom string,
+	nsTo string,
+	numParallelColls int,
+) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
 		"none",
@@ -99,6 +105,8 @@ func NewRestore(uri string, cfg *config.Config, numParallelColls int) (io.Reader
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,
+		NSFrom:    []string{nsFrom},
+		NSTo:      []string{nsTo},
 	}
 	// mongorestore calls runtime.GOMAXPROCS(MaxProcs).
 	mopts.MaxProcs = runtime.GOMAXPROCS(0)

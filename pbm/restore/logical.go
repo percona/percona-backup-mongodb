@@ -215,7 +215,7 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, cmd.NamespaceFrom, cmd.NamespaceTo, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -358,7 +358,7 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, cmd.NamespaceFrom, cmd.NamespaceTo, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -761,6 +761,8 @@ func (r *Restore) RunSnapshot(
 	dump string,
 	bcp *backup.BackupMeta,
 	nss []string,
+	nsFrom string,
+	nsTo string,
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
 	var rdr io.ReadCloser
@@ -840,7 +842,7 @@ func (r *Restore) RunSnapshot(
 	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(rdr)
+	err = r.snapshot(rdr, nsFrom, nsTo)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
 	}
@@ -1193,8 +1195,8 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 	return nil
 }
 
-func (r *Restore) snapshot(input io.Reader) error {
-	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, r.numParallelColls)
+func (r *Restore) snapshot(input io.Reader, nsFrom, nsTo string) error {
+	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, nsFrom, nsTo, r.numParallelColls)
 	if err != nil {
 		return err
 	}
