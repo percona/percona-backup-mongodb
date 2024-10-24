@@ -105,9 +105,17 @@ func NewRestore(
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
 		NSExclude: ExcludeFromRestore,
-		NSFrom:    []string{nsFrom},
-		NSTo:      []string{nsTo},
 	}
+
+	// in case of namespace cloning, we need to add/override following opts
+	if len(nsFrom) != 0 && len(nsTo) != 0 {
+		mopts.NSOptions.NSInclude = []string{nsFrom}
+		mopts.NSFrom = []string{nsFrom}
+		mopts.NSTo = []string{nsTo}
+		mopts.Drop = false
+		mopts.PreserveUUID = false
+	}
+
 	// mongorestore calls runtime.GOMAXPROCS(MaxProcs).
 	mopts.MaxProcs = runtime.GOMAXPROCS(0)
 

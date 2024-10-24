@@ -126,8 +126,11 @@ func (r *Restore) exit(ctx context.Context, err error) {
 }
 
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
-// restore namespace, and option whether we should restore users&roles
-func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) []string {
+// restore namespace, cloning options and option whether we should restore users&roles
+func resolveNamespace(nssBackup, nssRestore []string, nsFrom, nsTo string, usingUsersAndRoles bool) []string {
+	if isCollCloning(nsFrom, nsTo) {
+		return []string{nsFrom}
+	}
 	if util.IsSelective(nssRestore) {
 		if usingUsersAndRoles {
 			var nss []string
@@ -149,7 +152,14 @@ func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) [
 }
 
 // shouldRestoreUsersAndRoles determines whether user&roles should be restored from the backup
-func shouldRestoreUsersAndRoles(nssBackup, nssRestore []string, usingUsersAndRoles bool) restoreUsersAndRolesOption {
+func shouldRestoreUsersAndRoles(
+	nssBackup, nssRestore []string,
+	nsFrom, nsTo string,
+	usingUsersAndRoles bool,
+) restoreUsersAndRolesOption {
+	if isCollCloning(nsFrom, nsTo) {
+		return false
+	}
 	if util.IsSelective(nssBackup) {
 		return false
 	}
@@ -158,6 +168,11 @@ func shouldRestoreUsersAndRoles(nssBackup, nssRestore []string, usingUsersAndRol
 	}
 
 	return true
+}
+
+// isCollCloning returns true in case when collection cloning restore
+func isCollCloning(nsFrom, nsTo string) bool {
+	return len(nsFrom) > 0 && len(nsTo) > 0
 }
 
 // Snapshot do the snapshot's (mongo dump) restore
@@ -183,8 +198,18 @@ func (r *Restore) Snapshot(
 		return errors.Wrap(err, "get backup storage")
 	}
 
-	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
-	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	nss := resolveNamespace(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cmd.NamespaceFrom,
+		cmd.NamespaceTo,
+		cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cmd.NamespaceFrom,
+		cmd.NamespaceTo,
+		cmd.UsersAndRoles)
 
 	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
 	if err != nil {
@@ -305,8 +330,18 @@ func (r *Restore) PITR(
 		return errors.Wrap(err, "get oplog storage")
 	}
 
-	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
-	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	nss := resolveNamespace(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cmd.NamespaceFrom,
+		cmd.NamespaceTo,
+		cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cmd.NamespaceFrom,
+		cmd.NamespaceTo,
+		cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {
 		err = SetOplogTimestamps(ctx, r.leadConn, r.name, 0, int64(cmd.OplogTS.T))

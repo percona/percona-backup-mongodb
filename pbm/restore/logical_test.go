@@ -47,7 +47,7 @@ func TestResolveNamespace(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				got := resolveNamespace(tC.nssBackup, tC.nssRestore, false)
+				got := resolveNamespace(tC.nssBackup, tC.nssRestore, "", "", false)
 				checkNS(t, got, tC.want)
 			})
 		}
@@ -81,7 +81,7 @@ func TestResolveNamespace(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				got := resolveNamespace(tC.nssBackup, tC.nssRestore, true)
+				got := resolveNamespace(tC.nssBackup, tC.nssRestore, "", "", true)
 				checkNS(t, got, tC.want)
 			})
 		}
@@ -124,7 +124,7 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, false)
+				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, "", "", false)
 				checkOpt(t, gotOpt, tC.wantOpt)
 			})
 		}
@@ -158,7 +158,7 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, true)
+				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, "", "", true)
 				checkOpt(t, gotOpt, tC.wantOpt)
 			})
 		}
