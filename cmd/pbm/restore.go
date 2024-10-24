@@ -118,6 +118,9 @@ func runRestore(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
+	if err := validateNSFromNSTo(o); err != nil {
+		return nil, errors.Wrap(err, "parse --ns-from and --ns-to options")
+	}
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
@@ -285,6 +288,8 @@ func checkBackup(
 	conn connect.Client,
 	o *restoreOpts,
 	nss []string,
+	nsFrom string,
+	nsTo string,
 ) (string, defs.BackupType, error) {
 	if o.extern && o.bcp == "" {
 		return "", defs.ExternalBackup, nil
@@ -320,6 +325,9 @@ func checkBackup(
 	if len(nss) != 0 && bcp.Type != defs.LogicalBackup {
 		return "", "", errors.New("--ns flag is only allowed for logical restore")
 	}
+	if nsFrom != "" && nsTo != "" && bcp.Type != defs.LogicalBackup {
+		return "", "", errors.New("--ns-from and ns-to flags are only allowed for logical restore")
+	}
 	if bcp.Status != defs.StatusDone {
 		return "", "", errors.Errorf("backup '%s' didn't finish successfully", b)
 	}
@@ -339,7 +347,7 @@ func doRestore(
 	node string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
-	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
+	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
 	if err != nil {
 		return nil, err
 	}
@@ -717,6 +725,27 @@ func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
 	if len(nss) >= 1 && util.ContainsSpecifiedColl(nss) && usersAndRoles {
 		return errors.New("Including users and roles are not allowed for specific collection. " +
 			"Use --ns='db.*' to specify the whole database instead.")
+	}
+
+	return nil
+}
+
+func validateNSFromNSTo(o *restoreOpts) error {
+	if o.nsFrom == "" && o.nsTo != "" {
+		return errors.New("When cloning collection --ns-from should be specified as the cloning source")
+	}
+	if o.nsFrom != "" && o.nsTo == "" {
+		return errors.New("When cloning collection --ns-to should be specified as the cloning destination")
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.ns != "" {
+		return errors.New("When cloning collection selective restore is not possible (remove --ns option)")
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.usersAndRoles {
+		return errors.New("When cloning collection restoring users and rolles are not possible (remove --with-users-and-roles option)")
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.pitr != "" {
+		// this check will be removed with: PBM-1422
+		return errors.New("When cloning collection restore to the point-in-time is not possible (remove --time option)")
 	}
 
 	return nil
