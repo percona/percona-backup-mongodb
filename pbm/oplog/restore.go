@@ -310,6 +310,41 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 	return false
 }
 
+func (o *OplogRestore) isOpExcluded(oe *Record) bool {
+	if o.excludeNS == nil {
+		return false
+	}
+	db, coll, _ := strings.Cut(oe.Namespace, ".")
+	if coll != "$cmd" {
+		return o.excludeNS.Has(oe.Namespace)
+	}
+
+	cmd := oe.Object[0].Key
+	if cmd == "applyOps" {
+		return false // internal ops of applyOps are checked one by one later
+	}
+	if _, ok := selectedNSSupportedCommands[cmd]; ok {
+		coll, _ = oe.Object[0].Value.(string)
+		return o.excludeNS.Has(db + "." + coll)
+	}
+	// handle renameCollection and convertToCapped commands.
+	// NOTE: convertToCapped is done by creating a temporary capped collection,
+	//       inserting docs from the source collection to the collection,
+	//       and renaming it to the source collection.
+	if cmd == "renameCollection" {
+		from, _ := oe.Object[0].Value.(string)
+		if o.excludeNS.Has(from) {
+			return true
+		}
+		to, _ := oe.Object[1].Value.(string)
+		if o.excludeNS.Has(to) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (o *OplogRestore) LastOpTS() uint32 {
 	return atomic.LoadUint32(&o.lastOpT)
 }
@@ -325,11 +360,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if o.excludeNS.Has(oe.Namespace) {
-		return nil
-	}
-
-	if !isOpAllowed(&oe) || !o.isOpSelected(&oe) {
+	if o.isOpExcluded(&oe) || !isOpAllowed(&oe) || !o.isOpSelected(&oe) {
 		return nil
 	}
 
@@ -648,11 +679,7 @@ func (o *OplogRestore) HandleUncommittedTxn(
 func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	// have to handle it here one more time because before the op gets thru
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
-	if o.excludeNS.Has(op.Namespace) {
-		return nil
-	}
-
-	if !isOpAllowed(&op) || !o.isOpSelected(&op) {
+	if o.isOpExcluded(&op) || !isOpAllowed(&op) || !o.isOpSelected(&op) {
 		return nil
 	}
 
