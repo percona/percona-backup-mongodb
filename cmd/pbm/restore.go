@@ -774,7 +774,8 @@ func validateNSFromNSTo(o *restoreOpts) error {
 		return errors.New("When cloning collection selective restore is not possible (remove --ns option)")
 	}
 	if o.nsFrom != "" && o.nsTo != "" && o.usersAndRoles {
-		return errors.New("When cloning collection restoring users and rolles are not possible (remove --with-users-and-roles option)")
+		return errors.New("When cloning collection restoring users and rolles are not possible " +
+			"(remove --with-users-and-roles option)")
 	}
 	if o.nsFrom != "" && o.nsTo != "" && o.pitr != "" {
 		// this check will be removed with: PBM-1422
