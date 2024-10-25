@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"gopkg.in/yaml.v2"
 
@@ -335,6 +336,31 @@ func checkBackup(
 	return bcp.Name, bcp.Type, nil
 }
 
+// nsIsTaken returns error in case when specified namesapce is already in use (collection is created)
+// or when any other error ocurres within the checking process.
+func nsIsTaken(
+	ctx context.Context,
+	conn connect.Client,
+	ns string,
+) error {
+	ns = strings.TrimSpace(ns)
+	db, coll, ok := strings.Cut(ns, ".")
+	if !ok {
+		return errors.Wrap(ErrInvalidNamespace, ns)
+	}
+
+	collNames, err := conn.MongoClient().Database(db).ListCollectionNames(ctx, bson.D{{"name", coll}})
+	if err != nil {
+		return errors.Wrap(err, "list collection names for cloning target validation")
+	}
+
+	if len(collNames) > 0 {
+		return errors.New("cloning namespace (--ns-to) is already in use, specify another one that doesn't exist in database")
+	}
+
+	return nil
+}
+
 func doRestore(
 	ctx context.Context,
 	conn connect.Client,
@@ -350,6 +376,13 @@ func doRestore(
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
 	if err != nil {
 		return nil, err
+	}
+
+	// check if namespace exists when cloning collection
+	if nsFrom != "" && nsTo != "" {
+		if err := nsIsTaken(ctx, conn, nsTo); err != nil {
+			return nil, err
+		}
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
@@ -746,6 +779,9 @@ func validateNSFromNSTo(o *restoreOpts) error {
 	if o.nsFrom != "" && o.nsTo != "" && o.pitr != "" {
 		// this check will be removed with: PBM-1422
 		return errors.New("When cloning collection restore to the point-in-time is not possible (remove --time option)")
+	}
+	if strings.Contains(o.nsTo, "*") || strings.Contains(o.nsFrom, "*") {
+		return errors.New("Wild-cards are not allowed when cloning collection")
 	}
 
 	return nil
