@@ -29,6 +29,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
+var (
+	ErrNSFromMissing        = errors.New("--ns-from should be specified as the cloning source")
+	ErrNSToMissing          = errors.New("--ns-to should be specified as the cloning destination")
+	ErrSelAndCloning        = errors.New("cloning with selective restore is not possible (remove --ns option)")
+	ErrCloningWithUAndR     = errors.New("cloning with restoring users and rolles is not possible")
+	ErrCloningWithPITR      = errors.New("cloning with restore to the point-in-time is not possible")
+	ErrCloningWithWildCards = errors.New("cloning with wild-cards is not possible")
+)
+
 type restoreOpts struct {
 	bcp           string
 	pitr          string
@@ -765,24 +774,23 @@ func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
 
 func validateNSFromNSTo(o *restoreOpts) error {
 	if o.nsFrom == "" && o.nsTo != "" {
-		return errors.New("When cloning collection --ns-from should be specified as the cloning source")
+		return ErrNSFromMissing
 	}
 	if o.nsFrom != "" && o.nsTo == "" {
-		return errors.New("When cloning collection --ns-to should be specified as the cloning destination")
+		return ErrNSToMissing
 	}
 	if o.nsFrom != "" && o.nsTo != "" && o.ns != "" {
-		return errors.New("When cloning collection selective restore is not possible (remove --ns option)")
+		return ErrSelAndCloning
 	}
 	if o.nsFrom != "" && o.nsTo != "" && o.usersAndRoles {
-		return errors.New("When cloning collection restoring users and rolles are not possible " +
-			"(remove --with-users-and-roles option)")
+		return ErrCloningWithUAndR
 	}
 	if o.nsFrom != "" && o.nsTo != "" && o.pitr != "" {
 		// this check will be removed with: PBM-1422
-		return errors.New("When cloning collection restore to the point-in-time is not possible (remove --time option)")
+		return ErrCloningWithPITR
 	}
 	if strings.Contains(o.nsTo, "*") || strings.Contains(o.nsFrom, "*") {
-		return errors.New("Wild-cards are not allowed when cloning collection")
+		return ErrCloningWithWildCards
 	}
 
 	return nil
