@@ -43,11 +43,21 @@ var ExcludeFromRestore = []string{
 
 type restorer struct{ *mongorestore.MongoRestore }
 
+// CloneNS contains clone from/to info for cloning NS functionality
+type CloneNS struct {
+	FromNS string `bson:"fromNS,omitempty"`
+	ToNS   string `bson:"toNS,omitempty"`
+}
+
+// IsSpecified returns true in case of namespace cloning functionality
+func (c *CloneNS) IsSpecified() bool {
+	return c.FromNS != "" && c.ToNS != ""
+}
+
 func NewRestore(
 	uri string,
 	cfg *config.Config,
-	nsFrom string,
-	nsTo string,
+	cloneNS CloneNS,
 	numParallelColls int,
 ) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
@@ -108,10 +118,10 @@ func NewRestore(
 	}
 
 	// in case of namespace cloning, we need to add/override following opts
-	if len(nsFrom) != 0 && len(nsTo) != 0 {
-		mopts.NSOptions.NSInclude = []string{nsFrom}
-		mopts.NSFrom = []string{nsFrom}
-		mopts.NSTo = []string{nsTo}
+	if cloneNS.IsSpecified() {
+		mopts.NSOptions.NSInclude = []string{cloneNS.FromNS}
+		mopts.NSFrom = []string{cloneNS.FromNS}
+		mopts.NSTo = []string{cloneNS.ToNS}
 		mopts.Drop = false
 		mopts.PreserveUUID = false
 	}

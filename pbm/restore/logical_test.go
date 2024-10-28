@@ -3,6 +3,8 @@ package restore
 import (
 	"reflect"
 	"testing"
+
+	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
 
 func TestResolveNamespace(t *testing.T) {
@@ -47,7 +49,7 @@ func TestResolveNamespace(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				got := resolveNamespace(tC.nssBackup, tC.nssRestore, "", "", false)
+				got := resolveNamespace(tC.nssBackup, tC.nssRestore, snapshot.CloneNS{}, false)
 				checkNS(t, got, tC.want)
 			})
 		}
@@ -81,7 +83,7 @@ func TestResolveNamespace(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				got := resolveNamespace(tC.nssBackup, tC.nssRestore, "", "", true)
+				got := resolveNamespace(tC.nssBackup, tC.nssRestore, snapshot.CloneNS{}, true)
 				checkNS(t, got, tC.want)
 			})
 		}
@@ -129,7 +131,11 @@ func TestResolveNamespace(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				got := resolveNamespace(tC.nssBackup, []string{}, tC.nsFrom, tC.nsTo, tC.userAndRoles)
+				got := resolveNamespace(
+					tC.nssBackup,
+					[]string{},
+					snapshot.CloneNS{FromNS: tC.nsFrom, ToNS: tC.nsTo},
+					tC.userAndRoles)
 				checkNS(t, got, tC.want)
 			})
 		}
@@ -190,7 +196,11 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, tC.nsFrom, tC.nsTo, false)
+				gotOpt := shouldRestoreUsersAndRoles(
+					tC.nssBackup,
+					tC.nssRestore,
+					snapshot.CloneNS{FromNS: tC.nsFrom, ToNS: tC.nsTo},
+					false)
 				checkOpt(t, gotOpt, tC.wantOpt)
 			})
 		}
@@ -224,7 +234,7 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, "", "", true)
+				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, snapshot.CloneNS{}, true)
 				checkOpt(t, gotOpt, tC.wantOpt)
 			})
 		}
