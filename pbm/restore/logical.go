@@ -263,7 +263,7 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss)
+	err = r.restoreIndexes(ctx, oplogOption.nss, cmd.NamespaceFrom, cmd.NamespaceTo)
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -417,7 +417,7 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss)
+	err = r.restoreIndexes(ctx, oplogOption.nss, cmd.NamespaceFrom, cmd.NamespaceTo)
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -952,7 +952,7 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 	return nil
 }
 
-func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
+func (r *Restore) restoreIndexes(ctx context.Context, nss []string, nsFrom, nsTo string) error {
 	r.log.Debug("building indexes up")
 
 	isSelected := util.MakeSelectedPred(nss)
@@ -977,24 +977,32 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 		}
 
 		var indexNames []string
+		var targetDB, targetColl string
 		for _, index := range indexes {
-			index.Options["ns"] = ns.DB + "." + ns.Collection
+			if nsFrom != "" && nsTo != "" && ns.String() == nsFrom {
+				// override index's ns for the collection cloning
+				targetDB, targetColl = util.ParseNS(nsTo)
+				index.Options["ns"] = nsTo
+			} else {
+				targetDB, targetColl = ns.DB, ns.Collection
+				index.Options["ns"] = ns.DB + "." + ns.Collection
+			}
 			indexNames = append(indexNames, index.Options["name"].(string))
 			// remove the index version, forcing an update
 			delete(index.Options, "v")
 		}
 
 		rawCommand := bson.D{
-			{"createIndexes", ns.Collection},
+			{"createIndexes", targetColl},
 			{"indexes", indexes},
 			{"ignoreUnknownIndexOptions", true},
 		}
 
 		r.log.Info("restoring indexes for %s.%s: %s",
-			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
-		err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			targetDB, targetColl, strings.Join(indexNames, ", "))
+		err := r.nodeConn.Database(targetDB).RunCommand(ctx, rawCommand).Err()
 		if err != nil {
-			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
+			return errors.Wrapf(err, "createIndexes for %s.%s", targetDB, targetColl)
 		}
 	}
 
