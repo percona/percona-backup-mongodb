@@ -194,6 +194,10 @@ func (r *Restore) Snapshot(
 	}
 
 	cloneNS := snapshot.CloneNS{FromNS: cmd.NamespaceFrom, ToNS: cmd.NamespaceTo}
+	if r.brief.Sharded && cloneNS.IsSpecified() {
+		return errors.New("Namespace cloning is not supported in sharded cluster")
+	}
+
 	nss := resolveNamespace(
 		bcp.Namespaces,
 		cmd.Namespaces,
@@ -325,6 +329,10 @@ func (r *Restore) PITR(
 	}
 
 	cloneNS := snapshot.CloneNS{FromNS: cmd.NamespaceFrom, ToNS: cmd.NamespaceTo}
+	if r.brief.Sharded && cloneNS.IsSpecified() {
+		return errors.New("Namespace cloning is not supported in sharded cluster")
+	}
+
 	nss := resolveNamespace(
 		bcp.Namespaces,
 		cmd.Namespaces,
