@@ -59,6 +59,7 @@ func NewRestore(
 	cfg *config.Config,
 	cloneNS CloneNS,
 	numParallelColls int,
+	excludeRouterCollections bool,
 ) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
@@ -97,6 +98,18 @@ func NewRestore(
 		numParallelColls = 1
 	}
 
+	nsExclude := ExcludeFromRestore
+	if excludeRouterCollections {
+		configColls := []string{
+			"config.databases",
+			"config.collections",
+			"config.chunks",
+		}
+		nsExclude := make([]string, len(ExcludeFromRestore)+len(configColls))
+		n := copy(nsExclude, ExcludeFromRestore)
+		copy(nsExclude[:n], configColls)
+	}
+
 	mopts := mongorestore.Options{}
 	mopts.ToolOptions = topts
 	mopts.InputOptions = &mongorestore.InputOptions{
@@ -114,7 +127,7 @@ func NewRestore(
 		NoIndexRestore:           true,
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
-		NSExclude: ExcludeFromRestore,
+		NSExclude: nsExclude,
 	}
 
 	// in case of namespace cloning, we need to add/override following opts

@@ -118,6 +118,7 @@ type BackupReplset struct {
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           defs.Status         `bson:"status" json:"status"`
 	IsConfigSvr      *bool               `bson:"iscs,omitempty" json:"iscs,omitempty"`
+	IsConfigShard    *bool               `bson:"configshard,omitempty" json:"configshard,omitempty"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
