@@ -773,11 +773,20 @@ func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
 }
 
 func validateNSFromNSTo(o *restoreOpts) error {
+	if o.nsFrom == "" && o.nsTo == "" {
+		return nil
+	}
 	if o.nsFrom == "" && o.nsTo != "" {
 		return ErrNSFromMissing
 	}
 	if o.nsFrom != "" && o.nsTo == "" {
 		return ErrNSToMissing
+	}
+	if _, _, ok := strings.Cut(o.nsFrom, "."); !ok {
+		return errors.Wrap(ErrInvalidNamespace, o.nsFrom)
+	}
+	if _, _, ok := strings.Cut(o.nsTo, "."); !ok {
+		return errors.Wrap(ErrInvalidNamespace, o.nsTo)
 	}
 	if o.nsFrom != "" && o.nsTo != "" && o.ns != "" {
 		return ErrSelAndCloning

@@ -68,6 +68,38 @@ func TestCloningValidation(t *testing.T) {
 			},
 			wantErr: ErrCloningWithWildCards,
 		},
+		{
+			desc: "cloning with ns without dot within nsFrom",
+			opts: restoreOpts{
+				nsFrom: "c",
+				nsTo:   "c.d",
+			},
+			wantErr: ErrInvalidNamespace,
+		},
+		{
+			desc: "cloning with ns without dot within nsTo",
+			opts: restoreOpts{
+				nsFrom: "d.c",
+				nsTo:   "d",
+			},
+			wantErr: ErrInvalidNamespace,
+		},
+		{
+			desc: "no error without cloning options",
+			opts: restoreOpts{
+				nsFrom: "",
+				nsTo:   "",
+			},
+			wantErr: nil,
+		},
+		{
+			desc: "no error when cloning options are correct",
+			opts: restoreOpts{
+				nsFrom: "b.a",
+				nsTo:   "d.c",
+			},
+			wantErr: nil,
+		},
 	}
 	for _, tC := range testCases {
 		t.Run(tC.desc, func(t *testing.T) {
