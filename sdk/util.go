@@ -61,10 +61,10 @@ func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 	defer cancel()
 
 	r := &log.LogRequest{
-		LogKeys: log.LogKeys{
-			Event:    string(ctrl.CmdResync),
-			OPID:     string(cid),
-			Severity: log.Info,
+		RecordAttrs: log.RecordAttrs{
+			Event: string(ctrl.CmdResync),
+			OPID:  string(cid),
+			Level: log.InfoLevel,
 		},
 	}
 
@@ -79,7 +79,7 @@ func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 			if entry.Msg == "succeed" {
 				return nil
 			}
-			if entry.Severity == log.Error {
+			if entry.Level == log.ErrorLevel {
 				return errors.New(entry.Msg)
 			}
 		case err := <-errC:

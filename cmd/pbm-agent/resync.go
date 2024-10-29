@@ -8,6 +8,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -22,21 +23,23 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 		cmd = &ctrl.ResyncCmd{}
 	}
 
-	logger := log.FromContext(ctx)
-	l := logger.NewEvent(string(ctrl.CmdResync), "", opid.String(), ep.TS())
-	ctx = log.SetLogEventToContext(ctx, l)
-
+	// TODO: useless. "resume" and set logger should be removed.
+	// it's pausing on physical restore only. at the end of physical restore, agents shutdown.
+	// the state does not survive an agent restart.
 	a.HbResume()
-	logger.ResumeMgo()
+	prevLogHandler := log.SetRemoteHandler(log.NewMongoHandler(a.leadConn.MongoClient()))
+	if err := prevLogHandler.Close(); err != nil {
+		log.Error(ctx, "close log handler: %s", err)
+	}
 
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
-		l.Error("get node info data: %v", err)
+		log.Error(ctx, "get node info data: %v", err)
 		return
 	}
 
 	if !nodeInfo.IsLeader() {
-		l.Info("not a member of the leader rs")
+		log.Info(ctx, "not a member of the leader rs")
 		return
 	}
 
@@ -48,23 +51,23 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 		Epoch:   util.Ref(ep.TS()),
 	})
 
-	got, err := a.acquireLock(ctx, lock, l)
+	got, err := a.acquireLock(ctx, lock)
 	if err != nil {
-		l.Error("acquiring lock: %v", err)
+		log.Error(ctx, "acquiring lock: %v", err)
 		return
 	}
 	if !got {
-		l.Debug("lock not acquired")
+		log.Debug(ctx, "lock not acquired")
 		return
 	}
 
 	defer func() {
 		if err := lock.Release(); err != nil {
-			l.Error("release lock %v: %v", lock, err)
+			log.Error(ctx, "release lock %v: %v", lock, err)
 		}
 	}()
 
-	l.Info("started")
+	log.Info(ctx, "started")
 
 	if cmd.All {
 		err = a.handleSyncAllProfiles(ctx, cmd.Clear)
@@ -74,11 +77,11 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 		err = a.handleSyncMainStorage(ctx)
 	}
 	if err != nil {
-		l.Error(err.Error())
+		log.Error(ctx, err.Error())
 		return
 	}
 
-	l.Info("succeed")
+	log.Info(ctx, "succeed")
 }
 
 func (a *Agent) handleSyncAllProfiles(ctx context.Context, clearProfile bool) error {
@@ -130,7 +133,7 @@ func (a *Agent) helpClearProfileBackups(ctx context.Context, profileName string)
 }
 
 func (a *Agent) helpSyncProfileBackups(ctx context.Context, profile *config.Config) error {
-	err := resync.SyncBackupList(ctx, a.leadConn, &profile.Storage, profile.Name, a.brief.Me)
+	err := resync.SyncBackupList(ctx, a.leadConn, &profile.Storage, profile.Name, defs.NodeID())
 	return errors.Wrapf(err, "sync backup list for %q", profile.Name)
 }
 
@@ -140,7 +143,7 @@ func (a *Agent) handleSyncMainStorage(ctx context.Context) error {
 		return errors.Wrap(err, "get config")
 	}
 
-	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me)
+	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, defs.NodeID())
 	if err != nil {
 		return errors.Wrap(err, "resync")
 	}
@@ -149,8 +152,7 @@ func (a *Agent) handleSyncMainStorage(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "reset epoch")
 	}
-	log.LogEventFromContext(ctx).
-		Debug("epoch set to %v", epch)
+	log.Debug(ctx, "epoch set to %v", epch)
 
 	return nil
 }

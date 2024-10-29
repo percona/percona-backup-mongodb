@@ -13,7 +13,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
@@ -79,12 +78,12 @@ func deleteBackupImpl(
 		return err
 	}
 
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(ctx, &bcp.Store.StorageConf, node)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
 
-	err = DeleteBackupFiles(stg, bcp.Name)
+	err = DeleteBackupFiles(ctx, stg, bcp.Name)
 	if err != nil {
 		return errors.Wrap(err, "delete files from storage")
 	}
@@ -97,7 +96,12 @@ func deleteBackupImpl(
 	return nil
 }
 
-func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta, node string) error {
+func deleteIncremetalChainImpl(
+	ctx context.Context,
+	conn connect.Client,
+	bcp *BackupMeta,
+	node string,
+) error {
 	increments, err := FetchAllIncrements(ctx, conn, bcp)
 	if err != nil {
 		return err
@@ -113,7 +117,7 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 		all = append(all, bcps...)
 	}
 
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(ctx, &bcp.Store.StorageConf, node)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -121,7 +125,7 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 	for i := len(all) - 1; i >= 0; i-- {
 		bcp := all[i]
 
-		err = DeleteBackupFiles(stg, bcp.Name)
+		err = DeleteBackupFiles(ctx, stg, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "delete files from storage")
 		}
@@ -331,7 +335,7 @@ func DeleteBackupBefore(
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
+	stg, err := util.GetStorage(ctx, conn, node)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -339,7 +343,7 @@ func DeleteBackupBefore(
 	for i := range backups {
 		bcp := &backups[i]
 
-		err := DeleteBackupFiles(stg, bcp.Name)
+		err := DeleteBackupFiles(ctx, stg, bcp.Name)
 		if err != nil {
 			return errors.Wrapf(err, "delete files from storage for %q", bcp.Name)
 		}

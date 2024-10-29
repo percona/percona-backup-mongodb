@@ -217,9 +217,13 @@ func waitRestore(
 	tskew int64,
 ) error {
 	ep, _ := config.GetEpoch(ctx, conn)
-	l := log.FromContext(ctx).
-		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorage(ctx, conn, node, l)
+	ctx = log.Context(ctx, log.WithAttrs(&log.Attrs{
+		Event: string(ctrl.CmdRestore),
+		OPID:  m.OPID,
+		Name:  m.Backup,
+		Epoch: ep.TS(),
+	}))
+	stg, err := util.GetStorage(ctx, conn, node)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -232,7 +236,7 @@ func waitRestore(
 	getMeta := restore.GetRestoreMeta
 	if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
 		getMeta = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
-			return restore.GetPhysRestoreMeta(name, stg, l)
+			return restore.GetPhysRestoreMeta(ctx, stg, name)
 		}
 	}
 
@@ -477,10 +481,8 @@ func doRestore(
 		fn = restore.GetRestoreMeta
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
-		ep, _ := config.GetEpoch(ctx, conn)
-		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
 
-		stg, err := util.GetStorage(ctx, conn, node, l)
+		stg, err := util.GetStorage(ctx, conn, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -490,7 +492,7 @@ func doRestore(
 			if err == nil {
 				return meta, nil
 			}
-			return restore.GetPhysRestoreMeta(name, stg, l)
+			return restore.GetPhysRestoreMeta(ctx, stg, name)
 		}
 		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
 	}
@@ -499,15 +501,15 @@ func doRestore(
 	return waitForRestoreStatus(startCtx, conn, name, fn)
 }
 
-func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
-	stg, err := getRestoreMetaStg(o.cfg, node)
+func runFinishRestore(ctx context.Context, o descrRestoreOpts, node string) (fmt.Stringer, error) {
+	stg, err := getRestoreMetaStg(ctx, o.cfg, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
 
 	path := fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, o.restore)
 	msg := outMsg{"Command sent. Check `pbm describe-restore ...` for the result."}
-	err = stg.Save(path+"."+string(defs.StatusCopyDone),
+	err = stg.Save(ctx, path+"."+string(defs.StatusCopyDone),
 		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())), -1)
 	return msg, err
 }
@@ -646,7 +648,7 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
+func getRestoreMetaStg(ctx context.Context, cfgPath, node string) (storage.Storage, error) {
 	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")
@@ -658,8 +660,7 @@ func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
 		return nil, errors.Wrap(err, "unable to  unmarshal config file")
 	}
 
-	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(&cfg.Storage, node, l)
+	return util.StorageFromConfig(ctx, &cfg.Storage, node)
 }
 
 func describeRestore(
@@ -674,12 +675,12 @@ func describeRestore(
 		res  describeRestoreResult
 	)
 	if o.cfg != "" {
-		stg, err := getRestoreMetaStg(o.cfg, node)
+		stg, err := getRestoreMetaStg(ctx, o.cfg, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
-		meta, err = restore.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
-			NewEvent("", "", "", primitive.Timestamp{}))
+
+		meta, err = restore.GetPhysRestoreMeta(ctx, stg, o.restore)
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}

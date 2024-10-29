@@ -60,6 +60,10 @@ func newAgent(
 		return nil, errors.Wrap(err, "get node info")
 	}
 
+	// set global values for replset name and node id ("host:port").
+	// the values cannot be changed without restarting mongod
+	defs.SetNodeBrief(info.SetName, info.Me)
+
 	mongoVersion, err := version.GetMongoVersion(ctx, nodeConn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
@@ -71,8 +75,6 @@ func newAgent(
 		nodeConn: nodeConn,
 		brief: topo.NodeBrief{
 			URI:       uri,
-			SetName:   info.SetName,
-			Me:        info.Me,
 			Sharded:   info.IsSharded(),
 			ConfigSvr: info.IsConfigSrv(),
 			Version:   mongoVersion,
@@ -114,95 +116,107 @@ func (a *Agent) CanStart(ctx context.Context) error {
 
 func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
 	if err := version.FeatureSupport(a.brief.Version).PBMSupport(); err != nil {
-		log.FromContext(ctx).
-			Warning("", "", "", primitive.Timestamp{}, "WARNING: %v", err)
+		log.Warn(ctx, "WARNING: %v", err)
 	}
 
 	if a.brief.Sharded && a.brief.Version.IsShardedTimeseriesSupported() {
 		tss, err := topo.ListShardedTimeseries(ctx, a.leadConn)
 		if err != nil {
-			log.FromContext(ctx).
-				Error("", "", "", primitive.Timestamp{},
-					"failed to list sharded timeseries: %v", err)
+			log.Error(ctx, "failed to list sharded timeseries: %v", err)
 		} else if len(tss) != 0 {
-			log.FromContext(ctx).
-				Warning("", "", "", primitive.Timestamp{},
-					"WARNING: cannot backup following sharded timeseries: %s",
-					strings.Join(tss, ", "))
+			log.Warn(ctx,
+				"WARNING: cannot backup following sharded timeseries: %s",
+				strings.Join(tss, ", "))
 		}
 	}
 
 	if a.brief.Sharded && a.brief.Version.IsConfigShardSupported() {
 		hasConfigShard, err := topo.HasConfigShard(ctx, a.leadConn)
 		if err != nil {
-			log.FromContext(ctx).
-				Error("", "", "", primitive.Timestamp{},
-					"failed to check for Config Shard: %v", err)
+			log.Error(ctx, "failed to check for Config Shard: %v", err)
 		} else if hasConfigShard {
-			log.FromContext(ctx).
-				Warning("", "", "", primitive.Timestamp{},
-					"WARNING: selective backup and restore is not supported with Config Shard")
+			log.Warn(ctx,
+				"WARNING: selective backup and restore is not supported with Config Shard")
 		}
 	}
 }
 
 // Start starts listening the commands stream.
 func (a *Agent) Start(ctx context.Context) error {
-	logger := log.FromContext(ctx)
-	logger.Printf("pbm-agent:\n%s", version.Current().All(""))
-	logger.Printf("node: %s/%s", a.brief.SetName, a.brief.Me)
-	logger.Printf("conn level ReadConcern: %v; WriteConcern: %v",
+	log.Info(ctx, "pbm-agent:\n%s", version.Current().All(""))
+	log.Info(ctx, "node: %s/%s", defs.Replset(), defs.NodeID())
+	log.Info(ctx, "conn level ReadConcern: %v; WriteConcern: %v",
 		a.leadConn.MongoOptions().ReadConcern.Level,
 		a.leadConn.MongoOptions().WriteConcern.W)
 
 	c, cerr := ctrl.ListenCmd(ctx, a.leadConn, a.closeCMD)
 
-	logger.Printf("listening for the commands")
+	log.Info(ctx, "listening for the commands")
 
 	for {
 		select {
 		case cmd, ok := <-c:
 			if !ok {
-				logger.Printf("change stream was closed")
+				log.Info(ctx, "change stream was closed")
 				return nil
 			}
 
-			logger.Printf("got command %s, opid: %s", cmd, cmd.OPID)
+			logAttrs := &log.Attrs{
+				Event: string(cmd.Cmd),
+				OPID:  cmd.OPID.String(),
+				Name:  extractNameAttrFromCommand(&cmd),
+			}
+
+			log.InfoAttrs(logAttrs, "got command %s, opid: %s", cmd, cmd.OPID)
 
 			ep, err := config.GetEpoch(ctx, a.leadConn)
 			if err != nil {
-				logger.Error(string(cmd.Cmd), "", cmd.OPID.String(), ep.TS(), "get epoch: %v", err)
-				continue
+				if !errors.Is(err, mongo.ErrNoDocuments) {
+					log.ErrorAttrs(logAttrs, "get epoch: %v", err)
+					continue
+				}
+
+				if cmd.Cmd != ctrl.CmdApplyConfig {
+					log.ErrorAttrs(logAttrs, "cannot run command without PBM config")
+					continue
+				} else {
+					log.WarnAttrs(logAttrs, "no config set")
+				}
 			}
 
-			logger.Printf("got epoch %v", ep)
+			logAttrs.Epoch = ep.TS()
+			cmdCtx := log.Context(ctx, log.WithAttrs(logAttrs))
+
+			log.Debug(cmdCtx, "got epoch %v", ep)
 
 			switch cmd.Cmd {
 			case ctrl.CmdBackup:
 				// backup runs in the go-routine so it can be canceled
-				go a.Backup(ctx, cmd.Backup, cmd.OPID, ep)
+				go a.Backup(cmdCtx, cmd.Backup, cmd.OPID, ep)
 			case ctrl.CmdCancelBackup:
 				a.CancelBackup()
 			case ctrl.CmdRestore:
-				a.Restore(ctx, cmd.Restore, cmd.OPID, ep)
+				a.Restore(cmdCtx, cmd.Restore, cmd.OPID, ep)
 			case ctrl.CmdReplay:
-				a.OplogReplay(ctx, cmd.Replay, cmd.OPID, ep)
+				a.OplogReplay(cmdCtx, cmd.Replay, cmd.OPID, ep)
+			case ctrl.CmdApplyConfig:
+				a.handleApplyConfig(cmdCtx, cmd.Config, cmd.OPID, ep)
 			case ctrl.CmdAddConfigProfile:
-				a.handleAddConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
+				a.handleAddConfigProfile(cmdCtx, cmd.Profile, cmd.OPID, ep)
 			case ctrl.CmdRemoveConfigProfile:
-				a.handleRemoveConfigProfile(ctx, cmd.Profile, cmd.OPID, ep)
+				a.handleRemoveConfigProfile(cmdCtx, cmd.Profile, cmd.OPID, ep)
 			case ctrl.CmdResync:
-				a.Resync(ctx, cmd.Resync, cmd.OPID, ep)
+				a.Resync(cmdCtx, cmd.Resync, cmd.OPID, ep)
 			case ctrl.CmdDeleteBackup:
-				a.Delete(ctx, cmd.Delete, cmd.OPID, ep)
+				a.Delete(cmdCtx, cmd.Delete, cmd.OPID, ep)
 			case ctrl.CmdDeletePITR:
-				a.DeletePITR(ctx, cmd.DeletePITR, cmd.OPID, ep)
+				a.DeletePITR(cmdCtx, cmd.DeletePITR, cmd.OPID, ep)
 			case ctrl.CmdCleanup:
-				a.Cleanup(ctx, cmd.Cleanup, cmd.OPID, ep)
+				a.Cleanup(cmdCtx, cmd.Cleanup, cmd.OPID, ep)
 			}
 		case err, ok := <-cerr:
 			if !ok {
-				logger.Printf("change stream was closed")
+				log.Info(ctx, "change stream was closed")
 				return nil
 			}
 
@@ -211,21 +225,66 @@ func (a *Agent) Start(ctx context.Context) error {
 			}
 
 			ep, _ := config.GetEpoch(ctx, a.leadConn)
-			logger.Error("", "", "", ep.TS(), "listening commands: %v", err)
+			log.Error(log.Context(ctx, log.WithEpoch(ep.TS())), "listening commands: %v", err)
 		}
 	}
 }
 
+func extractNameAttrFromCommand(cmd *ctrl.Cmd) string {
+	switch cmd.Cmd {
+	case ctrl.CmdBackup:
+		if cmd.Backup != nil {
+			return cmd.Backup.Name
+		}
+	case ctrl.CmdRestore:
+		if cmd.Restore != nil {
+			return cmd.Restore.Name
+		}
+	case ctrl.CmdReplay:
+		if cmd.Replay != nil {
+			return cmd.Replay.Name
+		}
+	case ctrl.CmdAddConfigProfile, ctrl.CmdRemoveConfigProfile:
+		if cmd.Profile != nil {
+			return cmd.Profile.Name
+		}
+	case ctrl.CmdResync:
+		if cmd.Resync != nil {
+			return cmd.Resync.Name
+		}
+	case ctrl.CmdDeleteBackup:
+		if cmd.Delete != nil {
+			if cmd.Delete.Name != "" {
+				return cmd.Delete.Name
+			} else if cmd.Delete.OlderThan > 0 {
+				t := time.Unix(cmd.DeletePITR.OlderThan, 0).UTC()
+				return t.Format("2006-01-02T15:04:05Z")
+			}
+		}
+	case ctrl.CmdDeletePITR:
+		if cmd.DeletePITR != nil {
+			t := time.Unix(cmd.DeletePITR.OlderThan, 0).UTC()
+			return t.Format("2006-01-02T15:04:05Z")
+		}
+	case ctrl.CmdCancelBackup:
+		// nothing
+	case ctrl.CmdCleanup:
+		// nothing
+	}
+
+	return ""
+}
+
 // acquireLock tries to acquire the lock. If there is a stale lock
 // it tries to mark op that held the lock (backup, [pitr]restore) as failed.
-func (a *Agent) acquireLock(ctx context.Context, l *lock.Lock, lg log.LogEvent) (bool, error) {
+func (a *Agent) acquireLock(ctx context.Context, l *lock.Lock) (bool, error) {
 	got, err := l.Acquire(ctx)
 	if err == nil {
 		return got, nil
 	}
 
 	if errors.Is(err, lock.DuplicatedOpError{}) || errors.Is(err, lock.ConcurrentOpError{}) {
-		lg.Debug("get lock: %v", err)
+		log.Debug(ctx, "get lock: %v", err)
 		return false, nil
 	}
 
@@ -235,19 +294,29 @@ func (a *Agent) acquireLock(ctx context.Context, l *lock.Lock, lg log.LogEvent) 
 	}
 
 	lck := er.Lock
-	lg.Debug("stale lock: %v", lck)
-	var fn func(context.Context, *lock.Lock, string) error
+	log.Debug(ctx, "stale lock: %v", lck)
+	var fn func(context.Context, string) error
 	switch lck.Type {
 	case ctrl.CmdBackup:
-		fn = markBcpStale
+		fn = func(ctx context.Context, opid string) error {
+			ctx = log.Context(ctx,
+				log.WithEvent(string(ctrl.CmdBackup)),
+				log.WithOPID(lck.OPID))
+			return markBcpStale(ctx, a.leadConn, opid)
+		}
 	case ctrl.CmdRestore:
-		fn = markRestoreStale
+		fn = func(ctx context.Context, opid string) error {
+			ctx = log.Context(ctx,
+				log.WithEvent(string(ctrl.CmdRestore)),
+				log.WithOPID(lck.OPID))
+			return markRestoreStale(ctx, a.leadConn, opid)
+		}
 	default:
 		return l.Acquire(ctx)
 	}
 
-	if err := fn(ctx, l, lck.OPID); err != nil {
-		lg.Warning("failed to mark stale op '%s' as failed: %v", lck.OPID, err)
+	if err := fn(ctx, lck.OPID); err != nil {
+		log.Warn(ctx, "failed to mark stale op '%s' as failed: %v", lck.OPID, err)
 	}
 
 	return l.Acquire(ctx)
@@ -266,35 +335,32 @@ func (a *Agent) HbIsRun() bool {
 }
 
 func (a *Agent) HbStatus(ctx context.Context) {
-	logger := log.FromContext(ctx)
-	l := logger.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
-	ctx = log.SetLogEventToContext(ctx, l)
+	ctx = log.Context(ctx, log.WithEvent("agentCheckup"))
 
 	nodeVersion, err := version.GetMongoVersion(ctx, a.nodeConn)
 	if err != nil {
-		l.Error("get mongo version: %v", err)
+		log.Error(ctx, "get mongo version: %v", err)
 	}
 
 	hb := topo.AgentStat{
-		Node:       a.brief.Me,
-		RS:         a.brief.SetName,
+		Node:       defs.NodeID(),
+		RS:         defs.Replset(),
 		AgentVer:   version.Current().Version,
 		MongoVer:   nodeVersion.VersionString,
 		PerconaVer: nodeVersion.PSMDBVersion,
 	}
 
-	updateAgentStat(ctx, a, l, true, &hb)
+	updateAgentStat(ctx, a, true, &hb)
 	err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
 	if err != nil {
-		l.Error("set status: %v", err)
+		log.Error(ctx, "set status: %v", err)
 	}
 
 	defer func() {
-		l.Debug("deleting agent status")
+		log.Debug(ctx, "deleting agent status")
 		err := topo.RemoveAgentStatus(context.Background(), a.leadConn, hb)
 		if err != nil {
-			logger := logger.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
-			logger.Error("remove agent heartbeat: %v", err)
+			log.Error(ctx, "remove agent heartbeat: %v", err)
 		}
 	}()
 
@@ -315,27 +381,27 @@ func (a *Agent) HbStatus(ctx context.Context) {
 		case <-tk.C:
 			// don't check if on pause (e.g. physical restore)
 			if !a.HbIsRun() {
-				continue
+				continue // TODO: should be "return"
 			}
 
 			now := time.Now()
 			if now.Sub(parallelAgentCheckTime) >= parallelAgentCheckInternval {
-				a.warnIfParallelAgentDetected(ctx, l, hb.Heartbeat)
+				a.warnIfParallelAgentDetected(ctx, hb.Heartbeat)
 				parallelAgentCheckTime = now
 			}
 
 			if now.Sub(storageCheckTime) >= storageCheckInterval {
-				updateAgentStat(ctx, a, l, true, &hb)
+				updateAgentStat(ctx, a, true, &hb)
 				err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
 				if err == nil {
 					storageCheckTime = now
 				}
 			} else {
-				updateAgentStat(ctx, a, l, false, &hb)
+				updateAgentStat(ctx, a, false, &hb)
 				err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
 			}
 			if err != nil {
-				l.Error("set status: %v", err)
+				log.Error(ctx, "set status: %v", err)
 			}
 		}
 	}
@@ -344,18 +410,23 @@ func (a *Agent) HbStatus(ctx context.Context) {
 func updateAgentStat(
 	ctx context.Context,
 	agent *Agent,
-	l log.LogEvent,
 	checkStore bool,
 	hb *topo.AgentStat,
 ) {
 	hb.PBMStatus = agent.pbmStatus(ctx)
-	logHbStatus("PBM connection", hb.PBMStatus, l)
+	if !hb.PBMStatus.OK {
+		log.Error(ctx, "check PBM connection: %s", hb.PBMStatus.Err)
+	}
 
 	hb.NodeStatus = agent.nodeStatus(ctx)
-	logHbStatus("node connection", hb.NodeStatus, l)
+	if !hb.NodeStatus.OK {
+		log.Error(ctx, "check node connection: %s", hb.NodeStatus.Err)
+	}
 
-	hb.StorageStatus = agent.storStatus(ctx, l, checkStore, hb)
-	logHbStatus("storage connection", hb.StorageStatus, l)
+	hb.StorageStatus = agent.storStatus(ctx, checkStore, hb)
+	if !hb.StorageStatus.OK {
+		log.Error(ctx, "check storage connection: %s", hb.StorageStatus.Err)
+	}
 
 	hb.Err = ""
 	hb.Hidden = false
@@ -363,7 +434,7 @@ func updateAgentStat(
 
 	inf, err := topo.GetNodeInfo(ctx, agent.nodeConn)
 	if err != nil {
-		l.Error("get NodeInfo: %v", err)
+		log.Error(ctx, "get NodeInfo: %v", err)
 		hb.Err += fmt.Sprintf("get NodeInfo: %v", err)
 	} else {
 		hb.Hidden = inf.Hidden
@@ -385,9 +456,9 @@ func updateAgentStat(
 		hb.State = defs.NodeStateArbiter
 		hb.StateStr = "ARBITER"
 	} else {
-		n, err := topo.GetNodeStatus(ctx, agent.nodeConn, agent.brief.Me)
+		n, err := topo.GetNodeStatus(ctx, agent.nodeConn, defs.NodeID())
 		if err != nil {
-			l.Error("get replSetGetStatus: %v", err)
+			log.Error(ctx, "get replSetGetStatus: %v", err)
 			hb.Err += fmt.Sprintf("get replSetGetStatus: %v", err)
 			hb.State = defs.NodeStateUnknown
 			hb.StateStr = "UNKNOWN"
@@ -395,9 +466,9 @@ func updateAgentStat(
 			hb.State = n.State
 			hb.StateStr = n.StateStr
 
-			rLag, err := topo.ReplicationLag(ctx, agent.nodeConn, agent.brief.Me)
+			rLag, err := topo.ReplicationLag(ctx, agent.nodeConn, defs.NodeID())
 			if err != nil {
-				l.Error("get replication lag: %v", err)
+				log.Error(ctx, "get replication lag: %v", err)
 				hb.Err += fmt.Sprintf("get replication lag: %v", err)
 			}
 			hb.ReplicationLag = rLag
@@ -407,19 +478,18 @@ func updateAgentStat(
 
 func (a *Agent) warnIfParallelAgentDetected(
 	ctx context.Context,
-	l log.LogEvent,
 	lastHeartbeat primitive.Timestamp,
 ) {
-	s, err := topo.GetAgentStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
+	s, err := topo.GetAgentStatus(ctx, a.leadConn, defs.Replset(), defs.NodeID())
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return
 		}
-		l.Error("detecting parallel agent: get status: %v", err)
+		log.Error(ctx, "detecting parallel agent: get status: %v", err)
 		return
 	}
 	if !s.Heartbeat.Equal(lastHeartbeat) {
-		l.Warning("detected possible parallel agent for the node: "+
+		log.Warn(ctx, "detected possible parallel agent for the node: "+
 			"expected last heartbeat to be %d.%d, actual is %d.%d",
 			lastHeartbeat.T, lastHeartbeat.I, s.Heartbeat.T, s.Heartbeat.I)
 		return
@@ -446,7 +516,6 @@ func (a *Agent) nodeStatus(ctx context.Context) topo.SubsysStatus {
 
 func (a *Agent) storStatus(
 	ctx context.Context,
-	log log.LogEvent,
 	forceCheckStorage bool,
 	stat *topo.AgentStat,
 ) topo.SubsysStatus {
@@ -456,7 +525,7 @@ func (a *Agent) storStatus(
 		return topo.SubsysStatus{OK: true}
 	}
 
-	stg, err := util.GetStorage(ctx, a.leadConn, a.brief.Me, log)
+	stg, err := util.GetStorage(ctx, a.leadConn, defs.NodeID())
 	if err != nil {
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
@@ -467,14 +536,8 @@ func (a *Agent) storStatus(
 		return topo.SubsysStatus{Err: errStr}
 	}
 	if !ok {
-		log.Warning("storage is not initialized")
+		log.Warn(ctx, "storage is not initialized")
 	}
 
 	return topo.SubsysStatus{OK: true}
-}
-
-func logHbStatus(name string, st topo.SubsysStatus, l log.LogEvent) {
-	if !st.OK {
-		l.Error("check %s: %s", name, st.Err)
-	}
 }

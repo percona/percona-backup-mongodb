@@ -106,16 +106,30 @@ func (a *Agent) sliceNow(opid ctrl.OPID) {
 
 // PITR starts PITR processing routine
 func (a *Agent) PITR(ctx context.Context) {
-	l := log.FromContext(ctx)
-	l.Printf("starting PITR routine")
+	attrs := &log.Attrs{Event: string(ctrl.CmdPITR)}
+	log.Info(log.Context(ctx, log.WithAttrs(attrs)), "starting PITR routine")
 
 	for {
-		err := a.pitr(ctx)
+		cfg, err := config.GetConfig(ctx, a.leadConn)
+		if err != nil {
+			if !errors.Is(err, mongo.ErrNoDocuments) {
+				log.Error(ctx, "get config: %v", err)
+				time.Sleep(pitrCheckPeriod)
+				continue
+			}
+			cfg = &config.Config{
+				PITR: &config.PITRConf{},
+			}
+		}
+
+		attrs.Epoch = cfg.Epoch
+		ctx := log.Context(ctx, log.WithAttrs(attrs))
+
+		err = a.pitr(ctx, cfg)
 		if err != nil {
 			// we need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
-			ep, _ := config.GetEpoch(ctx, a.leadConn)
-			l.Error(string(ctrl.CmdPITR), "", "", ep.TS(), "init: %v", err)
+			log.Error(ctx, "init: %v", err)
 		}
 
 		time.Sleep(pitrCheckPeriod)
@@ -160,23 +174,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.Stor
 	return nil
 }
 
-func (a *Agent) pitr(ctx context.Context) error {
-	cfg, err := config.GetConfig(ctx, a.leadConn)
-	if err != nil {
-		if !errors.Is(err, mongo.ErrNoDocuments) {
-			return errors.Wrap(err, "get conf")
-		}
-		cfg = &config.Config{
-			PITR: &config.PITRConf{},
-		}
-	}
-
-	slicerInterval := cfg.OplogSlicerInterval()
-
-	ep := config.Epoch(cfg.Epoch)
-	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdPITR), "", "", ep.TS())
-	ctx = log.SetLogEventToContext(ctx, l)
-
+func (a *Agent) pitr(ctx context.Context, cfg *config.Config) error {
 	if !cfg.PITR.Enabled {
 		a.removePitr()
 		a.stopMon()
@@ -186,13 +184,15 @@ func (a *Agent) pitr(ctx context.Context) error {
 	if err := canSlicingNow(ctx, a.leadConn, &cfg.Storage); err != nil {
 		e := lock.ConcurrentOpError{}
 		if errors.As(err, &e) {
-			l.Info("oplog slicer is paused for lock [%s, opid: %s]", e.Lock.Type, e.Lock.OPID)
+			log.Info(ctx, "oplog slicer is paused for lock [%s, opid: %s]",
+				e.Lock.Type, e.Lock.OPID)
 			return nil
 		}
 
 		return errors.Wrap(err, "can slicing now")
 	}
 
+	slicerInterval := cfg.OplogSlicerInterval()
 	if p := a.getPitr(); p != nil {
 		// todo: remove this span changing detaction to leader
 		// already do the job
@@ -250,50 +250,49 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return errors.Wrap(err, "wait nomination for pitr")
 	}
 	if !nominated {
-		l.Debug("skip after pitr nomination, probably started by another node")
+		log.Debug(ctx, "skip after pitr nomination, probably started by another node")
 		return nil
 	}
 
-	epts := ep.TS()
 	lck := lock.NewOpLock(a.leadConn, lock.LockHeader{
-		Replset: a.brief.SetName,
-		Node:    a.brief.Me,
+		Replset: defs.Replset(),
+		Node:    defs.NodeID(),
 		Type:    ctrl.CmdPITR,
-		Epoch:   &epts,
+		Epoch:   util.Ref(cfg.Epoch),
 	})
 
-	got, err := a.acquireLock(ctx, lck, l)
+	got, err := a.acquireLock(ctx, lck)
 	if err != nil {
 		return errors.Wrap(err, "acquiring lock")
 	}
 	if !got {
-		l.Debug("skip: lock not acquired")
+		log.Debug(ctx, "skip: lock not acquired")
 		return nil
 	}
-	err = oplog.SetPITRNomineeACK(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
+	err = oplog.SetPITRNomineeACK(ctx, a.leadConn, defs.Replset(), defs.NodeID())
 	if err != nil {
-		l.Error("set nominee ack: %v", err)
+		log.Error(ctx, "set nominee ack: %v", err)
 	}
 
 	defer func() {
 		if err != nil {
-			l.Debug("setting RS error status for err: %v", err)
+			log.Debug(ctx, "setting RS error status for err: %v", err)
 			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error()); err != nil {
-				l.Error("error while setting error status: %v", err)
+				log.Error(ctx, "error while setting error status: %v", err)
 			}
 		}
 	}()
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, a.brief.Me, l)
+	stg, err := util.StorageFromConfig(ctx, &cfg.Storage, defs.NodeID())
 	if err != nil {
 		if err := lck.Release(); err != nil {
-			l.Error("release lock: %v", err)
+			log.Error(ctx, "release lock: %v", err)
 		}
 		err = errors.Wrap(err, "unable to get storage configuration")
 		return err
 	}
 
-	s := slicer.NewSlicer(a.brief.SetName, a.leadConn, a.nodeConn, stg, cfg, log.FromContext(ctx))
+	s := slicer.NewSlicer(defs.Replset(), a.leadConn, a.nodeConn, stg, cfg)
 	s.SetSpan(slicerInterval)
 
 	if cfg.PITR.OplogOnly {
@@ -303,7 +302,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 	if err != nil {
 		if err := lck.Release(); err != nil {
-			l.Error("release lock: %v", err)
+			log.Error(ctx, "release lock: %v", err)
 		}
 		err = errors.Wrap(err, "catchup")
 		return err
@@ -336,17 +335,17 @@ func (a *Agent) pitr(ctx context.Context) error {
 				case <-tk.C:
 					cStatus, isHbStale := a.getPITRClusterAndStaleStatus(ctx)
 					if cStatus == oplog.StatusReconfig {
-						l.Debug("stop slicing because of reconfig")
+						log.Debug(ctx, "stop slicing because of reconfig")
 						stopSlicing()
 						return
 					}
 					if cStatus == oplog.StatusError {
-						l.Debug("stop slicing because of error")
+						log.Debug(ctx, "stop slicing because of error")
 						stopSlicing()
 						return
 					}
 					if isHbStale {
-						l.Debug("stop slicing because PITR heartbeat is stale")
+						log.Debug(ctx, "stop slicing because PITR heartbeat is stale")
 						stopSlicing()
 						return
 					}
@@ -371,15 +370,15 @@ func (a *Agent) pitr(ctx context.Context) error {
 			monitorPrio,
 		)
 		if streamErr != nil {
-			l.Error("streaming oplog: %v", streamErr)
+			log.Error(ctx, "streaming oplog: %v", streamErr)
 			retErr := errors.Wrap(streamErr, "streaming oplog")
 			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
-				l.Error("setting RS status to StatusError: %v", err)
+				log.Error(ctx, "setting RS status to StatusError: %v", err)
 			}
 		}
 
 		if err := lck.Release(); err != nil {
-			l.Error("release lock: %v", err)
+			log.Error(ctx, "release lock: %v", err)
 		}
 	}()
 
@@ -392,29 +391,27 @@ func (a *Agent) leadNomination(
 	ctx context.Context,
 	cfgPrio config.Priority,
 ) {
-	l := log.LogEventFromContext(ctx)
-
-	l.Debug("checking locks in the whole cluster")
+	log.Debug(ctx, "checking locks in the whole cluster")
 	noLocks, err := a.waitAllOpLockRelease(ctx)
 	if err != nil {
-		l.Error("wait for all oplock release: %v", err)
+		log.Error(ctx, "wait for all oplock release: %v", err)
 		return
 	}
 	if !noLocks {
-		l.Debug("there are still working pitr members, members nomination will not be continued")
+		log.Debug(ctx, "there are still working pitr members, members nomination will not be continued")
 		return
 	}
 
-	l.Debug("init pitr meta on the first usage")
+	log.Debug(ctx, "init pitr meta on the first usage")
 	err = oplog.InitMeta(ctx, a.leadConn)
 	if err != nil {
-		l.Error("init meta: %v", err)
+		log.Error(ctx, "init meta: %v", err)
 		return
 	}
 
 	candidates, err := topo.ListSteadyAgents(ctx, a.leadConn)
 	if err != nil {
-		l.Error("get agents list: %v", err)
+		log.Error(ctx, "get agents list: %v", err)
 		return
 	}
 
@@ -422,42 +419,41 @@ func (a *Agent) leadNomination(
 
 	shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
 	if err != nil {
-		l.Error("get cluster members: %v", err)
+		log.Error(ctx, "get cluster members: %v", err)
 		return
 	}
 
-	l.Debug("cluster is ready for nomination")
+	log.Debug(ctx, "cluster is ready for nomination")
 	err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReady)
 	if err != nil {
-		l.Error("set cluster status ready: %v", err)
+		log.Error(ctx, "set cluster status ready: %v", err)
 		return
 	}
 
 	err = a.reconcileReadyStatus(ctx, candidates)
 	if err != nil {
-		l.Error("reconciling ready status: %v", err)
+		log.Error(ctx, "reconciling ready status: %v", err)
 		return
 	}
 
-	l.Debug("cluster leader sets running status")
+	log.Debug(ctx, "cluster leader sets running status")
 	err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusRunning)
 	if err != nil {
-		l.Error("set running status: %v", err)
+		log.Error(ctx, "set running status: %v", err)
 		return
 	}
 
 	for _, sh := range shards {
 		go func(rs string) {
 			if err := a.nominateRSForPITR(ctx, rs, nodes.RS(rs)); err != nil {
-				l.Error("nodes nomination error for %s: %v", rs, err)
+				log.Error(ctx, "nodes nomination error for %s: %v", rs, err)
 			}
 		}(sh.RS)
 	}
 }
 
 func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]string) error {
-	l := log.LogEventFromContext(ctx)
-	l.Debug("pitr nomination list for %s: %v", rs, nodes)
+	log.Debug(ctx, "pitr nomination list for %s: %v", rs, nodes)
 	err := oplog.SetPITRNomination(ctx, a.leadConn, rs)
 	if err != nil {
 		return errors.Wrap(err, "set pitr nomination meta")
@@ -468,7 +464,7 @@ func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]stri
 		if err != nil {
 			return errors.Wrap(err, "set pitr nominees")
 		}
-		l.Debug("pitr nomination %s, set candidates %v", rs, n)
+		log.Debug(ctx, "pitr nomination %s, set candidates %v", rs, n)
 
 		time.Sleep(pitrRenominationFrame)
 
@@ -477,7 +473,7 @@ func (a *Agent) nominateRSForPITR(ctx context.Context, rs string, nodes [][]stri
 			return errors.Wrap(err, "get pitr nominees")
 		}
 		if nms != nil && len(nms.Ack) > 0 {
-			l.Debug("pitr nomination: %s won by %s", rs, nms.Ack)
+			log.Debug(ctx, "pitr nomination: %s won by %s", rs, nms.Ack)
 			return nil
 		}
 	}
@@ -492,7 +488,7 @@ func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 	}
 
 	tl, err := lock.GetOpLockData(ctx, a.leadConn, &lock.LockHeader{
-		Replset: a.brief.SetName,
+		Replset: defs.Replset(),
 		Type:    ctrl.CmdPITR,
 	})
 	if err != nil {
@@ -511,8 +507,6 @@ func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 // waitAllOpLockRelease waits to not have any live OpLock and in such a case returns true.
 // Waiting process duration is deadlined, and in that case false will be returned.
 func (a *Agent) waitAllOpLockRelease(ctx context.Context) (bool, error) {
-	l := log.LogEventFromContext(ctx)
-
 	tick := time.NewTicker(pitrOpLockPollingCycle)
 	defer tick.Stop()
 
@@ -529,9 +523,9 @@ func (a *Agent) waitAllOpLockRelease(ctx context.Context) (bool, error) {
 			if !running {
 				return true, nil
 			}
-			l.Debug("oplog slicing still running")
+			log.Debug(ctx, "oplog slicing still running")
 		case <-tout.C:
-			l.Warning("timeout while waiting for relese all OpLocks")
+			log.Warn(ctx, "timeout while waiting for relese all OpLocks")
 			return false, nil
 		}
 	}
@@ -545,8 +539,6 @@ func (a *Agent) waitAllOpLockRelease(ctx context.Context) (bool, error) {
 // If Ack is found in fetched fragment, that means that another member confirmed
 // nomination, so in that case current member lost nomination and false is returned.
 func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (bool, error) {
-	l := log.LogEventFromContext(ctx)
-
 	err := a.confirmReadyStatus(ctx)
 	if err != nil {
 		return false, errors.Wrap(err, "confirming ready status")
@@ -557,7 +549,7 @@ func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (boo
 	tout := time.NewTimer(pitrNominationPollingTimeOut)
 	defer tout.Stop()
 
-	l.Debug("waiting pitr nomination")
+	log.Debug(ctx, "waiting pitr nomination")
 	for {
 		select {
 		case <-tk.C:
@@ -583,14 +575,12 @@ func (a *Agent) waitNominationForPITR(ctx context.Context, rs, node string) (boo
 }
 
 func (a *Agent) confirmReadyStatus(ctx context.Context) error {
-	l := log.LogEventFromContext(ctx)
-
 	tk := time.NewTicker(pitrNominationPollingCycle)
 	defer tk.Stop()
 	tout := time.NewTimer(pitrNominationPollingTimeOut)
 	defer tout.Stop()
 
-	l.Debug("waiting for cluster ready status")
+	log.Debug(ctx, "waiting for cluster ready status")
 	for {
 		select {
 		case <-tk.C:
@@ -602,7 +592,7 @@ func (a *Agent) confirmReadyStatus(ctx context.Context) error {
 				return errors.Wrap(err, "getting cluser status")
 			}
 			if status == oplog.StatusReady {
-				err = oplog.SetReadyRSStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
+				err = oplog.SetReadyRSStatus(ctx, a.leadConn, defs.Replset(), defs.NodeID())
 				if err != nil {
 					return errors.Wrap(err, "setting ready status for RS")
 				}
@@ -617,15 +607,13 @@ func (a *Agent) confirmReadyStatus(ctx context.Context) error {
 // reconcileReadyStatus waits all members to confirm Ready status.
 // In case of timeout Ready status will be removed.
 func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentStat) error {
-	l := log.LogEventFromContext(ctx)
-
 	tk := time.NewTicker(pitrNominationPollingCycle)
 	defer tk.Stop()
 
 	tout := time.NewTimer(pitrNominationPollingTimeOut)
 	defer tout.Stop()
 
-	l.Debug("reconciling ready status from all agents")
+	log.Debug(ctx, "reconciling ready status from all agents")
 	for {
 		select {
 		case <-tk.C:
@@ -636,14 +624,14 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 				}
 				return errors.Wrap(err, "getting all nodes with ready status")
 			}
-			l.Debug("agents in ready: %d; waiting for agents: %d", len(nodes), len(agents))
+			log.Debug(ctx, "agents in ready: %d; waiting for agents: %d", len(nodes), len(agents))
 			if len(nodes) >= len(agents) {
 				return nil
 			}
 		case <-tout.C:
 			// clean up cluster Ready status to not have an issue in next run
 			if err := oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusUnset); err != nil {
-				l.Error("error while cleaning cluster status: %v", err)
+				log.Error(ctx, "error while cleaning cluster status: %v", err)
 			}
 			return errors.New("timeout while reconciling ready status")
 		}
@@ -653,20 +641,19 @@ func (a *Agent) reconcileReadyStatus(ctx context.Context, agents []topo.AgentSta
 // getPITRClusterAndStaleStatus gets cluster and heartbeat stale status from pbmPITR collection.
 // In case of error, it returns StatusUnset and HB non stale status, and logs the error.
 func (a *Agent) getPITRClusterAndStaleStatus(ctx context.Context) (oplog.Status, bool) {
-	l := log.LogEventFromContext(ctx)
 	isStale := false
 
 	meta, err := oplog.GetMeta(ctx, a.leadConn)
 	if err != nil {
 		if !errors.Is(err, errors.ErrNotFound) {
-			l.Error("getting metta for reconfig status check: %v", err)
+			log.Error(ctx, "getting metta for reconfig status check: %v", err)
 		}
 		return oplog.StatusUnset, isStale
 	}
 
 	ts, err := topo.GetClusterTime(ctx, a.leadConn)
 	if err != nil {
-		l.Error("read cluster time for pitr stale check: %v", err)
+		log.Error(ctx, "read cluster time for pitr stale check: %v", err)
 		return meta.Status, isStale
 	}
 	isStale = meta.Hb.T+defs.StaleFrameSec < ts.T
@@ -678,9 +665,8 @@ func (a *Agent) getPITRClusterAndStaleStatus(ctx context.Context) (oplog.Status,
 // If relevant changes are detected (e.g. priorities, oplogOnly), it sets
 // Reconfig cluster status, which means that slicing process needs to be restarted.
 func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config) {
-	l := log.LogEventFromContext(ctx)
-	l.Debug("start pitr config monitor")
-	defer l.Debug("stop pitr config monitor")
+	log.Debug(ctx, "start pitr config monitor")
+	defer log.Debug(ctx, "stop pitr config monitor")
 
 	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
 	defer tk.Stop()
@@ -693,7 +679,7 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 			cfg, err := config.GetConfig(ctx, a.leadConn)
 			if err != nil {
 				if !errors.Is(err, mongo.ErrNoDocuments) {
-					l.Error("error while monitoring for pitr conf change: %v", err)
+					log.Error(ctx, "error while monitoring for pitr conf change: %v", err)
 				}
 				continue
 			}
@@ -713,10 +699,10 @@ func (a *Agent) pitrConfigMonitor(ctx context.Context, firstConf *config.Config)
 
 			// there are differences between privious and new config in following
 			// fields: Priority, OplogOnly, (OplogSpanMin)
-			l.Info("pitr config has changed, re-config will be done")
+			log.Info(ctx, "pitr config has changed, re-config will be done")
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
 			if err != nil {
-				l.Error("error while setting cluster status reconfig: %v", err)
+				log.Error(ctx, "error while setting cluster status reconfig: %v", err)
 			}
 			currConf, currEpoh = cfg.PITR, cfg.Epoch
 
@@ -748,9 +734,8 @@ func isPITRConfigChanged(c1, c2 *config.PITRConf) bool {
 }
 
 func (a *Agent) pitrTopoMonitor(ctx context.Context) {
-	l := log.LogEventFromContext(ctx)
-	l.Debug("start pitr topo monitor")
-	defer l.Debug("stop pitr topo monitor")
+	log.Debug(ctx, "start pitr topo monitor")
+	defer log.Debug(ctx, "stop pitr topo monitor")
 
 	tk := time.NewTicker(pitrTopoMonitorPollingCycle)
 	defer tk.Stop()
@@ -760,7 +745,7 @@ func (a *Agent) pitrTopoMonitor(ctx context.Context) {
 		case <-tk.C:
 			nodeInfo, err := topo.GetNodeInfo(ctx, a.nodeConn)
 			if err != nil {
-				l.Error("topo monitor node info error", err)
+				log.Error(ctx, "topo monitor node info error", err)
 				continue
 			}
 
@@ -768,10 +753,10 @@ func (a *Agent) pitrTopoMonitor(ctx context.Context) {
 				continue
 			}
 
-			l.Info("topo/cluster leader has changed, re-configuring pitr members")
+			log.Info(ctx, "topo/cluster leader has changed, re-configuring pitr members")
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
 			if err != nil {
-				l.Error("topo monitor reconfig status set", err)
+				log.Error(ctx, "topo monitor reconfig status set", err)
 				continue
 			}
 			a.removePitr()
@@ -789,9 +774,8 @@ func (a *Agent) pitrTopoMonitor(ctx context.Context) {
 }
 
 func (a *Agent) pitrActivityMonitor(ctx context.Context) {
-	l := log.LogEventFromContext(ctx)
-	l.Debug("start pitr agent activity monitor")
-	defer l.Debug("stop pitr agent activity monitor")
+	log.Debug(ctx, "start pitr agent activity monitor")
+	defer log.Debug(ctx, "stop pitr agent activity monitor")
 
 	tk := time.NewTicker(pitrActivityMonitorPollingCycle)
 	defer tk.Stop()
@@ -804,7 +788,7 @@ func (a *Agent) pitrActivityMonitor(ctx context.Context) {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
 				}
-				l.Error("agent activity get cluster status", err)
+				log.Error(ctx, "agent activity get cluster status", err)
 				continue
 			}
 			if status != oplog.StatusRunning {
@@ -813,13 +797,13 @@ func (a *Agent) pitrActivityMonitor(ctx context.Context) {
 
 			ackedAgents, err := oplog.GetAgentsWithACK(ctx, a.leadConn)
 			if err != nil {
-				l.Error("activity get acked agents", err)
+				log.Error(ctx, "activity get acked agents", err)
 				continue
 			}
 
 			activeLocks, err := oplog.FetchSlicersWithActiveLocks(ctx, a.leadConn)
 			if err != nil {
-				l.Error("fetching active pitr locks", err)
+				log.Error(ctx, "fetching active pitr locks", err)
 				continue
 			}
 
@@ -827,12 +811,12 @@ func (a *Agent) pitrActivityMonitor(ctx context.Context) {
 				continue
 			}
 
-			l.Debug("expected agents: %v; working agents: %v", ackedAgents, activeLocks)
+			log.Debug(ctx, "expected agents: %v; working agents: %v", ackedAgents, activeLocks)
 
-			l.Info("not all ack agents are working, re-configuring pitr members")
+			log.Info(ctx, "not all ack agents are working, re-configuring pitr members")
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusReconfig)
 			if err != nil {
-				l.Error("activity monitor reconfig status set", err)
+				log.Error(ctx, "activity monitor reconfig status set", err)
 				continue
 			}
 			a.removePitr()
@@ -854,9 +838,8 @@ func (a *Agent) pitrActivityMonitor(ctx context.Context) {
 // In case of any reported error within pbmPITR collection (replicaset subdoc),
 // cluster status Error is set.
 func (a *Agent) pitrErrorMonitor(ctx context.Context) {
-	l := log.LogEventFromContext(ctx)
-	l.Debug("start pitr error monitor")
-	defer l.Debug("stop pitr error monitor")
+	log.Debug(ctx, "start pitr error monitor")
+	defer log.Debug(ctx, "stop pitr error monitor")
 
 	tk := time.NewTicker(pitrWatchMonitorPollingCycle)
 	defer tk.Stop()
@@ -869,17 +852,17 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
 				}
-				l.Error("get error replsets", err)
+				log.Error(ctx, "get error replsets", err)
 			}
 
 			if len(replsets) == 0 {
 				continue
 			}
 
-			l.Debug("error while executing pitr, pitr procedure will be restarted")
+			log.Debug(ctx, "error while executing pitr, pitr procedure will be restarted")
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusError)
 			if err != nil {
-				l.Error("error while setting cluster status Error: %v", err)
+				log.Error(ctx, "error while setting cluster status Error: %v", err)
 			}
 
 		case <-ctx.Done():
@@ -893,9 +876,8 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 
 // pitrHB job sets PITR heartbeat.
 func (a *Agent) pitrHb(ctx context.Context) {
-	l := log.LogEventFromContext(ctx)
-	l.Debug("start pitr hb")
-	defer l.Debug("stop pitr hb")
+	log.Debug(ctx, "start pitr hb")
+	defer log.Debug(ctx, "stop pitr hb")
 
 	tk := time.NewTicker(pitrHb)
 	defer tk.Stop()
@@ -905,7 +887,7 @@ func (a *Agent) pitrHb(ctx context.Context) {
 		case <-tk.C:
 			err := oplog.SetHbForPITR(ctx, a.leadConn)
 			if err != nil {
-				l.Error("error while setting hb for pitr: %v", err)
+				log.Error(ctx, "error while setting hb for pitr: %v", err)
 			}
 
 		case <-ctx.Done():

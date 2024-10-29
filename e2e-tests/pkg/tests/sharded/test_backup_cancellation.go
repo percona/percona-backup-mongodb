@@ -73,12 +73,12 @@ func listAllFiles(confFilepath string) ([]storage.FileInfo, error) {
 		return nil, errors.Wrap(err, "parse config")
 	}
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, "", nil)
+	stg, err := util.StorageFromConfig(context.Background(), &cfg.Storage, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "storage from config")
 	}
 
-	files, err := stg.List("", "")
+	files, err := stg.List(context.Background(), "", "")
 	if err != nil {
 		return nil, errors.Wrap(err, "list files")
 	}

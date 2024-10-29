@@ -36,18 +36,18 @@ type FileInfo struct {
 
 type Storage interface {
 	Type() Type
-	Save(name string, data io.Reader, size int64) error
-	SourceReader(name string) (io.ReadCloser, error)
+	Save(ctx context.Context, name string, data io.Reader, size int64) error
+	SourceReader(ctx context.Context, name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists.
-	FileStat(name string) (FileInfo, error)
+	FileStat(ctx context.Context, name string) (FileInfo, error)
 	// List scans path with prefix and returns all files with given suffix.
 	// Both prefix and suffix can be omitted.
-	List(prefix, suffix string) ([]FileInfo, error)
+	List(ctx context.Context, prefix, suffix string) ([]FileInfo, error)
 	// Delete deletes given file.
 	// It returns storage.ErrNotExist if a file doesn't exists.
-	Delete(name string) error
+	Delete(ctx context.Context, name string) error
 	// Copy makes a copy of the src objec/file under dst name
-	Copy(src, dst string) error
+	Copy(ctx context.Context, src, dst string) error
 }
 
 // ParseType parses string and returns storage type
@@ -68,7 +68,7 @@ func ParseType(s string) Type {
 
 // IsInitialized checks if there is PBM init file on the storage.
 func IsInitialized(ctx context.Context, stg Storage) (bool, error) {
-	_, err := stg.FileStat(defs.StorInitFile)
+	_, err := stg.FileStat(ctx, defs.StorInitFile)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
 			return false, nil
@@ -86,7 +86,7 @@ func IsInitialized(ctx context.Context, stg Storage) (bool, error) {
 //
 // ErrUninitialized is returned if there is no init file.
 func HasReadAccess(ctx context.Context, stg Storage) error {
-	stat, err := stg.FileStat(defs.StorInitFile)
+	stat, err := stg.FileStat(ctx, defs.StorInitFile)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
 			return ErrUninitialized
@@ -95,15 +95,14 @@ func HasReadAccess(ctx context.Context, stg Storage) error {
 		return errors.Wrap(err, "file stat")
 	}
 
-	r, err := stg.SourceReader(defs.StorInitFile)
+	r, err := stg.SourceReader(ctx, defs.StorInitFile)
 	if err != nil {
 		return errors.Wrap(err, "open file")
 	}
 	defer func() {
 		err := r.Close()
 		if err != nil {
-			log.LogEventFromContext(ctx).
-				Error("HasReadAccess(): close file: %v", err)
+			log.Error(ctx, "HasReadAccess(): close file: %v", err)
 		}
 	}()
 
@@ -202,7 +201,7 @@ func Upload(
 
 	saveDone := make(chan struct{})
 	go func() {
-		rwErr.write = dst.Save(fname, r, sizeb)
+		rwErr.write = dst.Save(ctx, fname, r, sizeb)
 		saveDone <- struct{}{}
 	}()
 

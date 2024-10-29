@@ -28,7 +28,6 @@ func startOplogSlicer(
 	startOpTime primitive.Timestamp,
 	upload uploadChunkFunc,
 ) stopSlicerFunc {
-	l := log.LogEventFromContext(ctx)
 	var uploaded int64
 	var err error
 
@@ -57,7 +56,7 @@ func startOplogSlicer(
 
 			majority, err := topo.IsWriteMajorityRequested(ctx, m, writeConcern)
 			if err != nil {
-				l.Error("failed to inspect requested majority: %v", err)
+				log.Error(ctx, "failed to inspect requested majority: %v", err)
 			}
 			currOpTime, err := topo.GetLastWrite(ctx, m, majority)
 			if err != nil {
@@ -65,7 +64,7 @@ func startOplogSlicer(
 					return
 				}
 
-				l.Error("failed to get last write: %v", err)
+				log.Error(ctx, "failed to get last write: %v", err)
 				continue
 			}
 			if !currOpTime.After(startOpTime) {
@@ -81,7 +80,7 @@ func startOplogSlicer(
 					return
 				}
 
-				l.Error("failed to upload oplog: %v", err)
+				log.Error(ctx, "failed to upload oplog: %v", err)
 				continue
 			}
 
@@ -92,7 +91,7 @@ func startOplogSlicer(
 				nextChunkT := time.Now().Add(interval)
 				logm += fmt.Sprintf(". Next chunk creation scheduled to begin at ~%s", nextChunkT)
 			}
-			l.Info(logm)
+			log.Info(ctx, logm)
 
 			startOpTime = currOpTime
 			uploaded += n

@@ -2,6 +2,7 @@ package s3
 
 import (
 	"container/heap"
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"fmt"
@@ -76,9 +77,10 @@ type Download struct {
 	stat DownloadStat
 }
 
-func (s *S3) NewDownload(cc, bufSizeMb, spanSizeMb int) *Download {
+func (s *S3) NewDownload(ctx context.Context, cc, bufSizeMb, spanSizeMb int) *Download {
 	arenaSize, spanSize, cc := downloadOpts(cc, bufSizeMb, spanSizeMb)
-	s.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+	log.Debug(ctx, "download max buf %d (arena %d, span %d, concurrency %d)",
+		arenaSize*cc, arenaSize, spanSize, cc)
 
 	arenas := []*arena{}
 	for i := 0; i < cc; i++ {
@@ -143,8 +145,8 @@ func downloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 	return spanSize * (bufSize / cc / spanSize), spanSize, cc
 }
 
-func (d *Download) SourceReader(name string) (io.ReadCloser, error) {
-	return d.s3.sourceReader(name, d.arenas, d.cc, d.spanSize)
+func (d *Download) SourceReader(ctx context.Context, name string) (io.ReadCloser, error) {
+	return d.s3.sourceReader(ctx, name, d.arenas, d.cc, d.spanSize)
 }
 
 func (d *Download) Stat() DownloadStat {
@@ -156,8 +158,8 @@ func (d *Download) Stat() DownloadStat {
 	return d.stat
 }
 
-func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	return s.d.SourceReader(name)
+func (s *S3) SourceReader(ctx context.Context, name string) (io.ReadCloser, error) {
+	return s.d.SourceReader(ctx, name)
 }
 
 type getObjError struct {
@@ -188,8 +190,7 @@ type partReader struct {
 	written   int64
 	chunkSize int64
 
-	getSess func() (*s3.S3, error)
-	l       log.LogEvent
+	getSess func(context.Context) (*s3.S3, error)
 	opts    *Config
 	buf     []byte // preallocated buf for io.Copy
 
@@ -201,14 +202,13 @@ type partReader struct {
 
 func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader {
 	return &partReader{
-		l:         s.log,
 		buf:       make([]byte, 32*1024),
 		opts:      s.opts,
 		fname:     fname,
 		fsize:     fsize,
 		chunkSize: int64(chunkSize),
-		getSess: func() (*s3.S3, error) {
-			sess, err := s.s3session()
+		getSess: func(ctx context.Context) (*s3.S3, error) {
+			sess, err := s.s3session(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -243,7 +243,13 @@ func (b *chunksQueue) Pop() any {
 	return x
 }
 
-func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize int) (io.ReadCloser, error) {
+func (s *S3) sourceReader(
+	ctx context.Context,
+	fname string,
+	arenas []*arena,
+	cc int,
+	downloadChuckSize int,
+) (io.ReadCloser, error) {
 	if cc < 1 {
 		return nil, errors.Errorf("num of workers shuld be at least 1 (got %d)", cc)
 	}
@@ -251,7 +257,7 @@ func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize i
 		return nil, errors.Errorf("num of arenas (%d) less then workers (%d)", len(arenas), cc)
 	}
 
-	fstat, err := s.FileStat(fname)
+	fstat, err := s.FileStat(ctx, fname)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
 	}
@@ -261,7 +267,7 @@ func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize i
 	go func() {
 		pr := s.newPartReader(fname, fstat.Size, downloadChuckSize)
 
-		pr.Run(cc, arenas)
+		pr.Run(ctx, cc, arenas)
 
 		exitErr := io.EOF
 		defer func() {
@@ -316,7 +322,7 @@ func (s *S3) sourceReader(fname string, arenas []*arena, cc, downloadChuckSize i
 	return r, nil
 }
 
-func (pr *partReader) Run(concurrency int, arenas []*arena) {
+func (pr *partReader) Run(ctx context.Context, concurrency int, arenas []*arena) {
 	pr.taskq = make(chan chunkMeta, concurrency)
 	pr.resultq = make(chan chunk)
 	pr.errc = make(chan error)
@@ -335,7 +341,7 @@ func (pr *partReader) Run(concurrency int, arenas []*arena) {
 	}()
 
 	for i := 0; i < concurrency; i++ {
-		go pr.worker(arenas[i])
+		go pr.worker(ctx, arenas[i])
 	}
 }
 
@@ -355,8 +361,8 @@ func (pr *partReader) writeChunk(r *chunk, to io.Writer) error {
 	return err
 }
 
-func (pr *partReader) worker(buf *arena) {
-	sess, err := pr.getSess()
+func (pr *partReader) worker(ctx context.Context, buf *arena) {
+	sess, err := pr.getSess(ctx)
 	if err != nil {
 		pr.errc <- errors.Wrap(err, "create session")
 		return
@@ -365,7 +371,7 @@ func (pr *partReader) worker(buf *arena) {
 	for {
 		select {
 		case ch := <-pr.taskq:
-			r, err := pr.retryChunk(buf, sess, ch.start, ch.end, downloadRetries)
+			r, err := pr.retryChunk(ctx, buf, sess, ch.start, ch.end, downloadRetries)
 			if err != nil {
 				pr.errc <- err
 				return
@@ -379,37 +385,51 @@ func (pr *partReader) worker(buf *arena) {
 	}
 }
 
-func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries int) (io.ReadCloser, error) {
+func (pr *partReader) retryChunk(
+	ctx context.Context,
+	buf *arena,
+	s *s3.S3,
+	start int64,
+	end int64,
+	retries int,
+) (io.ReadCloser, error) {
 	var r io.ReadCloser
 	var err error
 
 	for i := 0; i < retries; i++ {
-		r, err = pr.tryChunk(buf, s, start, end)
+		r, err = pr.tryChunk(ctx, buf, s, start, end)
 		if err == nil {
 			return r, nil
 		}
 
-		pr.l.Warning("retryChunk got %v, try to reconnect in %v", err, time.Second*time.Duration(i))
+		log.Warn(ctx, "retryChunk got %v, try to reconnect in %v",
+			err, time.Second*time.Duration(i))
 		time.Sleep(time.Second * time.Duration(i))
-		s, err = pr.getSess()
+		s, err = pr.getSess(ctx)
 		if err != nil {
-			pr.l.Warning("recreate session err: %v", err)
+			log.Warn(ctx, "recreate session err: %v", err)
 			continue
 		}
-		pr.l.Info("session recreated, resuming download")
+		log.Info(ctx, "session recreated, resuming download")
 	}
 
 	return nil, err
 }
 
-func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadCloser, error) {
+func (pr *partReader) tryChunk(
+	ctx context.Context,
+	buf *arena,
+	s *s3.S3,
+	start int64,
+	end int64,
+) (io.ReadCloser, error) {
 	// just quickly retry w/o new session in case of fail.
 	// more sophisticated retry on a caller side.
 	const retry = 2
 	var err error
 	for i := 0; i < retry; i++ {
 		var r io.ReadCloser
-		r, err = pr.getChunk(buf, s, start, end)
+		r, err = pr.getChunk(ctx, buf, s, start, end)
 
 		if err == nil || errors.Is(err, io.EOF) {
 			return r, nil
@@ -419,13 +439,19 @@ func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 			return r, err
 		}
 
-		pr.l.Warning("failed to download chunk %d-%d", start, end)
+		log.Warn(ctx, "failed to download chunk %d-%d", start, end)
 	}
 
 	return nil, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", start, end, pr.fsize, retry)
 }
 
-func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadCloser, error) {
+func (pr *partReader) getChunk(
+	ctx context.Context,
+	buf *arena,
+	s *s3.S3,
+	start int64,
+	end int64,
+) (io.ReadCloser, error) {
 	getObjOpts := &s3.GetObjectInput{
 		Bucket: aws.String(pr.opts.Bucket),
 		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
@@ -453,7 +479,7 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 			return nil, io.EOF
 		}
 
-		pr.l.Warning("errGetObj Err: %v", err)
+		log.Warn(ctx, "errGetObj Err: %v", err)
 		return nil, getObjError{err}
 	}
 	defer s3obj.Body.Close()

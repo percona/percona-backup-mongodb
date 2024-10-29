@@ -19,7 +19,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -226,7 +225,7 @@ func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Str
 	}
 
 	return outMsg{fmt.Sprintf("Command sent. Check `pbm describe-backup %s` for the result.", bcp)},
-		backup.ChangeBackupState(conn, bcp, defs.StatusCopyDone, "")
+		backup.ChangeBackupState(ctx, conn, bcp, defs.StatusCopyDone, "")
 }
 
 func waitBackup(
@@ -391,7 +390,7 @@ func describeBackup(
 	if b.coll || bcp.Size == 0 {
 		// to read backed up collection names
 		// or calculate size of files for legacy backups
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(ctx, &bcp.Store.StorageConf, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -426,7 +425,7 @@ func describeBackup(
 	if bcp.Size == 0 {
 		switch bcp.Status {
 		case defs.StatusDone, defs.StatusCancelled, defs.StatusError:
-			rv.Size, err = getLegacySnapshotSize(bcp, stg)
+			rv.Size, err = getLegacySnapshotSize(ctx, bcp, stg)
 			if errors.Is(err, errMissedFile) && bcp.Status != defs.StatusDone {
 				// canceled/failed backup can be incomplete. ignore
 				return nil, errors.Wrap(err, "get snapshot size")
@@ -462,7 +461,7 @@ func describeBackup(
 			continue
 		}
 
-		nss, err := backup.ReadArchiveNamespaces(stg, r.DumpName)
+		nss, err := backup.ReadArchiveNamespaces(ctx, stg, r.DumpName)
 		if err != nil {
 			return nil, errors.Wrap(err, "read archive metadata")
 		}

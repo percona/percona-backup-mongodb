@@ -8,7 +8,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
@@ -22,14 +21,14 @@ var ErrStorageUndefined = errors.New("storage undefined")
 
 // StorageFromConfig creates and returns a storage object based on a given config and node name.
 // Node name is used for fetching endpoint url from config for specific cluster member (node).
-func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (storage.Storage, error) {
+func StorageFromConfig(ctx context.Context, cfg *config.StorageConf, node string) (storage.Storage, error) {
 	switch cfg.Type {
 	case storage.S3:
-		return s3.New(cfg.S3, node, l)
+		return s3.New(ctx, cfg.S3, node)
 	case storage.Azure:
-		return azure.New(cfg.Azure, node, l)
+		return azure.New(ctx, cfg.Azure, node)
 	case storage.Filesystem:
-		return fs.New(cfg.Filesystem)
+		return fs.New(ctx, cfg.Filesystem)
 	case storage.Blackhole:
 		return blackhole.New(), nil
 	case storage.Undefined:
@@ -41,20 +40,20 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 
 // GetStorage reads current storage config and creates and
 // returns respective storage.Storage object.
-func GetStorage(ctx context.Context, m connect.Client, node string, l log.LogEvent) (storage.Storage, error) {
+func GetStorage(ctx context.Context, m connect.Client, node string) (storage.Storage, error) {
 	c, err := config.GetConfig(ctx, m)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
 	}
 
-	return StorageFromConfig(&c.Storage, node, l)
+	return StorageFromConfig(ctx, &c.Storage, node)
 }
 
 // Initialize write current PBM version to PBM init file.
 //
 // It does not handle "file already exists" error.
 func Initialize(ctx context.Context, stg storage.Storage) error {
-	err := RetryableWrite(stg, defs.StorInitFile, []byte(version.Current().Version))
+	err := RetryableWrite(ctx, stg, defs.StorInitFile, []byte(version.Current().Version))
 	if err != nil {
 		return errors.Wrap(err, "write init file")
 	}
@@ -66,7 +65,7 @@ func Initialize(ctx context.Context, stg storage.Storage) error {
 //
 // It expects that the file exists.
 func Reinitialize(ctx context.Context, stg storage.Storage) error {
-	err := stg.Delete(defs.StorInitFile)
+	err := stg.Delete(ctx, defs.StorInitFile)
 	if err != nil {
 		return errors.Wrap(err, "delete init file")
 	}
@@ -74,11 +73,11 @@ func Reinitialize(ctx context.Context, stg storage.Storage) error {
 	return Initialize(ctx, stg)
 }
 
-func RetryableWrite(stg storage.Storage, name string, data []byte) error {
-	err := stg.Save(name, bytes.NewBuffer(data), int64(len(data)))
+func RetryableWrite(ctx context.Context, stg storage.Storage, name string, data []byte) error {
+	err := stg.Save(ctx, name, bytes.NewBuffer(data), int64(len(data)))
 	if err != nil && stg.Type() == storage.Filesystem {
 		if fs.IsRetryableError(err) {
-			err = stg.Save(name, bytes.NewBuffer(data), int64(len(data)))
+			err = stg.Save(ctx, name, bytes.NewBuffer(data), int64(len(data)))
 		}
 	}
 

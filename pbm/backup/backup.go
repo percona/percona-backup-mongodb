@@ -165,7 +165,7 @@ func (b *Backup) Init(
 // TODO: describe flow
 //
 //nolint:nonamedreturns
-func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
+func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID) (err error) {
 	inf, err := topo.GetNodeInfoExt(ctx, b.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
@@ -197,7 +197,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		}
 	}
 
-	stg, err := util.StorageFromConfig(&b.config.Storage, inf.Me, l)
+	stg, err := util.StorageFromConfig(ctx, &b.config.Storage, inf.Me)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
@@ -215,12 +215,14 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				status = defs.StatusCancelled
 			}
 
-			ferr := ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, status, err.Error())
-			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
+			ferr := ChangeRSState(ctx, b.leadConn, bcp.Name, rsMeta.Name, status, err.Error())
+			// TODO: avoid suffix ": <nil>"
+			log.Info(ctx, "mark RS as %s `%v`: %v", status, err, ferr)
 
 			if inf.IsLeader() {
-				ferr := ChangeBackupState(b.leadConn, bcp.Name, status, err.Error())
-				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
+				ferr := ChangeBackupState(ctx, b.leadConn, bcp.Name, status, err.Error())
+				// TODO: avoid suffix ": <nil>"
+				log.Info(ctx, "mark backup as %s `%v`: %v", status, err, ferr)
 			}
 		}
 
@@ -234,12 +236,12 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return
 		}
 
-		errd := topo.SetBalancerStatus(context.Background(), b.leadConn, topo.BalancerModeOn)
+		errd := topo.SetBalancerStatus(context.TODO(), b.leadConn, topo.BalancerModeOn)
 		if errd != nil {
-			l.Error("set balancer ON: %v", errd)
+			log.Error(ctx, "set balancer ON: %v", errd)
 			return
 		}
-		l.Debug("set balancer on")
+		log.Debug(ctx, "set balancer on")
 	}()
 
 	if inf.IsLeader() {
@@ -262,7 +264,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				case <-tk.C:
 					err = BackupHB(ctx, b.leadConn, bcp.Name)
 					if err != nil {
-						l.Error("send pbm heartbeat: %v", err)
+						log.Error(ctx, "send pbm heartbeat: %v", err)
 					}
 				case <-hbstop:
 					return
@@ -292,9 +294,9 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				return errors.Wrap(err, "set balancer OFF")
 			}
 
-			l.Debug("waiting for balancer off")
-			bs := waitForBalancerOff(ctx, b.leadConn, time.Second*30, l)
-			l.Debug("balancer status: %s", bs)
+			log.Debug(ctx, "waiting for balancer off")
+			bs := waitForBalancerOff(ctx, b.leadConn, time.Second*30)
+			log.Debug(ctx, "balancer status: %s", bs)
 		}
 	}
 
@@ -310,16 +312,16 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return
 		}
 
-		if err := DeleteBackupFiles(stg, bcp.Name); err != nil {
-			l.Error("Failed to delete leftover files for canceled backup %q", bcpm.Name)
+		if err := DeleteBackupFiles(ctx, stg, bcp.Name); err != nil {
+			log.Error(ctx, "Failed to delete leftover files for canceled backup %q", bcpm.Name)
 		}
 	}()
 
 	switch b.typ {
 	case defs.LogicalBackup:
-		err = b.doLogical(ctx, bcp, opid, &rsMeta, inf, stg, l)
+		err = b.doLogical(ctx, bcp, opid, &rsMeta, inf, stg)
 	case defs.PhysicalBackup, defs.IncrementalBackup, defs.ExternalBackup:
-		err = b.doPhysical(ctx, bcp, opid, &rsMeta, inf, stg, l)
+		err = b.doPhysical(ctx, bcp, opid, &rsMeta, inf, stg)
 	default:
 		return errors.New("undefined backup type")
 	}
@@ -327,7 +329,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		return err
 	}
 
-	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDone, "")
+	err = ChangeRSState(ctx, b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDone")
 	}
@@ -358,7 +360,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			Status:    defs.StatusDone,
 		})
 
-		err = writeMeta(stg, bcpm)
+		err = writeMeta(ctx, stg, bcpm)
 		if err != nil {
 			return errors.Wrap(err, "dump metadata")
 		}
@@ -378,7 +380,11 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 }
 
-func waitForBalancerOff(ctx context.Context, conn connect.Client, t time.Duration, l log.LogEvent) topo.BalancerMode {
+func waitForBalancerOff(
+	ctx context.Context,
+	conn connect.Client,
+	t time.Duration,
+) topo.BalancerMode {
 	dn := time.NewTimer(t)
 	defer dn.Stop()
 
@@ -394,7 +400,7 @@ Loop:
 		case <-tk.C:
 			bs, err = topo.GetBalancerStatus(ctx, conn)
 			if err != nil {
-				l.Error("get balancer status: %v", err)
+				log.Error(ctx, "get balancer status: %v", err)
 				continue
 			}
 			if bs.Mode == topo.BalancerModeOff {
@@ -419,7 +425,7 @@ func (b *Backup) toState(
 	inf *topo.NodeInfo,
 	wait *time.Duration,
 ) error {
-	err := ChangeRSState(b.leadConn, bcp, inf.SetName, status, "")
+	err := ChangeRSState(ctx, b.leadConn, bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
@@ -464,7 +470,7 @@ func (b *Backup) reconcileStatus(
 		return err
 	}
 
-	err = ChangeBackupState(b.leadConn, bcpName, status, "")
+	err = ChangeBackupState(ctx, b.leadConn, bcpName, status, "")
 	return errors.Wrapf(err, "update backup meta with %s", status)
 }
 
@@ -671,13 +677,13 @@ func (b *Backup) waitForFirstLastWrite(
 	}
 }
 
-func writeMeta(stg storage.Storage, meta *BackupMeta) error {
+func writeMeta(ctx context.Context, stg storage.Storage, meta *BackupMeta) error {
 	b, err := json.MarshalIndent(meta, "", "\t")
 	if err != nil {
 		return errors.Wrap(err, "marshal data")
 	}
 
-	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b), -1)
+	err = stg.Save(ctx, meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b), -1)
 	return errors.Wrap(err, "write to store")
 }
 

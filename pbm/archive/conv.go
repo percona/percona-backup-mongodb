@@ -19,14 +19,14 @@ import (
 
 func GenerateV1FromV2(ctx context.Context, stg storage.Storage, bcp, rs string) error {
 	metaV2Filename := fmt.Sprintf("%s/%s/%s", bcp, rs, MetaFileV2)
-	rdr, err := stg.SourceReader(metaV2Filename)
+	rdr, err := stg.SourceReader(ctx, metaV2Filename)
 	if err != nil {
 		return errors.Wrapf(err, "open file: %q", metaV2Filename)
 	}
 	defer func() {
 		err := rdr.Close()
 		if err != nil {
-			log.LogEventFromContext(ctx).Error("close %q: %v", metaV2Filename, err)
+			log.Error(ctx, "close %q: %v", metaV2Filename, err)
 		}
 	}()
 
@@ -51,7 +51,7 @@ func GenerateV1FromV2(ctx context.Context, stg storage.Storage, bcp, rs string) 
 	}
 
 	metaV1Filename := fmt.Sprintf("%s/%s/%s", bcp, rs, MetaFile)
-	err = stg.Save(metaV1Filename, bytes.NewReader(data), int64(len(data)))
+	err = stg.Save(ctx, metaV1Filename, bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return errors.Wrapf(err, "save %q", metaV1Filename)
 	}

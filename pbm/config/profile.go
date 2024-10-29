@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"os"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -68,7 +67,7 @@ func AddProfile(ctx context.Context, m connect.Client, profile *Config) error {
 	if profile.Storage.Type == storage.S3 {
 		// call the function for notification purpose.
 		// warning about unsupported levels will be printed
-		s3.SDKLogLevel(profile.Storage.S3.DebugLogLevels, os.Stderr)
+		s3.SDKLogLevel(profile.Storage.S3.DebugLogLevels)
 	}
 
 	_, err := m.ConfigCollection().ReplaceOne(ctx,

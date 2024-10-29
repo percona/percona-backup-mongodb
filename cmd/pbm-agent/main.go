@@ -13,7 +13,9 @@ import (
 	"github.com/alecthomas/kingpin"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
+	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -24,10 +26,28 @@ const mongoConnFlag = "mongodb-uri"
 
 func main() {
 	var (
-		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
+		pbmCmd = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
+
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").
 				Default().
 				Hidden()
+
+		logPathFlag = pbmCmd.Flag("log-path", "path to file").
+				Default("/dev/stderr").
+				String()
+		logJSONFlag  = pbmCmd.Flag("log-json", "enable JSON output").Bool()
+		logLevelFlag = pbmCmd.Flag("log-level",
+			fmt.Sprintf("minimal log level (options: %q, %q, %q, %q)",
+				log.DebugLevel.LongString(),
+				log.InfoLevel.LongString(),
+				log.WarningLevel.LongString(),
+				log.ErrorLevel.LongString())).
+			Default(log.DebugLevel.LongString()).
+			Enum(
+				log.DebugLevel.LongString(),
+				log.InfoLevel.LongString(),
+				log.WarningLevel.LongString(),
+				log.ErrorLevel.LongString())
 
 		mURI = pbmAgentCmd.Flag(mongoConnFlag, "MongoDB connection string").
 			Envar("PBM_MONGODB_URI").
@@ -76,37 +96,47 @@ func main() {
 
 	fmt.Print(perconaSquadNotice)
 
-	err = runAgent(url, *dumpConns)
+	err = runAgent(url, *dumpConns, *logPathFlag, log.ParseLevel(*logLevelFlag), *logJSONFlag)
 	stdlog.Println("Exit:", err)
 	if err != nil {
 		os.Exit(1)
 	}
 }
 
-func runAgent(mongoURI string, dumpConns int) error {
-	mtLog.SetDateFormat(log.LogTimeFormat)
-	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
-
+func runAgent(
+	mongoURI string,
+	dumpConns int,
+	logPath string,
+	logLevel log.Level,
+	logJSON bool,
+) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
-	leadConn, err := connect.Connect(ctx, mongoURI, "pbm-agent")
+	initCtx := log.Context(ctx, log.WithEvent("init"))
+
+	leadConn, err := connect.Connect(initCtx, mongoURI, "pbm-agent")
 	if err != nil {
 		return errors.Wrap(err, "connect to PBM")
 	}
 
-	agent, err := newAgent(ctx, leadConn, mongoURI, dumpConns)
+	agent, err := newAgent(initCtx, leadConn, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
 
-	logger := log.New(agent.leadConn.LogCollection(), agent.brief.SetName, agent.brief.Me)
-	defer logger.Close()
-
-	ctx = log.SetLoggerToContext(ctx, logger)
+	err = setupLogging(initCtx, leadConn, logPath, logLevel, logJSON)
+	if err != nil {
+		return errors.Wrap(err, "setup logging")
+	}
+	defer func() {
+		// flush logs
+		log.SetRemoteHandler(nil).Close()
+		log.SetLocalHandler(nil).Close()
+	}()
 
 	canRunSlicer := true
-	if err := agent.CanStart(ctx); err != nil {
+	if err := agent.CanStart(initCtx); err != nil {
 		if errors.Is(err, ErrArbiterNode) || errors.Is(err, ErrDelayedNode) {
 			canRunSlicer = false
 		} else {
@@ -114,12 +144,12 @@ func runAgent(mongoURI string, dumpConns int) error {
 		}
 	}
 
-	err = setupNewDB(ctx, agent.leadConn)
+	err = setupNewDB(initCtx, agent.leadConn)
 	if err != nil {
 		return errors.Wrap(err, "setup pbm collections")
 	}
 
-	agent.showIncompatibilityWarning(ctx)
+	agent.showIncompatibilityWarning(initCtx)
 
 	if canRunSlicer {
 		go agent.PITR(ctx)
@@ -127,4 +157,60 @@ func runAgent(mongoURI string, dumpConns int) error {
 	go agent.HbStatus(ctx)
 
 	return errors.Wrap(agent.Start(ctx), "listen the commands stream")
+}
+
+func setupLogging(
+	ctx context.Context,
+	conn connect.Client,
+	logpath string,
+	level log.Level,
+	json bool,
+) error {
+	mtLog.SetDateFormat(log.LogTimeFormat)
+	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
+	mtLog.SetWriter(logWriter{}) // include mongo-tools logs
+
+	// ensure log collection before init
+	err := ensureLogCollection(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "create log collection")
+	}
+
+	log.SetRemoteHandler(log.NewMongoHandler(conn.MongoClient()))
+
+	cfg, err := config.GetConfig(ctx, conn)
+	if err != nil {
+		if !errors.Is(err, mongo.ErrNoDocuments) {
+			return errors.Wrap(err, "setup logging: get config")
+		}
+		cfg = &config.Config{}
+	}
+
+	if cfg.Logging != nil {
+		if cfg.Logging.Path != "" {
+			logpath = cfg.Logging.Path
+		}
+		if cfg.Logging.Level != "" {
+			level = cfg.Logging.Level.Level()
+		}
+		if json != cfg.Logging.JSON {
+			json = cfg.Logging.JSON
+		}
+	}
+
+	h, err := log.NewFileHandler(logpath, level, json)
+	if err != nil {
+		return errors.Wrap(err, "setup logging: new file log handler")
+	}
+
+	log.SetLocalHandler(h)
+
+	return nil
+}
+
+type logWriter struct{}
+
+func (w logWriter) Write(m []byte) (int, error) {
+	log.DebugAttrs(nil, string(m))
+	return len(m), nil
 }

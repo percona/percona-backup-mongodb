@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"io"
 	"os"
 	"path"
@@ -58,7 +59,7 @@ type FS struct {
 	root string
 }
 
-func New(opts *Config) (*FS, error) {
+func New(_ context.Context, opts *Config) (*FS, error) {
 	info, err := os.Lstat(opts.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -151,11 +152,11 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 	return nil
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ int64) error {
+func (fs *FS) Save(_ context.Context, name string, data io.Reader, _ int64) error {
 	return writeSync(path.Join(fs.root, name), data)
 }
 
-func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
+func (fs *FS) SourceReader(_ context.Context, name string) (io.ReadCloser, error) {
 	filepath := path.Join(fs.root, name)
 	fr, err := os.Open(filepath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -164,7 +165,7 @@ func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
 	return fr, errors.Wrapf(err, "open file '%s'", filepath)
 }
 
-func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
+func (fs *FS) FileStat(_ context.Context, name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
 	f, err := os.Stat(path.Join(fs.root, name))
@@ -184,7 +185,7 @@ func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
 	return inf, nil
 }
 
-func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
+func (fs *FS) List(_ context.Context, prefix, suffix string) ([]storage.FileInfo, error) {
 	var files []storage.FileInfo
 
 	base := filepath.Join(fs.root, prefix)
@@ -222,7 +223,7 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	return files, err
 }
 
-func (fs *FS) Copy(src, dst string) error {
+func (fs *FS) Copy(_ context.Context, src, dst string) error {
 	from, err := os.Open(path.Join(fs.root, src))
 	if err != nil {
 		return errors.Wrap(err, "open src")
@@ -233,7 +234,7 @@ func (fs *FS) Copy(src, dst string) error {
 
 // Delete deletes given file from FS.
 // It returns storage.ErrNotExist if a file isn't exists
-func (fs *FS) Delete(name string) error {
+func (fs *FS) Delete(_ context.Context, name string) error {
 	err := os.RemoveAll(path.Join(fs.root, name))
 	if os.IsNotExist(err) {
 		return storage.ErrNotExist

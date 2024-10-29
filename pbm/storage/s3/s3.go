@@ -1,10 +1,10 @@
 package s3
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
-	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -241,11 +241,7 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 //
 // If the string is incorrect formatted, prints warnings to the io.Writer.
 // Passing nil as the io.Writer will discard any warnings.
-func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
-	if out == nil {
-		out = io.Discard
-	}
-
+func SDKLogLevel(levels string) aws.LogLevelType {
 	var logLevel aws.LogLevelType
 
 	for _, lvl := range strings.Split(levels, ",") {
@@ -256,7 +252,7 @@ func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
 
 		l := SDKDebugLogLevel(lvl).SDKLogLevel()
 		if l == 0 {
-			fmt.Fprintf(out, "Warning: S3 client debug log level: unsupported %q\n", lvl)
+			log.Warn(context.TODO(), "Warning: S3 client debug log level: unsupported %q", lvl)
 			continue
 		}
 
@@ -284,28 +280,23 @@ type Credentials struct {
 type S3 struct {
 	opts *Config
 	node string
-	log  log.LogEvent
 	s3s  *s3.S3
 
 	d *Download // default downloader for small files
 }
 
-func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
+func New(ctx context.Context, opts *Config, node string) (*S3, error) {
 	err := opts.Cast()
 	if err != nil {
 		return nil, errors.Wrap(err, "cast options")
 	}
-	if l == nil {
-		l = log.DiscardEvent
-	}
 
 	s := &S3{
 		opts: opts,
-		log:  l,
 		node: node,
 	}
 
-	s.s3s, err = s.s3session()
+	s.s3s, err = s.s3session(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "AWS session")
 	}
@@ -326,8 +317,8 @@ func (*S3) Type() storage.Type {
 	return storage.S3
 }
 
-func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
-	awsSession, err := s.session()
+func (s *S3) Save(ctx context.Context, name string, data io.Reader, sizeb int64) error {
+	awsSession, err := s.session(ctx)
 	if err != nil {
 		return errors.Wrap(err, "create AWS session")
 	}
@@ -383,14 +374,12 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		}
 	}
 
-	if s.log != nil {
-		s.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
-			name,
-			sizeb,
-			storage.PrettySize(sizeb),
-			partSize,
-			storage.PrettySize(partSize))
-	}
+	log.Debug(ctx, "uploading %q [size hint: %v (%v); part size: %v (%v)]",
+		name,
+		sizeb,
+		storage.PrettySize(sizeb),
+		partSize,
+		storage.PrettySize(partSize))
 
 	_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
 		u.MaxUploadParts = s.opts.MaxUploadParts
@@ -407,11 +396,11 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 				}
 			}
 		})
-	}).Upload(uplInput)
+	}).UploadWithContext(ctx, uplInput)
 	return errors.Wrap(err, "upload to S3")
 }
 
-func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
+func (s *S3) List(ctx context.Context, prefix, suffix string) ([]storage.FileInfo, error) {
 	prfx := path.Join(s.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
@@ -427,7 +416,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	}
 
 	var files []storage.FileInfo
-	err := s.s3s.ListObjectsV2Pages(lparams,
+	err := s.s3s.ListObjectsV2PagesWithContext(ctx, lparams,
 		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
 			for _, o := range page.Contents {
 				f := aws.StringValue(o.Key)
@@ -455,7 +444,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	return files, nil
 }
 
-func (s *S3) Copy(src, dst string) error {
+func (s *S3) Copy(ctx context.Context, src, dst string) error {
 	copyOpts := &s3.CopyObjectInput{
 		Bucket:     aws.String(s.opts.Bucket),
 		CopySource: aws.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
@@ -483,12 +472,12 @@ func (s *S3) Copy(src, dst string) error {
 		}
 	}
 
-	_, err := s.s3s.CopyObject(copyOpts)
+	_, err := s.s3s.CopyObjectWithContext(ctx, copyOpts)
 
 	return err
 }
 
-func (s *S3) FileStat(name string) (storage.FileInfo, error) {
+func (s *S3) FileStat(ctx context.Context, name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
 	headOpts := &s3.HeadObjectInput{
@@ -508,7 +497,7 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 		headOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
-	h, err := s.s3s.HeadObject(headOpts)
+	h, err := s.s3s.HeadObjectWithContext(ctx, headOpts)
 	if err != nil {
 		//nolint:errorlint
 		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
@@ -532,8 +521,8 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
-func (s *S3) Delete(name string) error {
-	_, err := s.s3s.DeleteObject(&s3.DeleteObjectInput{
+func (s *S3) Delete(ctx context.Context, name string) error {
+	_, err := s.s3s.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
@@ -548,8 +537,8 @@ func (s *S3) Delete(name string) error {
 	return nil
 }
 
-func (s *S3) s3session() (*s3.S3, error) {
-	sess, err := s.session()
+func (s *S3) s3session(ctx context.Context) (*s3.S3, error) {
+	sess, err := s.session(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "create aws session")
 	}
@@ -557,7 +546,7 @@ func (s *S3) s3session() (*s3.S3, error) {
 	return s3.New(sess), nil
 }
 
-func (s *S3) session() (*session.Session, error) {
+func (s *S3) session(ctx context.Context) (*session.Session, error) {
 	var providers []credentials.Provider
 
 	// if we have credentials, set them first in the providers list
@@ -606,8 +595,8 @@ func (s *S3) session() (*session.Session, error) {
 		Endpoint:         aws.String(s.opts.resolveEndpointURL(s.node)),
 		S3ForcePathStyle: s.opts.ForcePathStyle,
 		HTTPClient:       httpClient,
-		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
-		Logger:           awsLogger(s.log),
+		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels)),
+		Logger:           awsLogger(ctx),
 	}
 
 	// fetch credentials from remote endpoints like EC2 or ECS roles
@@ -618,21 +607,17 @@ func (s *S3) session() (*session.Session, error) {
 	return session.NewSession(cfg)
 }
 
-func awsLogger(l log.LogEvent) aws.Logger {
-	if l == nil {
-		return aws.NewDefaultLogger()
-	}
-
-	return aws.LoggerFunc(func(xs ...interface{}) {
+func awsLogger(ctx context.Context) aws.Logger {
+	return aws.LoggerFunc(func(xs ...any) {
 		if len(xs) == 0 {
 			return
 		}
 
 		msg := "%v"
-		for i := len(xs) - 1; i != 0; i++ {
+		for range len(xs) - 1 {
 			msg += " %v"
 		}
 
-		l.Debug(msg, xs...)
+		log.Debug(ctx, msg, xs...)
 	})
 }

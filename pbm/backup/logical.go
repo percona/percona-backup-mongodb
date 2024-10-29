@@ -34,7 +34,6 @@ func (b *Backup) doLogical(
 	rsMeta *BackupReplset,
 	inf *topo.NodeInfo,
 	stg storage.Storage,
-	l log.LogEvent,
 ) error {
 	if b.brief.ConfigSvr {
 		if err := b.checkForTimeseries(ctx, bcp.Namespaces); err != nil {
@@ -105,16 +104,16 @@ func (b *Backup) doLogical(
 		}
 
 		defer func() {
-			l.Info("dropping tmp collections")
-			if err := dropTMPcoll(context.Background(), b.brief.URI); err != nil {
-				l.Warning("drop tmp users and roles: %v", err)
+			log.Info(ctx, "dropping tmp collections")
+			if err := dropTMPcoll(context.TODO(), b.brief.URI); err != nil {
+				log.Warn(ctx, "drop tmp users and roles: %v", err)
 			}
 		}()
 
 		// before proceeding any further we have to be sure that tmp users and roles
 		// have replicated to the node we're about to take a backup from
 		// *copying made on a primary but backup does a secondary node
-		l.Debug("wait for tmp users %v", lw)
+		log.Debug(ctx, "wait for tmp users %v", lw)
 		err = waitForWrite(ctx, b.nodeConn, lw)
 		if err != nil {
 			return errors.Wrap(err, "wait for tmp users and roles replication")
@@ -126,11 +125,11 @@ func (b *Backup) doLogical(
 		if *bcp.NumParallelColls > 0 {
 			numParallelColls = int(*bcp.NumParallelColls)
 		} else {
-			l.Warning("invalid value of NumParallelCollections (%v). fallback to %v",
+			log.Warn(ctx, "invalid value of NumParallelCollections (%v). fallback to %v",
 				numParallelColls, b.numParallelColls)
 		}
 	}
-	l.Debug("dumping up to %d collections in parallel", numParallelColls)
+	log.Debug(ctx, "dumping up to %d collections in parallel", numParallelColls)
 
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
@@ -165,12 +164,12 @@ func (b *Backup) doLogical(
 			return bcp.Run(ctx)
 		},
 		func(ns, ext string, r io.Reader) error {
-			stg, err := util.StorageFromConfig(&b.config.Storage, b.brief.Me, l)
+			stg, err := util.StorageFromConfig(ctx, &b.config.Storage, defs.NodeID())
 			if err != nil {
 				return errors.Wrap(err, "get storage")
 			}
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
-			return stg.Save(filepath, r, nssSize[ns])
+			return stg.Save(ctx, filepath, r, nssSize[ns])
 		},
 		bcp.Compression,
 		bcp.CompressionLevel)
@@ -183,9 +182,9 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "generate archive meta v1")
 	}
 
-	l.Info("dump finished, waiting for the oplog")
+	log.Info(ctx, "dump finished, waiting for the oplog")
 
-	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
+	err = ChangeRSState(ctx, b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
@@ -207,7 +206,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "oplog")
 	}
 
-	err = SetRSLastWrite(b.leadConn, bcp.Name, rsMeta.Name, lastSavedTS)
+	err = SetRSLastWrite(ctx, b.leadConn, bcp.Name, rsMeta.Name, lastSavedTS)
 	if err != nil {
 		return errors.Wrap(err, "set shard's last write ts")
 	}

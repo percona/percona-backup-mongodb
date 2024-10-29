@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -137,12 +136,16 @@ func runConfig(
 			oldCfg = &config.Config{}
 		}
 
-		if err := config.SetConfig(ctx, conn, newCfg); err != nil {
-			return nil, errors.Wrap(err, "unable to set config: write to db")
+		cid, err := pbm.ApplyConfig(ctx, newCfg)
+		if err == nil {
+			err = sdk.WaitForCommandWithErrorLog(ctx, pbm, cid)
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "apply config")
 		}
 
 		// resync storage only if Storage options have changed
-		if !reflect.DeepEqual(newCfg.Storage, oldCfg.Storage) {
+		if !newCfg.Storage.Equal(&oldCfg.Storage) {
 			if _, err := pbm.SyncFromStorage(ctx); err != nil {
 				return nil, errors.Wrap(err, "resync")
 			}

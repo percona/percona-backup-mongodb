@@ -12,7 +12,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -120,7 +119,7 @@ func testStorage(mURL string, compression compress.CompressionType, level *int, 
 	}
 	defer client.Disconnect(context.Background()) //nolint:errcheck
 
-	stg, err := util.GetStorage(context.Background(), client, "", log.DiscardEvent)
+	stg, err := util.GetStorage(context.Background(), client, "")
 	if err != nil {
 		stdlog.Fatalln("Error: get storage:", err)
 	}

@@ -257,7 +257,6 @@ func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]*Ind
 }
 
 func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV2) error {
-	l := log.LogEventFromContext(ctx)
 	eg, grpCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(bcp.concurrency)
 
@@ -269,7 +268,7 @@ func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV
 					return errors.Wrap(err, ns.NS())
 				}
 
-				l.Info("dump collection %q done (size: %d)", ns.NS(), ns.Size)
+				log.Info(ctx, "dump collection %q done (size: %d)", ns.NS(), ns.Size)
 				return nil
 			})
 		}

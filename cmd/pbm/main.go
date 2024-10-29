@@ -483,7 +483,7 @@ func main() {
 		if err != nil {
 			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 		}
-		ctx = log.SetLoggerToContext(ctx, log.New(conn.LogCollection(), "", ""))
+		log.SetRemoteHandler(log.NewMongoHandler(conn.MongoClient()))
 
 		ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 		if err != nil {
@@ -528,7 +528,7 @@ func main() {
 	case backupFinishCmd.FullCommand():
 		out, err = runFinishBcp(ctx, conn, finishBackupName)
 	case restoreFinishCmd.FullCommand():
-		out, err = runFinishRestore(finishRestore, node)
+		out, err = runFinishRestore(ctx, finishRestore, node)
 	case descBcpCmd.FullCommand():
 		out, err = describeBackup(ctx, pbm, &descBcp, node)
 	case restoreCmd.FullCommand():
@@ -633,18 +633,16 @@ func runLogs(ctx context.Context, conn connect.Client, l *logsOpts, f outFormat)
 	}
 
 	switch l.severity {
-	case "F":
-		r.Severity = log.Fatal
 	case "E":
-		r.Severity = log.Error
+		r.Level = log.ErrorLevel
 	case "W":
-		r.Severity = log.Warning
+		r.Level = log.WarningLevel
 	case "I":
-		r.Severity = log.Info
+		r.Level = log.InfoLevel
 	case "D":
-		r.Severity = log.Debug
+		r.Level = log.DebugLevel
 	default:
-		r.Severity = log.Info
+		r.Level = log.InfoLevel
 	}
 
 	if l.follow {

@@ -19,50 +19,50 @@ import (
 type LogRequest struct {
 	TimeMin time.Time
 	TimeMax time.Time
-	LogKeys
+	RecordAttrs
 }
 
-type Entry struct {
-	ObjID   primitive.ObjectID `bson:"-" json:"-"` // to get sense of mgs total ordering while reading logs
-	TS      int64              `bson:"ts" json:"ts"`
-	Tns     int                `bson:"ns" json:"-"`
-	TZone   int                `bson:"tz" json:"-"`
-	LogKeys `bson:",inline" json:",inline"`
-	Msg     string `bson:"msg" json:"msg"`
+type Record struct {
+	Msg         string `bson:"msg" json:"msg"`
+	RecordAttrs `bson:",inline" json:",inline"`
+	ObjID       primitive.ObjectID `bson:"-" json:"-"` // to get sense of mgs total ordering while reading logs
+	Tns         int                `bson:"ns" json:"-"`
+	TZone       int                `bson:"tz" json:"-"`
+	TS          int64              `bson:"ts" json:"ts"`
 }
 
-func (e *Entry) Stringify(f tsFormatFn, showNode, extr bool) string {
+func (r *Record) Stringify(f tsFormatFn, showNode, extr bool) string {
 	node := ""
 	if showNode {
-		node = " [" + e.RS + "/" + e.Node + "]"
+		node = " [" + r.RS + "/" + r.Node + "]"
 	}
 
 	var s string
-	if e.Event != "" || e.ObjName != "" {
+	if r.Event != "" || r.ObjName != "" {
 		id := []string{}
-		if e.Event != "" {
-			id = append(id, string(e.Event))
+		if r.Event != "" {
+			id = append(id, string(r.Event))
 		}
-		if e.ObjName != "" {
-			id = append(id, e.ObjName)
+		if r.ObjName != "" {
+			id = append(id, r.ObjName)
 		}
 		if extr {
-			id = append(id, e.OPID)
+			id = append(id, r.OPID)
 		}
-		s = fmt.Sprintf("%s %s%s [%s] %s", f(e.TS), e.Severity, node, strings.Join(id, "/"), e.Msg)
+		s = fmt.Sprintf("%s %s%s [%s] %s", f(r.TS), r.Level, node, strings.Join(id, "/"), r.Msg)
 	} else {
-		s = fmt.Sprintf("%s %s%s %s", f(e.TS), e.Severity, node, e.Msg)
+		s = fmt.Sprintf("%s %s%s %s", f(r.TS), r.Level, node, r.Msg)
 	}
 
 	return s
 }
 
-func (e *Entry) String() string {
-	return e.Stringify(tsLocal, false, false)
+func (r *Record) String() string {
+	return r.Stringify(tsLocal, false, false)
 }
 
-func (e *Entry) StringNode() string {
-	return e.Stringify(tsLocal, true, false)
+func (r *Record) StringNode() string {
+	return r.Stringify(tsLocal, true, false)
 }
 
 func tsLocal(ts int64) string {
@@ -70,58 +70,58 @@ func tsLocal(ts int64) string {
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
 }
 
-type LogKeys struct {
-	Severity Severity            `bson:"s" json:"s"`
-	RS       string              `bson:"rs" json:"rs"`
-	Node     string              `bson:"node" json:"node"`
-	Event    string              `bson:"e" json:"e"`
-	ObjName  string              `bson:"eobj" json:"eobj"`
-	Epoch    primitive.Timestamp `bson:"ep,omitempty" json:"ep,omitempty"`
-	OPID     string              `bson:"opid,omitempty" json:"opid,omitempty"`
+type RecordAttrs struct {
+	RS      string              `bson:"rs" json:"rs"`
+	Node    string              `bson:"node" json:"node"`
+	Event   string              `bson:"e" json:"e"`
+	ObjName string              `bson:"eobj" json:"eobj"`
+	OPID    string              `bson:"opid,omitempty" json:"opid,omitempty"`
+	Epoch   primitive.Timestamp `bson:"ep,omitempty" json:"ep,omitempty"`
+	Level   Level               `bson:"s" json:"s"`
 }
 
-type Entries struct {
-	Data     []Entry `json:"data"`
-	ShowNode bool    `json:"-"`
-	Extr     bool    `json:"-"`
+type RecordList struct {
 	loc      *time.Location
+	Data     []Record `json:"data"`
+	ShowNode bool     `json:"-"`
+	Extr     bool     `json:"-"`
 }
 
-func (e *Entries) SetLocation(l string) error {
+func (r *RecordList) SetLocation(l string) error {
 	var err error
-	e.loc, err = time.LoadLocation(l)
+	r.loc, err = time.LoadLocation(l)
 	return err
 }
 
-func (e Entries) MarshalJSON() ([]byte, error) {
-	data := e.Data
+func (r RecordList) MarshalJSON() ([]byte, error) {
+	data := r.Data
 	if data == nil {
-		data = []Entry{}
+		data = []Record{}
 	}
 	return json.Marshal(data)
 }
 
-func (e Entries) String() string {
-	if e.loc == nil {
-		e.loc = time.UTC
+func (r RecordList) String() string {
+	if r.loc == nil {
+		r.loc = time.UTC
 	}
 
 	f := func(ts int64) string {
-		return time.Unix(ts, 0).In(e.loc).Format(time.RFC3339)
+		return time.Unix(ts, 0).In(r.loc).Format(time.RFC3339)
 	}
 
 	s := ""
-	for _, entry := range e.Data {
-		s += entry.Stringify(f, e.ShowNode, e.Extr) + "\n"
+	for _, entry := range r.Data {
+		s += entry.Stringify(f, r.ShowNode, r.Extr) + "\n"
 	}
 
 	return s
 }
 
 func buildLogFilter(r *LogRequest, exactSeverity bool) bson.D {
-	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Severity}}}
+	filter := bson.D{bson.E{"s", bson.M{"$lte": r.Level}}}
 	if exactSeverity {
-		filter = bson.D{bson.E{"s", r.Severity}}
+		filter = bson.D{bson.E{"s", r.Level}}
 	}
 
 	if r.RS != "" {
@@ -158,7 +158,7 @@ func fetch(
 	r *LogRequest,
 	limit int64,
 	exactSeverity bool,
-) (*Entries, error) {
+) (*RecordList, error) {
 	filter := buildLogFilter(r, exactSeverity)
 	cur, err := m.LogCollection().Find(
 		ctx,
@@ -170,9 +170,9 @@ func fetch(
 	}
 	defer cur.Close(ctx)
 
-	e := &Entries{}
+	e := &RecordList{}
 	for cur.Next(ctx) {
-		l := Entry{}
+		l := Record{}
 		err := cur.Decode(&l)
 		if err != nil {
 			return nil, errors.Wrap(err, "message decode")
@@ -187,7 +187,7 @@ func fetch(
 }
 
 func CommandLastError(ctx context.Context, cc connect.Client, cid string) (string, error) {
-	filter := buildLogFilter(&LogRequest{LogKeys: LogKeys{OPID: cid, Severity: Error}}, false)
+	filter := buildLogFilter(&LogRequest{RecordAttrs: RecordAttrs{OPID: cid, Level: ErrorLevel}}, false)
 	opts := options.FindOne().
 		SetSort(bson.D{{"$natural", -1}}).
 		SetProjection(bson.D{{"msg", 1}})
@@ -199,7 +199,7 @@ func CommandLastError(ctx context.Context, cc connect.Client, cid string) (strin
 		return "", errors.Wrap(err, "find one")
 	}
 
-	l := Entry{}
+	l := Record{}
 	err := res.Decode(&l)
 	if err != nil {
 		return "", errors.Wrap(err, "message decode")
@@ -213,9 +213,9 @@ func Follow(
 	conn connect.Client,
 	r *LogRequest,
 	exactSeverity bool,
-) (<-chan *Entry, <-chan error) {
+) (<-chan *Record, <-chan error) {
 	filter := buildLogFilter(r, exactSeverity)
-	outC, errC := make(chan *Entry), make(chan error)
+	outC, errC := make(chan *Record), make(chan error)
 
 	go func() {
 		defer close(errC)
@@ -231,7 +231,7 @@ func Follow(
 		defer cur.Close(context.Background())
 
 		for cur.Next(ctx) {
-			e := &Entry{}
+			e := &Record{}
 			if err := cur.Decode(e); err != nil {
 				errC <- errors.Wrap(err, "decode")
 				return
@@ -249,10 +249,10 @@ func Follow(
 	return outC, errC
 }
 
-func LogGet(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*Entries, error) {
+func LogGet(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*RecordList, error) {
 	return fetch(ctx, m, r, limit, false)
 }
 
-func LogGetExactSeverity(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*Entries, error) {
+func LogGetExactSeverity(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*RecordList, error) {
 	return fetch(ctx, m, r, limit, true)
 }

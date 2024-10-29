@@ -27,9 +27,7 @@ import (
 // It checks for read and write permissions, drops all meta from the database
 // and populate it again by reading meta from the storage.
 func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf, node string) error {
-	l := log.LogEventFromContext(ctx)
-
-	stg, err := util.StorageFromConfig(cfg, node, l)
+	stg, err := util.StorageFromConfig(ctx, cfg, node)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
@@ -54,17 +52,17 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf, n
 
 	err = SyncBackupList(ctx, conn, cfg, "", node)
 	if err != nil {
-		l.Error("failed sync backup metadata: %v", err)
+		log.Error(ctx, "failed sync backup metadata: %v", err)
 	}
 
 	err = resyncOplogRange(ctx, conn, stg)
 	if err != nil {
-		l.Error("failed sync oplog range: %v", err)
+		log.Error(ctx, "failed sync oplog range: %v", err)
 	}
 
 	err = resyncPhysicalRestores(ctx, conn, stg)
 	if err != nil {
-		l.Error("failed sync physical restore metadata: %v", err)
+		log.Error(ctx, "failed sync physical restore metadata: %v", err)
 	}
 
 	return nil
@@ -99,9 +97,7 @@ func SyncBackupList(
 	profile string,
 	node string,
 ) error {
-	l := log.LogEventFromContext(ctx)
-
-	stg, err := util.StorageFromConfig(cfg, node, l)
+	stg, err := util.StorageFromConfig(ctx, cfg, node)
 	if err != nil {
 		return errors.Wrap(err, "storage from config")
 	}
@@ -116,7 +112,7 @@ func SyncBackupList(
 		return errors.Wrap(err, "get all backups meta from the storage")
 	}
 
-	l.Debug("got backups list: %v", len(backupList))
+	log.Debug(ctx, "got backups list: %v", len(backupList))
 
 	if len(backupList) == 0 {
 		return nil
@@ -151,11 +147,10 @@ func insertBackupList(
 	for range concurrencyNumber {
 		go func() {
 			defer wg.Done()
-			l := log.LogEventFromContext(ctx)
 
 			var err error
 			for bcp := range inC {
-				l.Debug("bcp: %v", bcp.Name)
+				log.Debug(ctx, "bcp: %v", bcp.Name)
 
 				if bcp.Store.IsProfile {
 					_, err = conn.BcpCollection().InsertOne(ctx, bcp)
@@ -201,23 +196,22 @@ func resyncOplogRange(
 	conn connect.Client,
 	stg storage.Storage,
 ) error {
-	l := log.LogEventFromContext(ctx)
-
 	_, err := conn.PITRChunksCollection().DeleteMany(ctx, bson.M{})
 	if err != nil {
 		return errors.Wrapf(err, "clean up %s", defs.PITRChunksCollection)
 	}
 
-	chunkFiles, err := stg.List(defs.PITRfsPrefix, "")
+	chunkFiles, err := stg.List(ctx, defs.PITRfsPrefix, "")
 	if err != nil {
 		return errors.Wrap(err, "get list of pitr chunks")
 	}
 
 	var chunks []any
 	for _, file := range chunkFiles {
-		info, err := stg.FileStat(defs.PITRfsPrefix + "/" + file.Name)
+		info, err := stg.FileStat(ctx, defs.PITRfsPrefix+"/"+file.Name)
 		if err != nil {
-			l.Warning("skip pitr chunk %s/%s because of %v", defs.PITRfsPrefix, file.Name, err)
+			log.Warn(ctx, "skip pitr chunk %s/%s because of %v",
+				defs.PITRfsPrefix, file.Name, err)
 			continue
 		}
 
@@ -250,13 +244,12 @@ func resyncPhysicalRestores(
 		return errors.Wrap(err, "delete all documents")
 	}
 
-	restoreFiles, err := stg.List(defs.PhysRestoresDir, ".json")
+	restoreFiles, err := stg.List(ctx, defs.PhysRestoresDir, ".json")
 	if err != nil {
 		return errors.Wrap(err, "get physical restores list from the storage")
 	}
 
-	log.LogEventFromContext(ctx).
-		Debug("got physical restores list: %v", len(restoreFiles))
+	log.Debug(ctx, "got physical restores list: %v", len(restoreFiles))
 
 	if len(restoreFiles) == 0 {
 		return nil
@@ -284,24 +277,22 @@ func getAllBackupMetaFromStorage(
 	ctx context.Context,
 	stg storage.Storage,
 ) ([]*backup.BackupMeta, error) {
-	l := log.LogEventFromContext(ctx)
-
-	backupFiles, err := stg.List("", defs.MetadataFileSuffix)
+	backupFiles, err := stg.List(ctx, "", defs.MetadataFileSuffix)
 	if err != nil {
 		return nil, errors.Wrap(err, "get a backups list from the storage")
 	}
 
 	backupMeta := make([]*backup.BackupMeta, 0, len(backupFiles))
 	for _, b := range backupFiles {
-		meta, err := backup.ReadMetadata(stg, b.Name)
+		meta, err := backup.ReadMetadata(ctx, stg, b.Name)
 		if err != nil {
-			l.Error("read metadata of backup %s: %v", b.Name, err)
+			log.Error(ctx, "read metadata of backup %s: %v", b.Name, err)
 			continue
 		}
 
 		err = backup.CheckBackupDataFiles(ctx, stg, meta)
 		if err != nil {
-			l.Warning("skip snapshot %s: %v", meta.Name, err)
+			log.Warn(ctx, "skip snapshot %s: %v", meta.Name, err)
 			meta.Status = defs.StatusError
 			meta.Err = err.Error()
 		}
@@ -316,9 +307,7 @@ func getAllRestoreMetaFromStorage(
 	ctx context.Context,
 	stg storage.Storage,
 ) ([]*restore.RestoreMeta, error) {
-	l := log.LogEventFromContext(ctx)
-
-	restoreMeta, err := stg.List(defs.PhysRestoresDir, ".json")
+	restoreMeta, err := stg.List(ctx, defs.PhysRestoresDir, ".json")
 	if err != nil {
 		return nil, errors.Wrap(err, "get physical restores list from the storage")
 	}
@@ -326,9 +315,9 @@ func getAllRestoreMetaFromStorage(
 	rv := make([]*restore.RestoreMeta, 0, len(restoreMeta))
 	for _, file := range restoreMeta {
 		filename := strings.TrimSuffix(file.Name, ".json")
-		meta, err := restore.GetPhysRestoreMeta(filename, stg, l)
+		meta, err := restore.GetPhysRestoreMeta(ctx, stg, filename)
 		if err != nil {
-			l.Error("get restore meta from storage: %s: %v", file.Name, err)
+			log.Error(ctx, "get restore meta from storage: %s: %v", file.Name, err)
 			if meta == nil {
 				continue
 			}

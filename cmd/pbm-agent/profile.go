@@ -6,7 +6,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -14,36 +16,32 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-func (a *Agent) handleAddConfigProfile(
+func (a *Agent) handleApplyConfig(
 	ctx context.Context,
-	cmd *ctrl.ProfileCmd,
+	cmd *ctrl.ConfigCmd,
 	opid ctrl.OPID,
 	epoch config.Epoch,
 ) {
-	logger := log.FromContext(ctx)
-
 	if cmd == nil {
-		l := logger.NewEvent(string(ctrl.CmdAddConfigProfile), "", opid.String(), epoch.TS())
-		l.Error("missed command")
+		log.Error(ctx, "missed command")
 		return
 	}
-
-	l := logger.NewEvent(string(ctrl.CmdAddConfigProfile), cmd.Name, opid.String(), epoch.TS())
-	if cmd.Name == "" {
-		l.Error("missed config profile name")
-		return
-	}
-
-	ctx = log.SetLogEventToContext(ctx, l)
 
 	var err error
 	defer func() {
 		if err != nil {
-			l.Error("failed to add config profile: %v", err)
+			log.Error(ctx, "failed to apply config: %v", err)
 		}
 	}()
+
+	oldCfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		log.Warn(ctx, "no config set")
+		oldCfg = &config.Config{}
+	}
 
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
@@ -51,19 +49,19 @@ func (a *Agent) handleAddConfigProfile(
 		return
 	}
 	if !nodeInfo.IsClusterLeader() {
-		l.Debug("not the leader. skip")
+		log.Debug(ctx, "not the leader. skip")
 		return
 	}
 
 	lck := lock.NewLock(a.leadConn, lock.LockHeader{
-		Type:    ctrl.CmdAddConfigProfile,
-		Replset: a.brief.SetName,
-		Node:    a.brief.Me,
+		Type:    ctrl.CmdApplyConfig,
+		Replset: defs.Replset(),
+		Node:    defs.NodeID(),
 		OPID:    opid.String(),
 		Epoch:   util.Ref(epoch.TS()),
 	})
 
-	got, err := a.acquireLock(ctx, lck, l)
+	got, err := a.acquireLock(ctx, lck)
 	if err != nil {
 		err = errors.Wrap(err, "acquiring lock")
 		return
@@ -73,10 +71,116 @@ func (a *Agent) handleAddConfigProfile(
 		return
 	}
 	defer func() {
-		l.Debug("releasing lock")
+		log.Debug(ctx, "releasing lock")
 		err := lck.Release()
 		if err != nil {
-			l.Error("unable to release lock %v: %v", lck, err)
+			log.Error(ctx, "unable to release lock %v: %v", lck, err)
+		}
+	}()
+
+	newCfg := &config.Config{
+		Storage: *cmd.Storage,
+		PITR:    cmd.PITR,
+		Backup:  cmd.Backup,
+		Restore: cmd.Restore,
+		Logging: cmd.Logging,
+	}
+	err = config.SetConfig(ctx, a.leadConn, newCfg)
+	if err != nil {
+		err = errors.Wrap(err, "set config")
+		return
+	}
+
+	log.Info(ctx, "config applied")
+
+	if !oldCfg.Logging.Equal(cmd.Logging) {
+		err1 := switchLogger(ctx, a.leadConn, cmd.Logging)
+		if err1 != nil {
+			err = errors.Wrap(err1, "failed to switch logger")
+			return
+		}
+	}
+}
+
+func switchLogger(ctx context.Context, conn connect.Client, cfg *config.Logging) error {
+	log.Warn(ctx, "changing local log handler")
+
+	logHandler, err := log.NewFileHandler(cfg.Path, cfg.Level.Level(), cfg.JSON)
+	if err != nil {
+		return errors.Wrap(err, "create file handler")
+	}
+
+	prevLogHandler := log.SetLocalHandler(logHandler)
+
+	log.Info(ctx, "pbm-agent:\n%s", version.Current().All(""))
+	log.Info(ctx, "node: %s/%s", defs.Replset(), defs.NodeID())
+	log.Info(ctx, "conn level ReadConcern: %v; WriteConcern: %v",
+		conn.MongoOptions().ReadConcern.Level,
+		conn.MongoOptions().WriteConcern.W)
+
+	err = prevLogHandler.Close()
+	if err != nil {
+		log.Error(ctx, "close previous log handler: %v", err)
+	}
+
+	return nil
+}
+
+func (a *Agent) handleAddConfigProfile(
+	ctx context.Context,
+	cmd *ctrl.ProfileCmd,
+	opid ctrl.OPID,
+	epoch config.Epoch,
+) {
+	if cmd == nil {
+		log.Error(ctx, "missed command")
+		return
+	}
+
+	if cmd.Name == "" {
+		log.Error(ctx, "missed config profile name")
+		return
+	}
+
+	var err error
+	defer func() {
+		if err != nil {
+			log.Error(ctx, "failed to add config profile: %v", err)
+		}
+	}()
+
+	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
+	if err != nil {
+		err = errors.Wrap(err, "get node info")
+		return
+	}
+	if !nodeInfo.IsClusterLeader() {
+		log.Debug(ctx, "not the leader. skip")
+		return
+	}
+
+	lck := lock.NewLock(a.leadConn, lock.LockHeader{
+		Type:    ctrl.CmdAddConfigProfile,
+		Replset: defs.Replset(),
+		Node:    defs.NodeID(),
+		OPID:    opid.String(),
+		Epoch:   util.Ref(epoch.TS()),
+	})
+
+	got, err := a.acquireLock(ctx, lck)
+	if err != nil {
+		err = errors.Wrap(err, "acquiring lock")
+		return
+	}
+	if !got {
+		err = errors.New("lock not acquired")
+		return
+	}
+	defer func() {
+		log.Debug(ctx, "releasing lock")
+		err := lck.Release()
+		if err != nil {
+			log.Error(ctx, "unable to release lock %v: %v", lck, err)
 		}
 	}()
 
@@ -86,7 +190,7 @@ func (a *Agent) handleAddConfigProfile(
 		return
 	}
 
-	stg, err := util.StorageFromConfig(&cmd.Storage, a.brief.Me, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(ctx, &cmd.Storage, defs.NodeID())
 	if err != nil {
 		err = errors.Wrap(err, "storage from config")
 		return
@@ -117,7 +221,7 @@ func (a *Agent) handleAddConfigProfile(
 		return
 	}
 
-	l.Info("profile saved")
+	log.Info(ctx, "profile saved")
 }
 
 func (a *Agent) handleRemoveConfigProfile(
@@ -126,26 +230,20 @@ func (a *Agent) handleRemoveConfigProfile(
 	opid ctrl.OPID,
 	epoch config.Epoch,
 ) {
-	logger := log.FromContext(ctx)
-
 	if cmd == nil {
-		l := logger.NewEvent(string(ctrl.CmdRemoveConfigProfile), "", opid.String(), epoch.TS())
-		l.Error("missed command")
+		log.Error(ctx, "missed command")
 		return
 	}
 
-	l := logger.NewEvent(string(ctrl.CmdRemoveConfigProfile), cmd.Name, opid.String(), epoch.TS())
 	if cmd.Name == "" {
-		l.Error("missed config profile name")
+		log.Error(ctx, "missed config profile name")
 		return
 	}
-
-	ctx = log.SetLogEventToContext(ctx, l)
 
 	var err error
 	defer func() {
 		if err != nil {
-			l.Error("failed to remove config profile: %v", err)
+			log.Error(ctx, "failed to remove config profile: %v", err)
 		}
 	}()
 
@@ -155,19 +253,19 @@ func (a *Agent) handleRemoveConfigProfile(
 		return
 	}
 	if !nodeInfo.IsClusterLeader() {
-		l.Debug("not the leader. skip")
+		log.Debug(ctx, "not the leader. skip")
 		return
 	}
 
 	lck := lock.NewLock(a.leadConn, lock.LockHeader{
 		Type:    ctrl.CmdRemoveConfigProfile,
-		Replset: a.brief.SetName,
-		Node:    a.brief.Me,
+		Replset: defs.Replset(),
+		Node:    defs.NodeID(),
 		OPID:    opid.String(),
 		Epoch:   util.Ref(epoch.TS()),
 	})
 
-	got, err := a.acquireLock(ctx, lck, l)
+	got, err := a.acquireLock(ctx, lck)
 	if err != nil {
 		err = errors.Wrap(err, "acquiring lock")
 		return
@@ -177,10 +275,10 @@ func (a *Agent) handleRemoveConfigProfile(
 		return
 	}
 	defer func() {
-		l.Debug("releasing lock")
+		log.Debug(ctx, "releasing lock")
 		err := lck.Release()
 		if err != nil {
-			l.Error("unable to release lock %v: %v", lck, err)
+			log.Error(ctx, "unable to release lock %v: %v", lck, err)
 		}
 	}()
 

@@ -18,6 +18,7 @@ type Command string
 
 const (
 	CmdUndefined           Command = ""
+	CmdApplyConfig         Command = "applyConfig"
 	CmdAddConfigProfile    Command = "addConfigProfile"
 	CmdRemoveConfigProfile Command = "removeConfigProfile"
 	CmdBackup              Command = "backup"
@@ -33,6 +34,8 @@ const (
 
 func (c Command) String() string {
 	switch c {
+	case CmdApplyConfig:
+		return "Apply Config"
 	case CmdAddConfigProfile:
 		return "Add Config Profile"
 	case CmdRemoveConfigProfile:
@@ -82,6 +85,7 @@ func (o OPID) Obj() primitive.ObjectID {
 
 type Cmd struct {
 	Cmd        Command          `bson:"cmd"`
+	Config     *ConfigCmd       `bson:"config,omitempty"`
 	Resync     *ResyncCmd       `bson:"resync,omitempty"`
 	Profile    *ProfileCmd      `bson:"profile,omitempty"`
 	Backup     *BackupCmd       `bson:"backup,omitempty"`
@@ -112,6 +116,14 @@ func (c Cmd) String() string {
 	buf.WriteString(strconv.FormatInt(c.TS, 10))
 	buf.WriteString(">")
 	return buf.String()
+}
+
+type ConfigCmd struct {
+	Storage *config.StorageConf `bson:"storage"`
+	PITR    *config.PITRConf    `bson:"pitr,omitempty"`
+	Backup  *config.BackupConf  `bson:"backup,omitempty"`
+	Restore *config.RestoreConf `bson:"restore,omitempty"`
+	Logging *config.Logging     `bson:"logging,omitempty"`
 }
 
 type ProfileCmd struct {
@@ -196,7 +208,7 @@ func (c ReplayCmd) String() string {
 }
 
 type DeleteBackupCmd struct {
-	Backup    string          `bson:"backup"`
+	Name      string          `bson:"backup"`
 	OlderThan int64           `bson:"olderthan"`
 	Type      defs.BackupType `bson:"type"`
 }
@@ -210,5 +222,5 @@ type CleanupCmd struct {
 }
 
 func (d DeleteBackupCmd) String() string {
-	return fmt.Sprintf("backup: %s, older than: %d", d.Backup, d.OlderThan)
+	return fmt.Sprintf("backup: %s, older than: %d", d.Name, d.OlderThan)
 }

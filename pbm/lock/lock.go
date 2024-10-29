@@ -66,10 +66,6 @@ func newLock(m connect.Client, coll *mongo.Collection, h LockHeader) *Lock {
 	}
 }
 
-func (l *Lock) Connect() connect.Client {
-	return l.m
-}
-
 // Acquire tries to acquire the lock.
 // It returns true in case of success and false if
 // a lock already acquired by another process or some error happened.
@@ -147,7 +143,7 @@ func (l *Lock) Release() error {
 		l.cancel()
 	}
 
-	_, err := l.coll.DeleteOne(context.Background(), l.LockHeader)
+	_, err := l.coll.DeleteOne(context.TODO(), l.LockHeader)
 	return errors.Wrap(err, "deleteOne")
 }
 
@@ -172,7 +168,6 @@ func (l *Lock) acquireImpl(ctx context.Context) (bool, error) {
 
 // heartbeats for the lock
 func (l *Lock) hb(ctx context.Context) {
-	logger := log.FromContext(ctx)
 	ctx, l.cancel = context.WithCancel(ctx)
 
 	go func() {
@@ -183,8 +178,8 @@ func (l *Lock) hb(ctx context.Context) {
 			select {
 			case <-tk.C:
 				err := l.beat(ctx)
-				if err != nil && logger != nil {
-					logger.Error(string(l.Type), "", l.OPID, *l.Epoch, "send lock heartbeat: %v", err)
+				if err != nil {
+					log.Error(ctx, "send lock heartbeat: %v", err)
 				}
 			case <-ctx.Done():
 				return

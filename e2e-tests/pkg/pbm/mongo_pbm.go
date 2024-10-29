@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -49,23 +48,18 @@ func (m *MongoPBM) GetBackupMeta(ctx context.Context, bcpName string) (*backup.B
 }
 
 func (m *MongoPBM) DeleteBackup(ctx context.Context, bcpName string) error {
-	l := log.FromContext(ctx).
-		NewEvent(string(ctrl.CmdDeleteBackup), "", "", primitive.Timestamp{})
-	ctx = log.SetLogEventToContext(ctx, l)
+	ctx = log.Context(ctx,
+		log.WithEvent(string(ctrl.CmdDeleteBackup)),
+		log.WithName(bcpName))
 	return backup.DeleteBackup(ctx, m.conn, bcpName, "")
 }
 
 func (m *MongoPBM) Storage(ctx context.Context) (storage.Storage, error) {
-	l := log.FromContext(ctx).
-		NewEvent("", "", "", primitive.Timestamp{})
-	return util.GetStorage(ctx, m.conn, "", l)
+	return util.GetStorage(ctx, m.conn, "")
 }
 
 func (m *MongoPBM) StoreResync(ctx context.Context) error {
-	l := log.FromContext(ctx).
-		NewEvent(string(ctrl.CmdResync), "", "", primitive.Timestamp{})
-	ctx = log.SetLogEventToContext(ctx, l)
-
+	ctx = log.Context(ctx, log.WithEvent(string(ctrl.CmdResync)))
 	cfg, err := config.GetConfig(ctx, m.conn)
 	if err != nil {
 		return errors.Wrap(err, "get config")

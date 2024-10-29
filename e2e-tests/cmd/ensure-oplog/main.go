@@ -21,7 +21,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -251,7 +250,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till primitive.Ti
 		return errors.Wrap(err, "get config")
 	}
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, "", log.FromContext(ctx).NewDefaultEvent())
+	stg, err := util.StorageFromConfig(ctx, &cfg.Storage, "")
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}

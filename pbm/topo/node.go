@@ -59,8 +59,6 @@ type ConfigServerState struct {
 
 type NodeBrief struct {
 	URI       string
-	SetName   string
-	Me        string
 	Sharded   bool
 	ConfigSvr bool
 	Version   version.MongoVersion

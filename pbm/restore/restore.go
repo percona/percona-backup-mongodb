@@ -26,8 +26,12 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-func GetMetaFromStore(stg storage.Storage, bcpName string) (*backup.BackupMeta, error) {
-	rd, err := stg.SourceReader(bcpName + defs.MetadataFileSuffix)
+func GetMetaFromStore(
+	ctx context.Context,
+	stg storage.Storage,
+	bcpName string,
+) (*backup.BackupMeta, error) {
+	rd, err := stg.SourceReader(ctx, bcpName+defs.MetadataFileSuffix)
 	if err != nil {
 		return nil, errors.Wrap(err, "get from store")
 	}
@@ -274,7 +278,7 @@ func chunks(
 		}
 		last = c.EndTS
 
-		_, err := stg.FileStat(c.FName)
+		_, err := stg.FileStat(ctx, c.FName)
 		if err != nil {
 			return nil, errors.Errorf(
 				"failed to ensure chunk %v.%v on the storage, file: %s, error: %v",
@@ -333,8 +337,7 @@ func applyOplog(
 	stat *phys.DistTxnStat,
 	mgoV *version.MongoVersion,
 ) (partial []oplog.Txn, err error) {
-	log := log.LogEventFromContext(ctx)
-	log.Info("starting oplog replay")
+	log.Info(ctx, "starting oplog replay")
 
 	var (
 		ctxn       chan phys.RestoreTxn
@@ -362,7 +365,7 @@ func applyOplog(
 	for _, oplogRange := range ranges {
 		stg := oplogRange.storage
 		for _, chnk := range oplogRange.chunks {
-			log.Debug("+ applying %v", chnk)
+			log.Debug(ctx, "+ applying %v", chnk)
 
 			// If the compression is Snappy and it failed we try S2.
 			// Up until v1.7.0 the compression of pitr chunks was always S2.
@@ -374,9 +377,9 @@ func applyOplog(
 			// PBM versions) won’t be compatible - during the restore, PBM will treat such
 			// files as Snappy (judging by its suffix) but in fact, they are s2 files
 			// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
-			lts, err = replayChunk(chnk.FName, oplogRestore, stg, chnk.Compression)
+			lts, err = replayChunk(ctx, chnk.FName, oplogRestore, stg, chnk.Compression)
 			if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-				lts, err = replayChunk(chnk.FName, oplogRestore, stg, compress.CompressionTypeS2)
+				lts, err = replayChunk(ctx, chnk.FName, oplogRestore, stg, compress.CompressionTypeS2)
 			}
 			if err != nil {
 				return nil, errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
@@ -391,7 +394,7 @@ func applyOplog(
 		go func() {
 			err := setTxn(ctx, c)
 			if err != nil {
-				log.Error("write last committed txns %v", err)
+				log.Error(ctx, "write last committed txns %v", err)
 			}
 		}()
 		if len(uc) > 0 {
@@ -405,24 +408,25 @@ func applyOplog(
 				return nil, errors.Wrap(err, "handle ucommitted transactions")
 			}
 			if len(uncomm) > 0 {
-				log.Info("uncommitted txns %d", len(uncomm))
+				log.Info(ctx, "uncommitted txns %d", len(uncomm))
 			}
 			stat.Partial = len(partial)
 			stat.LeftUncommitted = len(uncomm)
 		}
 	}
-	log.Info("oplog replay finished on %v", lts)
+	log.Info(ctx, "oplog replay finished on %v", lts)
 
 	return partial, nil
 }
 
 func replayChunk(
+	ctx context.Context,
 	file string,
 	oplog *oplog.OplogRestore,
 	stg storage.Storage,
 	c compress.CompressionType,
 ) (primitive.Timestamp, error) {
-	or, err := stg.SourceReader(file)
+	or, err := stg.SourceReader(ctx, file)
 	if err != nil {
 		lts := primitive.Timestamp{}
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)

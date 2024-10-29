@@ -29,11 +29,8 @@ func setupNewDB(ctx context.Context, conn connect.Client) error {
 		return errors.Wrap(err, "ensure cmd collection")
 	}
 
-	err = conn.AdminCommand(
-		ctx,
-		bson.D{{"create", defs.LogCollection}, {"capped", true}, {"size", logsCollectionSizeBytes}},
-	).Err()
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
+	err = ensureLogCollection(ctx, conn)
+	if err != nil {
 		return errors.Wrap(err, "ensure log collection")
 	}
 
@@ -150,6 +147,19 @@ func setupNewDB(ctx context.Context, conn connect.Client) error {
 	).Err()
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure agent status collection")
+	}
+
+	return nil
+}
+
+func ensureLogCollection(ctx context.Context, conn connect.Client) error {
+	err := conn.AdminCommand(ctx, bson.D{
+		{"create", defs.LogCollection},
+		{"capped", true},
+		{"size", logsCollectionSizeBytes},
+	}).Err()
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return err
 	}
 
 	return nil

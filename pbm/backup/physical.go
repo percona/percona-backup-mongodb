@@ -52,19 +52,14 @@ type BackupCursorData struct {
 type BackupCursor struct {
 	id    UUID
 	conn  *mongo.Client
-	l     log.LogEvent
 	opts  bson.D
 	close chan struct{}
 
 	CustomThisID string
 }
 
-func NewBackupCursor(conn *mongo.Client, l log.LogEvent, opts bson.D) *BackupCursor {
-	return &BackupCursor{
-		conn: conn,
-		l:    l,
-		opts: opts,
-	}
+func NewBackupCursor(conn *mongo.Client, opts bson.D) *BackupCursor {
+	return &BackupCursor{conn: conn, opts: opts}
 }
 
 var errTriesLimitExceeded = errors.New("tries limit exceeded")
@@ -99,7 +94,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 			if se.HasErrorCode(50915) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
-				bc.l.Debug("a checkpoint took place, retrying")
+				log.Debug(ctx, "a checkpoint took place, retrying")
 				time.Sleep(time.Second * time.Duration(i+1))
 				continue
 			}
@@ -121,7 +116,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	}
 	defer func() {
 		if err != nil {
-			cur.Close(context.Background())
+			cur.Close(context.TODO())
 		}
 	}()
 
@@ -160,8 +155,8 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 		for {
 			select {
 			case <-bc.close:
-				bc.l.Debug("stop cursor polling: %v, cursor err: %v",
-					cur.Close(context.Background()), cur.Err()) // `ctx` is already canceled, so use a background context
+				log.Debug(ctx, "stop cursor polling: %v, cursor err: %v",
+					cur.Close(context.TODO()), cur.Err()) // `ctx` is already canceled, so use a background context
 				return
 			case <-tk.C:
 				cur.TryNext(ctx)
@@ -172,8 +167,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	return &BackupCursorData{m, files}, nil
 }
 
-func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]File, error) {
-	ctx := context.Background()
+func (bc *BackupCursor) Journals(ctx context.Context, upto primitive.Timestamp) ([]File, error) {
 	cur, err := bc.conn.Database("admin").Aggregate(ctx,
 		mongo.Pipeline{
 			{{"$backupCursorExtend", bson.D{{"backupId", bc.id}, {"timestamp", upto}}}},
@@ -184,7 +178,6 @@ func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]File, error) {
 	defer cur.Close(ctx)
 
 	var j []File
-
 	err = cur.All(ctx, &j)
 	return j, err
 }
@@ -206,7 +199,6 @@ func (b *Backup) doPhysical(
 	rsMeta *BackupReplset,
 	inf *topo.NodeInfo,
 	stg storage.Storage,
-	l log.LogEvent,
 ) error {
 	currOpts := bson.D{}
 	if b.typ == defs.IncrementalBackup {
@@ -254,21 +246,20 @@ func (b *Backup) doPhysical(
 		} else {
 			// We don't need any previous incremental backup history if
 			// this is a base backup. So we can flush it to free up resources.
-			l.Debug("flush incremental backup history")
-			cr, err := NewBackupCursor(b.nodeConn, l, bson.D{
-				{"disableIncrementalBackup", true},
-			}).create(ctx, cursorCreateRetries)
+			log.Debug(ctx, "flush incremental backup history")
+			cr, err := NewBackupCursor(b.nodeConn, bson.D{{"disableIncrementalBackup", true}}).
+				create(ctx, cursorCreateRetries)
 			if err != nil {
-				l.Warning("flush incremental backup history error: %v", err)
+				log.Warn(ctx, "flush incremental backup history error: %v", err)
 			} else {
 				err = cr.Close(ctx)
 				if err != nil {
-					l.Warning("close cursor disableIncrementalBackup: %v", err)
+					log.Warn(ctx, "close cursor disableIncrementalBackup: %v", err)
 				}
 			}
 		}
 	}
-	cursor := NewBackupCursor(b.nodeConn, l, currOpts)
+	cursor := NewBackupCursor(b.nodeConn, currOpts)
 	defer cursor.Close()
 
 	bcur, err := cursor.Data(ctx)
@@ -281,7 +272,7 @@ func (b *Backup) doPhysical(
 		return errors.Wrap(err, "get backup files")
 	}
 
-	l.Debug("backup cursor id: %s", bcur.Meta.ID)
+	log.Debug(ctx, "backup cursor id: %s", bcur.Meta.ID)
 
 	lwts, err := topo.GetLastWrite(ctx, b.nodeConn, true)
 	if err != nil {
@@ -343,9 +334,9 @@ func (b *Backup) doPhysical(
 		return errors.Wrap(err, "get cluster first & last write ts")
 	}
 
-	l.Debug("set journal up to %v", lwTS)
+	log.Debug(ctx, "set journal up to %v", lwTS)
 
-	jrnls, err := cursor.Journals(lwTS)
+	jrnls, err := cursor.Journals(ctx, lwTS)
 	if err != nil {
 		return errors.Wrap(err, "get journal files")
 	}
@@ -361,10 +352,10 @@ func (b *Backup) doPhysical(
 	}
 
 	if b.typ == defs.ExternalBackup {
-		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, stg, l)
+		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, stg)
 	}
 
-	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
+	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg)
 }
 
 func (b *Backup) handleExternal(
@@ -377,7 +368,6 @@ func (b *Backup) handleExternal(
 	opid ctrl.OPID,
 	inf *topo.NodeInfo,
 	stg storage.Storage,
-	l log.LogEvent,
 ) error {
 	filelist := make(Filelist, 0, len(data)+len(jrnls)+2) // +2 for metadata and filelist
 	for _, f := range append(data, jrnls...) {
@@ -394,7 +384,7 @@ func (b *Backup) handleExternal(
 	if err == nil {
 		fsMeta.LastWriteTS = bmeta.LastWriteTS
 	} else {
-		l.Warning("define LastWriteTS: get backup meta: %v", err)
+		log.Warn(ctx, "define LastWriteTS: get backup meta: %v", err)
 	}
 	// save rs meta along with the data files so it can be used during the restore
 	metaf := fmt.Sprintf(defs.ExternalRsMetaFile, fsMeta.Name)
@@ -403,7 +393,7 @@ func (b *Backup) handleExternal(
 	err = writeRSmetaToDisk(metadst, &fsMeta)
 	if err != nil {
 		// we can restore without it
-		l.Warning("failed to save rs meta file <%s>: %v", metadst, err)
+		log.Warn(ctx, "failed to save rs meta file <%s>: %v", metadst, err)
 	}
 
 	filelistPath := filepath.Join(dbpath, FilelistName)
@@ -421,8 +411,8 @@ func (b *Backup) handleExternal(
 		}
 
 		defer func() {
-			if err := stg.Delete(bcp.Name); err != nil {
-				l.Warning("remove backup folder <%s>: %v", bcp.Name, err)
+			if err := stg.Delete(ctx, bcp.Name); err != nil {
+				log.Warn(ctx, "remove backup folder <%s>: %v", bcp.Name, err)
 			}
 		}()
 	}
@@ -432,7 +422,7 @@ func (b *Backup) handleExternal(
 		return errors.Wrapf(err, "converge to %s", defs.StatusCopyReady)
 	}
 
-	l.Info("waiting for the datadir to be copied")
+	log.Info(ctx, "waiting for the datadir to be copied")
 	err = b.waitForStatus(ctx, bcp.Name, defs.StatusCopyDone, nil)
 	if err != nil {
 		return errors.Wrapf(err, "waiting for %s", defs.StatusCopyDone)
@@ -440,11 +430,11 @@ func (b *Backup) handleExternal(
 
 	err = os.Remove(metadst)
 	if err != nil {
-		l.Warning("remove rs meta file <%s>: %v", metadst, err)
+		log.Warn(ctx, "remove rs meta file <%s>: %v", metadst, err)
 	}
 	err = os.Remove(filelistPath)
 	if err != nil {
-		l.Warning("remove file <%s>: %v", filelistPath, err)
+		log.Warn(ctx, "remove file <%s>: %v", filelistPath, err)
 	}
 
 	return nil
@@ -493,23 +483,28 @@ func (b *Backup) uploadPhysical(
 	jrnls []File,
 	dbpath string,
 	stg storage.Storage,
-	l log.LogEvent,
 ) error {
-	l.Info("uploading data")
-	dataFiles, err := uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
-		b.typ == defs.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
+	log.Info(ctx, "uploading data")
+	dataFiles, err := uploadFiles(ctx,
+		data,
+		bcp.Name+"/"+rsMeta.Name,
+		dbpath,
+		b.typ == defs.IncrementalBackup,
+		stg,
+		bcp.Compression,
+		bcp.CompressionLevel)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
 	}
-	l.Info("uploading data done")
+	log.Info(ctx, "uploading data done")
 
-	l.Info("uploading journals")
+	log.Info(ctx, "uploading journals")
 	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, dbpath,
-		false, stg, bcp.Compression, bcp.CompressionLevel, l)
+		false, stg, bcp.Compression, bcp.CompressionLevel)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
 	}
-	l.Info("uploading journals done")
+	log.Info(ctx, "uploading journals done")
 
 	filelist := Filelist(dataFiles)
 	filelist = append(filelist, ju...)
@@ -520,11 +515,12 @@ func (b *Backup) uploadPhysical(
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath, -1)
+	flSize, err := storage.Upload(ctx,
+		filelist, stg, compress.CompressionTypeNone, nil, filelistPath, -1)
 	if err != nil {
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
-	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
+	log.Info(ctx, "uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
 
 	err = IncBackupSize(ctx, b.leadConn, bcp.Name, size+flSize)
 	if err != nil {
@@ -597,7 +593,6 @@ func uploadFiles(
 	stg storage.Storage,
 	comprT compress.CompressionType,
 	comprL *int,
-	l log.LogEvent,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -639,7 +634,7 @@ func uploadFiles(
 			continue
 		}
 
-		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
+		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
 		if err != nil {
 			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
@@ -654,7 +649,7 @@ func uploadFiles(
 		return data, nil
 	}
 
-	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
+	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
 	if err != nil {
 		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
@@ -672,7 +667,6 @@ func writeFile(
 	stg storage.Storage,
 	compression compress.CompressionType,
 	compressLevel *int,
-	l log.LogEvent,
 ) (*File, error) {
 	fstat, err := os.Stat(src.Name)
 	if err != nil {
@@ -696,7 +690,7 @@ func writeFile(
 		return nil, errors.Wrap(err, "upload file")
 	}
 
-	finf, err := stg.FileStat(dst)
+	finf, err := stg.FileStat(ctx, dst)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get storage file stat %s", dst)
 	}

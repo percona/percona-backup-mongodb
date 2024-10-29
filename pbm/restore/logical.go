@@ -63,7 +63,6 @@ type Restore struct {
 	// empty if all shard names are the same
 	sMap map[string]string
 
-	log  log.LogEvent
 	opid string
 
 	indexCatalog *idx.IndexCatalog
@@ -117,8 +116,7 @@ func (r *Restore) exit(ctx context.Context, err error) {
 	if err != nil && !errors.Is(err, ErrNoDataForShard) {
 		ferr := r.MarkFailed(ctx, err)
 		if ferr != nil {
-			log.LogEventFromContext(ctx).
-				Error("mark restore as failed `%v`: %v", err, ferr)
+			log.Error(ctx, "mark restore as failed `%v`: %v", err, ferr)
 		}
 	}
 
@@ -179,16 +177,14 @@ func (r *Restore) Snapshot(
 	opid ctrl.OPID,
 	bcp *backup.BackupMeta,
 ) (err error) {
-	l := log.LogEventFromContext(ctx)
-
 	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
 
-	err = r.init(ctx, cmd.Name, opid, l)
+	err = r.init(ctx, cmd.Name, opid)
 	if err != nil {
 		return err
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
+	r.bcpStg, err = util.StorageFromConfig(ctx, &bcp.Store.StorageConf, defs.NodeID())
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -228,14 +224,14 @@ func (r *Restore) Snapshot(
 		r.sMap = r.getShardMapping(bcp)
 	}
 
-	dump, chunks, err := r.snapshotObjects(bcp)
+	dump, chunks, err := r.snapshotObjects(ctx, bcp)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "snapshot objects")
 	}
 
-	err = r.checkForCompatibility(ctx, util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName), bcp)
+	err = r.checkForCompatibility(ctx, util.MakeReverseRSMapFunc(r.rsMap)(defs.Replset()), bcp)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "check for backup compatibility")
 	}
 
 	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
@@ -264,7 +260,7 @@ func (r *Restore) Snapshot(
 	if cloneNS.IsSpecified() {
 		// oplog doesn't need to be applied when cloning ns
 		// this restriction will be removed during PBM-1422
-		l.Debug("applying oplog is skipped when cloning collection")
+		log.Debug(ctx, "applying oplog is skipped when cloning collection")
 	} else {
 		err = r.applyOplog(ctx, oplogRanges, oplogOption)
 		if err != nil {
@@ -316,11 +312,9 @@ func (r *Restore) PITR(
 	opid ctrl.OPID,
 	bcp *backup.BackupMeta,
 ) (err error) {
-	l := log.LogEventFromContext(ctx)
-
 	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
 
-	err = r.init(ctx, cmd.Name, opid, l)
+	err = r.init(ctx, cmd.Name, opid)
 	if err != nil {
 		return err
 	}
@@ -330,11 +324,11 @@ func (r *Restore) PITR(
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
+	r.bcpStg, err = util.StorageFromConfig(ctx, &bcp.Store.StorageConf, defs.NodeID())
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
-	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me)
 	if err != nil {
 		return errors.Wrap(err, "get oplog storage")
 	}
@@ -395,14 +389,14 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	dump, bcpChunks, err := r.snapshotObjects(bcp)
+	dump, bcpChunks, err := r.snapshotObjects(ctx, bcp)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "snapshot objects")
 	}
 
-	err = r.checkForCompatibility(ctx, util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName), bcp)
+	err = r.checkForCompatibility(ctx, util.MakeReverseRSMapFunc(r.rsMap)(defs.Replset()), bcp)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "check for backup compatibility")
 	}
 
 	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
@@ -447,10 +441,10 @@ func (r *Restore) PITR(
 }
 
 //nolint:nonamedreturns
-func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
+func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctrl.OPID) (err error) {
 	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
 
-	if err = r.init(ctx, cmd.Name, opid, l); err != nil {
+	if err = r.init(ctx, cmd.Name, opid); err != nil {
 		return errors.Wrap(err, "init")
 	}
 
@@ -484,7 +478,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return r.Done(ctx) // skip. no oplog for current rs
 	}
 
-	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me)
 	if err != nil {
 		return errors.Wrapf(err, "get oplog storage")
 	}
@@ -515,9 +509,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 	return r.Done(ctx)
 }
 
-func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID, l log.LogEvent) error {
-	r.log = l
-
+func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID) error {
 	var err error
 	r.nodeInfo, err = topo.GetNodeInfoExt(ctx, r.nodeConn)
 	if err != nil {
@@ -559,7 +551,7 @@ func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID, l log.L
 				case <-tk.C:
 					err := RestoreHB(ctx, r.leadConn, r.name)
 					if err != nil {
-						l.Error("send heartbeat: %v", err)
+						log.Error(ctx, "send heartbeat: %v", err)
 					}
 				case <-r.stopHB:
 					return
@@ -641,12 +633,12 @@ func LookupBackupMeta(
 	}
 
 	var stg storage.Storage
-	stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
+	stg, err = util.GetStorage(ctx, conn, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
 
-	bcp, err = GetMetaFromStore(stg, backupName)
+	bcp, err = GetMetaFromStore(ctx, stg, backupName)
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup metadata from storage")
 	}
@@ -697,7 +689,10 @@ var (
 	ErrNoDataForConfigsvr = errors.New("no data for the config server or sole rs in backup")
 )
 
-func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.OplogChunk, error) {
+func (r *Restore) snapshotObjects(
+	ctx context.Context,
+	bcp *backup.BackupMeta,
+) (string, []oplog.OplogChunk, error) {
 	var ok bool
 	var rsMeta *backup.BackupReplset
 	revRSName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
@@ -716,12 +711,13 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 		return "", nil, ErrNoDataForShard
 	}
 
-	if _, err := r.bcpStg.FileStat(rsMeta.DumpName); err != nil {
+	if _, err := r.bcpStg.FileStat(ctx, rsMeta.DumpName); err != nil {
 		return "", nil, errors.Wrapf(err, "failed to ensure snapshot file %s", rsMeta.DumpName)
 	}
 	if version.IsLegacyBackupOplog(bcp.PBMVersion) {
-		if _, err := r.bcpStg.FileStat(rsMeta.OplogName); err != nil {
-			return "", nil, errors.Errorf("failed to ensure oplog file %s: %v", rsMeta.OplogName, err)
+		if _, err := r.bcpStg.FileStat(ctx, rsMeta.OplogName); err != nil {
+			err = errors.Errorf("failed to ensure oplog file %s: %v", rsMeta.OplogName, err)
+			return "", nil, err
 		}
 
 		chunks := []oplog.OplogChunk{{
@@ -734,7 +730,7 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 		return rsMeta.DumpName, chunks, nil
 	}
 
-	files, err := r.bcpStg.List(rsMeta.OplogName, "")
+	files, err := r.bcpStg.List(ctx, rsMeta.OplogName, "")
 	if err != nil {
 		return "", nil, errors.Wrap(err, "failed to list oplog files")
 	}
@@ -775,7 +771,8 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 		}
 
 		if bcp.FCV != fcv {
-			r.log.Warning("backup FCV %q is incompatible with the running mongo FCV %q",
+			log.Warn(ctx,
+				"backup FCV %q is incompatible with the running mongo FCV %q",
 				bcp.FCV, fcv)
 			return nil
 		}
@@ -786,7 +783,7 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 		}
 
 		if majmin(bcp.MongoVersion) != majmin(ver.VersionString) {
-			r.log.Warning(
+			log.Warn(ctx,
 				"backup mongo version %q is incompatible with the running mongo version %q",
 				bcp.MongoVersion, ver.VersionString)
 			return nil
@@ -807,7 +804,7 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 }
 
 func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Duration) error {
-	r.log.Info("moving to state %s", status)
+	log.Info(ctx, "moving to state %s", status)
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
@@ -836,18 +833,18 @@ func (r *Restore) RunSnapshot(
 
 	mapRS := util.MakeReverseRSMapFunc(r.rsMap)
 
-	r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
+	log.Debug(ctx, "restoring up to %d collections in parallel", r.numParallelColls)
 
 	rdr, err := snapshot.DownloadDump(
 		func(ns string) (io.ReadCloser, error) {
-			stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
+			stg, err := util.StorageFromConfig(ctx, &bcp.Store.StorageConf, defs.NodeID())
 			if err != nil {
 				return nil, errors.Wrap(err, "get storage")
 			}
 			// while importing backup made by RS with another name
 			// that current RS we can't use our r.node.RS() to point files
 			// we have to use mapping passed by --replset-mapping option
-			rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.brief.SetName), ns))
+			rdr, err := stg.SourceReader(ctx, path.Join(bcp.Name, mapRS(defs.Replset()), ns))
 			if err != nil {
 				return nil, err
 			}
@@ -907,7 +904,7 @@ func (r *Restore) restoreLegacyArchive(
 	dump string,
 	bcp *backup.BackupMeta,
 ) error {
-	sr, err := r.bcpStg.SourceReader(dump)
+	sr, err := r.bcpStg.SourceReader(ctx, dump)
 	if err != nil {
 		return errors.Wrapf(err, "get object %s for the storage", dump)
 	}
@@ -983,7 +980,7 @@ func (r *Restore) checkForCompatibility(
 }
 
 func (r *Restore) restoreUsersAndRoles(ctx context.Context, nss []string) error {
-	r.log.Info("restoring users and roles")
+	log.Info(ctx, "restoring users and roles")
 	cusr, err := topo.CurrentUser(ctx, r.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get current user")
@@ -996,7 +993,7 @@ func (r *Restore) restoreUsersAndRoles(ctx context.Context, nss []string) error 
 
 	err = util.DropTMPcoll(ctx, r.nodeConn)
 	if err != nil {
-		r.log.Warning("drop tmp collections: %v", err)
+		log.Warn(ctx, "drop tmp collections: %v", err)
 	}
 
 	return nil
@@ -1043,13 +1040,17 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 	return nil
 }
 
-func (r *Restore) restoreIndexes(ctx context.Context, nss []string, cloneNS snapshot.CloneNS) error {
-	r.log.Debug("building indexes up")
+func (r *Restore) restoreIndexes(
+	ctx context.Context,
+	nss []string,
+	cloneNS snapshot.CloneNS,
+) error {
+	log.Debug(ctx, "building indexes up")
 
 	isSelected := util.MakeSelectedPred(nss)
 	for _, ns := range r.indexCatalog.Namespaces() {
 		if ns := archive.NSify(ns.DB, ns.Collection); !isSelected(ns) {
-			r.log.Debug("skip restore indexes for %q", ns)
+			log.Debug(ctx, "skip restore indexes for %q", ns)
 			continue
 		}
 
@@ -1063,7 +1064,7 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string, cloneNS snap
 		}
 
 		if len(indexes) == 0 {
-			r.log.Debug("no indexes for %s.%s", ns.DB, ns.Collection)
+			log.Debug(ctx, "no indexes for %s.%s", ns.DB, ns.Collection)
 			continue
 		}
 
@@ -1089,7 +1090,7 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string, cloneNS snap
 			{"ignoreUnknownIndexOptions", true},
 		}
 
-		r.log.Info("restoring indexes for %s.%s: %s",
+		log.Info(ctx, "restoring indexes for %s.%s: %s",
 			targetDB, targetColl, strings.Join(indexNames, ", "))
 		err := r.nodeConn.Database(targetDB).RunCommand(ctx, rawCommand).Err()
 		if err != nil {
@@ -1106,7 +1107,7 @@ func (r *Restore) updateRouterConfig(ctx context.Context) error {
 	}
 
 	if r.nodeInfo.IsConfigSrv() {
-		r.log.Debug("updating router config")
+		log.Debug(ctx, "updating router config")
 		if err := updateRouterTables(ctx, r.leadConn, r.sMap); err != nil {
 			return err
 		}
@@ -1323,7 +1324,7 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 
 	err = RestoreSetRSStat(ctx, r.leadConn, r.name, r.nodeInfo.SetName, stat)
 	if err != nil {
-		r.log.Warning("applyOplog: failed to set stat: %v", err)
+		log.Warn(ctx, "applyOplog: failed to set stat: %v", err)
 	}
 
 	return nil
@@ -1479,7 +1480,7 @@ func (r *Restore) reconcileStatus(ctx context.Context, status defs.Status, timeo
 }
 
 func (r *Restore) waitForStatus(ctx context.Context, status defs.Status) error {
-	r.log.Debug("waiting for '%s' status", status)
+	log.Debug(ctx, "waiting for '%s' status", status)
 	return waitForStatus(ctx, r.leadConn, r.name, status)
 }
 

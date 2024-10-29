@@ -74,7 +74,7 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 	ot.stopC = make(chan struct{})
 	ot.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
 	go func() {
@@ -169,7 +169,7 @@ func (ot *OplogBackup) Cancel() {
 // IsSufficient check is oplog is sufficient back from the given date
 func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
 	c, err := ot.cl.Database("local").Collection("oplog.rs").
-		CountDocuments(context.Background(),
+		CountDocuments(context.TODO(),
 			bson.M{"ts": bson.M{"$lte": from}},
 			options.Count().SetLimit(1))
 	if err != nil {

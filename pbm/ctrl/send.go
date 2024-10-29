@@ -16,7 +16,7 @@ func SendDeleteBackupByName(ctx context.Context, m connect.Client, name string) 
 	cmd := Cmd{
 		Cmd: CmdDeleteBackup,
 		Delete: &DeleteBackupCmd{
-			Backup: name,
+			Name: name,
 		},
 	}
 	return sendCommand(ctx, m, cmd)
@@ -61,6 +61,23 @@ func SendCleanup(
 		Cmd: CmdCleanup,
 		Cleanup: &CleanupCmd{
 			OlderThan: before,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
+func SendApplyConfig(
+	ctx context.Context,
+	m connect.Client,
+	cfg *config.Config,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdApplyConfig,
+		Config: &ConfigCmd{
+			Storage: &cfg.Storage,
+			PITR:    cfg.PITR,
+			Backup:  cfg.Backup,
+			Logging: cfg.Logging,
 		},
 	}
 	return sendCommand(ctx, m, cmd)

@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"path/filepath"
@@ -16,16 +17,20 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-func GetPhysRestoreMeta(restoreName string, stg storage.Storage, l log.LogEvent) (*RestoreMeta, error) {
+func GetPhysRestoreMeta(
+	ctx context.Context,
+	stg storage.Storage,
+	restoreName string,
+) (*RestoreMeta, error) {
 	mjson := filepath.Join(defs.PhysRestoresDir, restoreName) + ".json"
-	_, err := stg.FileStat(mjson)
+	_, err := stg.FileStat(ctx, mjson)
 	if err != nil && !errors.Is(err, storage.ErrNotExist) {
 		return nil, errors.Wrapf(err, "get file %s", mjson)
 	}
 
 	var rmeta *RestoreMeta
 	if err == nil {
-		src, err := stg.SourceReader(mjson)
+		src, err := stg.SourceReader(ctx, mjson)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get file %s", mjson)
 		}
@@ -36,7 +41,7 @@ func GetPhysRestoreMeta(restoreName string, stg storage.Storage, l log.LogEvent)
 		}
 	}
 
-	condsm, err := ParsePhysRestoreStatus(restoreName, stg, l)
+	condsm, err := ParsePhysRestoreStatus(ctx, restoreName, stg)
 	if err != nil {
 		return rmeta, errors.Wrap(err, "parse physical restore status")
 	}
@@ -64,8 +69,12 @@ func GetPhysRestoreMeta(restoreName string, stg storage.Storage, l log.LogEvent)
 // ParsePhysRestoreStatus parses phys restore's sync files and creates RestoreMeta.
 //
 // On files format, see comments for *PhysRestore.toState() in pbm/restore/physical.go
-func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEvent) (*RestoreMeta, error) {
-	rfiles, err := stg.List(defs.PhysRestoresDir+"/"+restoreName, "")
+func ParsePhysRestoreStatus(
+	ctx context.Context,
+	restoreName string,
+	stg storage.Storage,
+) (*RestoreMeta, error) {
+	rfiles, err := stg.List(ctx, defs.PhysRestoresDir+"/"+restoreName, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "get files")
 	}
@@ -112,7 +121,7 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 				if !ok {
 					node.Name = nName
 				}
-				cond, err := parsePhysRestoreCond(stg, f.Name, restoreName)
+				cond, err := parsePhysRestoreCond(ctx, stg, f.Name, restoreName)
 				if err != nil {
 					return nil, err
 				}
@@ -132,16 +141,17 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 					continue
 				}
 				if p[1] == "partTxn" {
-					src, err := stg.SourceReader(filepath.Join(defs.PhysRestoresDir, restoreName, f.Name))
+					src, err := stg.SourceReader(ctx,
+						filepath.Join(defs.PhysRestoresDir, restoreName, f.Name))
 					if err != nil {
-						l.Error("get partial txn file %s: %v", f.Name, err)
+						log.Error(ctx, "get partial txn file %s: %v", f.Name, err)
 						break
 					}
 
 					ops := []db.Oplog{}
 					err = json.NewDecoder(src).Decode(&ops)
 					if err != nil {
-						l.Error("unmarshal partial txn %s: %v", f.Name, err)
+						log.Error(ctx, "unmarshal partial txn %s: %v", f.Name, err)
 						break
 					}
 					rs.rs.PartialTxn = append(rs.rs.PartialTxn, ops...)
@@ -149,7 +159,7 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 					continue
 				}
 
-				cond, err := parsePhysRestoreCond(stg, f.Name, restoreName)
+				cond, err := parsePhysRestoreCond(ctx, stg, f.Name, restoreName)
 				if err != nil {
 					return nil, err
 				}
@@ -163,18 +173,21 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 					rs.rs.Error = l.Error
 				}
 			case "stat":
-				src, err := stg.SourceReader(filepath.Join(defs.PhysRestoresDir, restoreName, f.Name))
+				src, err := stg.SourceReader(ctx,
+					filepath.Join(defs.PhysRestoresDir, restoreName, f.Name))
 				if err != nil {
-					l.Error("get stat file %s: %v", f.Name, err)
+					log.Error(ctx, "get stat file %s: %v", f.Name, err)
 					break
 				}
 				if meta.Stat == nil {
-					meta.Stat = &phys.RestoreStat{RS: make(map[string]map[string]phys.RestoreRSMetrics)}
+					meta.Stat = &phys.RestoreStat{
+						RS: make(map[string]map[string]phys.RestoreRSMetrics),
+					}
 				}
 				st := phys.RestoreShardStat{}
 				err = json.NewDecoder(src).Decode(&st)
 				if err != nil {
-					l.Error("unmarshal stat file %s: %v", f.Name, err)
+					log.Error(ctx, "unmarshal stat file %s: %v", f.Name, err)
 					break
 				}
 				if _, ok := meta.Stat.RS[rsName]; !ok {
@@ -193,7 +206,7 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 			rss[rsName] = rs
 
 		case "cluster":
-			cond, err := parsePhysRestoreCond(stg, f.Name, restoreName)
+			cond, err := parsePhysRestoreCond(ctx, stg, f.Name, restoreName)
 			if err != nil {
 				return nil, err
 			}
@@ -240,11 +253,16 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 	return &meta, nil
 }
 
-func parsePhysRestoreCond(stg storage.Storage, fname, restoreName string) (*Condition, error) {
+func parsePhysRestoreCond(
+	ctx context.Context,
+	stg storage.Storage,
+	fname string,
+	restoreName string,
+) (*Condition, error) {
 	s := strings.Split(fname, ".")
 	cond := Condition{Status: defs.Status(s[len(s)-1])}
 
-	src, err := stg.SourceReader(filepath.Join(defs.PhysRestoresDir, restoreName, fname))
+	src, err := stg.SourceReader(ctx, filepath.Join(defs.PhysRestoresDir, restoreName, fname))
 	if err != nil {
 		return nil, errors.Wrapf(err, "get file %s", fname)
 	}

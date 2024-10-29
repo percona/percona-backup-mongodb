@@ -80,14 +80,24 @@ func getBackupMeta(ctx context.Context, conn connect.Client, clause bson.D) (*Ba
 	return b, errors.Wrap(err, "decode")
 }
 
-func ChangeBackupStateOPID(conn connect.Client, opid string, s defs.Status, msg string) error {
-	return changeBackupState(context.TODO(),
-		conn, bson.D{{"opid", opid}}, time.Now().UTC().Unix(), s, msg)
+func ChangeBackupStateOPID(
+	ctx context.Context,
+	conn connect.Client,
+	opid string,
+	s defs.Status,
+	msg string,
+) error {
+	return changeBackupState(ctx, conn, bson.D{{"opid", opid}}, time.Now().UTC().Unix(), s, msg)
 }
 
-func ChangeBackupState(conn connect.Client, bcpName string, s defs.Status, msg string) error {
-	return changeBackupState(context.TODO(),
-		conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+func ChangeBackupState(
+	ctx context.Context,
+	conn connect.Client,
+	bcpName string,
+	s defs.Status,
+	msg string,
+) error {
+	return changeBackupState(ctx, conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
 }
 
 func ChangeBackupStateWithUnixTime(
@@ -203,10 +213,16 @@ func AddRSMeta(ctx context.Context, conn connect.Client, bcpName string, rs Back
 	return err
 }
 
-func ChangeRSState(conn connect.Client, bcpName, rsName string, s defs.Status, msg string) error {
+func ChangeRSState(
+	ctx context.Context,
+	conn connect.Client,
+	bcpName string,
+	rsName string,
+	s defs.Status,
+	msg string,
+) error {
 	ts := time.Now().UTC().Unix()
-	_, err := conn.BcpCollection().UpdateOne(
-		context.Background(),
+	_, err := conn.BcpCollection().UpdateOne(ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
 		bson.D{
 			{"$set", bson.M{"replsets.$.status": s}},
@@ -227,9 +243,14 @@ func IncBackupSize(ctx context.Context, conn connect.Client, bcpName string, siz
 	return err
 }
 
-func SetRSLastWrite(conn connect.Client, bcpName, rsName string, ts primitive.Timestamp) error {
-	_, err := conn.BcpCollection().UpdateOne(
-		context.Background(),
+func SetRSLastWrite(
+	ctx context.Context,
+	conn connect.Client,
+	bcpName string,
+	rsName string,
+	ts primitive.Timestamp,
+) error {
+	_, err := conn.BcpCollection().UpdateOne(ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
 		bson.D{
 			{"$set", bson.M{"replsets.$.last_write_ts": ts}},
@@ -240,13 +261,18 @@ func SetRSLastWrite(conn connect.Client, bcpName, rsName string, ts primitive.Ti
 }
 
 func LastIncrementalBackup(ctx context.Context, conn connect.Client) (*BackupMeta, error) {
-	return getRecentBackup(ctx, conn, nil, nil, -1, bson.D{{"type", string(defs.IncrementalBackup)}})
+	return getRecentBackup(ctx,
+		conn, nil, nil, -1, bson.D{{"type", string(defs.IncrementalBackup)}})
 }
 
 // GetLastBackup returns last successfully finished backup (non-selective and non-external)
 // or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
-func GetLastBackup(ctx context.Context, conn connect.Client, before *primitive.Timestamp) (*BackupMeta, error) {
+func GetLastBackup(
+	ctx context.Context,
+	conn connect.Client,
+	before *primitive.Timestamp,
+) (*BackupMeta, error) {
 	return getRecentBackup(ctx, conn, nil, before, -1, bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
@@ -419,7 +445,8 @@ func SetRSNomination(ctx context.Context, conn connect.Client, bcpName, rs strin
 func GetRSNominees(
 	ctx context.Context,
 	conn connect.Client,
-	bcpName, rsName string,
+	bcpName string,
+	rsName string,
 ) (*BackupRsNomination, error) {
 	bcp, err := NewDBManager(conn).GetBackupByName(ctx, bcpName)
 	if err != nil {

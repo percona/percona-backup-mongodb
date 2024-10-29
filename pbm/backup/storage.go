@@ -17,7 +17,7 @@ import (
 )
 
 func CheckBackupFiles(ctx context.Context, stg storage.Storage, name string) error {
-	bcp, err := ReadMetadata(stg, name+defs.MetadataFileSuffix)
+	bcp, err := ReadMetadata(ctx, stg, name+defs.MetadataFileSuffix)
 	if err != nil {
 		return errors.Wrap(err, "read backup metadata")
 	}
@@ -25,8 +25,8 @@ func CheckBackupFiles(ctx context.Context, stg storage.Storage, name string) err
 	return CheckBackupDataFiles(ctx, stg, bcp)
 }
 
-func ReadMetadata(stg storage.Storage, filename string) (*BackupMeta, error) {
-	rdr, err := stg.SourceReader(filename)
+func ReadMetadata(ctx context.Context, stg storage.Storage, filename string) (*BackupMeta, error) {
+	rdr, err := stg.SourceReader(ctx, filename)
 	if err != nil {
 		return nil, errors.Wrap(err, "open")
 	}
@@ -54,20 +54,22 @@ func CheckBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupM
 	return errors.Errorf("unknown backup type %s", bcp.Type)
 }
 
-func checkLogicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *BackupMeta) error {
+func checkLogicalBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
 	legacy := version.IsLegacyArchive(bcp.PBMVersion)
 
 	eg := util.NewErrorGroup(runtime.NumCPU() * 2)
 	for _, rs := range bcp.Replsets {
 		eg.Go(func() error {
-			eg.Go(func() error { return checkFile(stg, rs.DumpName) })
+			eg.Go(func() error {
+				return checkFile(ctx, stg, rs.DumpName)
+			})
 
 			eg.Go(func() error {
 				if version.IsLegacyBackupOplog(bcp.PBMVersion) {
-					return checkFile(stg, rs.OplogName)
+					return checkFile(ctx, stg, rs.OplogName)
 				}
 
-				files, err := stg.List(rs.OplogName, "")
+				files, err := stg.List(ctx, rs.OplogName, "")
 				if err != nil {
 					return errors.Wrap(err, "list")
 				}
@@ -87,7 +89,7 @@ func checkLogicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *Ba
 				return nil
 			}
 
-			nss, err := ReadArchiveNamespaces(stg, rs.DumpName)
+			nss, err := ReadArchiveNamespaces(ctx, stg, rs.DumpName)
 			if err != nil {
 				return errors.Wrapf(err, "parse metafile %q", rs.DumpName)
 			}
@@ -100,7 +102,9 @@ func checkLogicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *Ba
 				ns := archive.NSify(ns.Database, ns.Collection)
 				f := path.Join(bcp.Name, rs.Name, ns+bcp.Compression.Suffix())
 
-				eg.Go(func() error { return checkFile(stg, f) })
+				eg.Go(func() error {
+					return checkFile(ctx, stg, f)
+				})
 			}
 
 			return nil
@@ -111,14 +115,14 @@ func checkLogicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *Ba
 	return errors.Join(errs...)
 }
 
-func checkPhysicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *BackupMeta) error {
+func checkPhysicalBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
 	eg := util.NewErrorGroup(runtime.NumCPU() * 2)
 	for _, rs := range bcp.Replsets {
 		eg.Go(func() error {
 			var filelist Filelist
 			if version.HasFilelistFile(bcp.PBMVersion) {
 				var err error
-				filelist, err = ReadFilelistForReplset(stg, bcp.Name, rs.Name)
+				filelist, err = ReadFilelistForReplset(ctx, stg, bcp.Name, rs.Name)
 				if err != nil {
 					return errors.Wrapf(err, "read filelist for replset %s", rs.Name)
 				}
@@ -136,7 +140,7 @@ func checkPhysicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *B
 
 				eg.Go(func() error {
 					filepath := path.Join(bcp.Name, rs.Name, f.Path(bcp.Compression))
-					stat, err := stg.FileStat(filepath)
+					stat, err := stg.FileStat(ctx, filepath)
 					if err != nil {
 						return errors.Wrapf(err, "file %s", filepath)
 					}
@@ -156,15 +160,20 @@ func checkPhysicalBackupDataFiles(_ context.Context, stg storage.Storage, bcp *B
 	return errors.Join(errs...)
 }
 
-func ReadFilelistForReplset(stg storage.Storage, bcpName, rsName string) (Filelist, error) {
+func ReadFilelistForReplset(
+	ctx context.Context,
+	stg storage.Storage,
+	bcpName string,
+	rsName string,
+) (Filelist, error) {
 	pfFilepath := path.Join(bcpName, rsName, FilelistName)
-	rdr, err := stg.SourceReader(pfFilepath)
+	rdr, err := stg.SourceReader(ctx, pfFilepath)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", pfFilepath)
 	}
 	defer rdr.Close()
 
-	filelist, err := ReadFilelist(rdr)
+	filelist, err := ParseFilelist(rdr)
 	if err != nil {
 		return nil, errors.Wrapf(err, "parse filelist %q", pfFilepath)
 	}
@@ -172,8 +181,12 @@ func ReadFilelistForReplset(stg storage.Storage, bcpName, rsName string) (Fileli
 	return filelist, nil
 }
 
-func ReadArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Namespace, error) {
-	r, err := stg.SourceReader(metafile)
+func ReadArchiveNamespaces(
+	ctx context.Context,
+	stg storage.Storage,
+	metafile string,
+) ([]*archive.Namespace, error) {
+	r, err := stg.SourceReader(ctx, metafile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", metafile)
 	}
@@ -187,8 +200,8 @@ func ReadArchiveNamespaces(stg storage.Storage, metafile string) ([]*archive.Nam
 	return meta.Namespaces, nil
 }
 
-func checkFile(stg storage.Storage, filename string) error {
-	f, err := stg.FileStat(filename)
+func checkFile(ctx context.Context, stg storage.Storage, filename string) error {
+	f, err := stg.FileStat(ctx, filename)
 	if err != nil {
 		return errors.Wrapf(err, "file %q", filename)
 	}
@@ -200,12 +213,12 @@ func checkFile(stg storage.Storage, filename string) error {
 }
 
 // DeleteBackupFiles removes backup's artifacts from storage
-func DeleteBackupFiles(stg storage.Storage, backupName string) error {
+func DeleteBackupFiles(ctx context.Context, stg storage.Storage, backupName string) error {
 	if fs, ok := stg.(*sfs.FS); ok {
-		return deleteBackupFromFS(fs, backupName)
+		return deleteBackupFromFS(ctx, fs, backupName)
 	}
 
-	files, err := stg.List(backupName, "")
+	files, err := stg.List(ctx, backupName, "")
 	if err != nil {
 		return errors.Wrap(err, "list files")
 	}
@@ -222,7 +235,7 @@ func DeleteBackupFiles(stg storage.Storage, backupName string) error {
 			defer wg.Done()
 
 			for f := range fileC {
-				err := stg.Delete(backupName + "/" + f)
+				err := stg.Delete(ctx, backupName+"/"+f)
 				if err != nil {
 					errC <- errors.Wrapf(err, "delete %s", backupName+"/"+f)
 				}
@@ -245,7 +258,7 @@ func DeleteBackupFiles(stg storage.Storage, backupName string) error {
 		errs = append(errs, err)
 	}
 
-	err = stg.Delete(backupName + defs.MetadataFileSuffix)
+	err = stg.Delete(ctx, backupName+defs.MetadataFileSuffix)
 	if err != nil && !errors.Is(err, storage.ErrNotExist) {
 		err = errors.Wrapf(err, "delete %s", backupName+defs.MetadataFileSuffix)
 		errs = append(errs, err)
@@ -254,13 +267,13 @@ func DeleteBackupFiles(stg storage.Storage, backupName string) error {
 	return errors.Join(errs...)
 }
 
-func deleteBackupFromFS(stg *sfs.FS, backupName string) error {
-	err1 := stg.Delete(backupName)
+func deleteBackupFromFS(ctx context.Context, stg *sfs.FS, backupName string) error {
+	err1 := stg.Delete(ctx, backupName)
 	if err1 != nil && !errors.Is(err1, storage.ErrNotExist) {
 		err1 = errors.Wrapf(err1, "delete %s", backupName)
 	}
 
-	err2 := stg.Delete(backupName + defs.MetadataFileSuffix)
+	err2 := stg.Delete(ctx, backupName+defs.MetadataFileSuffix)
 	if err2 != nil && !errors.Is(err2, storage.ErrNotExist) {
 		err2 = errors.Wrapf(err2, "delete %s", backupName+defs.MetadataFileSuffix)
 	}

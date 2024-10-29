@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
@@ -77,6 +77,8 @@ type Config struct {
 	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 
+	Logging *Logging `bson:"log,omitempty" json:"log,omitempty" yaml:"log,omitempty"`
+
 	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -110,6 +112,7 @@ func (c *Config) Clone() *Config {
 		PITR:      c.PITR.Clone(),
 		Restore:   c.Restore.Clone(),
 		Backup:    c.Backup.Clone(),
+		Logging:   c.Logging.Clone(),
 		Epoch:     c.Epoch,
 	}
 
@@ -404,6 +407,47 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 	return time.Duration(*t.Starting) * time.Second
 }
 
+type Logging struct {
+	Path  string          `json:"path" bson:"path" yaml:"path"`
+	Level log.StringLevel `json:"level" bson:"level" yaml:"level"`
+	JSON  bool            `json:"json" bson:"json" yaml:"json"`
+}
+
+func (l *Logging) Equal(other *Logging) bool {
+	switch {
+	case l == nil && other == nil:
+		return true
+	case l == nil && other != nil:
+		return false
+	case l != nil && other == nil:
+		return false
+	}
+
+	if l.Path != other.Path {
+		return false
+	}
+	if l.Level != other.Level {
+		return false
+	}
+	if l.JSON != other.JSON {
+		return false
+	}
+
+	return true
+}
+
+func (l *Logging) Clone() *Logging {
+	if l == nil {
+		return nil
+	}
+
+	return &Logging{
+		Path:  l.Path,
+		Level: l.Level,
+		JSON:  l.JSON,
+	}
+}
+
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	res := m.ConfigCollection().FindOne(ctx, bson.D{{"profile", nil}})
 	if err := res.Err(); err != nil {
@@ -449,7 +493,7 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	if cfg.Storage.Type == storage.S3 {
 		// call the function for notification purpose.
 		// warning about unsupported levels will be printed
-		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels, os.Stderr)
+		s3.SDKLogLevel(cfg.Storage.S3.DebugLogLevels)
 	}
 
 	if cfg.PITR != nil {
@@ -526,7 +570,7 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 			return errors.New("storage.filesystem.path can't be empty")
 		}
 	case "storage.s3.debugLogLevels":
-		s3.SDKLogLevel(v.(string), os.Stderr)
+		s3.SDKLogLevel(v.(string))
 	}
 
 	_, err = m.ConfigCollection().UpdateOne(ctx,

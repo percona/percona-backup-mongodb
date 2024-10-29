@@ -12,6 +12,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -34,7 +35,7 @@ func (r *Restore) configsvrRestore(
 	mapRS util.RSMapFunc,
 ) error {
 	mapS := util.MakeRSMapFunc(r.sMap)
-	available, err := fetchAvailability(bcp, r.bcpStg)
+	available, err := fetchAvailability(ctx, bcp, r.bcpStg)
 	if err != nil {
 		return err
 	}
@@ -63,7 +64,11 @@ func (r *Restore) configsvrRestore(
 	return nil
 }
 
-func fetchAvailability(bcp *backup.BackupMeta, stg storage.Storage) (map[string]bool, error) {
+func fetchAvailability(
+	ctx context.Context,
+	bcp *backup.BackupMeta,
+	stg storage.Storage,
+) (map[string]bool, error) {
 	var cfgRS *backup.BackupReplset
 	for i := range bcp.Replsets {
 		rs := &bcp.Replsets[i]
@@ -76,7 +81,7 @@ func fetchAvailability(bcp *backup.BackupMeta, stg storage.Storage) (map[string]
 		return nil, errors.New("no configsvr replset metadata found")
 	}
 
-	nss, err := backup.ReadArchiveNamespaces(stg, cfgRS.DumpName)
+	nss, err := backup.ReadArchiveNamespaces(ctx, stg, cfgRS.DumpName)
 	if err != nil {
 		return nil, errors.Wrapf(err, "read archive namespaces %q", cfgRS.DumpName)
 	}
@@ -122,8 +127,8 @@ func (r *Restore) configsvrRestoreDatabases(
 	nss []string,
 	mapRS, mapS util.RSMapFunc,
 ) error {
-	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), "config.databases"+bcp.Compression.Suffix())
-	rdr, err := r.bcpStg.SourceReader(filepath)
+	filepath := path.Join(bcp.Name, mapRS(defs.Replset()), "config.databases"+bcp.Compression.Suffix())
+	rdr, err := r.bcpStg.SourceReader(ctx, filepath)
 	if err != nil {
 		return err
 	}
@@ -205,8 +210,8 @@ func (r *Restore) configsvrRestoreCollections(
 		chunkSelector = util.NewNSChunkSelector()
 	}
 
-	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), "config.collections"+bcp.Compression.Suffix())
-	rdr, err := r.bcpStg.SourceReader(filepath)
+	filepath := path.Join(bcp.Name, mapRS(defs.Replset()), "config.collections"+bcp.Compression.Suffix())
+	rdr, err := r.bcpStg.SourceReader(ctx, filepath)
 	if err != nil {
 		return nil, err
 	}
@@ -269,8 +274,8 @@ func (r *Restore) configsvrRestoreChunks(
 	mapRS,
 	mapS util.RSMapFunc,
 ) error {
-	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), "config.chunks"+bcp.Compression.Suffix())
-	rdr, err := r.bcpStg.SourceReader(filepath)
+	filepath := path.Join(bcp.Name, mapRS(defs.Replset()), "config.chunks"+bcp.Compression.Suffix())
+	rdr, err := r.bcpStg.SourceReader(ctx, filepath)
 	if err != nil {
 		return err
 	}

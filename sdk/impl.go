@@ -90,6 +90,11 @@ func (c *Client) GetConfigProfile(ctx context.Context, name string) (*config.Con
 	return profile, nil
 }
 
+func (c *Client) ApplyConfig(ctx context.Context, cfg *Config) (CommandID, error) {
+	opid, err := ctrl.SendApplyConfig(ctx, c.conn, cfg)
+	return CommandID(opid.String()), err
+}
+
 func (c *Client) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {
 	opid, err := ctrl.SendAddConfigProfile(ctx, c.conn, name, cfg.Storage)
 	return CommandID(opid.String()), err
@@ -183,7 +188,7 @@ func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata)
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(ctx, &bcp.Store.StorageConf, c.node)
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
@@ -192,9 +197,10 @@ func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata)
 			rs := &bcp.Replsets[i]
 
 			eg.Go(func() error {
-				filelist, err := backup.ReadFilelistForReplset(stg, bcp.Name, rs.Name)
+				filelist, err := backup.ReadFilelistForReplset(ctx, stg, bcp.Name, rs.Name)
 				if err != nil {
-					return errors.Wrapf(err, "get filelist for %q [rs: %s] backup", bcp.Name, rs.Name)
+					return errors.Wrapf(err,
+						"get filelist for %q [rs: %s] backup", bcp.Name, rs.Name)
 				}
 
 				rs.Files = filelist
@@ -226,9 +232,10 @@ func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata)
 				rs := &bcp.Replsets[i]
 
 				eg.Go(func() error {
-					filelist, err := backup.ReadFilelistForReplset(stg, bcp.Name, rs.Name)
+					filelist, err := backup.ReadFilelistForReplset(ctx, stg, bcp.Name, rs.Name)
 					if err != nil {
-						return errors.Wrapf(err, "fetch files for %q [rs: %s] backup", bcp.Name, rs.Name)
+						return errors.Wrapf(err,
+							"fetch files for %q [rs: %s] backup", bcp.Name, rs.Name)
 					}
 
 					rs.Files = filelist
@@ -242,7 +249,7 @@ func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata)
 }
 
 func (c *Client) getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
+	stg, err := util.StorageFromConfig(ctx, &bcp.Store.StorageConf, c.node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -429,9 +436,9 @@ func lastLogErr(
 	after int64,
 ) (string, error) {
 	r := &log.LogRequest{
-		LogKeys: log.LogKeys{
-			Severity: log.Error,
-			Event:    string(op),
+		RecordAttrs: log.RecordAttrs{
+			Level: log.ErrorLevel,
+			Event: string(op),
 		},
 		TimeMin: time.Unix(after, 0),
 	}

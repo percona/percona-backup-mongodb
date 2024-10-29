@@ -234,7 +234,7 @@ func (c *Cluster) waitPhyRestore(ctx context.Context, name string, waitFor time.
 			}
 			return errors.Errorf("timeout reached. status:\n%s", list)
 		case <-tkr.C:
-			rmeta, err := getRestoreMetaStg(fname, stg)
+			rmeta, err := getRestoreMetaStg(ctx, fname, stg)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
@@ -252,8 +252,12 @@ func (c *Cluster) waitPhyRestore(ctx context.Context, name string, waitFor time.
 	}
 }
 
-func getRestoreMetaStg(name string, stg storage.Storage) (*restore.RestoreMeta, error) {
-	_, err := stg.FileStat(name)
+func getRestoreMetaStg(
+	ctx context.Context,
+	name string,
+	stg storage.Storage,
+) (*restore.RestoreMeta, error) {
+	_, err := stg.FileStat(ctx, name)
 	if errors.Is(err, storage.ErrNotExist) {
 		return nil, errors.ErrNotFound
 	}
@@ -261,7 +265,7 @@ func getRestoreMetaStg(name string, stg storage.Storage) (*restore.RestoreMeta, 
 		return nil, errors.Wrap(err, "get stat")
 	}
 
-	src, err := stg.SourceReader(name)
+	src, err := stg.SourceReader(ctx, name)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get file %s", name)
 	}
@@ -406,7 +410,9 @@ func (c *Cluster) Flush() error {
 		defs.RestoresCollection,
 	}
 	for _, cl := range cols {
-		_, err := c.mongopbm.Conn().MongoClient().Database(defs.DB).Collection(cl).DeleteMany(context.Background(), bson.M{})
+		_, err := c.mongopbm.Conn().MongoClient().
+			Database(defs.DB).Collection(cl).
+			DeleteMany(context.Background(), bson.M{})
 		if err != nil {
 			return errors.Wrapf(err, "delete many from %s", cl)
 		}
@@ -421,13 +427,13 @@ func (c *Cluster) FlushStorage(ctx context.Context) error {
 		return errors.Wrap(err, "get storage")
 	}
 
-	fls, err := stg.List("", "")
+	fls, err := stg.List(ctx, "", "")
 	if err != nil {
 		return errors.Wrap(err, "get files list")
 	}
 
 	for _, f := range fls {
-		err = stg.Delete(f.Name)
+		err = stg.Delete(ctx, f.Name)
 		if err != nil {
 			stdlog.Println("Warning: unable to delete", f.Name)
 		}

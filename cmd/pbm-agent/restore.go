@@ -18,27 +18,22 @@ import (
 )
 
 func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID, ep config.Epoch) {
-	logger := log.FromContext(ctx)
 	if r == nil {
-		l := logger.NewEvent(string(ctrl.CmdRestore), "", opid.String(), ep.TS())
-		l.Error("missed command")
+		log.Error(ctx, "missed command")
 		return
 	}
 
-	l := logger.NewEvent(string(ctrl.CmdRestore), r.Name, opid.String(), ep.TS())
-	ctx = log.SetLogEventToContext(ctx, l)
-
 	if !r.OplogTS.IsZero() {
-		l.Info("to time: %s", time.Unix(int64(r.OplogTS.T), 0).UTC().Format(time.RFC3339))
+		log.Info(ctx, "to time: %s", time.Unix(int64(r.OplogTS.T), 0).UTC().Format(time.RFC3339))
 	}
 
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
-		l.Error("get node info: %v", err)
+		log.Error(ctx, "get node info: %v", err)
 		return
 	}
 	if nodeInfo.ArbiterOnly {
-		l.Debug("arbiter node. skip")
+		log.Debug(ctx, "arbiter node. skip")
 		return
 	}
 
@@ -53,14 +48,14 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			Epoch:   &epts,
 		})
 
-		got, err := a.acquireLock(ctx, lck, l)
+		got, err := a.acquireLock(ctx, lck)
 		if err != nil {
-			l.Error("acquiring lock: %v", err)
+			log.Error(ctx, "acquiring lock: %v", err)
 			return
 		}
 		if !got {
-			l.Debug("skip: lock not acquired")
-			l.Error("unable to run the restore while another backup or restore process running")
+			log.Debug(ctx, "skip: lock not acquired")
+			log.Error(ctx, "unable to run the restore while another backup or restore process running")
 			return
 		}
 
@@ -70,15 +65,15 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			}
 
 			if err := lck.Release(); err != nil {
-				l.Error("release lock: %v", err)
+				log.Error(ctx, "release lock: %v", err)
 			}
 		}()
 
 		err = config.SetConfigVar(ctx, a.leadConn, "pitr.enabled", "false")
 		if err != nil {
-			l.Error("disable oplog slicer: %v", err)
+			log.Error(ctx, "disable oplog slicer: %v", err)
 		} else {
-			l.Info("oplog slicer disabled")
+			log.Info(ctx, "oplog slicer disabled")
 		}
 		a.removePitr()
 	}
@@ -89,26 +84,26 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	if r.External && r.BackupName == "" {
 		bcpType = defs.ExternalBackup
 	} else {
-		l.Info("backup: %s", r.BackupName)
+		log.Info(ctx, "backup: %s", r.BackupName)
 
 		// XXX: why is backup searched on storage?
-		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName, a.brief.Me)
+		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName, defs.NodeID())
 		if err != nil {
-			err1 := addRestoreMetaWithError(ctx, a.leadConn, l, opid, r, nodeInfo.SetName,
+			err1 := addRestoreMetaWithError(ctx, a.leadConn, opid, r, nodeInfo.SetName,
 				"define base backup: %v", err)
 			if err1 != nil {
-				l.Error("failed to save meta: %v", err1)
+				log.Error(ctx, "failed to save meta: %v", err1)
 			}
 			return
 		}
 
 		if !r.OplogTS.IsZero() && bcp.LastWriteTS.Compare(r.OplogTS) >= 0 {
-			err1 := addRestoreMetaWithError(ctx, a.leadConn, l, opid, r, nodeInfo.SetName,
+			err1 := addRestoreMetaWithError(ctx, a.leadConn, opid, r, nodeInfo.SetName,
 				"snapshot's last write is later than the target time. "+
 					"Try to set an earlier snapshot. Or leave the snapshot empty "+
 					"so PBM will choose one.")
 			if err1 != nil {
-				l.Error("failed to save meta: %v", err)
+				log.Error(ctx, "failed to save meta: %v", err)
 			}
 			return
 		}
@@ -118,16 +113,17 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 
 	cfg, err := config.GetConfig(ctx, a.leadConn)
 	if err != nil {
-		l.Error("get PBM configuration: %v", err)
+		log.Error(ctx, "get PBM configuration: %v", err)
 		return
 	}
 
-	l.Info("recovery started")
+	log.Info(ctx, "recovery started")
 
 	switch bcpType {
 	case defs.LogicalBackup:
 		if !nodeInfo.IsPrimary {
-			l.Info("This node is not the primary. Check pbm agent on the primary for restore progress")
+			log.Info(ctx, "This node is not the primary. "+
+				"Check pbm agent on the primary for restore progress")
 			return
 		}
 
@@ -157,17 +153,17 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		var rstr *restore.PhysRestore
 		rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, r.RSMap)
 		if err != nil {
-			l.Error("init physical backup: %v", err)
+			log.Error(ctx, "init physical backup: %v", err)
 			return
 		}
 
-		err = rstr.Snapshot(ctx, r, r.OplogTS, opid, l, a.closeCMD, a.HbPause)
+		err = rstr.Snapshot(ctx, r, r.OplogTS, opid, a.closeCMD, a.HbPause)
 	}
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
-			l.Info("no data for the shard in backup, skipping")
+			log.Info(ctx, "no data for the shard in backup, skipping")
 		} else {
-			l.Error("restore: %v", err)
+			log.Error(ctx, "restore: %v", err)
 		}
 		return
 	}
@@ -175,25 +171,24 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	if bcpType == defs.LogicalBackup && nodeInfo.IsLeader() {
 		epch, err := config.ResetEpoch(ctx, a.leadConn)
 		if err != nil {
-			l.Error("reset epoch: %v", err)
+			log.Error(ctx, "reset epoch: %v", err)
 		}
-		l.Debug("epoch set to %v", epch)
+		log.Debug(ctx, "epoch set to %v", epch)
 	}
 
-	l.Info("recovery successfully finished")
+	log.Info(ctx, "recovery successfully finished")
 }
 
 func addRestoreMetaWithError(
 	ctx context.Context,
 	conn connect.Client,
-	l log.LogEvent,
 	opid ctrl.OPID,
 	cmd *ctrl.RestoreCmd,
 	setName string,
 	errStr string,
 	args ...any,
 ) error {
-	l.Error(errStr, args...)
+	log.Error(ctx, errStr, args...)
 
 	meta := &restore.RestoreMeta{
 		Type:     defs.LogicalBackup,

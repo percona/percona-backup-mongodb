@@ -3,19 +3,16 @@ package main
 import (
 	"context"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
-
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
-	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 )
 
-func markBcpStale(ctx context.Context, l *lock.Lock, opid string) error {
-	bcp, err := backup.GetBackupByOPID(ctx, l.Connect(), opid)
+func markBcpStale(ctx context.Context, conn connect.Client, opid string) error {
+	bcp, err := backup.GetBackupByOPID(ctx, conn, opid)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
 	}
@@ -25,14 +22,13 @@ func markBcpStale(ctx context.Context, l *lock.Lock, opid string) error {
 		return nil
 	}
 
-	log.FromContext(ctx).Debug(string(ctrl.CmdBackup), "", opid, primitive.Timestamp{}, "mark stale meta")
-
-	return backup.ChangeBackupStateOPID(l.Connect(), opid, defs.StatusError,
+	log.Debug(ctx, "mark stale meta")
+	return backup.ChangeBackupStateOPID(ctx, conn, opid, defs.StatusError,
 		"some of pbm-agents were lost during the backup")
 }
 
-func markRestoreStale(ctx context.Context, l *lock.Lock, opid string) error {
-	r, err := restore.GetRestoreMetaByOPID(ctx, l.Connect(), opid)
+func markRestoreStale(ctx context.Context, conn connect.Client, opid string) error {
+	r, err := restore.GetRestoreMetaByOPID(ctx, conn, opid)
 	if err != nil {
 		return errors.Wrap(err, "get retore meta")
 	}
@@ -42,8 +38,7 @@ func markRestoreStale(ctx context.Context, l *lock.Lock, opid string) error {
 		return nil
 	}
 
-	log.FromContext(ctx).Debug(string(ctrl.CmdRestore), "", opid, primitive.Timestamp{}, "mark stale meta")
-
-	return restore.ChangeRestoreStateOPID(ctx, l.Connect(), opid, defs.StatusError,
+	log.Debug(ctx, "mark stale meta")
+	return restore.ChangeRestoreStateOPID(ctx, conn, opid, defs.StatusError,
 		"some of pbm-agents were lost during the restore")
 }

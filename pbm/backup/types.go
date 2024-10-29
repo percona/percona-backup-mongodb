@@ -210,7 +210,7 @@ func (filelist Filelist) WriteTo(w io.Writer) (int64, error) {
 	return size, nil
 }
 
-func ReadFilelist(r io.Reader) (Filelist, error) {
+func ParseFilelist(r io.Reader) (Filelist, error) {
 	filelist := Filelist{}
 
 	var err error
