@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestCloningValidation(t *testing.T) {
 	testCases := []struct {
@@ -69,11 +72,9 @@ func TestCloningValidation(t *testing.T) {
 	for _, tC := range testCases {
 		t.Run(tC.desc, func(t *testing.T) {
 			err := validateNSFromNSTo(&tC.opts)
-			if err != tC.wantErr {
+			if !errors.Is(err, tC.wantErr) {
 				t.Errorf("Invalid validation error: want=%v, got=%v", tC.wantErr, err)
-
 			}
-
 		})
 	}
 }

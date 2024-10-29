@@ -43,13 +43,13 @@ var ExcludeFromRestore = []string{
 
 type restorer struct{ *mongorestore.MongoRestore }
 
-// CloneNS contains clone from/to info for cloning NS functionality
+// CloneNS contains clone from/to info for cloning NS use case
 type CloneNS struct {
-	FromNS string `bson:"fromNS,omitempty"`
-	ToNS   string `bson:"toNS,omitempty"`
+	FromNS string
+	ToNS   string
 }
 
-// IsSpecified returns true in case of namespace cloning functionality
+// IsSpecified returns true in case of cloning use case
 func (c *CloneNS) IsSpecified() bool {
 	return c.FromNS != "" && c.ToNS != ""
 }
