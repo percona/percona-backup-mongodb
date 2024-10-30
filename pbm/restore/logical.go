@@ -126,8 +126,11 @@ func (r *Restore) exit(ctx context.Context, err error) {
 }
 
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
-// restore namespace, and option whether we should restore users&roles
-func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) []string {
+// restore namespace, cloning options and option whether we should restore users&roles
+func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, usingUsersAndRoles bool) []string {
+	if cloneNS.IsSpecified() {
+		return []string{cloneNS.FromNS}
+	}
 	if util.IsSelective(nssRestore) {
 		if usingUsersAndRoles {
 			var nss []string
@@ -149,7 +152,14 @@ func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) [
 }
 
 // shouldRestoreUsersAndRoles determines whether user&roles should be restored from the backup
-func shouldRestoreUsersAndRoles(nssBackup, nssRestore []string, usingUsersAndRoles bool) restoreUsersAndRolesOption {
+func shouldRestoreUsersAndRoles(
+	nssBackup, nssRestore []string,
+	cloneNS snapshot.CloneNS,
+	usingUsersAndRoles bool,
+) restoreUsersAndRolesOption {
+	if cloneNS.IsSpecified() {
+		return false
+	}
 	if util.IsSelective(nssBackup) {
 		return false
 	}
@@ -183,8 +193,21 @@ func (r *Restore) Snapshot(
 		return errors.Wrap(err, "get backup storage")
 	}
 
-	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
-	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	cloneNS := snapshot.CloneNS{FromNS: cmd.NamespaceFrom, ToNS: cmd.NamespaceTo}
+	if r.brief.Sharded && cloneNS.IsSpecified() {
+		return errors.New("Namespace cloning is not supported in sharded cluster")
+	}
+
+	nss := resolveNamespace(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
 
 	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
 	if err != nil {
@@ -220,7 +243,7 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -238,12 +261,18 @@ func (r *Restore) Snapshot(
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
-	err = r.applyOplog(ctx, oplogRanges, oplogOption)
-	if err != nil {
-		return err
+	if cloneNS.IsSpecified() {
+		// oplog doesn't need to be applied when cloning ns
+		// this restriction will be removed during PBM-1422
+		l.Debug("applying oplog is skipped when cloning collection")
+	} else {
+		err = r.applyOplog(ctx, oplogRanges, oplogOption)
+		if err != nil {
+			return err
+		}
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss)
+	err = r.restoreIndexes(ctx, oplogOption.nss, cloneNS)
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -310,8 +339,21 @@ func (r *Restore) PITR(
 		return errors.Wrap(err, "get oplog storage")
 	}
 
-	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
-	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	cloneNS := snapshot.CloneNS{FromNS: cmd.NamespaceFrom, ToNS: cmd.NamespaceTo}
+	if r.brief.Sharded && cloneNS.IsSpecified() {
+		return errors.New("Namespace cloning is not supported in sharded cluster")
+	}
+
+	nss := resolveNamespace(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {
 		err = SetOplogTimestamps(ctx, r.leadConn, r.name, 0, int64(cmd.OplogTS.T))
@@ -368,7 +410,7 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -392,7 +434,7 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss)
+	err = r.restoreIndexes(ctx, oplogOption.nss, cloneNS)
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -774,6 +816,7 @@ func (r *Restore) RunSnapshot(
 	dump string,
 	bcp *backup.BackupMeta,
 	nss []string,
+	cloneNS snapshot.CloneNS,
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
 	if version.IsLegacyArchive(bcp.PBMVersion) {
@@ -833,9 +876,8 @@ func (r *Restore) RunSnapshot(
 	}
 	defer rdr.Close()
 
-	// Restore snapshot (mongorestore)
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-		err = r.snapshot(rdr, true)
+		err = r.snapshot(rdr, cloneNS, true)
 		if err != nil {
 			return errors.Wrap(err, "mongorestore")
 		}
@@ -845,7 +887,7 @@ func (r *Restore) RunSnapshot(
 			return err
 		}
 	} else {
-		err = r.snapshot(rdr, false)
+		err = r.snapshot(rdr, cloneNS, false)
 		if err != nil {
 			return errors.Wrap(err, "mongorestore")
 		}
@@ -878,7 +920,7 @@ func (r *Restore) restoreLegacyArchive(
 	defer rdr.Close()
 
 	// Restore snapshot (mongorestore)
-	err = r.snapshot(rdr, false)
+	err = r.snapshot(rdr, snapshot.CloneNS{}, false)
 	if err != nil {
 		return errors.Wrap(err, "mongorestore")
 	}
@@ -1001,7 +1043,7 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 	return nil
 }
 
-func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
+func (r *Restore) restoreIndexes(ctx context.Context, nss []string, cloneNS snapshot.CloneNS) error {
 	r.log.Debug("building indexes up")
 
 	isSelected := util.MakeSelectedPred(nss)
@@ -1026,24 +1068,32 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 		}
 
 		var indexNames []string
+		var targetDB, targetColl string
 		for _, index := range indexes {
-			index.Options["ns"] = ns.DB + "." + ns.Collection
+			if cloneNS.IsSpecified() && ns.String() == cloneNS.FromNS {
+				// override index's ns for the collection cloning
+				targetDB, targetColl = util.ParseNS(cloneNS.ToNS)
+				index.Options["ns"] = cloneNS.ToNS
+			} else {
+				targetDB, targetColl = ns.DB, ns.Collection
+				index.Options["ns"] = ns.DB + "." + ns.Collection
+			}
 			indexNames = append(indexNames, index.Options["name"].(string))
 			// remove the index version, forcing an update
 			delete(index.Options, "v")
 		}
 
 		rawCommand := bson.D{
-			{"createIndexes", ns.Collection},
+			{"createIndexes", targetColl},
 			{"indexes", indexes},
 			{"ignoreUnknownIndexOptions", true},
 		}
 
 		r.log.Info("restoring indexes for %s.%s: %s",
-			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
-		err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			targetDB, targetColl, strings.Join(indexNames, ", "))
+		err := r.nodeConn.Database(targetDB).RunCommand(ctx, rawCommand).Err()
 		if err != nil {
-			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
+			return errors.Wrapf(err, "createIndexes for %s.%s", targetDB, targetColl)
 		}
 	}
 
@@ -1279,8 +1329,8 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 	return nil
 }
 
-func (r *Restore) snapshot(input io.Reader, excludeRouterCollections bool) error {
-	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, r.numParallelColls, excludeRouterCollections)
+func (r *Restore) snapshot(input io.Reader, cloneNS snapshot.CloneNS, excludeRouterCollections bool) error {
+	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, cloneNS, r.numParallelColls, excludeRouterCollections)
 	if err != nil {
 		return err
 	}
