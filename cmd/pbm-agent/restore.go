@@ -121,7 +121,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			return
 		}
 
-		numParallelColls := runtime.NumCPU() / 2
+		numParallelColls := 1
 		if r.NumParallelColls != nil && *r.NumParallelColls > 0 {
 			numParallelColls = int(*r.NumParallelColls)
 		} else if cfg.Restore != nil && cfg.Restore.NumParallelCollections > 0 {
