@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"runtime"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
