@@ -17,7 +17,7 @@ const (
 	preserveUUID = true
 
 	batchSizeDefault           = 500
-	numInsertionWorkersDefault = 10
+	numInsertionWorkersDefault = 1
 )
 
 var ExcludeFromRestore = []string{
