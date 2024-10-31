@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"gopkg.in/yaml.v2"
 
@@ -28,6 +29,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
+var (
+	ErrNSFromMissing        = errors.New("--ns-from should be specified as the cloning source")
+	ErrNSToMissing          = errors.New("--ns-to should be specified as the cloning destination")
+	ErrSelAndCloning        = errors.New("cloning with selective restore is not possible (remove --ns option)")
+	ErrCloningWithUAndR     = errors.New("cloning with restoring users and rolles is not possible")
+	ErrCloningWithPITR      = errors.New("cloning with restore to the point-in-time is not possible")
+	ErrCloningWithWildCards = errors.New("cloning with wild-cards is not possible")
+)
+
 type restoreOpts struct {
 	bcp           string
 	pitr          string
@@ -36,6 +46,8 @@ type restoreOpts struct {
 	waitTime      time.Duration
 	extern        bool
 	ns            string
+	nsFrom        string
+	nsTo          string
 	usersAndRoles bool
 	rsMap         string
 	conf          string
@@ -116,6 +128,9 @@ func runRestore(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
+	if err := validateNSFromNSTo(o); err != nil {
+		return nil, errors.Wrap(err, "parse --ns-from and --ns-to options")
+	}
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
@@ -139,7 +154,7 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, nss, rsMap, node, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +298,8 @@ func checkBackup(
 	conn connect.Client,
 	o *restoreOpts,
 	nss []string,
+	nsFrom string,
+	nsTo string,
 ) (string, defs.BackupType, error) {
 	if o.extern && o.bcp == "" {
 		return "", defs.ExternalBackup, nil
@@ -318,11 +335,39 @@ func checkBackup(
 	if len(nss) != 0 && bcp.Type != defs.LogicalBackup {
 		return "", "", errors.New("--ns flag is only allowed for logical restore")
 	}
+	if nsFrom != "" && nsTo != "" && bcp.Type != defs.LogicalBackup {
+		return "", "", errors.New("--ns-from and ns-to flags are only allowed for logical restore")
+	}
 	if bcp.Status != defs.StatusDone {
 		return "", "", errors.Errorf("backup '%s' didn't finish successfully", b)
 	}
 
 	return bcp.Name, bcp.Type, nil
+}
+
+// nsIsTaken returns error in case when specified namesapce is already in use (collection is created)
+// or when any other error ocurres within the checking process.
+func nsIsTaken(
+	ctx context.Context,
+	conn connect.Client,
+	ns string,
+) error {
+	ns = strings.TrimSpace(ns)
+	db, coll, ok := strings.Cut(ns, ".")
+	if !ok {
+		return errors.Wrap(ErrInvalidNamespace, ns)
+	}
+
+	collNames, err := conn.MongoClient().Database(db).ListCollectionNames(ctx, bson.D{{"name", coll}})
+	if err != nil {
+		return errors.Wrap(err, "list collection names for cloning target validation")
+	}
+
+	if len(collNames) > 0 {
+		return errors.New("cloning namespace (--ns-to) is already in use, specify another one that doesn't exist in database")
+	}
+
+	return nil
 }
 
 func doRestore(
@@ -331,13 +376,22 @@ func doRestore(
 	o *restoreOpts,
 	numParallelColls *int32,
 	nss []string,
+	nsFrom string,
+	nsTo string,
 	rsMapping map[string]string,
 	node string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
-	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
+	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
 	if err != nil {
 		return nil, err
+	}
+
+	// check if namespace exists when cloning collection
+	if nsFrom != "" && nsTo != "" {
+		if err := nsIsTaken(ctx, conn, nsTo); err != nil {
+			return nil, err
+		}
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
@@ -349,6 +403,8 @@ func doRestore(
 			BackupName:       bcp,
 			NumParallelColls: numParallelColls,
 			Namespaces:       nss,
+			NamespaceFrom:    nsFrom,
+			NamespaceTo:      nsTo,
 			UsersAndRoles:    o.usersAndRoles,
 			RSMap:            rsMapping,
 			External:         o.extern,
@@ -711,6 +767,39 @@ func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
 	if len(nss) >= 1 && util.ContainsSpecifiedColl(nss) && usersAndRoles {
 		return errors.New("Including users and roles are not allowed for specific collection. " +
 			"Use --ns='db.*' to specify the whole database instead.")
+	}
+
+	return nil
+}
+
+func validateNSFromNSTo(o *restoreOpts) error {
+	if o.nsFrom == "" && o.nsTo == "" {
+		return nil
+	}
+	if o.nsFrom == "" && o.nsTo != "" {
+		return ErrNSFromMissing
+	}
+	if o.nsFrom != "" && o.nsTo == "" {
+		return ErrNSToMissing
+	}
+	if _, _, ok := strings.Cut(o.nsFrom, "."); !ok {
+		return errors.Wrap(ErrInvalidNamespace, o.nsFrom)
+	}
+	if _, _, ok := strings.Cut(o.nsTo, "."); !ok {
+		return errors.Wrap(ErrInvalidNamespace, o.nsTo)
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.ns != "" {
+		return ErrSelAndCloning
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.usersAndRoles {
+		return ErrCloningWithUAndR
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.pitr != "" {
+		// this check will be removed with: PBM-1422
+		return ErrCloningWithPITR
+	}
+	if strings.Contains(o.nsTo, "*") || strings.Contains(o.nsFrom, "*") {
+		return ErrCloningWithWildCards
 	}
 
 	return nil
