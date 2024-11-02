@@ -93,7 +93,7 @@ func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 	}
 }
 
-func Diagnostic(ctx context.Context, c *Client, cid string, dirname string) error {
+func Diagnostic(ctx context.Context, c *Client, cid, dirname string) error {
 	if fileInfo, err := os.Stat(dirname); err != nil {
 		if !os.IsNotExist(err) {
 			return errors.Wrap(err, "stat")

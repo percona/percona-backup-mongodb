@@ -39,7 +39,7 @@ func handleDiagnostic(
 	opts diagnosticOptions,
 ) (fmt.Stringer, error) {
 	err := sdk.Diagnostic(ctx, pbm, opts.opid, opts.path)
-	return outMsg{}, err
+	return outMsg{""}, err
 }
 
 type statusOptions struct {
