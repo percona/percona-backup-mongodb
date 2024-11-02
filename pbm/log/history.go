@@ -256,3 +256,29 @@ func LogGet(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (
 func LogGetExactSeverity(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*Entries, error) {
 	return fetch(ctx, m, r, limit, true)
 }
+
+func GetFirstTSForOPID(ctx context.Context, conn connect.Client, opid string) (int64, error) {
+	return getTSForOPIDImpl(ctx, conn, opid, 1)
+}
+
+func GetLastTSForOPID(ctx context.Context, conn connect.Client, opid string) (int64, error) {
+	return getTSForOPIDImpl(ctx, conn, opid, -1)
+}
+
+func getTSForOPIDImpl(
+	ctx context.Context,
+	conn connect.Client,
+	opid string,
+	sort int,
+) (int64, error) {
+	raw, err := conn.LogCollection().FindOne(ctx,
+		bson.D{{"opid", opid}},
+		options.FindOne().SetSort(bson.D{{"ts", sort}}).SetProjection(bson.D{{"ts", 1}})).
+		Raw()
+	if err != nil {
+		return 0, err
+	}
+
+	ts, _ := raw.Lookup("ts").AsInt64OK()
+	return ts, nil
+}

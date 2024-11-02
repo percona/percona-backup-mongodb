@@ -28,6 +28,20 @@ import (
 	"github.com/percona/percona-backup-mongodb/sdk/cli"
 )
 
+type diagnosticOptions struct {
+	opid string
+	path string
+}
+
+func handleDiagnostic(
+	ctx context.Context,
+	pbm *sdk.Client,
+	opts diagnosticOptions,
+) (fmt.Stringer, error) {
+	err := sdk.Diagnostic(ctx, pbm, opts.opid, opts.path)
+	return outMsg{}, err
+}
+
 type statusOptions struct {
 	rsMap    string
 	sections []string
