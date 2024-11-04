@@ -485,7 +485,11 @@ func doRestore(
 			return nil, errors.Wrap(err, "get storage")
 		}
 
-		fn = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
+		fn = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
+			meta, err := restore.GetRestoreMeta(ctx, conn, name)
+			if err == nil {
+				return meta, nil
+			}
 			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
 		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
