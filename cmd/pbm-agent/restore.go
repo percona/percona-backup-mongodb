@@ -97,7 +97,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			err1 := addRestoreMetaWithError(ctx, a.leadConn, l, opid, r, nodeInfo.SetName,
 				"define base backup: %v", err)
 			if err1 != nil {
-				l.Error("failed to save meta: %v", err)
+				l.Error("failed to save meta: %v", err1)
 			}
 			return
 		}
