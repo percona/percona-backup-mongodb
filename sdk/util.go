@@ -2,12 +2,11 @@ package sdk
 
 import (
 	"context"
-	"io"
-	"os"
-	"path/filepath"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -93,141 +92,62 @@ func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 	}
 }
 
-func Diagnostic(ctx context.Context, c *Client, cid, dirname string) error {
-	if fileInfo, err := os.Stat(dirname); err != nil {
-		if !os.IsNotExist(err) {
-			return errors.Wrap(err, "stat")
+func FindCommandIDByName(ctx context.Context, c *Client, name string) (CommandID, error) {
+	res := c.conn.CmdStreamCollection().FindOne(ctx,
+		bson.D{{"$or", bson.A{
+			bson.M{"backup.name": name},
+			bson.M{"restore.name": name},
+		}}},
+		options.FindOne().SetProjection(bson.D{{"_id", 1}}))
+	raw, err := res.Raw()
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return NoOpID, ErrNotFound
 		}
-		err = os.MkdirAll(dirname, 0o777)
-		if err != nil {
-			return errors.Wrap(err, "create path")
-		}
-	} else if !fileInfo.IsDir() {
-		return errors.Errorf("%s is not a dir", dirname)
+		return NoOpID, err
 	}
 
-	opid, err := ctrl.ParseOPID(cid)
-	if err != nil {
-		return ErrInvalidCommandID
-	}
-
-	topology := struct {
-		ClusterTime primitive.Timestamp `json:"cluster_time"`
-		Members     []topo.Shard        `json:"replsets"`
-		Agents      []AgentStatus       `json:"agents"`
-	}{}
-
-	topology.ClusterTime, err = topo.GetClusterTime(ctx, c.conn)
-	if err != nil {
-		return errors.Wrap(err, "get cluster time")
-	}
-	topology.Members, err = topo.ClusterMembers(ctx, c.conn.MongoClient())
-	if err != nil {
-		return errors.Wrap(err, "get members")
-	}
-	topology.Agents, err = topo.ListAgents(ctx, c.conn)
-	if err != nil {
-		return errors.Wrap(err, "get agents")
-	}
-	if err = writeToFile(dirname, "topo.json", topology); err != nil {
-		return errors.Wrap(err, "add topo.json")
-	}
-
-	locks := struct {
-		Locks   []lock.LockData `json:"locks"`
-		OpLocks []lock.LockData `json:"op_locks"`
-	}{}
-
-	locks.Locks, err = lock.GetLocks(ctx, c.conn, &lock.LockHeader{})
-	if err != nil {
-		return errors.Wrap(err, "get locks")
-	}
-	locks.OpLocks, err = lock.GetOpLocks(ctx, c.conn, &lock.LockHeader{})
-	if err != nil {
-		return errors.Wrap(err, "get op locks")
-	}
-	if err = writeToFile(dirname, "locks.json", locks); err != nil {
-		return errors.Wrap(err, "add locks.json")
-	}
-
-	cmd, err := c.CommandInfo(ctx, CommandID(opid.String()))
-	if err != nil {
-		return errors.Wrap(err, "get command info")
-	}
-	if err = writeToFile(dirname, "cmd.json", cmd); err != nil {
-		return errors.Wrap(err, "add command.json")
-	}
-
-	from, err := log.GetFirstTSForOPID(ctx, c.conn, opid.String())
-	if err != nil {
-		return errors.Wrap(err, "get first opid ts")
-	}
-	till, err := log.GetLastTSForOPID(ctx, c.conn, opid.String())
-	if err != nil {
-		return errors.Wrap(err, "get last opid ts")
-	}
-
-	logCursor, err := c.conn.LogCollection().Find(ctx,
-		bson.D{{"ts", bson.M{"$gte": from, "$lte": till}}})
-	if err != nil {
-		return errors.Wrap(err, "log: create cursor")
-	}
-
-	logs := struct {
-		Logs []log.Entry `bson:"logs"`
-	}{}
-	if err := logCursor.All(ctx, &logs.Logs); err != nil {
-		return errors.Wrap(err, "log: cursor %v")
-	}
-	if err = writeToFile(dirname, "logs.json", logs); err != nil {
-		return errors.Wrap(err, "add backup.json")
-	}
-
-	switch cmd.Cmd {
-	case CmdBackup:
-		meta, err := c.GetBackupByOpID(ctx, opid.String(), GetBackupByNameOptions{})
-		if err != nil {
-			return errors.Wrap(err, "get backup meta")
-		}
-		if err = writeToFile(dirname, "backup.json", meta); err != nil {
-			return errors.Wrap(err, "add backup.json")
-		}
-	case CmdRestore:
-		meta, err := c.GetRestoreByOpID(ctx, opid.String())
-		if err != nil {
-			return errors.Wrap(err, "get restore meta")
-		}
-		if err = writeToFile(dirname, "restore.json", meta); err != nil {
-			return errors.Wrap(err, "add restore.json")
-		}
-	}
-
-	return nil
+	return CommandID(ctrl.OPID(raw.Lookup("_id").ObjectID()).String()), nil
 }
 
-func writeToFile(dirname, name string, val any) error {
-	data, err := bson.MarshalExtJSON(val, true, true)
+type DiagnosticReport struct {
+	ClusterTime primitive.Timestamp `json:"cluster_time" bson:"cluster_time"`
+	Command     *Command            `json:"command" bson:"command"`
+	Members     []topo.Shard        `json:"replsets" bson:"replsets"`
+	Agents      []AgentStatus       `json:"agents" bson:"agents"`
+	Locks       []lock.LockData     `json:"locks,omitempty" bson:"locks,omitempty"`
+	OpLocks     []lock.LockData     `json:"op_locks,omitempty" bson:"op_locks,omitempty"`
+}
+
+func Diagnostic(ctx context.Context, c *Client, cid CommandID) (*DiagnosticReport, error) {
+	var err error
+	rv := &DiagnosticReport{}
+
+	rv.ClusterTime, err = topo.GetClusterTime(ctx, c.conn)
 	if err != nil {
-		return errors.Wrap(err, "marshal")
+		return nil, errors.Wrap(err, "get cluster time")
+	}
+	rv.Command, err = c.CommandInfo(ctx, cid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get command info")
+	}
+	rv.Members, err = topo.ClusterMembers(ctx, c.conn.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get members")
+	}
+	rv.Agents, err = topo.ListAgents(ctx, c.conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get agents")
 	}
 
-	file, err := os.Create(filepath.Join(dirname, name))
+	rv.Locks, err = lock.GetLocks(ctx, c.conn, &lock.LockHeader{})
 	if err != nil {
-		return err
+		return nil, errors.Wrap(err, "get locks")
 	}
-	defer file.Close()
-
-	n, err := file.Write(data)
+	rv.OpLocks, err = lock.GetOpLocks(ctx, c.conn, &lock.LockHeader{})
 	if err != nil {
-		return errors.Wrap(err, "write")
-	}
-	if n != len(data) {
-		return io.ErrShortWrite
-	}
-	err = file.Close()
-	if err != nil {
-		return errors.Wrap(err, "close file")
+		return nil, errors.Wrap(err, "get op locks")
 	}
 
-	return nil
+	return rv, nil
 }

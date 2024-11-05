@@ -265,6 +265,50 @@ func GetLastTSForOPID(ctx context.Context, conn connect.Client, opid string) (in
 	return getTSForOPIDImpl(ctx, conn, opid, -1)
 }
 
+func CommandLogCursor(
+	ctx context.Context,
+	conn connect.Client,
+	opid string,
+) (*Cursor, error) {
+	from, err := GetFirstTSForOPID(ctx, conn, opid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get first opid ts")
+	}
+	till, err := GetLastTSForOPID(ctx, conn, opid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get last opid ts")
+	}
+
+	cur, err := conn.LogCollection().Find(ctx, bson.D{{"ts", bson.M{"$gte": from, "$lte": till}}})
+	if err != nil {
+		return nil, errors.Wrap(err, "log: create cursor")
+	}
+
+	return &Cursor{cur: cur}, nil
+}
+
+type Cursor struct {
+	cur *mongo.Cursor
+}
+
+func (c *Cursor) Close(ctx context.Context) error {
+	return c.cur.Close(ctx)
+}
+
+func (c *Cursor) Err() error {
+	return c.cur.Err()
+}
+
+func (c *Cursor) Next(ctx context.Context) bool {
+	return c.cur.Next(ctx)
+}
+
+func (c *Cursor) Record() (*Entry, error) {
+	var e *Entry
+	err := c.cur.Decode(&e)
+	return e, err
+}
+
 func getTSForOPIDImpl(
 	ctx context.Context,
 	conn connect.Client,

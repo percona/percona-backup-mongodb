@@ -442,12 +442,13 @@ func main() {
 
 	diagnosticCmd := pbmCmd.Command("diagnostic", "Create diagnostic report")
 	diagnosticOpts := diagnosticOptions{}
-	diagnosticCmd.Flag("opid", "OPID of command").
-		Required().
-		StringVar(&diagnosticOpts.opid)
-	diagnosticCmd.Flag("path", "Path to dir where files will be saved").
+	diagnosticCmd.Flag("path", "Path where files will be saved").
 		Required().
 		StringVar(&diagnosticOpts.path)
+	diagnosticCmd.Flag("opid", "OPID/Command ID").
+		StringVar(&diagnosticOpts.opid)
+	diagnosticCmd.Flag("name", "Backup or Restore name").
+		StringVar(&diagnosticOpts.name)
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
