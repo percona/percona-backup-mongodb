@@ -208,7 +208,7 @@ func addRestoreMetaWithError(
 	}
 	err := restore.SetRestoreMetaIfNotExists(ctx, conn, meta)
 	if err != nil {
-		return errors.Wrap(err, "write backup meta to db")
+		return errors.Wrap(err, "write restore meta to db")
 	}
 
 	rs := restore.RestoreReplset{
