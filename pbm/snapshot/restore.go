@@ -58,7 +58,8 @@ func NewRestore(uri string,
 	cloneNS CloneNS,
 	numParallelColls,
 	numInsertionWorkersPerCol int,
-	excludeRouterCollections bool) (io.ReaderFrom, error) {
+	excludeRouterCollections bool,
+) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
 		"none",
