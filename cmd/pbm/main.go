@@ -247,6 +247,7 @@ func main() {
 	restoreCmd.Flag("num-insertion-workers-per-collection",
 		"Specifies the number of insertion workers to run concurrently per collection. For large imports, "+
 			"increasing the number of insertion workers may increase the speed of the import.").
+		Default("1").
 		Int32Var(&restore.numInsertionWorkers)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
 		StringVar(&restore.ns)
