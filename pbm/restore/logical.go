@@ -86,7 +86,8 @@ func New(leadConn connect.Client,
 	cfg *config.Config,
 	rsMap map[string]string,
 	numParallelColls,
-	numInsertionWorkersPerCol int) *Restore {
+	numInsertionWorkersPerCol int,
+) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)
 	}
