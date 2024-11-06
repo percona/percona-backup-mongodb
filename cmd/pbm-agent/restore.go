@@ -16,6 +16,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
+const (
+	numInsertionWorkersDefault = 1
+)
+
 func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID, ep config.Epoch) {
 	logger := log.FromContext(ctx)
 	if r == nil {
@@ -128,7 +132,14 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			numParallelColls = cfg.Restore.NumParallelCollections
 		}
 
-		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls)
+		numInsertionWorkersPerCol := numInsertionWorkersDefault
+		if r.NumInsertionWorkers != nil && *r.NumInsertionWorkers > 0 {
+			numInsertionWorkersPerCol = int(*r.NumInsertionWorkers)
+		} else if cfg.Restore != nil && cfg.Restore.NumInsertionWorkers > 0 {
+			numInsertionWorkersPerCol = cfg.Restore.NumInsertionWorkers
+		}
+
+		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
 		if r.OplogTS.IsZero() {
 			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {

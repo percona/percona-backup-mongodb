@@ -244,6 +244,8 @@ func main() {
 		StringVar(&restore.pitrBase)
 	restoreCmd.Flag("num-parallel-collections", "Number of parallel collections").
 		Int32Var(&restore.numParallelColls)
+	restoreCmd.Flag("num-insertion-workers-per-collection", "Specifies the number of insertion workers to run concurrently per collection. For large imports, increasing the number of insertion workers may increase the speed of the import.").
+		Int32Var(&restore.numInsertionWorkers)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
 		StringVar(&restore.ns)
 	restoreCmd.Flag("ns-from", "Allows collection cloning (creating from the backup with different name) "+

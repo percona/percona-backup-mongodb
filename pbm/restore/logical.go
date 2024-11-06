@@ -48,7 +48,8 @@ type Restore struct {
 	bcpStg   storage.Storage
 	oplogStg storage.Storage
 
-	numParallelColls int
+	numParallelColls          int
+	numInsertionWorkersPerCol int
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok. Only these shards
 	// would be expected to run restore (distributed transactions sync,
@@ -79,14 +80,7 @@ type oplogRange struct {
 type restoreUsersAndRolesOption bool
 
 // New creates a new restore object
-func New(
-	leadConn connect.Client,
-	nodeConn *mongo.Client,
-	brief topo.NodeBrief,
-	cfg *config.Config,
-	rsMap map[string]string,
-	numParallelColls int,
-) *Restore {
+func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, cfg *config.Config, rsMap map[string]string, numParallelColls, numInsertionWorkersPerCol int) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)
 	}
@@ -99,9 +93,9 @@ func New(
 
 		cfg: cfg,
 
-		numParallelColls: numParallelColls,
-
-		indexCatalog: idx.NewIndexCatalog(),
+		numParallelColls:          numParallelColls,
+		numInsertionWorkersPerCol: numInsertionWorkersPerCol,
+		indexCatalog:              idx.NewIndexCatalog(),
 	}
 }
 
@@ -1330,7 +1324,7 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 }
 
 func (r *Restore) snapshot(input io.Reader, cloneNS snapshot.CloneNS, excludeRouterCollections bool) error {
-	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, cloneNS, r.numParallelColls, excludeRouterCollections)
+	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, cloneNS, r.numParallelColls, r.numInsertionWorkersPerCol, excludeRouterCollections)
 	if err != nil {
 		return err
 	}
