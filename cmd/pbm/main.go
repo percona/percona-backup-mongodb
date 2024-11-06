@@ -440,6 +440,16 @@ func main() {
 		Short('c').
 		StringVar(&describeRestoreOpts.cfg)
 
+	diagnosticCmd := pbmCmd.Command("diagnostic", "Create diagnostic report")
+	diagnosticOpts := diagnosticOptions{}
+	diagnosticCmd.Flag("path", "Path where files will be saved").
+		Required().
+		StringVar(&diagnosticOpts.path)
+	diagnosticCmd.Flag("opid", "OPID/Command ID").
+		StringVar(&diagnosticOpts.opid)
+	diagnosticCmd.Flag("name", "Backup or Restore name").
+		StringVar(&diagnosticOpts.name)
+
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: parse command line parameters:", err)
@@ -549,6 +559,8 @@ func main() {
 		out, err = status(ctx, conn, pbm, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	case describeRestoreCmd.FullCommand():
 		out, err = describeRestore(ctx, conn, describeRestoreOpts, node)
+	case diagnosticCmd.FullCommand():
+		out, err = handleDiagnostic(ctx, pbm, diagnosticOpts)
 	}
 
 	if err != nil {

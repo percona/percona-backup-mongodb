@@ -146,6 +146,10 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 	return &Client{conn: conn, node: inf.Me}, nil
 }
 
+func CommandLogCursor(ctx context.Context, c *Client, cid CommandID) (*log.Cursor, error) {
+	return log.CommandLogCursor(ctx, c.conn, string(cid))
+}
+
 func WaitForAddProfile(ctx context.Context, client *Client, cid CommandID) error {
 	lck := &lock.LockHeader{Type: ctrl.CmdAddConfigProfile, OPID: string(cid)}
 	return waitOp(ctx, client.conn, lck)
