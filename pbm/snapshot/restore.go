@@ -53,7 +53,12 @@ func (c *CloneNS) IsSpecified() bool {
 	return c.FromNS != "" && c.ToNS != ""
 }
 
-func NewRestore(uri string, cfg *config.Config, cloneNS CloneNS, numParallelColls int, numInsertionWorkersPerCol int, excludeRouterCollections bool) (io.ReaderFrom, error) {
+func NewRestore(uri string,
+	cfg *config.Config,
+	cloneNS CloneNS,
+	numParallelColls,
+	numInsertionWorkersPerCol int,
+	excludeRouterCollections bool) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
 		"none",

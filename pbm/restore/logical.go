@@ -80,7 +80,13 @@ type oplogRange struct {
 type restoreUsersAndRolesOption bool
 
 // New creates a new restore object
-func New(leadConn connect.Client, nodeConn *mongo.Client, brief topo.NodeBrief, cfg *config.Config, rsMap map[string]string, numParallelColls, numInsertionWorkersPerCol int) *Restore {
+func New(leadConn connect.Client,
+	nodeConn *mongo.Client,
+	brief topo.NodeBrief,
+	cfg *config.Config,
+	rsMap map[string]string,
+	numParallelColls,
+	numInsertionWorkersPerCol int) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)
 	}
@@ -1324,7 +1330,11 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 }
 
 func (r *Restore) snapshot(input io.Reader, cloneNS snapshot.CloneNS, excludeRouterCollections bool) error {
-	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, cloneNS, r.numParallelColls, r.numInsertionWorkersPerCol, excludeRouterCollections)
+	rf, err := snapshot.NewRestore(r.brief.URI,
+		r.cfg, cloneNS,
+		r.numParallelColls,
+		r.numInsertionWorkersPerCol,
+		excludeRouterCollections)
 	if err != nil {
 		return err
 	}
