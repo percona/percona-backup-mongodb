@@ -1333,7 +1333,7 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 
 func (r *Restore) snapshot(input io.Reader, cloneNS snapshot.CloneNS, excludeRouterCollections bool) error {
 	rf, err := snapshot.NewRestore(
-	r.brief.URI,
+		r.brief.URI,
 		r.cfg, cloneNS,
 		r.numParallelColls,
 		r.numInsertionWorkersPerCol,
