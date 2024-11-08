@@ -256,13 +256,17 @@ func (r *Restore) Snapshot(
 	oplogRanges := []oplogRange{
 		{chunks: chunks, storage: r.bcpStg},
 	}
-	oplogOption := &applyOplogOption{end: &bcp.LastWriteTS, nss: nss}
+	oplogOption := &applyOplogOption{
+		end:     &bcp.LastWriteTS,
+		nss:     nss,
+		cloudNS: cloneNS,
+	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
 
-	err = r.applyOplog(ctx, oplogRanges, oplogOption, cloneNS)
+	err = r.applyOplog(ctx, oplogRanges, oplogOption)
 	if err != nil {
 		return err
 	}
@@ -419,7 +423,11 @@ func (r *Restore) PITR(
 		{chunks: bcpChunks, storage: r.bcpStg},
 		{chunks: chunks, storage: r.oplogStg},
 	}
-	oplogOption := applyOplogOption{end: &cmd.OplogTS, nss: nss}
+	oplogOption := applyOplogOption{
+		end:     &cmd.OplogTS,
+		nss:     nss,
+		cloudNS: cloneNS,
+	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)

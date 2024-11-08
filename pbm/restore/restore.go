@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
+	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -286,11 +287,12 @@ func chunks(
 }
 
 type applyOplogOption struct {
-	start  *primitive.Timestamp
-	end    *primitive.Timestamp
-	nss    []string
-	unsafe bool
-	filter oplog.OpFilter
+	start   *primitive.Timestamp
+	end     *primitive.Timestamp
+	nss     []string
+	cloudNS snapshot.CloneNS
+	unsafe  bool
+	filter  oplog.OpFilter
 }
 
 type (
