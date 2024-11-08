@@ -343,7 +343,15 @@ func applyOplog(
 		txnSyncErr chan error
 	)
 
-	oplogRestore, err := oplog.NewOplogRestore(node, ic, mgoV, options.unsafe, true, ctxn, txnSyncErr)
+	oplogRestore, err := oplog.NewOplogRestore(
+		node,
+		ic,
+		mgoV,
+		options.unsafe,
+		true,
+		ctxn,
+		txnSyncErr,
+		options.cloudNS)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}

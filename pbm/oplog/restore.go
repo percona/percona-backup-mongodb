@@ -120,7 +120,14 @@ type OplogRestore struct {
 
 	unsafe bool
 
-	filter OpFilter
+	filter    OpFilter
+	cloneNS   snapshot.CloneNS
+	cloneUUID cloneUUID
+}
+
+type cloneUUID struct {
+	fromUUID primitive.Binary
+	toUUID   primitive.Binary
 }
 
 const saveLastDistTxns = 100
@@ -134,6 +141,7 @@ func NewOplogRestore(
 	preserveUUID bool,
 	ctxn chan phys.RestoreTxn,
 	txnErr chan error,
+	cloneNS snapshot.CloneNS,
 ) (*OplogRestore, error) {
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
@@ -169,6 +177,7 @@ func NewOplogRestore(
 		filter:            DefaultOpFilter,
 		txnData:           make(map[string]Txn),
 		txnCommit:         newCQueue(saveLastDistTxns),
+		cloneNS:           cloneNS,
 	}, nil
 }
 
