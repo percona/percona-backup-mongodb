@@ -261,15 +261,10 @@ func (r *Restore) Snapshot(
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
-	if cloneNS.IsSpecified() {
-		// oplog doesn't need to be applied when cloning ns
-		// this restriction will be removed during PBM-1422
-		l.Debug("applying oplog is skipped when cloning collection")
-	} else {
-		err = r.applyOplog(ctx, oplogRanges, oplogOption)
-		if err != nil {
-			return err
-		}
+
+	err = r.applyOplog(ctx, oplogRanges, oplogOption, cloneNS)
+	if err != nil {
+		return err
 	}
 
 	err = r.restoreIndexes(ctx, oplogOption.nss, cloneNS)

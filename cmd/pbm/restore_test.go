@@ -43,15 +43,15 @@ func TestCloningValidation(t *testing.T) {
 			},
 			wantErr: ErrCloningWithUAndR,
 		},
-		{
-			desc: "cloning with PITR is not allowed",
-			opts: restoreOpts{
-				nsFrom: "d.c1",
-				nsTo:   "d.c2",
-				pitr:   "2024-10-27T11:23:30",
-			},
-			wantErr: ErrCloningWithPITR,
-		},
+		// {
+		// 	desc: "cloning with PITR is not allowed",
+		// 	opts: restoreOpts{
+		// 		nsFrom: "d.c1",
+		// 		nsTo:   "d.c2",
+		// 		pitr:   "2024-10-27T11:23:30",
+		// 	},
+		// 	wantErr: ErrCloningWithPITR,
+		// },
 		{
 			desc: "cloning with wild cards within nsFrom",
 			opts: restoreOpts{
