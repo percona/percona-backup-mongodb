@@ -1134,3 +1134,29 @@ func isTruthy(val interface{}) bool {
 func isFalsy(val interface{}) bool {
 	return !isTruthy(val)
 }
+
+// getUUIDForNS ruturns UUID of existing collection.
+// When ns doesn't exist, it retuns zero value without an error.
+// In case of error, it returns zero value for UUID in addtion to error.
+func getUUIDForNS(ctx context.Context, m *mongo.Client, ns string) (primitive.Binary, error) {
+	var uuid primitive.Binary
+
+	d, c, _ := strings.Cut(ns, ".")
+	cur, err := m.Database(d).ListCollections(ctx, bson.D{{"name", c}})
+	if err != nil {
+		return uuid, errors.Wrap(err, "list collections")
+	}
+	defer cur.Close(ctx)
+
+	for cur.Next(ctx) {
+		if subtype, data, ok := cur.Current.Lookup("info", "uuid").BinaryOK(); ok {
+			uuid = primitive.Binary{
+				Subtype: subtype,
+				Data:    data,
+			}
+			break
+		}
+	}
+
+	return uuid, errors.Wrap(cur.Err(), "list collections cursor")
+}
