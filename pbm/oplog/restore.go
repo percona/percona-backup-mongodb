@@ -154,7 +154,6 @@ func NewOplogRestore(
 	ctxn chan phys.RestoreTxn,
 	txnErr chan error,
 ) (*OplogRestore, error) {
-
 	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
@@ -279,7 +278,7 @@ func (o *OplogRestore) SetIncludeNS(nss []string) {
 }
 
 // SetCloneNS sets all needed data for cloning namespace:
-// collection names and namespace UUIDs
+// collection names and target namespace UUID
 func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) error {
 	if !ns.IsSpecified() {
 		return nil
@@ -367,8 +366,8 @@ func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
 	}
 
 	db, coll, _ := strings.Cut(oe.Namespace, ".")
-	cloneFromDb, cloneFromColl, _ := strings.Cut(o.cloneNS.FromNS, ".")
-	if coll != "$cmd" || db != cloneFromDb {
+	cloneFromDB, cloneFromColl, _ := strings.Cut(o.cloneNS.FromNS, ".")
+	if coll != "$cmd" || db != cloneFromDB {
 		// entry not a command or it's command not relevant for db to clone from
 		return false
 	}
@@ -1219,8 +1218,8 @@ func isFalsy(val interface{}) bool {
 }
 
 // getUUIDForNS ruturns UUID of existing collection.
-// When ns doesn't exist, it retuns zero value without an error.
-// In case of error, it returns zero value for UUID in addtion to error.
+// When ns doesn't exist, it returns zero value without an error.
+// In case of error, it returns zero value for UUID in addition to error.
 func getUUIDForNS(ctx context.Context, m *mongo.Client, ns string) (primitive.Binary, error) {
 	var uuid primitive.Binary
 
