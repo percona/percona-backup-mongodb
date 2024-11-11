@@ -350,8 +350,7 @@ func applyOplog(
 		options.unsafe,
 		true,
 		ctxn,
-		txnSyncErr,
-		options.cloudNS)
+		txnSyncErr)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}
@@ -367,6 +366,10 @@ func applyOplog(
 	}
 	oplogRestore.SetTimeframe(startTS, endTS)
 	oplogRestore.SetIncludeNS(options.nss)
+	err = oplogRestore.SetCloneNS(ctx, options.cloudNS)
+	if err != nil {
+		return nil, errors.Wrap(err, "set cloning ns")
+	}
 
 	var lts primitive.Timestamp
 	for _, oplogRange := range ranges {
