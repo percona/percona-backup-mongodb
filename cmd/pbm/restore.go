@@ -798,10 +798,6 @@ func validateNSFromNSTo(o *restoreOpts) error {
 	if o.nsFrom != "" && o.nsTo != "" && o.usersAndRoles {
 		return ErrCloningWithUAndR
 	}
-	// if o.nsFrom != "" && o.nsTo != "" && o.pitr != "" {
-	// 	// this check will be removed with: PBM-1422
-	// 	return ErrCloningWithPITR
-	// }
 	if strings.Contains(o.nsTo, "*") || strings.Contains(o.nsFrom, "*") {
 		return ErrCloningWithWildCards
 	}
