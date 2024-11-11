@@ -367,7 +367,10 @@ func applyOplog(
 	oplogRestore.SetTimeframe(startTS, endTS)
 	oplogRestore.SetIncludeNS(options.nss)
 	err = oplogRestore.SetCloneNS(ctx, options.cloudNS)
-	if err != nil {
+	if errors.Is(err, oplog.ErrNoCloningNamespace) {
+		log.Info("cloning namespace doesn't exist so oplog will not be applied")
+		return partial, nil
+	} else if err != nil {
 		return nil, errors.Wrap(err, "set cloning ns")
 	}
 

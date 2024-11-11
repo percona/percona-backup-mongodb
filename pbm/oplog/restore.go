@@ -98,6 +98,18 @@ var dontPreserveUUID = []string{
 	"*.system.views",     // timeseries
 }
 
+var ErrNoCloningNamespace = errors.New("cloning namespace desn't exist")
+
+// cloneNS has all data related to cloning namespace within oplog
+type cloneNS struct {
+	snapshot.CloneNS
+	toUUID primitive.Binary
+}
+
+func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
+	c.CloneNS = nsPair
+}
+
 // OplogRestore is the oplog applyer
 type OplogRestore struct {
 	dst               *mongo.Client
@@ -131,15 +143,6 @@ type OplogRestore struct {
 
 	filter  OpFilter
 	cloneNS cloneNS
-}
-
-type cloneNS struct {
-	snapshot.CloneNS
-	toUUID primitive.Binary
-}
-
-func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
-	c.CloneNS = nsPair
 }
 
 const saveLastDistTxns = 100
@@ -290,6 +293,9 @@ func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) erro
 	o.cloneNS.toUUID, err = getUUIDForNS(ctx, o.dst, o.cloneNS.ToNS)
 	if err != nil {
 		return errors.Wrap(err, "get to ns uuid")
+	}
+	if o.cloneNS.toUUID.IsZero() {
+		return ErrNoCloningNamespace
 	}
 
 	return nil
