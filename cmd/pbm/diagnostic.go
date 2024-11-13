@@ -103,7 +103,7 @@ func handleDiagnostic(
 		return nil, errors.Wrap(err, "failed to save command log")
 	}
 
-	return outMsg{""}, nil
+	return outMsg{"Report is successfully created"}, nil
 }
 
 //nolint:nonamedreturns
