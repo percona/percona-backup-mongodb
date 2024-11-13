@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
@@ -66,22 +67,28 @@ func handleDiagnostic(
 	case sdk.CmdBackup:
 		meta, err := pbm.GetBackupByOpID(ctx, opts.opid, sdk.GetBackupByNameOptions{})
 		if err != nil {
-			return nil, errors.Wrap(err, "get backup meta")
-		}
-		err = writeToFile(opts.path, opts.opid+".backup.json", meta)
-		if err != nil {
-			return nil, errors.Wrapf(err,
-				"failed to save %s", filepath.Join(opts.path, opts.opid+".backup.json"))
+			if !errors.Is(err, sdk.ErrNotFound) {
+				return nil, errors.Wrap(err, "get backup meta")
+			}
+		} else {
+			err = writeToFile(opts.path, opts.opid+".backup.json", meta)
+			if err != nil {
+				return nil, errors.Wrapf(err,
+					"failed to save %s", filepath.Join(opts.path, opts.opid+".backup.json"))
+			}
 		}
 	case sdk.CmdRestore:
 		meta, err := pbm.GetRestoreByOpID(ctx, opts.opid)
 		if err != nil {
-			return nil, errors.Wrap(err, "get restore meta")
-		}
-		err = writeToFile(opts.path, opts.opid+".restore.json", meta)
-		if err != nil {
-			return nil, errors.Wrapf(err,
-				"failed to save %s", filepath.Join(opts.path, opts.opid+".restore.json"))
+			if !errors.Is(err, sdk.ErrNotFound) {
+				return nil, errors.Wrap(err, "get restore meta")
+			}
+		} else {
+			err = writeToFile(opts.path, opts.opid+".restore.json", meta)
+			if err != nil {
+				return nil, errors.Wrapf(err,
+					"failed to save %s", filepath.Join(opts.path, opts.opid+".restore.json"))
+			}
 		}
 	}
 
