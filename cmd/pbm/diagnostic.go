@@ -71,6 +71,7 @@ func handleDiagnostic(
 				return nil, errors.Wrap(err, "get backup meta")
 			}
 		} else {
+			meta.Store = backup.Storage{}
 			err = writeToFile(opts.path, opts.opid+".backup.json", meta)
 			if err != nil {
 				return nil, errors.Wrapf(err,
