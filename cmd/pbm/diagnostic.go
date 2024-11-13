@@ -33,6 +33,11 @@ func handleDiagnostic(
 		cid, err := sdk.FindCommandIDByName(ctx, pbm, opts.name)
 		if err != nil {
 			if errors.Is(err, sdk.ErrNotFound) {
+				// after physical restore, command and log collections are empty.
+				rst, err := pbm.GetRestoreByName(ctx, opts.name)
+				if err == nil && rst.Type != sdk.LogicalBackup {
+					return nil, errors.New("PBM does not support reporting for physical restores")
+				}
 				return nil, errors.New("command not found")
 			}
 			return nil, errors.Wrap(err, "find opid by name")
