@@ -372,9 +372,7 @@ func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
 	}
 
 	db, coll, _ := strings.Cut(oe.Namespace, ".")
-	cloneFromDB, cloneFromColl, _ := strings.Cut(o.cloneNS.FromNS, ".")
-	if coll != "$cmd" || db != cloneFromDB {
-		// entry not a command or it's command not relevant for db to clone from
+	if coll != "$cmd" {
 		return false
 	}
 
@@ -382,6 +380,13 @@ func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
 	if cmd == "applyOps" {
 		return true // internal ops of applyOps are checked one by one later
 	}
+
+	cloneFromDB, cloneFromColl, _ := strings.Cut(o.cloneNS.FromNS, ".")
+	if db != cloneFromDB {
+		// it's command not relevant for db to clone from
+		return false
+	}
+
 	if _, ok := cloningNSSupportedCommands[cmd]; ok {
 		// check if command targets collection
 		collForCmd, _ := oe.Object[0].Value.(string)
