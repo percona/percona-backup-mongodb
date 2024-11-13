@@ -31,6 +31,9 @@ func handleDiagnostic(
 	if opts.opid == "" {
 		cid, err := sdk.FindCommandIDByName(ctx, pbm, opts.name)
 		if err != nil {
+			if errors.Is(err, sdk.ErrNotFound) {
+				return nil, errors.New("command not found")
+			}
 			return nil, errors.Wrap(err, "find opid by name")
 		}
 		opts.opid = string(cid)
