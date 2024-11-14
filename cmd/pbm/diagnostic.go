@@ -104,6 +104,20 @@ func handleDiagnostic(
 				return nil, errors.Wrapf(err,
 					"failed to save %s", filepath.Join(opts.path, prefix+".restore.json"))
 			}
+
+			meta, err := pbm.GetBackupByName(ctx, meta.Backup, sdk.GetBackupByNameOptions{})
+			if err != nil {
+				if !errors.Is(err, sdk.ErrNotFound) {
+					return nil, errors.Wrap(err, "get backup meta")
+				}
+			} else {
+				meta.Store = backup.Storage{}
+				err = writeToFile(opts.path, prefix+".backup.json", meta)
+				if err != nil {
+					return nil, errors.Wrapf(err,
+						"failed to save %s", filepath.Join(opts.path, prefix+".backup.json"))
+				}
+			}
 		}
 	}
 
