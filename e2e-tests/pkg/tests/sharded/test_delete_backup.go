@@ -210,3 +210,8 @@ func (c *Cluster) printBcpList() {
 	listo, _ := c.pbm.RunCmd("pbm", "list", "--full")
 	fmt.Printf("backup list:\n%s\n", listo)
 }
+
+func (c *Cluster) printBcpStatus() {
+	listo, _ := c.pbm.RunCmd("pbm", "status")
+	fmt.Printf("backup list:\n%s\n", listo)
+}
