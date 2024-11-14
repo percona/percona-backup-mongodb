@@ -11,6 +11,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
@@ -133,16 +134,12 @@ func writeLogToFile(ctx context.Context, pbm *sdk.Client, opts diagnosticOptions
 			return errors.Wrap(err, "log: decode")
 		}
 
-		data, err := bson.MarshalExtJSON(rec, true, true)
-		if err != nil {
-			return errors.Wrap(err, "log: encode")
-		}
-
-		n, err := file.Write(data)
+		s := rec.Stringify(log.AsUTC, true, true)
+		n, err := file.WriteString(s)
 		if err != nil {
 			return errors.Wrap(err, "log: write")
 		}
-		if n != len(data) {
+		if n != len(s) {
 			return errors.Wrap(io.ErrShortWrite, "log")
 		}
 
