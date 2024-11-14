@@ -73,7 +73,11 @@ func handleDiagnostic(
 			"failed to save %s", filepath.Join(opts.path, prefix+".report.json"))
 	}
 
-	switch report.Command.Cmd {
+	var cmdType sdk.CommandType
+	if report.Command != nil {
+		cmdType = report.Command.Cmd
+	}
+	switch cmdType {
 	case sdk.CmdBackup:
 		meta, err := pbm.GetBackupByOpID(ctx, opts.opid, sdk.GetBackupByNameOptions{})
 		if err != nil {
