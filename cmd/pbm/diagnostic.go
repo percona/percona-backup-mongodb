@@ -32,6 +32,7 @@ func handleDiagnostic(
 		return nil, errors.New("--opid or --name must be provided")
 	}
 
+	prefix := opts.opid
 	if opts.opid == "" {
 		cid, err := sdk.FindCommandIDByName(ctx, pbm, opts.name)
 		if err != nil {
@@ -46,6 +47,7 @@ func handleDiagnostic(
 			return nil, errors.Wrap(err, "find opid by name")
 		}
 		opts.opid = string(cid)
+		prefix = opts.name
 	}
 
 	report, err := sdk.Diagnostic(ctx, pbm, sdk.CommandID(opts.opid))
@@ -65,10 +67,10 @@ func handleDiagnostic(
 		return nil, errors.Errorf("%s is not a dir", opts.path)
 	}
 
-	err = writeToFile(opts.path, opts.opid+".report.json", report)
+	err = writeToFile(opts.path, prefix+".report.json", report)
 	if err != nil {
 		return nil, errors.Wrapf(err,
-			"failed to save %s", filepath.Join(opts.path, opts.opid+".report.json"))
+			"failed to save %s", filepath.Join(opts.path, prefix+".report.json"))
 	}
 
 	switch report.Command.Cmd {
@@ -80,10 +82,10 @@ func handleDiagnostic(
 			}
 		} else {
 			meta.Store = backup.Storage{}
-			err = writeToFile(opts.path, opts.opid+".backup.json", meta)
+			err = writeToFile(opts.path, prefix+".backup.json", meta)
 			if err != nil {
 				return nil, errors.Wrapf(err,
-					"failed to save %s", filepath.Join(opts.path, opts.opid+".backup.json"))
+					"failed to save %s", filepath.Join(opts.path, prefix+".backup.json"))
 			}
 		}
 	case sdk.CmdRestore:
@@ -93,21 +95,21 @@ func handleDiagnostic(
 				return nil, errors.Wrap(err, "get restore meta")
 			}
 		} else {
-			err = writeToFile(opts.path, opts.opid+".restore.json", meta)
+			err = writeToFile(opts.path, prefix+".restore.json", meta)
 			if err != nil {
 				return nil, errors.Wrapf(err,
-					"failed to save %s", filepath.Join(opts.path, opts.opid+".restore.json"))
+					"failed to save %s", filepath.Join(opts.path, prefix+".restore.json"))
 			}
 		}
 	}
 
-	err = writeLogToFile(ctx, pbm, opts)
+	err = writeLogToFile(ctx, pbm, opts.path, prefix, opts.opid)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to save command log")
 	}
 
 	if opts.archive {
-		err = createArchive(ctx, opts)
+		err = createArchive(opts.path, prefix)
 		if err != nil {
 			return nil, errors.Wrap(err, "create archive")
 		}
@@ -117,8 +119,8 @@ func handleDiagnostic(
 }
 
 //nolint:nonamedreturns
-func writeLogToFile(ctx context.Context, pbm *sdk.Client, opts diagnosticOptions) (err error) {
-	filename := filepath.Join(opts.path, opts.opid+".log")
+func writeLogToFile(ctx context.Context, pbm *sdk.Client, path, prefix, opid string) (err error) {
+	filename := filepath.Join(path, prefix+".log")
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -130,7 +132,7 @@ func writeLogToFile(ctx context.Context, pbm *sdk.Client, opts diagnosticOptions
 		}
 	}()
 
-	cur, err := sdk.CommandLogCursor(ctx, pbm, sdk.CommandID(opts.opid))
+	cur, err := sdk.CommandLogCursor(ctx, pbm, sdk.CommandID(opid))
 	if err != nil {
 		return errors.Wrap(err, "open log cursor")
 	}
@@ -201,7 +203,7 @@ func writeToFile(dirname, name string, val any) error {
 	return nil
 }
 
-func createArchive(_ context.Context, opts diagnosticOptions) error {
+func createArchive(path, prefix string) error {
 	file, err := os.CreateTemp("", "")
 	if err != nil {
 		return errors.Wrap(err, "create tmp file")
@@ -214,7 +216,7 @@ func createArchive(_ context.Context, opts diagnosticOptions) error {
 	}()
 
 	archive := zip.NewWriter(file)
-	err = archive.AddFS(os.DirFS(opts.path))
+	err = archive.AddFS(os.DirFS(path))
 	if err != nil {
 		return err
 	}
@@ -229,7 +231,7 @@ func createArchive(_ context.Context, opts diagnosticOptions) error {
 		return errors.Wrap(err, "close file")
 	}
 
-	err = os.Rename(file.Name(), filepath.Join(opts.path, opts.opid+".zip"))
+	err = os.Rename(file.Name(), filepath.Join(path, prefix+".zip"))
 	if err != nil {
 		return err
 	}

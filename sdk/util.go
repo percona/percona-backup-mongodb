@@ -112,6 +112,7 @@ func FindCommandIDByName(ctx context.Context, c *Client, name string) (CommandID
 }
 
 type DiagnosticReport struct {
+	OPID          string              `json:"opid" bson:"opid"`
 	ClusterTime   primitive.Timestamp `json:"cluster_time" bson:"cluster_time"`
 	ServerVersion string              `json:"server_version" bson:"server_version"`
 	FCV           string              `json:"fcv" bson:"fcv"`
@@ -124,7 +125,7 @@ type DiagnosticReport struct {
 
 func Diagnostic(ctx context.Context, c *Client, cid CommandID) (*DiagnosticReport, error) {
 	var err error
-	rv := &DiagnosticReport{}
+	rv := &DiagnosticReport{OPID: string(cid)}
 
 	rv.ClusterTime, err = topo.GetClusterTime(ctx, c.conn)
 	if err != nil {
