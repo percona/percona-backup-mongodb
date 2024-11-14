@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"fmt"
 	"io"
@@ -16,9 +17,10 @@ import (
 )
 
 type diagnosticOptions struct {
-	path string
-	opid string
-	name string
+	path    string
+	opid    string
+	name    string
+	archive bool
 }
 
 func handleDiagnostic(
@@ -102,6 +104,13 @@ func handleDiagnostic(
 	err = writeLogToFile(ctx, pbm, opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to save command log")
+	}
+
+	if opts.archive {
+		err = createArchive(ctx, opts)
+		if err != nil {
+			return nil, errors.Wrap(err, "create archive")
+		}
 	}
 
 	return outMsg{"Report is successfully created"}, nil
@@ -189,5 +198,42 @@ func writeToFile(dirname, name string, val any) error {
 		return errors.Wrap(err, "close file")
 	}
 
+	return nil
+}
+
+func createArchive(_ context.Context, opts diagnosticOptions) error {
+	file, err := os.CreateTemp("", "")
+	if err != nil {
+		return errors.Wrap(err, "create tmp file")
+	}
+	defer func() {
+		if file != nil {
+			file.Close()
+			os.Remove(file.Name())
+		}
+	}()
+
+	archive := zip.NewWriter(file)
+	err = archive.AddFS(os.DirFS(opts.path))
+	if err != nil {
+		return err
+	}
+
+	err = archive.Close()
+	if err != nil {
+		return errors.Wrap(err, "close zip")
+	}
+
+	err = file.Close()
+	if err != nil {
+		return errors.Wrap(err, "close file")
+	}
+
+	err = os.Rename(file.Name(), filepath.Join(opts.path, opts.opid+".zip"))
+	if err != nil {
+		return err
+	}
+
+	file = nil
 	return nil
 }

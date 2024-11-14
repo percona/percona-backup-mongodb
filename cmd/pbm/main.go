@@ -445,6 +445,8 @@ func main() {
 	diagnosticCmd.Flag("path", "Path where files will be saved").
 		Required().
 		StringVar(&diagnosticOpts.path)
+	diagnosticCmd.Flag("archive", "create zip file").
+		BoolVar(&diagnosticOpts.archive)
 	diagnosticCmd.Flag("opid", "OPID/Command ID").
 		StringVar(&diagnosticOpts.opid)
 	diagnosticCmd.Flag("name", "Backup or Restore name").
