@@ -22,6 +22,12 @@ import (
 
 const mongoConnFlag = "mongodb-uri"
 
+type LogOpts struct {
+	logPath  string
+	logJSON  bool
+	logLevel string
+}
+
 func main() {
 	var (
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
@@ -49,6 +55,18 @@ func main() {
 		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").
 				Default("").
 				String()
+
+		logOpts = LogOpts{
+			logPath: *pbmCmd.Flag("log-path", "Path to file").
+				Default("/dev/stderr").
+				String(),
+			logJSON: *pbmCmd.Flag("log-json", "Enable JSON output").Bool(),
+			logLevel: *pbmCmd.Flag(
+				"log-level",
+				"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
+				Default("D").
+				Enum("D", "I", "W", "E", "F"),
+		}
 	)
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
@@ -76,14 +94,18 @@ func main() {
 
 	fmt.Print(perconaSquadNotice)
 
-	err = runAgent(url, *dumpConns)
+	err = runAgent(url, *dumpConns, &logOpts)
 	stdlog.Println("Exit:", err)
 	if err != nil {
 		os.Exit(1)
 	}
 }
 
-func runAgent(mongoURI string, dumpConns int) error {
+func runAgent(
+	mongoURI string,
+	dumpConns int,
+	logOpts *LogOpts,
+) error {
 	mtLog.SetDateFormat(log.LogTimeFormat)
 	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
 
