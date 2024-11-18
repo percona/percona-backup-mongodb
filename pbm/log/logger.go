@@ -32,17 +32,18 @@ type loggerImpl struct {
 
 	pauseMgo int32
 
-	logLevel string
+	logLevel Severity
 	logJSON  bool
 }
 
 // New creates default logger which outputs to stderr.
 func New(cn *mongo.Collection, rs, node string) Logger {
 	return &loggerImpl{
-		cn:     cn,
-		logger: newStdLogger(),
-		rs:     rs,
-		node:   node,
+		cn:       cn,
+		logger:   newStdLogger(),
+		rs:       rs,
+		node:     node,
+		logLevel: Debug,
 	}
 }
 
@@ -52,7 +53,7 @@ func NewWithOpts(cn *mongo.Collection, rs, node string, opts *Opts) Logger {
 		cn:       cn,
 		rs:       rs,
 		node:     node,
-		logLevel: opts.LogLevel,
+		logLevel: strToSeverity(opts.LogLevel),
 		logJSON:  opts.LogJSON,
 	}
 
@@ -248,7 +249,7 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 		}
 	}
 
-	if l.logger != nil {
+	if l.logger != nil && l.logLevel >= e.Severity {
 		_, err := l.logger.out.Write(append([]byte(e.String()), '\n'))
 
 		err = errors.Wrap(err, "io")

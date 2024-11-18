@@ -76,3 +76,20 @@ func (s Severity) String() string {
 		return ""
 	}
 }
+
+func strToSeverity(s string) Severity {
+	switch s {
+	case "F":
+		return Fatal
+	case "E":
+		return Error
+	case "W":
+		return Warning
+	case "I":
+		return Info
+	case "D":
+		return Debug
+	default:
+		return Debug
+	}
+}
