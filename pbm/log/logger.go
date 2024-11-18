@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -16,25 +19,108 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
+const logPathStdErr = "/dev/stderr"
+
 type loggerImpl struct {
-	cn   *mongo.Collection
-	out  io.Writer
-	rs   string
-	node string
+	cn     *mongo.Collection
+	logger *logger
+	rs     string
+	node   string
 
 	buf    Buffer
 	bufSet atomic.Uint32
 
 	pauseMgo int32
+
+	logLevel string
+	logJSON  bool
 }
 
+// New creates default logger which outputs to stderr.
 func New(cn *mongo.Collection, rs, node string) Logger {
 	return &loggerImpl{
-		cn:   cn,
-		out:  os.Stderr,
-		rs:   rs,
-		node: node,
+		cn:     cn,
+		logger: newStdLogger(),
+		rs:     rs,
+		node:   node,
 	}
+}
+
+// NewWithOpts creates logger based on provided options.
+func NewWithOpts(cn *mongo.Collection, rs, node string, opts *Opts) Logger {
+	l := &loggerImpl{
+		cn:       cn,
+		rs:       rs,
+		node:     node,
+		logLevel: opts.LogLevel,
+		logJSON:  opts.LogJSON,
+	}
+
+	if strings.TrimSpace(opts.LogPath) == "" || opts.LogPath == logPathStdErr {
+		l.logger = newStdLogger()
+		return l
+	}
+
+	fl, err := newFileLogger(opts.LogPath)
+	if err != nil {
+		log.Printf("[ERROR] creating file logger: %v", err)
+		l.logger = newStdLogger()
+		return l
+	}
+
+	l.logger = fl
+	return l
+}
+
+// Opts represents options that are specified by the user.
+type Opts struct {
+	LogPath  string
+	LogJSON  bool
+	LogLevel string
+}
+
+type logger struct {
+	out     io.Writer
+	logPath string
+}
+
+func newStdLogger() *logger {
+	return &logger{
+		out:     os.Stderr,
+		logPath: logPathStdErr,
+	}
+}
+
+func newFileLogger(logPath string) (*logger, error) {
+	fullpath, err := filepath.Abs(logPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "abs")
+	}
+
+	fileInfo, err := os.Stat(fullpath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, errors.Wrap(err, "stat")
+		}
+
+		dirpath := filepath.Dir(fullpath)
+		err = os.MkdirAll(dirpath, fs.ModeDir|0o777)
+		if err != nil {
+			return nil, errors.Wrap(err, "mkdir -p")
+		}
+	} else if fileInfo.IsDir() {
+		return nil, errors.New("path is dir")
+	}
+
+	out, err := os.OpenFile(fullpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, errors.Wrap(err, "open file")
+	}
+
+	return &logger{
+		out:     out,
+		logPath: logPath,
+	}, nil
 }
 
 func (l *loggerImpl) NewEvent(typ, name, opid string, epoch primitive.Timestamp) LogEvent {
@@ -111,7 +197,7 @@ func (l *loggerImpl) output(
 
 	err := l.Output(context.TODO(), e)
 	if err != nil {
-		log.Printf("[ERROR] wrting log: %v, entry: %s", err, e)
+		log.Printf("[ERROR] writing log: %v, entry: %s", err, e)
 	}
 }
 
@@ -162,8 +248,8 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 		}
 	}
 
-	if l.out != nil {
-		_, err := l.out.Write(append([]byte(e.String()), '\n'))
+	if l.logger != nil {
+		_, err := l.logger.out.Write(append([]byte(e.String()), '\n'))
 
 		err = errors.Wrap(err, "io")
 		if rerr != nil {

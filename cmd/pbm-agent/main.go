@@ -22,12 +22,6 @@ import (
 
 const mongoConnFlag = "mongodb-uri"
 
-type LogOpts struct {
-	logPath  string
-	logJSON  bool
-	logLevel string
-}
-
 func main() {
 	var (
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
@@ -56,12 +50,12 @@ func main() {
 				Default("").
 				String()
 
-		logOpts = LogOpts{
-			logPath: *pbmCmd.Flag("log-path", "Path to file").
+		logOpts = log.Opts{
+			LogPath: *pbmCmd.Flag("log-path", "Path to file").
 				Default("/dev/stderr").
 				String(),
-			logJSON: *pbmCmd.Flag("log-json", "Enable JSON output").Bool(),
-			logLevel: *pbmCmd.Flag(
+			LogJSON: *pbmCmd.Flag("log-json", "Enable JSON output").Bool(),
+			LogLevel: *pbmCmd.Flag(
 				"log-level",
 				"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
 				Default("D").
@@ -104,7 +98,7 @@ func main() {
 func runAgent(
 	mongoURI string,
 	dumpConns int,
-	logOpts *LogOpts,
+	logOpts *log.Opts,
 ) error {
 	mtLog.SetDateFormat(log.LogTimeFormat)
 	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
