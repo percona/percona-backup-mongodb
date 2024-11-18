@@ -73,9 +73,11 @@ func run(t *sharded.Cluster, typ testTyp) {
 	runTest("Check the Cannot Run Delete During Backup",
 		t.CannotRunDeleteDuringBackup)
 
-	runTest("Check Backup Cancellation",
-		func() { t.BackupCancellation(storage) })
-
+	// Skip test for sharded envs until PBM-1446 is fixed
+	if typ != testsSharded {
+		runTest("Check Backup Cancellation",
+			func() { t.BackupCancellation(storage) })
+	}
 	runTest("Leader lag during backup start",
 		t.LeaderLag)
 
