@@ -60,18 +60,26 @@ const (
 	Debug
 )
 
+const (
+	F = "F"
+	E = "E"
+	W = "W"
+	I = "I"
+	D = "D"
+)
+
 func (s Severity) String() string {
 	switch s {
 	case Fatal:
-		return "F"
+		return F
 	case Error:
-		return "E"
+		return E
 	case Warning:
-		return "W"
+		return W
 	case Info:
-		return "I"
+		return I
 	case Debug:
-		return "D"
+		return D
 	default:
 		return ""
 	}
@@ -79,15 +87,15 @@ func (s Severity) String() string {
 
 func strToSeverity(s string) Severity {
 	switch s {
-	case "F":
+	case F:
 		return Fatal
-	case "E":
+	case E:
 		return Error
-	case "W":
+	case W:
 		return Warning
-	case "I":
+	case I:
 		return Info
-	case "D":
+	case D:
 		return Debug
 	default:
 		return Debug

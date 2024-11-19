@@ -60,7 +60,7 @@ func main() {
 				"log-level",
 				"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
 				Default("D").
-				Enum("D", "I", "W", "E", "F"),
+				Enum(log.D, log.I, log.W, log.E, log.F),
 		}
 	)
 
