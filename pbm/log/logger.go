@@ -250,9 +250,15 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 	}
 
 	if l.logger != nil && l.logLevel >= e.Severity {
-		_, err := l.logger.out.Write(append([]byte(e.String()), '\n'))
+		var err error
+		if l.logJSON {
+			err = json.NewEncoder(l.logger.out).Encode(e)
+			err = errors.Wrap(err, "io json")
+		} else {
+			_, err = l.logger.out.Write(append([]byte(e.String()), '\n'))
+			err = errors.Wrap(err, "io text")
+		}
 
-		err = errors.Wrap(err, "io")
 		if rerr != nil {
 			rerr = errors.Errorf("%v, %v", rerr, err)
 		} else {
