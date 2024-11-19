@@ -14,6 +14,7 @@ import (
 	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -111,12 +112,27 @@ func runAgent(
 		return errors.Wrap(err, "connect to PBM")
 	}
 
+	err = setupNewDB(ctx, leadConn)
+	if err != nil {
+		return errors.Wrap(err, "setup pbm collections")
+	}
+
 	agent, err := newAgent(ctx, leadConn, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
 
-	logger := log.New(agent.leadConn.LogCollection(), agent.brief.SetName, agent.brief.Me)
+	config, err := config.GetConfig(ctx, leadConn)
+	if err != nil {
+		return errors.Wrap(err, "get config")
+	}
+	logOpts = mergeLogOpts(logOpts, config)
+
+	logger := log.NewWithOpts(
+		agent.leadConn.LogCollection(),
+		agent.brief.SetName,
+		agent.brief.Me,
+		logOpts)
 	defer logger.Close()
 
 	ctx = log.SetLoggerToContext(ctx, logger)
@@ -130,11 +146,6 @@ func runAgent(
 		}
 	}
 
-	err = setupNewDB(ctx, agent.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "setup pbm collections")
-	}
-
 	agent.showIncompatibilityWarning(ctx)
 
 	if canRunSlicer {
@@ -143,4 +154,25 @@ func runAgent(
 	go agent.HbStatus(ctx)
 
 	return errors.Wrap(agent.Start(ctx), "listen the commands stream")
+}
+
+// mergeLogOpts creates new log options based on command line options and PBM's configuration.
+func mergeLogOpts(logOpts *log.Opts, config *config.Config) *log.Opts {
+	opts := logOpts
+
+	if config == nil || config.Logging == nil {
+		return opts
+	}
+
+	if config.Logging.Path != "" {
+		opts.LogPath = config.Logging.Path
+	}
+	if config.Logging.Level != "" {
+		opts.LogLevel = config.Logging.Level
+	}
+	if config.Logging.JSON != nil {
+		opts.LogJSON = *config.Logging.JSON
+	}
+
+	return opts
 }

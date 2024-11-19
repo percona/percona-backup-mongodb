@@ -76,6 +76,7 @@ type Config struct {
 	PITR    *PITRConf    `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
 	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
+	Logging *Logging     `bson:"log,omitempty" json:"log,omitempty" yaml:"log,omitempty"`
 
 	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
@@ -110,6 +111,7 @@ func (c *Config) Clone() *Config {
 		PITR:      c.PITR.Clone(),
 		Restore:   c.Restore.Clone(),
 		Backup:    c.Backup.Clone(),
+		Logging:   c.Logging.Clone(),
 		Epoch:     c.Epoch,
 	}
 
@@ -402,6 +404,33 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 	}
 
 	return time.Duration(*t.Starting) * time.Second
+}
+
+type Logging struct {
+	Path  string `json:"path,omitempty" bson:"path,omitempty" yaml:"path,omitempty"`
+	Level string `json:"level,omitempty" bson:"level,omitempty" yaml:"level,omitempty"`
+	JSON  *bool  `json:"json,omitempty" bson:"json,omitempty" yaml:"json,omitempty"`
+}
+
+func (l *Logging) Equal(other *Logging) bool {
+	return reflect.DeepEqual(l, other)
+}
+
+func (l *Logging) Clone() *Logging {
+	if l == nil {
+		return nil
+	}
+
+	var clonedJSON = new(bool)
+	if l.JSON != nil {
+		*clonedJSON = *l.JSON
+	}
+
+	return &Logging{
+		Path:  l.Path,
+		Level: l.Level,
+		JSON:  clonedJSON,
+	}
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
