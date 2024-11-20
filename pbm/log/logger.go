@@ -14,15 +14,17 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
-const logPathStdErr = "/dev/stderr"
+const (
+	logPathStdErr = "/dev/stderr"
+)
 
 type loggerImpl struct {
-	cn     *mongo.Collection
+	conn   connect.Client
 	logger *logger
 	rs     string
 	node   string
@@ -34,12 +36,13 @@ type loggerImpl struct {
 
 	logLevel Severity
 	logJSON  bool
+	logOpts  Opts // original logging options from the command line
 }
 
 // New creates default logger which outputs to stderr.
-func New(cn *mongo.Collection, rs, node string) Logger {
+func New(conn connect.Client, rs, node string) Logger {
 	return &loggerImpl{
-		cn:       cn,
+		conn:     conn,
 		logger:   newStdLogger(),
 		rs:       rs,
 		node:     node,
@@ -48,28 +51,30 @@ func New(cn *mongo.Collection, rs, node string) Logger {
 }
 
 // NewWithOpts creates logger based on provided options.
-func NewWithOpts(cn *mongo.Collection, rs, node string, opts *Opts) Logger {
+// It also starts config monitor for the purpose of hot-reload of PBM's configuration.
+func NewWithOpts(ctx context.Context, conn connect.Client, rs, node string, opts *Opts, logOpts *Opts) Logger {
 	l := &loggerImpl{
-		cn:       cn,
+		conn:     conn,
 		rs:       rs,
 		node:     node,
 		logLevel: strToSeverity(opts.LogLevel),
 		logJSON:  opts.LogJSON,
+		logOpts:  *logOpts,
 	}
 
 	if strings.TrimSpace(opts.LogPath) == "" || opts.LogPath == logPathStdErr {
 		l.logger = newStdLogger()
-		return l
+	} else {
+		fl, err := newFileLogger(opts.LogPath)
+		l.logger = fl
+		if err != nil {
+			l.logger = newStdLogger()
+			l.Printf("[ERROR] creating file logger: %v", err)
+		}
 	}
 
-	fl, err := newFileLogger(opts.LogPath)
-	if err != nil {
-		log.Printf("[ERROR] creating file logger: %v", err)
-		l.logger = newStdLogger()
-		return l
-	}
+	go l.cfgChangeMonitor(ctx, &cfg{Logging: &loggingCfg{opts.LogPath, opts.LogLevel, &opts.LogJSON}})
 
-	l.logger = fl
 	return l
 }
 
@@ -229,8 +234,8 @@ func (l *loggerImpl) Fatal(event, obj, opid string, epoch primitive.Timestamp, m
 func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 	var rerr error
 
-	if l.cn != nil && atomic.LoadInt32(&l.pauseMgo) == 0 {
-		_, err := l.cn.InsertOne(ctx, e)
+	if l.conn.LogCollection() != nil && atomic.LoadInt32(&l.pauseMgo) == 0 {
+		_, err := l.conn.LockCollection().InsertOne(ctx, e)
 		if err != nil {
 			rerr = errors.Wrap(err, "db")
 		}
@@ -267,4 +272,51 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 	}
 
 	return rerr
+}
+
+// todo: fix concurrency issues here
+func (l *loggerImpl) applyConfigChange(cfg *loggingCfg) {
+	optsToApply := l.mergeLogOpts(cfg)
+
+	if l.logger.logPath != optsToApply.LogPath {
+		if strings.TrimSpace(optsToApply.LogPath) == "" || optsToApply.LogPath == logPathStdErr {
+			l.logger = newStdLogger()
+		} else {
+			fl, err := newFileLogger(optsToApply.LogPath)
+			if err != nil {
+				l.logger = newStdLogger()
+				l.Printf("error while doing logger type reconfig: %v", err)
+			} else {
+				l.logger = fl
+			}
+		}
+	}
+	if l.logLevel.String() != optsToApply.LogLevel {
+		l.logLevel = strToSeverity(optsToApply.LogLevel)
+	}
+	if l.logJSON != optsToApply.LogJSON {
+		l.logJSON = optsToApply.LogJSON
+	}
+}
+
+// mergeLogOpts creates new log options based on config changes.
+// In case when config is not defined, options from cmd line are applied.
+func (l *loggerImpl) mergeLogOpts(cfg *loggingCfg) *Opts {
+	opts := l.logOpts
+
+	if cfg == nil {
+		return &opts
+	}
+
+	if cfg.Path != "" {
+		opts.LogPath = cfg.Path
+	}
+	if cfg.Level != "" {
+		opts.LogLevel = cfg.Level
+	}
+	if cfg.JSON != nil {
+		opts.LogJSON = *cfg.JSON
+	}
+
+	return &opts
 }

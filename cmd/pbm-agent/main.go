@@ -51,17 +51,16 @@ func main() {
 				Default("").
 				String()
 
-		logOpts = log.Opts{
-			LogPath: *pbmCmd.Flag("log-path", "Path to file").
-				Default("/dev/stderr").
-				String(),
-			LogJSON: *pbmCmd.Flag("log-json", "Enable JSON output").Bool(),
-			LogLevel: *pbmCmd.Flag(
-				"log-level",
-				"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
-				Default("D").
-				Enum(log.D, log.I, log.W, log.E, log.F),
-		}
+		logPath = pbmCmd.Flag("log-path", "Path to file").
+			Default("/dev/stderr").
+			String()
+		logJSON = pbmCmd.Flag("log-json", "Enable JSON output").
+			Bool()
+		logLevel = pbmCmd.Flag(
+			"log-level",
+			"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
+			Default(log.D).
+			Enum(log.D, log.I, log.W, log.E, log.F)
 	)
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
@@ -89,7 +88,13 @@ func main() {
 
 	fmt.Print(perconaSquadNotice)
 
-	err = runAgent(url, *dumpConns, &logOpts)
+	logOpts := &log.Opts{
+		LogPath:  *logPath,
+		LogLevel: *logLevel,
+		LogJSON:  *logJSON,
+	}
+
+	err = runAgent(url, *dumpConns, logOpts)
 	stdlog.Println("Exit:", err)
 	if err != nil {
 		os.Exit(1)
@@ -122,16 +127,15 @@ func runAgent(
 		return errors.Wrap(err, "connect to the node")
 	}
 
-	config, err := config.GetConfig(ctx, leadConn)
-	if err != nil {
-		return errors.Wrap(err, "get config")
-	}
-	logOpts = mergeLogOpts(logOpts, config)
+	config, _ := config.GetConfig(ctx, leadConn)
+	logOptsToApply := mergeLogOpts(logOpts, config)
 
 	logger := log.NewWithOpts(
-		agent.leadConn.LogCollection(),
+		ctx,
+		agent.leadConn,
 		agent.brief.SetName,
 		agent.brief.Me,
+		logOptsToApply,
 		logOpts)
 	defer logger.Close()
 

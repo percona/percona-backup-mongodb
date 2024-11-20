@@ -412,10 +412,6 @@ type Logging struct {
 	JSON  *bool  `json:"json,omitempty" bson:"json,omitempty" yaml:"json,omitempty"`
 }
 
-func (l *Logging) Equal(other *Logging) bool {
-	return reflect.DeepEqual(l, other)
-}
-
 func (l *Logging) Clone() *Logging {
 	if l == nil {
 		return nil
