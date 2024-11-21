@@ -18,8 +18,6 @@ import (
 func (c *Cluster) BackupCancellation(storage string) {
 	bcpName := c.LogicalBackup()
 	ts := time.Now()
-	time.Sleep(1 * time.Second)
-	c.printBcpList()
 	log.Println("canceling backup", bcpName)
 	o, err := c.pbm.RunCmd("pbm", "cancel-backup")
 	if err != nil {
@@ -27,6 +25,7 @@ func (c *Cluster) BackupCancellation(storage string) {
 	}
 
 	time.Sleep(20 * time.Second)
+	c.printBcpStatus()
 
 	checkNoBackupFiles(bcpName, storage)
 

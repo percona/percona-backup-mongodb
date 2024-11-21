@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 type (
@@ -111,24 +112,38 @@ func FindCommandIDByName(ctx context.Context, c *Client, name string) (CommandID
 }
 
 type DiagnosticReport struct {
-	ClusterTime primitive.Timestamp `json:"cluster_time" bson:"cluster_time"`
-	Command     *Command            `json:"command" bson:"command"`
-	Members     []topo.Shard        `json:"replsets" bson:"replsets"`
-	Agents      []AgentStatus       `json:"agents" bson:"agents"`
-	Locks       []lock.LockData     `json:"locks,omitempty" bson:"locks,omitempty"`
-	OpLocks     []lock.LockData     `json:"op_locks,omitempty" bson:"op_locks,omitempty"`
+	OPID          string              `json:"opid" bson:"opid"`
+	ClusterTime   primitive.Timestamp `json:"cluster_time" bson:"cluster_time"`
+	ServerVersion string              `json:"server_version" bson:"server_version"`
+	FCV           string              `json:"fcv" bson:"fcv"`
+	Command       *Command            `json:"command" bson:"command"`
+	Members       []topo.Shard        `json:"replsets" bson:"replsets"`
+	Agents        []AgentStatus       `json:"agents" bson:"agents"`
+	Locks         []lock.LockData     `json:"locks,omitempty" bson:"locks,omitempty"`
+	OpLocks       []lock.LockData     `json:"op_locks,omitempty" bson:"op_locks,omitempty"`
 }
 
 func Diagnostic(ctx context.Context, c *Client, cid CommandID) (*DiagnosticReport, error) {
 	var err error
-	rv := &DiagnosticReport{}
+	rv := &DiagnosticReport{OPID: string(cid)}
 
 	rv.ClusterTime, err = topo.GetClusterTime(ctx, c.conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster time")
 	}
-	rv.Command, err = c.CommandInfo(ctx, cid)
+	serVer, err := version.GetMongoVersion(ctx, c.conn.MongoClient())
 	if err != nil {
+		return nil, errors.Wrap(err, "get server version")
+	}
+	rv.ServerVersion = serVer.String()
+
+	rv.FCV, err = version.GetFCV(ctx, c.conn.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get fcv")
+	}
+
+	rv.Command, err = c.CommandInfo(ctx, cid)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, errors.Wrap(err, "get command info")
 	}
 	rv.Members, err = topo.ClusterMembers(ctx, c.conn.MongoClient())

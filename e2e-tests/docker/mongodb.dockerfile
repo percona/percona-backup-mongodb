@@ -1,5 +1,5 @@
-ARG MONGODB_VERSION=5.0
-ARG MONGODB_IMAGE=percona/percona-server-mongodb
+ARG MONGODB_VERSION=6.0
+ARG MONGODB_IMAGE=perconalab/percona-server-mongodb
 FROM ${MONGODB_IMAGE}:${MONGODB_VERSION}-multi
 USER root
 COPY e2e-tests/docker/keyFile /opt/keyFile

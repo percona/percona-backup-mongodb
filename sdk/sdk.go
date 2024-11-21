@@ -23,7 +23,7 @@ import (
 var (
 	ErrUnsupported      = errors.New("unsupported")
 	ErrInvalidCommandID = errors.New("invalid command id")
-	ErrNotFound         = errors.New("not found")
+	ErrNotFound         = errors.ErrNotFound
 )
 
 type (

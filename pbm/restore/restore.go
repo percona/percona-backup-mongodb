@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
+	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -286,11 +287,12 @@ func chunks(
 }
 
 type applyOplogOption struct {
-	start  *primitive.Timestamp
-	end    *primitive.Timestamp
-	nss    []string
-	unsafe bool
-	filter oplog.OpFilter
+	start   *primitive.Timestamp
+	end     *primitive.Timestamp
+	nss     []string
+	cloudNS snapshot.CloneNS
+	unsafe  bool
+	filter  oplog.OpFilter
 }
 
 type (
@@ -341,7 +343,14 @@ func applyOplog(
 		txnSyncErr chan error
 	)
 
-	oplogRestore, err := oplog.NewOplogRestore(node, ic, mgoV, options.unsafe, true, ctxn, txnSyncErr)
+	oplogRestore, err := oplog.NewOplogRestore(
+		node,
+		ic,
+		mgoV,
+		options.unsafe,
+		true,
+		ctxn,
+		txnSyncErr)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}
@@ -357,6 +366,13 @@ func applyOplog(
 	}
 	oplogRestore.SetTimeframe(startTS, endTS)
 	oplogRestore.SetIncludeNS(options.nss)
+	err = oplogRestore.SetCloneNS(ctx, options.cloudNS)
+	if errors.Is(err, oplog.ErrNoCloningNamespace) {
+		log.Info("cloning namespace doesn't exist so oplog will not be applied")
+		return partial, nil
+	} else if err != nil {
+		return nil, errors.Wrap(err, "set cloning ns")
+	}
 
 	var lts primitive.Timestamp
 	for _, oplogRange := range ranges {

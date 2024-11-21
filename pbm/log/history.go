@@ -58,16 +58,21 @@ func (e *Entry) Stringify(f tsFormatFn, showNode, extr bool) string {
 }
 
 func (e *Entry) String() string {
-	return e.Stringify(tsLocal, false, false)
+	return e.Stringify(AsLocal, false, false)
 }
 
 func (e *Entry) StringNode() string {
-	return e.Stringify(tsLocal, true, false)
+	return e.Stringify(AsLocal, true, false)
 }
 
-func tsLocal(ts int64) string {
+func AsLocal(ts int64) string {
 	//nolint:gosmopolitan
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
+}
+
+func AsUTC(ts int64) string {
+	//nolint:gosmopolitan
+	return time.Unix(ts, 0).UTC().Format(LogTimeFormat)
 }
 
 type LogKeys struct {
