@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,10 +25,13 @@ const (
 )
 
 type loggerImpl struct {
-	conn   connect.Client
+	conn connect.Client
+
+	mu     sync.Mutex
 	logger *logger
-	rs     string
-	node   string
+
+	rs   string
+	node string
 
 	buf    Buffer
 	bufSet atomic.Uint32
@@ -61,17 +65,7 @@ func NewWithOpts(ctx context.Context, conn connect.Client, rs, node string, opts
 		logJSON:  opts.LogJSON,
 		logOpts:  *logOpts,
 	}
-
-	if strings.TrimSpace(opts.LogPath) == "" || opts.LogPath == logPathStdErr {
-		l.logger = newStdLogger()
-	} else {
-		fl, err := newFileLogger(opts.LogPath)
-		l.logger = fl
-		if err != nil {
-			l.logger = newStdLogger()
-			l.Printf("[ERROR] creating file logger: %v", err)
-		}
-	}
+	l.createLogger(opts.LogPath)
 
 	go l.cfgChangeMonitor(ctx, &cfg{Logging: &loggingCfg{opts.LogPath, opts.LogLevel, &opts.LogJSON}})
 
@@ -127,6 +121,40 @@ func newFileLogger(logPath string) (*logger, error) {
 		out:     out,
 		logPath: logPath,
 	}, nil
+}
+
+func (l *logger) close() {
+	if l == nil || l.out == nil ||
+		l.logPath == "" || l.logPath == logPathStdErr {
+		return
+	}
+	if o, ok := l.out.(io.Closer); ok {
+		o.Close()
+	}
+}
+
+// createLogger creates file/stderr type of logger based on logPath.
+// In case of an error during file logger creation, it falls back to stderr logger.
+func (l *loggerImpl) createLogger(logPath string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// close old one first
+	l.logger.close()
+
+	// and create new one
+	if strings.TrimSpace(logPath) == "" || logPath == logPathStdErr {
+		l.logger = newStdLogger()
+	} else {
+		fl, err := newFileLogger(logPath)
+		if err != nil {
+			l.logger = newStdLogger()
+			l.NewEvent("logger", "init", "", primitive.Timestamp{}).
+				Error("error while creating file logger: %v", err)
+		} else {
+			l.logger = fl
+		}
+	}
 }
 
 func (l *loggerImpl) NewEvent(typ, name, opid string, epoch primitive.Timestamp) LogEvent {
@@ -254,6 +282,8 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 		}
 	}
 
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.logger != nil && l.logLevel >= e.Severity {
 		var err error
 		if l.logJSON {
@@ -274,22 +304,11 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 	return rerr
 }
 
-// todo: fix concurrency issues here
 func (l *loggerImpl) applyConfigChange(cfg *loggingCfg) {
 	optsToApply := l.mergeLogOpts(cfg)
 
 	if l.logger.logPath != optsToApply.LogPath {
-		if strings.TrimSpace(optsToApply.LogPath) == "" || optsToApply.LogPath == logPathStdErr {
-			l.logger = newStdLogger()
-		} else {
-			fl, err := newFileLogger(optsToApply.LogPath)
-			if err != nil {
-				l.logger = newStdLogger()
-				l.Printf("error while doing logger type reconfig: %v", err)
-			} else {
-				l.logger = fl
-			}
-		}
+		l.createLogger(optsToApply.LogPath)
 	}
 	if l.logLevel.String() != optsToApply.LogLevel {
 		l.logLevel = strToSeverity(optsToApply.LogLevel)
