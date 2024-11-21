@@ -417,7 +417,7 @@ func (l *Logging) Clone() *Logging {
 		return nil
 	}
 
-	var clonedJSON = new(bool)
+	clonedJSON := new(bool)
 	if l.JSON != nil {
 		*clonedJSON = *l.JSON
 	}

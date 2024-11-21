@@ -40,7 +40,7 @@ type loggerImpl struct {
 
 	logLevel Severity
 	logJSON  bool
-	logOpts  Opts // original logging options from the command line
+	cliOpts  Opts // original logging options from the command line
 }
 
 // New creates default logger which outputs to stderr.
@@ -56,14 +56,14 @@ func New(conn connect.Client, rs, node string) Logger {
 
 // NewWithOpts creates logger based on provided options.
 // It also starts config monitor for the purpose of hot-reload of PBM's configuration.
-func NewWithOpts(ctx context.Context, conn connect.Client, rs, node string, opts *Opts, logOpts *Opts) Logger {
+func NewWithOpts(ctx context.Context, conn connect.Client, rs, node string, opts, cliOpts *Opts) Logger {
 	l := &loggerImpl{
 		conn:     conn,
 		rs:       rs,
 		node:     node,
 		logLevel: strToSeverity(opts.LogLevel),
 		logJSON:  opts.LogJSON,
-		logOpts:  *logOpts,
+		cliOpts:  *cliOpts,
 	}
 	l.createLogger(opts.LogPath)
 
@@ -321,7 +321,7 @@ func (l *loggerImpl) applyConfigChange(cfg *loggingCfg) {
 // mergeLogOpts creates new log options based on config changes.
 // In case when config is not defined, options from cmd line are applied.
 func (l *loggerImpl) mergeLogOpts(cfg *loggingCfg) *Opts {
-	opts := l.logOpts
+	opts := l.cliOpts
 
 	if cfg == nil {
 		return &opts
