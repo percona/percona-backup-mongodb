@@ -26,6 +26,8 @@ type Logger interface {
 	PauseMgo()
 	ResumeMgo()
 
+	Write(p []byte) (n int, err error)
+
 	Printf(msg string, args ...any)
 	Debug(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)
 	Info(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)

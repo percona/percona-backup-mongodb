@@ -106,9 +106,6 @@ func runAgent(
 	dumpConns int,
 	logOpts *log.Opts,
 ) error {
-	mtLog.SetDateFormat(log.LogTimeFormat)
-	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
@@ -140,6 +137,10 @@ func runAgent(
 	defer logger.Close()
 
 	ctx = log.SetLoggerToContext(ctx, logger)
+
+	mtLog.SetDateFormat(log.LogTimeFormat)
+	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
+	mtLog.SetWriter(logger)
 
 	canRunSlicer := true
 	if err := agent.CanStart(ctx); err != nil {

@@ -197,6 +197,13 @@ func (l *loggerImpl) ResumeMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 0)
 }
 
+func (l *loggerImpl) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.logger.out.Write(p)
+}
+
 func (l *loggerImpl) output(
 	s Severity,
 	event,
@@ -262,6 +269,7 @@ func (l *loggerImpl) Fatal(event, obj, opid string, epoch primitive.Timestamp, m
 func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 	var rerr error
 
+	// conn is nil during physical restore
 	if l.conn != nil && l.conn.LogCollection() != nil && atomic.LoadInt32(&l.pauseMgo) == 0 {
 		_, err := l.conn.LogCollection().InsertOne(ctx, e)
 		if err != nil {

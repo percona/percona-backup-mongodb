@@ -28,6 +28,10 @@ func (discardLoggerImpl) PauseMgo() {
 func (discardLoggerImpl) ResumeMgo() {
 }
 
+func (discardLoggerImpl) Write([]byte) (int, error) {
+	return 0, nil
+}
+
 func (discardLoggerImpl) Printf(msg string, args ...any) {
 }
 
