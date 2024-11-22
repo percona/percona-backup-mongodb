@@ -65,7 +65,10 @@ func NewWithOpts(ctx context.Context, conn connect.Client, rs, node string, opts
 		logJSON:  opts.LogJSON,
 		cliOpts:  *cliOpts,
 	}
+
+	l.mu.Lock()
 	l.createLogger(opts.LogPath)
+	l.mu.Unlock()
 
 	go l.cfgChangeMonitor(ctx, &cfg{Logging: &loggingCfg{opts.LogPath, opts.LogLevel, &opts.LogJSON}})
 
@@ -136,9 +139,6 @@ func (l *logger) close() {
 // createLogger creates file/stderr type of logger based on logPath.
 // In case of an error during file logger creation, it falls back to stderr logger.
 func (l *loggerImpl) createLogger(logPath string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	// close old one first
 	l.logger.close()
 
@@ -149,8 +149,7 @@ func (l *loggerImpl) createLogger(logPath string) {
 		fl, err := newFileLogger(logPath)
 		if err != nil {
 			l.logger = newStdLogger()
-			l.NewEvent("logger", "init", "", primitive.Timestamp{}).
-				Error("error while creating file logger: %v", err)
+			log.Printf("[ERROR] error while creating file logger: %v", err)
 		} else {
 			l.logger = fl
 		}
@@ -315,6 +314,8 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 func (l *loggerImpl) applyConfigChange(cfg *loggingCfg) {
 	optsToApply := l.mergeLogOpts(cfg)
 
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.logger.logPath != optsToApply.LogPath {
 		l.createLogger(optsToApply.LogPath)
 	}
