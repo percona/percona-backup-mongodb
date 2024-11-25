@@ -550,6 +550,12 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		if v.(string) == "" {
 			return errors.New("storage.filesystem.path can't be empty")
 		}
+	case "log.path":
+		return errors.Wrap(confSetLog(ctx, m, bson.M{"log.path": v.(string)}), "set config log.path")
+	case "log.level":
+		return errors.Wrap(confSetLog(ctx, m, bson.M{"log.level": v.(string)}), "set config log.level")
+	case "log.json":
+		return errors.Wrap(confSetLog(ctx, m, bson.M{"log.json": v.(bool)}), "set config log.bool")
 	case "storage.s3.debugLogLevels":
 		s3.SDKLogLevel(v.(string), os.Stderr)
 	}
@@ -572,6 +578,22 @@ func confSetPITR(ctx context.Context, m connect.Client, value bool) error {
 			"pitr.enabled": value,
 			"epoch":        ct,
 		}})
+
+	return err
+}
+
+// confSetLog sets single parameter within 'log' config section and updates config's epoch.
+// Config parameter is defined with logParam map, and it shouldn't be empty or nil.
+func confSetLog(ctx context.Context, m connect.Client, logParam bson.M) error {
+	ct, err := topo.GetClusterTime(ctx, m)
+	if err != nil {
+		return errors.Wrap(err, "get cluster time")
+	}
+	logParam["epoch"] = ct
+
+	_, err = m.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": logParam})
 
 	return err
 }
