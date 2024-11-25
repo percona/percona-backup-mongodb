@@ -86,8 +86,6 @@ func main() {
 
 	hidecreds()
 
-	fmt.Print(perconaSquadNotice)
-
 	logOpts := &log.Opts{
 		LogPath:  *logPath,
 		LogLevel: *logLevel,
@@ -141,6 +139,8 @@ func runAgent(
 	mtLog.SetDateFormat(log.LogTimeFormat)
 	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
 	mtLog.SetWriter(logger)
+
+	logger.Printf(perconaSquadNotice)
 
 	canRunSlicer := true
 	if err := agent.CanStart(ctx); err != nil {
