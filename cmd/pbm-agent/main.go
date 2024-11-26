@@ -139,6 +139,8 @@ func runAgent(
 	mtLog.SetWriter(logger)
 
 	logger.Printf(perconaSquadNotice)
+	logger.Printf("log options: log-path=%s, log-level:%s, log-json:%t",
+		logOpts.LogPath, logOpts.LogLevel, logOpts.LogJSON)
 
 	canRunSlicer := true
 	if err := agent.CanStart(ctx); err != nil {
