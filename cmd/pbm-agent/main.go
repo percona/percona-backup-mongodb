@@ -49,6 +49,20 @@ func main() {
 		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").
 				Default("").
 				String()
+
+		logPath = pbmCmd.Flag("log-path", "Path to file").
+			Envar("LOG_PATH").
+			Default("/dev/stderr").
+			String()
+		logJSON = pbmCmd.Flag("log-json", "Enable JSON output").
+			Envar("LOG_JSON").
+			Bool()
+		logLevel = pbmCmd.Flag(
+			"log-level",
+			"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
+			Envar("LOG_LEVEL").
+			Default(log.D).
+			Enum(log.D, log.I, log.W, log.E, log.F)
 	)
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
@@ -75,6 +89,11 @@ func main() {
 	hidecreds()
 
 	fmt.Print(perconaSquadNotice)
+	logOpts := &log.Opts{
+		LogPath:  *logPath,
+		LogLevel: *logLevel,
+		LogJSON:  *logJSON,
+	}
 
 	err = runAgent(url, *dumpConns)
 	stdlog.Println("Exit:", err)

@@ -34,6 +34,14 @@ func New(cn *mongo.Collection, rs, node string) Logger {
 		out:  os.Stderr,
 		rs:   rs,
 		node: node,
+
+// Opts represents options that are specified by the user.
+type Opts struct {
+	LogPath  string
+	LogJSON  bool
+	LogLevel string
+}
+
 	}
 }
 
