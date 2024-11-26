@@ -5,20 +5,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
+const (
+	logPathStdErr = "/dev/stderr"
+)
+
 type loggerImpl struct {
-	cn   *mongo.Collection
-	out  io.Writer
+	conn connect.Client
+
+	mu     sync.Mutex
+	logger *logger
+
 	rs   string
 	node string
 
@@ -26,14 +37,38 @@ type loggerImpl struct {
 	bufSet atomic.Uint32
 
 	pauseMgo int32
+
+	logLevel Severity
+	logJSON  bool
 }
 
-func New(cn *mongo.Collection, rs, node string) Logger {
+// New creates default logger which outputs to stderr.
+func New(conn connect.Client, rs, node string) Logger {
 	return &loggerImpl{
-		cn:   cn,
-		out:  os.Stderr,
-		rs:   rs,
-		node: node,
+		conn:     conn,
+		logger:   newStdLogger(),
+		rs:       rs,
+		node:     node,
+		logLevel: Debug,
+	}
+}
+
+// NewWithOpts creates logger based on provided options.
+func NewWithOpts(ctx context.Context, conn connect.Client, rs, node string, opts *Opts) Logger {
+	l := &loggerImpl{
+		conn:     conn,
+		rs:       rs,
+		node:     node,
+		logLevel: strToSeverity(opts.LogLevel),
+		logJSON:  opts.LogJSON,
+	}
+
+	l.mu.Lock()
+	l.createLogger(opts.LogPath)
+	l.mu.Unlock()
+
+	return l
+}
 
 // Opts represents options that are specified by the user.
 type Opts struct {
@@ -42,6 +77,77 @@ type Opts struct {
 	LogLevel string
 }
 
+type logger struct {
+	out     io.Writer
+	logPath string
+}
+
+func newStdLogger() *logger {
+	return &logger{
+		out:     os.Stderr,
+		logPath: logPathStdErr,
+	}
+}
+
+func newFileLogger(logPath string) (*logger, error) {
+	fullpath, err := filepath.Abs(logPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "abs")
+	}
+
+	fileInfo, err := os.Stat(fullpath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, errors.Wrap(err, "stat")
+		}
+
+		dirpath := filepath.Dir(fullpath)
+		err = os.MkdirAll(dirpath, fs.ModeDir|0o777)
+		if err != nil {
+			return nil, errors.Wrap(err, "mkdir -p")
+		}
+	} else if fileInfo.IsDir() {
+		return nil, errors.New("path is dir")
+	}
+
+	out, err := os.OpenFile(fullpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, errors.Wrap(err, "open file")
+	}
+
+	return &logger{
+		out:     out,
+		logPath: logPath,
+	}, nil
+}
+
+func (l *logger) close() {
+	if l == nil || l.out == nil ||
+		l.logPath == "" || l.logPath == logPathStdErr {
+		return
+	}
+	if o, ok := l.out.(io.Closer); ok {
+		o.Close()
+	}
+}
+
+// createLogger creates file/stderr type of logger based on logPath.
+// In case of an error during file logger creation, it falls back to stderr logger.
+func (l *loggerImpl) createLogger(logPath string) {
+	// close old one first
+	l.logger.close()
+
+	// and create new one
+	if strings.TrimSpace(logPath) == "" || logPath == logPathStdErr {
+		l.logger = newStdLogger()
+	} else {
+		fl, err := newFileLogger(logPath)
+		if err != nil {
+			l.logger = newStdLogger()
+			log.Printf("[ERROR] error while creating file logger: %v", err)
+		} else {
+			l.logger = fl
+		}
 	}
 }
 
@@ -85,6 +191,13 @@ func (l *loggerImpl) ResumeMgo() {
 	atomic.StoreInt32(&l.pauseMgo, 0)
 }
 
+func (l *loggerImpl) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.logger.out.Write(p)
+}
+
 func (l *loggerImpl) output(
 	s Severity,
 	event,
@@ -119,7 +232,7 @@ func (l *loggerImpl) output(
 
 	err := l.Output(context.TODO(), e)
 	if err != nil {
-		log.Printf("[ERROR] wrting log: %v, entry: %s", err, e)
+		log.Printf("[ERROR] writing log: %v, entry: %s", err, e)
 	}
 }
 
@@ -150,8 +263,9 @@ func (l *loggerImpl) Fatal(event, obj, opid string, epoch primitive.Timestamp, m
 func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 	var rerr error
 
-	if l.cn != nil && atomic.LoadInt32(&l.pauseMgo) == 0 {
-		_, err := l.cn.InsertOne(ctx, e)
+	// conn is nil during physical restore
+	if l.conn != nil && l.conn.LogCollection() != nil && atomic.LoadInt32(&l.pauseMgo) == 0 {
+		_, err := l.conn.LogCollection().InsertOne(ctx, e)
 		if err != nil {
 			rerr = errors.Wrap(err, "db")
 		}
@@ -170,10 +284,18 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 		}
 	}
 
-	if l.out != nil {
-		_, err := l.out.Write(append([]byte(e.String()), '\n'))
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.logger != nil && l.logLevel >= e.Severity {
+		var err error
+		if l.logJSON {
+			err = json.NewEncoder(l.logger.out).Encode(e)
+			err = errors.Wrap(err, "io json")
+		} else {
+			_, err = l.logger.out.Write(append([]byte(e.String()), '\n'))
+			err = errors.Wrap(err, "io text")
+		}
 
-		err = errors.Wrap(err, "io")
 		if rerr != nil {
 			rerr = errors.Errorf("%v, %v", rerr, err)
 		} else {

@@ -88,24 +88,24 @@ func main() {
 
 	hidecreds()
 
-	fmt.Print(perconaSquadNotice)
 	logOpts := &log.Opts{
 		LogPath:  *logPath,
 		LogLevel: *logLevel,
 		LogJSON:  *logJSON,
 	}
 
-	err = runAgent(url, *dumpConns)
+	err = runAgent(url, *dumpConns, logOpts)
 	stdlog.Println("Exit:", err)
 	if err != nil {
 		os.Exit(1)
 	}
 }
 
-func runAgent(mongoURI string, dumpConns int) error {
-	mtLog.SetDateFormat(log.LogTimeFormat)
-	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
-
+func runAgent(
+	mongoURI string,
+	dumpConns int,
+	logOpts *log.Opts,
+) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
@@ -114,15 +114,31 @@ func runAgent(mongoURI string, dumpConns int) error {
 		return errors.Wrap(err, "connect to PBM")
 	}
 
+	err = setupNewDB(ctx, leadConn)
+	if err != nil {
+		return errors.Wrap(err, "setup pbm collections")
+	}
+
 	agent, err := newAgent(ctx, leadConn, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
 
-	logger := log.New(agent.leadConn.LogCollection(), agent.brief.SetName, agent.brief.Me)
+	logger := log.NewWithOpts(
+		ctx,
+		agent.leadConn,
+		agent.brief.SetName,
+		agent.brief.Me,
+		logOpts)
 	defer logger.Close()
 
 	ctx = log.SetLoggerToContext(ctx, logger)
+
+	mtLog.SetDateFormat(log.LogTimeFormat)
+	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
+	mtLog.SetWriter(logger)
+
+	logger.Printf(perconaSquadNotice)
 
 	canRunSlicer := true
 	if err := agent.CanStart(ctx); err != nil {
@@ -131,11 +147,6 @@ func runAgent(mongoURI string, dumpConns int) error {
 		} else {
 			return errors.Wrap(err, "pre-start check")
 		}
-	}
-
-	err = setupNewDB(ctx, agent.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "setup pbm collections")
 	}
 
 	agent.showIncompatibilityWarning(ctx)

@@ -495,7 +495,7 @@ func main() {
 		if err != nil {
 			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 		}
-		ctx = log.SetLoggerToContext(ctx, log.New(conn.LogCollection(), "", ""))
+		ctx = log.SetLoggerToContext(ctx, log.New(conn, "", ""))
 
 		ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 		if err != nil {
