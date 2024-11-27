@@ -103,48 +103,38 @@ func TestCloningValidation(t *testing.T) {
 	}
 }
 
-func Test_parseCLINumInsertionWorkersOption(t *testing.T) {
-
-	type args struct {
-		value int32
-	}
+func TestParseCLINumInsertionWorkersOption(t *testing.T) {
 
 	var num int32 = 1
 
 	tests := []struct {
 		name    string
-		args    args
+		value   int32
 		want    *int32
 		wantErr bool
 	}{
 		{
-			name: "valid number - no error",
-			args: args{
-				value: 1,
-			},
+			name:    "valid number - no error",
+			value:   1,
 			want:    &num,
 			wantErr: false,
 		},
 		{
-			name: "zero  - no error, but return nil",
-			args: args{
-				value: 0,
-			},
+			name:    "zero  - no error, but return nil",
+			value:   0,
 			want:    nil,
 			wantErr: false,
 		},
 		{
-			name: "negative value  - error",
-			args: args{
-				value: -1,
-			},
+			name:    "negative value  - error",
+			value:   -1,
 			want:    nil,
 			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseCLINumInsertionWorkersOption(tt.args.value)
+			got, err := parseCLINumInsertionWorkersOption(tt.value)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseCLINumInsertionWorkersOption() error = %v, wantErr %v", err, tt.wantErr)
 				return
