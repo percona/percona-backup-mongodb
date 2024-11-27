@@ -358,12 +358,12 @@ func nsIsTaken(
 	ns string,
 ) error {
 	ns = strings.TrimSpace(ns)
-	db, coll, ok := strings.Cut(ns, ".")
+	dbName, coll, ok := strings.Cut(ns, ".")
 	if !ok {
 		return errors.Wrap(ErrInvalidNamespace, ns)
 	}
 
-	collNames, err := conn.MongoClient().Database(db).ListCollectionNames(ctx, bson.D{{"name", coll}})
+	collNames, err := conn.MongoClient().Database(dbName).ListCollectionNames(ctx, bson.D{{"name", coll}})
 	if err != nil {
 		return errors.Wrap(err, "list collection names for cloning target validation")
 	}

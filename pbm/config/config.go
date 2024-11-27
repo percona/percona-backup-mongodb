@@ -554,7 +554,7 @@ func confSetPITR(ctx context.Context, m connect.Client, value bool) error {
 // GetConfigVar returns value of given config vaiable
 func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{}, error) {
 	if !validateConfigKey(key) {
-		return nil, errors.New("invalid config key")
+		return nil, errors.Errorf("invalid config key: %s", key)
 	}
 
 	bts, err := m.ConfigCollection().

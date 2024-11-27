@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -106,6 +107,59 @@ func TestCloningValidation(t *testing.T) {
 			err := validateNSFromNSTo(&tC.opts)
 			if !errors.Is(err, tC.wantErr) {
 				t.Errorf("Invalid validation error: want=%v, got=%v", tC.wantErr, err)
+			}
+		})
+	}
+}
+
+func Test_parseCLINumInsertionWorkersOption(t *testing.T) {
+
+	type args struct {
+		value int32
+	}
+
+	var num int32 = 1
+
+	tests := []struct {
+		name    string
+		args    args
+		want    *int32
+		wantErr bool
+	}{
+		{
+			name: "valid number - no error",
+			args: args{
+				value: 1,
+			},
+			want:    &num,
+			wantErr: false,
+		},
+		{
+			name: "zero  - no error, but return nil",
+			args: args{
+				value: 0,
+			},
+			want:    nil,
+			wantErr: false,
+		},
+		{
+			name: "negative value  - error",
+			args: args{
+				value: -1,
+			},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseCLINumInsertionWorkersOption(tt.args.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseCLINumInsertionWorkersOption() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseCLINumInsertionWorkersOption() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
