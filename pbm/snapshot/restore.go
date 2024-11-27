@@ -16,8 +16,7 @@ import (
 const (
 	preserveUUID = true
 
-	batchSizeDefault           = 500
-	numInsertionWorkersDefault = 10
+	batchSizeDefault = 500
 )
 
 var ExcludeFromRestore = []string{
@@ -54,11 +53,11 @@ func (c *CloneNS) IsSpecified() bool {
 	return c.FromNS != "" && c.ToNS != ""
 }
 
-func NewRestore(
-	uri string,
+func NewRestore(uri string,
 	cfg *config.Config,
 	cloneNS CloneNS,
-	numParallelColls int,
+	numParallelColls,
+	numInsertionWorkersPerCol int,
 	excludeRouterCollections bool,
 ) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
@@ -90,10 +89,7 @@ func NewRestore(
 	if cfg.Restore.BatchSize > 0 {
 		batchSize = cfg.Restore.BatchSize
 	}
-	numInsertionWorkers := numInsertionWorkersDefault
-	if cfg.Restore.NumInsertionWorkers > 0 {
-		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
-	}
+
 	if numParallelColls < 1 {
 		numParallelColls = 1
 	}
@@ -119,7 +115,7 @@ func NewRestore(
 		BulkBufferSize:           batchSize,
 		BypassDocumentValidation: true,
 		Drop:                     true,
-		NumInsertionWorkers:      numInsertionWorkers,
+		NumInsertionWorkers:      numInsertionWorkersPerCol,
 		NumParallelCollections:   numParallelColls,
 		PreserveUUID:             preserveUUID,
 		StopOnError:              true,

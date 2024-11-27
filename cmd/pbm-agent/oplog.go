@@ -77,7 +77,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 	}
 
 	l.Info("oplog replay started")
-	rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, 0)
+	rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, 0, 0)
 	err = rr.ReplayOplog(ctx, r, opID, l)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {

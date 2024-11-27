@@ -2,6 +2,8 @@ package topo
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -58,7 +60,13 @@ func GetClusterTime(ctx context.Context, m connect.Client) (primitive.Timestamp,
 
 func ClusterTimeFromNodeInfo(info *NodeInfo) (primitive.Timestamp, error) {
 	if info.ClusterTime == nil {
-		return primitive.Timestamp{}, errors.New("no clusterTime in response")
+		jsonResponse, err := json.Marshal(info)
+		errDetails := string(jsonResponse)
+		if err != nil {
+			fmt.Println(err)
+			errDetails = "Unable to parse response."
+		}
+		return primitive.Timestamp{}, errors.Errorf("No clusterTime in response. Received: %s", errDetails)
 	}
 
 	return info.ClusterTime.ClusterTime, nil
