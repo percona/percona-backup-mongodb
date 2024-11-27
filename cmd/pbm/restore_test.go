@@ -104,7 +104,6 @@ func TestCloningValidation(t *testing.T) {
 }
 
 func TestParseCLINumInsertionWorkersOption(t *testing.T) {
-
 	var num int32 = 1
 
 	tests := []struct {
