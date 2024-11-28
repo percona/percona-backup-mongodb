@@ -157,7 +157,8 @@ type RestoreCmd struct {
 	UsersAndRoles bool              `bson:"usersAndRoles,omitempty"`
 	RSMap         map[string]string `bson:"rsMap,omitempty"`
 
-	NumParallelColls *int32 `bson:"numParallelColls,omitempty"`
+	NumParallelColls    *int32 `bson:"numParallelColls,omitempty"`
+	NumInsertionWorkers *int32 `bson:"numInsertionWorkers,omitempty"`
 
 	OplogTS primitive.Timestamp `bson:"oplogTS,omitempty"`
 
