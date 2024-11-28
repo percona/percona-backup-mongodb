@@ -82,6 +82,8 @@ var selectedNSSupportedCommands = map[string]struct{}{
 }
 
 var cloningNSSupportedCommands = map[string]struct{}{
+	"create":           {},
+	"drop":             {},
 	"createIndexes":    {},
 	"deleteIndex":      {},
 	"deleteIndexes":    {},
@@ -103,11 +105,17 @@ var ErrNoCloningNamespace = errors.New("cloning namespace desn't exist")
 // cloneNS has all data related to cloning namespace within oplog
 type cloneNS struct {
 	snapshot.CloneNS
-	toUUID primitive.Binary
+	fromDB   string
+	fromColl string
+	toDB     string
+	toColl   string
+	toUUID   primitive.Binary
 }
 
 func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
 	c.CloneNS = nsPair
+	c.fromDB, c.fromColl, _ = strings.Cut(nsPair.FromNS, ".")
+	c.toDB, c.toColl, _ = strings.Cut(nsPair.ToNS, ".")
 }
 
 // OplogRestore is the oplog applyer
@@ -381,8 +389,7 @@ func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
 		return true // internal ops of applyOps are checked one by one later
 	}
 
-	cloneFromDB, cloneFromColl, _ := strings.Cut(o.cloneNS.FromNS, ".")
-	if db != cloneFromDB {
+	if db != o.cloneNS.fromDB {
 		// it's command not relevant for db to clone from
 		return false
 	}
@@ -390,7 +397,7 @@ func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
 	if _, ok := cloningNSSupportedCommands[cmd]; ok {
 		// check if command targets collection
 		collForCmd, _ := oe.Object[0].Value.(string)
-		if collForCmd == cloneFromColl {
+		if collForCmd == o.cloneNS.fromColl {
 			return true
 		}
 	}
@@ -769,10 +776,37 @@ func (o *OplogRestore) cloneEntry(op *db.Oplog) {
 	if !o.cloneNS.IsSpecified() {
 		return
 	}
+
+	// op: i, u, d
 	if op.Namespace == o.cloneNS.FromNS {
-		*op.UI = o.cloneNS.toUUID
+		op.UI = nil
 		op.Namespace = o.cloneNS.ToNS
+		return
 	}
+
+	if op.Operation != "c" || len(op.Object) == 0 {
+		return
+	}
+
+	dbName, _, _ := strings.Cut(op.Namespace, ".")
+	if dbName != o.cloneNS.fromDB {
+		return
+	}
+
+	cmdName := op.Object[0].Key
+	if cmdName != "create" && cmdName != "drop" {
+		return
+	}
+
+	collName, _ := op.Object[0].Value.(string)
+	if collName != o.cloneNS.fromColl {
+		return
+	}
+
+	// op: create/drop
+	op.Namespace = fmt.Sprintf("%s.$cmd", o.cloneNS.toDB)
+	op.Object[0].Value = o.cloneNS.toColl
+	op.UI = nil
 }
 
 func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
