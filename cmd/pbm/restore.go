@@ -53,7 +53,8 @@ type restoreOpts struct {
 	conf          string
 	ts            string
 
-	numParallelColls int32
+	numParallelColls    int32
+	numInsertionWorkers int32
 }
 
 type restoreRet struct {
@@ -124,6 +125,10 @@ func runRestore(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
 	}
+	numInsertionWorkers, err := parseCLINumInsertionWorkersOption(o.numInsertionWorkers)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-insertion-workers option")
+	}
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -154,7 +159,7 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
@@ -353,12 +358,12 @@ func nsIsTaken(
 	ns string,
 ) error {
 	ns = strings.TrimSpace(ns)
-	db, coll, ok := strings.Cut(ns, ".")
+	dbName, coll, ok := strings.Cut(ns, ".")
 	if !ok {
 		return errors.Wrap(ErrInvalidNamespace, ns)
 	}
 
-	collNames, err := conn.MongoClient().Database(db).ListCollectionNames(ctx, bson.D{{"name", coll}})
+	collNames, err := conn.MongoClient().Database(dbName).ListCollectionNames(ctx, bson.D{{"name", coll}})
 	if err != nil {
 		return errors.Wrap(err, "list collection names for cloning target validation")
 	}
@@ -375,6 +380,7 @@ func doRestore(
 	conn connect.Client,
 	o *restoreOpts,
 	numParallelColls *int32,
+	numInsertionWorkers *int32,
 	nss []string,
 	nsFrom string,
 	nsTo string,
@@ -399,15 +405,16 @@ func doRestore(
 	cmd := ctrl.Cmd{
 		Cmd: ctrl.CmdRestore,
 		Restore: &ctrl.RestoreCmd{
-			Name:             name,
-			BackupName:       bcp,
-			NumParallelColls: numParallelColls,
-			Namespaces:       nss,
-			NamespaceFrom:    nsFrom,
-			NamespaceTo:      nsTo,
-			UsersAndRoles:    o.usersAndRoles,
-			RSMap:            rsMapping,
-			External:         o.extern,
+			Name:                name,
+			BackupName:          bcp,
+			NumParallelColls:    numParallelColls,
+			NumInsertionWorkers: numInsertionWorkers,
+			Namespaces:          nss,
+			NamespaceFrom:       nsFrom,
+			NamespaceTo:         nsTo,
+			UsersAndRoles:       o.usersAndRoles,
+			RSMap:               rsMapping,
+			External:            o.extern,
 		},
 	}
 	if o.pitr != "" {
@@ -803,4 +810,15 @@ func validateNSFromNSTo(o *restoreOpts) error {
 	}
 
 	return nil
+}
+
+func parseCLINumInsertionWorkersOption(value int32) (*int32, error) {
+	if value < 0 {
+		return nil, errors.New("Number of insertion workers has to be greater than zero.")
+	}
+	if value == 0 {
+		return nil, nil //nolint:nilnil
+	}
+
+	return &value, nil
 }

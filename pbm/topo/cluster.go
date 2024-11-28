@@ -58,7 +58,7 @@ func GetClusterTime(ctx context.Context, m connect.Client) (primitive.Timestamp,
 
 func ClusterTimeFromNodeInfo(info *NodeInfo) (primitive.Timestamp, error) {
 	if info.ClusterTime == nil {
-		return primitive.Timestamp{}, errors.New("no clusterTime in response")
+		return primitive.Timestamp{}, errors.Errorf("No clusterTime in response. Received: %+v", info)
 	}
 
 	return info.ClusterTime.ClusterTime, nil
