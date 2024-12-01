@@ -127,6 +127,11 @@ get_system() {
         ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
         OS_NAME="el$RHEL"
         OS="rpm"
+    elif [ -f /etc/amazon-linux-release ]; then
+        RHEL=$(rpm --eval %amzn)
+        ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
+        OS_NAME="amzn$RHEL"
+        OS="rpm"
     else
         ARCH=$(uname -m)
         OS_NAME="$(lsb_release -sc)"
@@ -164,7 +169,6 @@ install_deps() {
     CURPLACE=$(pwd)
 
     if [ "x$OS" = "xrpm" ]; then
-        RHEL=$(rpm --eval %rhel)
         yum clean all
         yum -y install epel-release git wget
         yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
@@ -281,9 +285,6 @@ build_rpm() {
     rm -fr rpmbuild
     mkdir -vp rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
     cp $SRC_RPM rpmbuild/SRPMS/
-
-    RHEL=$(rpm --eval %rhel)
-    ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
 
     echo "RHEL=${RHEL}" >>percona-backup-mongodb.properties
     echo "ARCH=${ARCH}" >>percona-backup-mongodb.properties
