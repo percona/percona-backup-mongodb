@@ -3,6 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/alecthomas/kingpin"
+	mtLog "github.com/mongodb/mongo-tools/common/log"
+	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
+	"github.com/spf13/cobra"
 	stdlog "log"
 	"os"
 	"os/signal"
@@ -10,19 +15,37 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/alecthomas/kingpin"
-	mtLog "github.com/mongodb/mongo-tools/common/log"
-	"github.com/mongodb/mongo-tools/common/options"
-
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 const mongoConnFlag = "mongodb-uri"
 
 func main() {
+	rootCmd := &cobra.Command{
+		Use:   "pbm-agent",
+		Short: "Percona Backup for MongoDB",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Welcome to PBM!")
+		},
+	}
+
+	helloCmd := &cobra.Command{
+		Use:   "hello",
+		Short: "Prints a hello message",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("Hello, world!")
+		},
+	}
+
+	rootCmd.AddCommand(helloCmd)
+	rootCmd.AddCommand(versionCommand())
+
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+	}
+
 	var (
 		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
 		pbmAgentCmd = pbmCmd.Command("run", "Run agent").
@@ -99,6 +122,35 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+}
+
+func versionCommand() *cobra.Command {
+	var (
+		versionShort  bool
+		versionCommit bool
+		versionFormat string
+	)
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "PBM version info",
+		Run: func(cmd *cobra.Command, args []string) {
+			switch {
+			case versionShort:
+				fmt.Println(version.Current().Short())
+			case versionCommit:
+				fmt.Println(version.Current().GitCommit)
+			default:
+				fmt.Println(version.Current().All(versionFormat))
+			}
+		},
+	}
+
+	versionCmd.Flags().BoolVar(&versionShort, "short", false, "Only version info")
+	versionCmd.Flags().BoolVar(&versionCommit, "commit", false, "Only git commit info")
+	versionCmd.Flags().StringVar(&versionFormat, "format", "", "Output format <json or \"\">")
+
+	return versionCmd
 }
 
 func runAgent(
