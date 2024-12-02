@@ -645,7 +645,7 @@ func onGCE() bool {
 		Timeout: 100 * time.Millisecond,
 	}
 
-	req, err := http.NewRequest("GET", "http://169.254.169.254/computeMetadata/v1", nil)
+	req, err := http.NewRequest("GET", "http://169.254.169.254/computeMetadata/v1/", nil)
 	if err != nil {
 		return false
 	}
