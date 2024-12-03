@@ -1,9 +1,10 @@
 package main
 
 import (
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"runtime"
 	"testing"
+
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 )
 
 func TestGetNumInsertionWorkersConfig(t *testing.T) {
