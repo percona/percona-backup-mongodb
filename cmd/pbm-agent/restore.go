@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	numInsertionWorkersDefault = 1
+	numInsertionWorkersDefault = 10
 )
 
 func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID, ep config.Epoch) {
