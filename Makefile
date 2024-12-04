@@ -112,3 +112,20 @@ install-stest-static:
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
 install-static-entrypoint:
 	$(ENVS_STATIC) go install -ldflags="$(LDFLAGS_STATIC)" $(BUILD_FLAGS) ./cmd/pbm-agent-entrypoint
+
+# BUILD WITH COVERAGE PROFILING
+build-cover: build-pbm-cover build-agent-cover build-stest-cover
+build-pbm-cover:
+	$(ENVS) go build -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm
+build-agent-cover:
+	$(ENVS) go build -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-agent ./cmd/pbm-agent
+build-stest-cover:
+	$(ENVS) go build -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm-speed-test ./cmd/pbm-speed-test
+
+install-cover: install-pbm-cover install-agent-cover install-stest-cover
+install-pbm-cover:
+	$(ENVS) go install -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm
+install-agent-cover:
+	$(ENVS) go install -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-agent
+install-stest-cover:
+	$(ENVS) go install -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
