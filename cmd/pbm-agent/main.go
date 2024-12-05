@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/alecthomas/kingpin"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/spf13/cobra"
 	stdlog "log"
@@ -14,114 +16,82 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 const mongoConnFlag = "mongodb-uri"
 
 func main() {
+	var (
+		mURI      string
+		dumpConns int
+		logPath   string
+		logJSON   bool
+		logLevel  string
+	)
+
 	rootCmd := &cobra.Command{
 		Use:   "pbm-agent",
 		Short: "Percona Backup for MongoDB",
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if mURI == "" {
+				return fmt.Errorf("required flag \"mongodb-uri\" not set")
+			}
+			return nil
+		},
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Welcome to PBM!")
+			url := "mongodb://" + strings.Replace(mURI, "mongodb://", "", 1)
+
+			hidecreds()
+
+			logOpts := &log.Opts{
+				LogPath:  logPath,
+				LogLevel: logLevel,
+				LogJSON:  logJSON,
+			}
+
+			err := runAgent(url, dumpConns, logOpts)
+			stdlog.Println("Exit:", err)
+			if err != nil {
+				os.Exit(1)
+			}
 		},
 	}
 
-	helloCmd := &cobra.Command{
-		Use:   "hello",
-		Short: "Prints a hello message",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Hello, world!")
-		},
-	}
-
-	rootCmd.AddCommand(helloCmd)
 	rootCmd.AddCommand(versionCommand())
+
+	defaultDump, err := strconv.Atoi(os.Getenv("PBM_DUMP_PARALLEL_COLLECTIONS"))
+	if err != nil {
+		defaultDump = runtime.NumCPU() / 2
+	}
+
+	defaultLogPath := os.Getenv("LOG_PATH")
+	if defaultLogPath == "" {
+		defaultLogPath = "/dev/stderr"
+	}
+
+	defaultLogJson, err := strconv.ParseBool(os.Getenv("LOG_JSON"))
+	if err != nil {
+		defaultLogJson = false
+	}
+
+	defaultLogLevel := os.Getenv("LOG_LEVEL")
+	if defaultLogLevel == "" {
+		defaultLogLevel = log.D
+	}
+
+	rootCmd.Flags().StringVar(&mURI, "mongodb-uri", os.Getenv("PBM_MONGODB_URI"), "MongoDB connection string")
+	rootCmd.Flags().IntVar(&dumpConns, "dump-parallel-collections", defaultDump, "Number of collections to dump in parallel")
+	rootCmd.Flags().StringVar(&logPath, "log-path", defaultLogPath, "Path to file")
+	rootCmd.Flags().BoolVar(&logJSON, "log-json", defaultLogJson, "Enable JSON logging")
+	rootCmd.Flags().StringVar(&logLevel, "log-level", defaultLogLevel, "Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 	}
 
-	var (
-		pbmCmd      = kingpin.New("pbm-agent", "Percona Backup for MongoDB")
-		pbmAgentCmd = pbmCmd.Command("run", "Run agent").
-				Default().
-				Hidden()
+	//logLevel = pbmCmd.Flag
+	//	Enum(log.D, log.I, log.W, log.E, log.F)
 
-		mURI = pbmAgentCmd.Flag(mongoConnFlag, "MongoDB connection string").
-			Envar("PBM_MONGODB_URI").
-			Required().
-			String()
-		dumpConns = pbmAgentCmd.
-				Flag("dump-parallel-collections", "Number of collections to dump in parallel").
-				Envar("PBM_DUMP_PARALLEL_COLLECTIONS").
-				Default(strconv.Itoa(runtime.NumCPU() / 2)).
-				Int()
-
-		versionCmd   = pbmCmd.Command("version", "PBM version info")
-		versionShort = versionCmd.Flag("short", "Only version info").
-				Default("false").
-				Bool()
-		versionCommit = versionCmd.Flag("commit", "Only git commit info").
-				Default("false").
-				Bool()
-		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").
-				Default("").
-				String()
-
-		logPath = pbmCmd.Flag("log-path", "Path to file").
-			Envar("LOG_PATH").
-			Default("/dev/stderr").
-			String()
-		logJSON = pbmCmd.Flag("log-json", "Enable JSON output").
-			Envar("LOG_JSON").
-			Bool()
-		logLevel = pbmCmd.Flag(
-			"log-level",
-			"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
-			Envar("LOG_LEVEL").
-			Default(log.D).
-			Enum(log.D, log.I, log.W, log.E, log.F)
-	)
-
-	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
-	if err != nil && cmd != versionCmd.FullCommand() {
-		stdlog.Println("Error: Parse command line parameters:", err)
-		return
-	}
-
-	if cmd == versionCmd.FullCommand() {
-		switch {
-		case *versionCommit:
-			fmt.Println(version.Current().GitCommit)
-		case *versionShort:
-			fmt.Println(version.Current().Short())
-		default:
-			fmt.Println(version.Current().All(*versionFormat))
-		}
-		return
-	}
-
-	// hidecreds() will rewrite the flag content, so we have to make a copy before passing it on
-	url := "mongodb://" + strings.Replace(*mURI, "mongodb://", "", 1)
-
-	hidecreds()
-
-	logOpts := &log.Opts{
-		LogPath:  *logPath,
-		LogLevel: *logLevel,
-		LogJSON:  *logJSON,
-	}
-
-	err = runAgent(url, *dumpConns, logOpts)
-	stdlog.Println("Exit:", err)
-	if err != nil {
-		os.Exit(1)
-	}
 }
 
 func versionCommand() *cobra.Command {
