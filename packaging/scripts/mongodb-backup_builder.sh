@@ -170,7 +170,8 @@ install_deps() {
 
     if [ "x$OS" = "xrpm" ]; then
         yum clean all
-        yum -y install epel-release git wget
+        yum -y install epel-release
+        yum -y install git wget
         yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
         install_golang
     else
