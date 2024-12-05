@@ -1382,7 +1382,7 @@ func (r *PhysRestore) replayOplog(
 
 	err = r.waitToBecomePrimary(ctx, nodeConn)
 	if err != nil {
-		return errors.Wrap(err, "wait to become primary after running in standalone mongod")
+		return errors.Wrap(err, "wait to become primary before applying oplog")
 	}
 
 	oplogOption := applyOplogOption{
