@@ -3,6 +3,7 @@ package snapshot
 import (
 	"io"
 	"runtime"
+	"strings"
 
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
@@ -42,15 +43,27 @@ var ExcludeFromRestore = []string{
 
 type restorer struct{ *mongorestore.MongoRestore }
 
-// CloneNS contains clone from/to info for cloning NS use case
+// CloneNS contains clone from/to info for cloning NS use case.
 type CloneNS struct {
 	FromNS string
 	ToNS   string
 }
 
-// IsSpecified returns true in case of cloning use case
+// IsSpecified returns true in case of cloning use case.
 func (c *CloneNS) IsSpecified() bool {
 	return c.FromNS != "" && c.ToNS != ""
+}
+
+// SplitFromNS breaks cloning-from namespace to database & collection pair.
+func (c *CloneNS) SplitFromNS() (string, string) {
+	db, coll, _ := strings.Cut(c.FromNS, ".")
+	return db, coll
+}
+
+// SplitToNS breaks cloning-to namespace to database & collection pair.
+func (c *CloneNS) SplitToNS() (string, string) {
+	db, coll, _ := strings.Cut(c.ToNS, ".")
+	return db, coll
 }
 
 func NewRestore(uri string,
