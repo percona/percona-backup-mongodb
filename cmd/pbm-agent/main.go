@@ -120,27 +120,27 @@ func isValidLogLevel(logLevel string) bool {
 
 func bindFlags(cmd *cobra.Command) {
 	cmd.Flags().String(mongoConnFlag, "", "MongoDB connection string")
-	viper.BindPFlag(mongoConnFlag, cmd.Flags().Lookup(mongoConnFlag))
-	viper.BindEnv(mongoConnFlag, "PBM_MONGODB_URI")
+	_ = viper.BindPFlag(mongoConnFlag, cmd.Flags().Lookup(mongoConnFlag))
+	_ = viper.BindEnv(mongoConnFlag, "PBM_MONGODB_URI")
 
 	cmd.Flags().Int("dump-parallel-collections", 0, "Number of collections to dump in parallel")
-	viper.BindPFlag("backup.dump-parallel-collections", cmd.Flags().Lookup("dump-parallel-collections"))
-	viper.BindEnv("backup.dump-parallel-collections", "PBM_DUMP_PARALLEL_COLLECTIONS")
+	_ = viper.BindPFlag("backup.dump-parallel-collections", cmd.Flags().Lookup("dump-parallel-collections"))
+	_ = viper.BindEnv("backup.dump-parallel-collections", "PBM_DUMP_PARALLEL_COLLECTIONS")
 	viper.SetDefault("backup.dump-parallel-collections", runtime.NumCPU()/2)
 
 	cmd.Flags().String("log-path", "", "Path to file")
-	viper.BindPFlag("log.path", cmd.Flags().Lookup("log-path"))
-	viper.BindEnv("log.path", "LOG_PATH")
+	_ = viper.BindPFlag("log.path", cmd.Flags().Lookup("log-path"))
+	_ = viper.BindEnv("log.path", "LOG_PATH")
 	viper.SetDefault("log.path", "/dev/stderr")
 
 	cmd.Flags().Bool("log-json", false, "Enable JSON logging")
-	viper.BindPFlag("log.json", cmd.Flags().Lookup("log-json"))
-	viper.BindEnv("log.json", "LOG_PATH")
+	_ = viper.BindPFlag("log.json", cmd.Flags().Lookup("log-json"))
+	_ = viper.BindEnv("log.json", "LOG_PATH")
 	viper.SetDefault("log.json", false)
 
 	cmd.Flags().String("log-level", "", "Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.")
-	viper.BindPFlag("log.level", cmd.Flags().Lookup("log-level"))
-	viper.BindEnv("log.level", "LOG_JSON")
+	_ = viper.BindPFlag("log.level", cmd.Flags().Lookup("log-level"))
+	_ = viper.BindEnv("log.level", "LOG_JSON")
 	viper.SetDefault("log.level", log.D)
 }
 
