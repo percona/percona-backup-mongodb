@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	numInsertionWorkersDefault = 1
+	numInsertionWorkersDefault = 10
 )
 
 func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID, ep config.Epoch) {
@@ -135,19 +135,8 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			return
 		}
 
-		numParallelColls := runtime.NumCPU() / 2
-		if r.NumParallelColls != nil && *r.NumParallelColls > 0 {
-			numParallelColls = int(*r.NumParallelColls)
-		} else if cfg.Restore != nil && cfg.Restore.NumParallelCollections > 0 {
-			numParallelColls = cfg.Restore.NumParallelCollections
-		}
-
-		numInsertionWorkersPerCol := numInsertionWorkersDefault
-		if r.NumInsertionWorkers != nil && *r.NumInsertionWorkers > 0 {
-			numInsertionWorkersPerCol = int(*r.NumInsertionWorkers)
-		} else if cfg.Restore != nil && cfg.Restore.NumInsertionWorkers > 0 {
-			numInsertionWorkersPerCol = cfg.Restore.NumInsertionWorkers
-		}
+		numParallelColls := getNumParallelCollsConfig(r.NumParallelColls, cfg.Restore)
+		numInsertionWorkersPerCol := getNumInsertionWorkersConfig(r.NumInsertionWorkers, cfg.Restore)
 
 		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
 		if r.OplogTS.IsZero() {
@@ -192,6 +181,26 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	}
 
 	l.Info("recovery successfully finished")
+}
+
+func getNumParallelCollsConfig(rParallelColls *int32, restoreConf *config.RestoreConf) int {
+	numParallelColls := runtime.NumCPU() / 2
+	if rParallelColls != nil && *rParallelColls > 0 {
+		numParallelColls = int(*rParallelColls)
+	} else if restoreConf != nil && restoreConf.NumParallelCollections > 0 {
+		numParallelColls = restoreConf.NumParallelCollections
+	}
+	return numParallelColls
+}
+
+func getNumInsertionWorkersConfig(rInsWorkers *int32, restoreConf *config.RestoreConf) int {
+	numInsertionWorkersPerCol := numInsertionWorkersDefault
+	if rInsWorkers != nil && int(*rInsWorkers) > 0 {
+		numInsertionWorkersPerCol = int(*rInsWorkers)
+	} else if restoreConf != nil && restoreConf.NumInsertionWorkers > 0 {
+		numInsertionWorkersPerCol = restoreConf.NumInsertionWorkers
+	}
+	return numInsertionWorkersPerCol
 }
 
 func addRestoreMetaWithError(
