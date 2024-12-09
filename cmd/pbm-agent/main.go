@@ -14,28 +14,46 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
 	"strings"
 )
 
 const mongoConnFlag = "mongodb-uri"
 
 func main() {
-	var (
-		mURI      string
-		dumpConns int
-		logPath   string
-		logJSON   bool
-		logLevel  string
-	)
+	rootCmd := addRootCommand()
+	rootCmd.AddCommand(versionCommand())
 
-	rootCmd := &cobra.Command{
+	bindFlags(rootCmd)
+
+	viper.SetConfigName("config")
+	viper.AddConfigPath(".")
+	viper.WatchConfig()
+
+	if err := viper.ReadInConfig(); err == nil {
+		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	}
+
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+	}
+}
+
+func addRootCommand() *cobra.Command {
+	var mURI string
+
+	return &cobra.Command{
 		Use:   "pbm-agent",
 		Short: "Percona Backup for MongoDB",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			mURI = viper.GetString(mongoConnFlag)
 			if mURI == "" {
-				return fmt.Errorf("required flag \"mongodb-uri\" not set")
+				return fmt.Errorf("required flag " + mongoConnFlag + " not set")
 			}
+
+			if !isValidLogLevel(viper.GetString("log.level")) {
+				return fmt.Errorf("invalid log level")
+			}
+
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -44,54 +62,18 @@ func main() {
 			hidecreds()
 
 			logOpts := &log.Opts{
-				LogPath:  logPath,
-				LogLevel: logLevel,
-				LogJSON:  logJSON,
+				LogLevel: viper.GetString("log.level"),
+				LogPath:  viper.GetString("log.path"),
+				LogJSON:  viper.GetBool("log.json"),
 			}
 
-			err := runAgent(url, dumpConns, logOpts)
+			err := runAgent(url, viper.GetInt("backup.dump-parallel-collections"), logOpts)
 			stdlog.Println("Exit:", err)
 			if err != nil {
 				os.Exit(1)
 			}
 		},
 	}
-
-	rootCmd.AddCommand(versionCommand())
-
-	defaultDump, err := strconv.Atoi(os.Getenv("PBM_DUMP_PARALLEL_COLLECTIONS"))
-	if err != nil {
-		defaultDump = runtime.NumCPU() / 2
-	}
-
-	defaultLogPath := os.Getenv("LOG_PATH")
-	if defaultLogPath == "" {
-		defaultLogPath = "/dev/stderr"
-	}
-
-	defaultLogJson, err := strconv.ParseBool(os.Getenv("LOG_JSON"))
-	if err != nil {
-		defaultLogJson = false
-	}
-
-	defaultLogLevel := os.Getenv("LOG_LEVEL")
-	if defaultLogLevel == "" {
-		defaultLogLevel = log.D
-	}
-
-	rootCmd.Flags().StringVar(&mURI, "mongodb-uri", os.Getenv("PBM_MONGODB_URI"), "MongoDB connection string")
-	rootCmd.Flags().IntVar(&dumpConns, "dump-parallel-collections", defaultDump, "Number of collections to dump in parallel")
-	rootCmd.Flags().StringVar(&logPath, "log-path", defaultLogPath, "Path to file")
-	rootCmd.Flags().BoolVar(&logJSON, "log-json", defaultLogJson, "Enable JSON logging")
-	rootCmd.Flags().StringVar(&logLevel, "log-level", defaultLogLevel, "Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.")
-
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-	}
-
-	//logLevel = pbmCmd.Flag
-	//	Enum(log.D, log.I, log.W, log.E, log.F)
-
 }
 
 func versionCommand() *cobra.Command {
@@ -121,6 +103,44 @@ func versionCommand() *cobra.Command {
 	versionCmd.Flags().StringVar(&versionFormat, "format", "", "Output format <json or \"\">")
 
 	return versionCmd
+}
+
+func isValidLogLevel(logLevel string) bool {
+	validLogLevels := []string{log.D, log.I, log.W, log.E, log.F}
+
+	for _, validLevel := range validLogLevels {
+		if logLevel == validLevel {
+			return true
+		}
+	}
+
+	return false
+}
+
+func bindFlags(cmd *cobra.Command) {
+	cmd.Flags().String(mongoConnFlag, "", "MongoDB connection string")
+	viper.BindPFlag(mongoConnFlag, cmd.Flags().Lookup(mongoConnFlag))
+	viper.BindEnv(mongoConnFlag, "PBM_MONGODB_URI")
+
+	cmd.Flags().Int("dump-parallel-collections", 0, "Number of collections to dump in parallel")
+	viper.BindPFlag("backup.dump-parallel-collections", cmd.Flags().Lookup("dump-parallel-collections"))
+	viper.BindEnv("backup.dump-parallel-collections", "PBM_DUMP_PARALLEL_COLLECTIONS")
+	viper.SetDefault("backup.dump-parallel-collections", runtime.NumCPU()/2)
+
+	cmd.Flags().String("log-path", "", "Path to file")
+	viper.BindPFlag("log.path", cmd.Flags().Lookup("log-path"))
+	viper.BindEnv("log.path", "LOG_PATH")
+	viper.SetDefault("log.path", "/dev/stderr")
+
+	cmd.Flags().Bool("log-json", false, "Enable JSON logging")
+	viper.BindPFlag("log.json", cmd.Flags().Lookup("log-json"))
+	viper.BindEnv("log.json", "LOG_PATH")
+	viper.SetDefault("log.json", false)
+
+	cmd.Flags().String("log-level", "", "Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.")
+	viper.BindPFlag("log.level", cmd.Flags().Lookup("log-level"))
+	viper.BindEnv("log.level", "LOG_JSON")
+	viper.SetDefault("log.level", log.D)
 }
 
 func runAgent(
