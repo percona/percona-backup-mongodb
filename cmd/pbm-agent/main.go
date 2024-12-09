@@ -31,6 +31,7 @@ func main() {
 	bindFlags(rootCmd)
 
 	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 	viper.WatchConfig()
 
