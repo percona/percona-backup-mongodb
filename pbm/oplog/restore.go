@@ -114,8 +114,8 @@ type cloneNS struct {
 
 func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
 	c.CloneNS = nsPair
-	c.fromDB, c.fromColl, _ = strings.Cut(nsPair.FromNS, ".")
-	c.toDB, c.toColl, _ = strings.Cut(nsPair.ToNS, ".")
+	c.fromDB, c.fromColl = nsPair.SplitFromNS()
+	c.toDB, c.toColl = nsPair.SplitToNS()
 }
 
 // OplogRestore is the oplog applyer
@@ -794,7 +794,7 @@ func (o *OplogRestore) cloneEntry(op *db.Oplog) {
 	}
 
 	cmdName := op.Object[0].Key
-	if cmdName != "create" && cmdName != "drop" {
+	if _, ok := cloningNSSupportedCommands[cmdName]; !ok {
 		return
 	}
 

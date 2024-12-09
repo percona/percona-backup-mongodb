@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	stdlog "log"
 	"os"
 	"os/signal"
 	"runtime"
@@ -65,16 +64,18 @@ func addRootCommand() *cobra.Command {
 			hidecreds()
 
 			logOpts := &log.Opts{
-				LogLevel: viper.GetString("log.level"),
 				LogPath:  viper.GetString("log.path"),
+				LogLevel: viper.GetString("log.level"),
 				LogJSON:  viper.GetBool("log.json"),
 			}
+			l := log.NewWithOpts(nil, "", "", logOpts).NewDefaultEvent()
 
 			err := runAgent(url, viper.GetInt("backup.dump-parallel-collections"), logOpts)
-			stdlog.Println("Exit:", err)
 			if err != nil {
+				l.Error("Exit: %v", err)
 				os.Exit(1)
 			}
+			l.Info("Exit: <nil>")
 		},
 	}
 }
@@ -172,7 +173,6 @@ func runAgent(
 	}
 
 	logger := log.NewWithOpts(
-		ctx,
 		agent.leadConn,
 		agent.brief.SetName,
 		agent.brief.Me,
