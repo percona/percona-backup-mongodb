@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/fsnotify/fsnotify"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/spf13/cobra"
@@ -21,8 +22,10 @@ import (
 
 const mongoConnFlag = "mongodb-uri"
 
+var logOpts *log.Opts
+
 func main() {
-	rootCmd := addRootCommand()
+	rootCmd := rootCommand()
 	rootCmd.AddCommand(versionCommand())
 
 	bindFlags(rootCmd)
@@ -30,6 +33,12 @@ func main() {
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	viper.WatchConfig()
+
+	viper.OnConfigChange(func(e fsnotify.Event) {
+		fmt.Printf("Config file changed: %s\n", e.Name)
+		*logOpts = *buildLogOpts()
+		fmt.Printf("Updated log options: %+v\n", logOpts)
+	})
 
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
@@ -40,7 +49,21 @@ func main() {
 	}
 }
 
-func addRootCommand() *cobra.Command {
+func buildLogOpts() *log.Opts {
+	logLevel := viper.GetString("log.level")
+	if !isValidLogLevel(logLevel) {
+		fmt.Printf("Invalid log level: %s. Falling back to default.\n", logLevel)
+		logLevel = log.D
+	}
+
+	return &log.Opts{
+		LogPath:  viper.GetString("log.path"),
+		LogLevel: logLevel,
+		LogJSON:  viper.GetBool("log.json"),
+	}
+}
+
+func rootCommand() *cobra.Command {
 	var mURI string
 
 	return &cobra.Command{
@@ -52,10 +75,6 @@ func addRootCommand() *cobra.Command {
 				return errors.New("required flag " + mongoConnFlag + " not set")
 			}
 
-			if !isValidLogLevel(viper.GetString("log.level")) {
-				return errors.New("invalid log level")
-			}
-
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -63,11 +82,8 @@ func addRootCommand() *cobra.Command {
 
 			hidecreds()
 
-			logOpts := &log.Opts{
-				LogPath:  viper.GetString("log.path"),
-				LogLevel: viper.GetString("log.level"),
-				LogJSON:  viper.GetBool("log.json"),
-			}
+			logOpts = buildLogOpts()
+
 			l := log.NewWithOpts(nil, "", "", logOpts).NewDefaultEvent()
 
 			err := runAgent(url, viper.GetInt("backup.dump-parallel-collections"), logOpts)
