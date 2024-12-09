@@ -93,12 +93,14 @@ func main() {
 		LogLevel: *logLevel,
 		LogJSON:  *logJSON,
 	}
+	l := log.NewWithOpts(nil, "", "", logOpts).NewDefaultEvent()
 
 	err = runAgent(url, *dumpConns, logOpts)
-	stdlog.Println("Exit:", err)
 	if err != nil {
+		l.Error("Exit: %v", err)
 		os.Exit(1)
 	}
+	l.Info("Exit: <nil>")
 }
 
 func runAgent(
@@ -125,7 +127,6 @@ func runAgent(
 	}
 
 	logger := log.NewWithOpts(
-		ctx,
 		agent.leadConn,
 		agent.brief.SetName,
 		agent.brief.Me,

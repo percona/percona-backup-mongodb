@@ -54,7 +54,7 @@ func New(conn connect.Client, rs, node string) Logger {
 }
 
 // NewWithOpts creates logger based on provided options.
-func NewWithOpts(ctx context.Context, conn connect.Client, rs, node string, opts *Opts) Logger {
+func NewWithOpts(conn connect.Client, rs, node string, opts *Opts) Logger {
 	l := &loggerImpl{
 		conn:     conn,
 		rs:       rs,
