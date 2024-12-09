@@ -4,8 +4,6 @@ import (
 	"context"
 	"math/rand"
 
-	"golang.org/x/mod/semver"
-
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 )
@@ -60,11 +58,8 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 			t.DistributedTrxPhysical)
 	}
 
-	// Skip test for 8.0 until PBM-1447 is fixed
-	if semver.Compare(cVersion, "v8.0") < 0 {
-		runTest("Clock Skew Tests",
-			func() { t.ClockSkew(defs.PhysicalBackup, cVersion) })
-	}
+	runTest("Clock Skew Tests",
+		func() { t.ClockSkew(defs.PhysicalBackup, cVersion) })
 
 	flushStore(t)
 }
