@@ -3,6 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	stdlog "log"
+	"os"
+	"os/signal"
+	"runtime"
+	"strings"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -11,11 +16,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	stdlog "log"
-	"os"
-	"os/signal"
-	"runtime"
-	"strings"
 )
 
 const mongoConnFlag = "mongodb-uri"
