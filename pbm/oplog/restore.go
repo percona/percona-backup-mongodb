@@ -794,7 +794,7 @@ func (o *OplogRestore) cloneEntry(op *db.Oplog) {
 	}
 
 	cmdName := op.Object[0].Key
-	if cmdName != "create" && cmdName != "drop" {
+	if _, ok := cloningNSSupportedCommands[cmdName]; !ok {
 		return
 	}
 

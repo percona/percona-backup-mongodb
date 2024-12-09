@@ -273,7 +273,11 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss, cloneNS)
+	if cloneNS.IsSpecified() {
+		err = r.restoreIndexes(ctx, []string{cloneNS.ToNS})
+	} else {
+		err = r.restoreIndexes(ctx, oplogOption.nss)
+	}
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -439,7 +443,11 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss, cloneNS)
+	if cloneNS.IsSpecified() {
+		err = r.restoreIndexes(ctx, []string{cloneNS.ToNS})
+	} else {
+		err = r.restoreIndexes(ctx, oplogOption.nss)
+	}
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -863,7 +871,7 @@ func (r *Restore) RunSnapshot(
 					return nil, err
 				}
 
-				err = r.loadIndexesFrom(bytes.NewReader(data))
+				err = r.loadIndexesFrom(bytes.NewReader(data), cloneNS)
 				if err != nil {
 					return nil, errors.Wrap(err, "load indexes")
 				}
@@ -1007,11 +1015,14 @@ func (r *Restore) restoreUsersAndRoles(ctx context.Context, nss []string) error 
 	return nil
 }
 
-func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
+func (r *Restore) loadIndexesFrom(rdr io.Reader, cloneNS snapshot.CloneNS) error {
 	meta, err := archive.ReadMetadata(rdr)
 	if err != nil {
 		return errors.Wrap(err, "read metadata")
 	}
+
+	fromDB, fromColl := cloneNS.SplitFromNS()
+	toDB, toColl := cloneNS.SplitToNS()
 
 	for _, ns := range meta.Namespaces {
 		var md mongorestore.Metadata
@@ -1021,7 +1032,11 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 				ns.Database, ns.Collection)
 		}
 
-		r.indexCatalog.AddIndexes(ns.Database, ns.Collection, md.Indexes)
+		if cloneNS.IsSpecified() && ns.Database == fromDB && ns.Collection == fromColl {
+			r.indexCatalog.AddIndexes(toDB, toColl, md.Indexes)
+		} else {
+			r.indexCatalog.AddIndexes(ns.Database, ns.Collection, md.Indexes)
+		}
 
 		simple := true
 		if md.Options != nil {
@@ -1048,7 +1063,7 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 	return nil
 }
 
-func (r *Restore) restoreIndexes(ctx context.Context, nss []string, cloneNS snapshot.CloneNS) error {
+func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 	r.log.Debug("building indexes up")
 
 	isSelected := util.MakeSelectedPred(nss)
@@ -1073,32 +1088,24 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string, cloneNS snap
 		}
 
 		var indexNames []string
-		var targetDB, targetColl string
 		for _, index := range indexes {
-			if cloneNS.IsSpecified() && ns.String() == cloneNS.FromNS {
-				// override index's ns for the collection cloning
-				targetDB, targetColl = util.ParseNS(cloneNS.ToNS)
-				index.Options["ns"] = cloneNS.ToNS
-			} else {
-				targetDB, targetColl = ns.DB, ns.Collection
-				index.Options["ns"] = ns.DB + "." + ns.Collection
-			}
+			index.Options["ns"] = ns.DB + "." + ns.Collection
 			indexNames = append(indexNames, index.Options["name"].(string))
 			// remove the index version, forcing an update
 			delete(index.Options, "v")
 		}
 
 		rawCommand := bson.D{
-			{"createIndexes", targetColl},
+			{"createIndexes", ns.Collection},
 			{"indexes", indexes},
 			{"ignoreUnknownIndexOptions", true},
 		}
 
 		r.log.Info("restoring indexes for %s.%s: %s",
-			targetDB, targetColl, strings.Join(indexNames, ", "))
-		err := r.nodeConn.Database(targetDB).RunCommand(ctx, rawCommand).Err()
+			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
+		err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
 		if err != nil {
-			return errors.Wrapf(err, "createIndexes for %s.%s", targetDB, targetColl)
+			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
 		}
 	}
 
