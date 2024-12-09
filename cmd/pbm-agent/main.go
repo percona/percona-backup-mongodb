@@ -48,11 +48,11 @@ func addRootCommand() *cobra.Command {
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			mURI = viper.GetString(mongoConnFlag)
 			if mURI == "" {
-				return fmt.Errorf("required flag " + mongoConnFlag + " not set")
+				return errors.New("required flag " + mongoConnFlag + " not set")
 			}
 
 			if !isValidLogLevel(viper.GetString("log.level")) {
-				return fmt.Errorf("invalid log level")
+				return errors.New("invalid log level")
 			}
 
 			return nil
