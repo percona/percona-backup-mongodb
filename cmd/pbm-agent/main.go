@@ -138,7 +138,9 @@ func bindFlags(cmd *cobra.Command) {
 	_ = viper.BindEnv("log.json", "LOG_PATH")
 	viper.SetDefault("log.json", false)
 
-	cmd.Flags().String("log-level", "", "Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.")
+	cmd.Flags().String("log-level", "",
+		"Minimal log level based on severity level: D, I, W, E or F, low to high."+
+			"Choosing one includes higher levels too.")
 	_ = viper.BindPFlag("log.level", cmd.Flags().Lookup("log-level"))
 	_ = viper.BindEnv("log.level", "LOG_JSON")
 	viper.SetDefault("log.level", log.D)
