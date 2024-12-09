@@ -10,6 +10,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	stdlog "log"
 	"os"
 	"os/signal"
