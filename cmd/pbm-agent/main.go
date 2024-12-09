@@ -10,12 +10,12 @@ import (
 	"strings"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 const mongoConnFlag = "mongodb-uri"
