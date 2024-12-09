@@ -2,6 +2,7 @@ package sharded
 
 import (
 	"log"
+	"math/rand"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -11,16 +12,14 @@ func (c *Cluster) ClockSkew(typ defs.BackupType, mongoVersion string) {
 	timeShifts := []string{
 		"+90m", "-195m", "+2d", "-7h", "+11m", "+42d", "-13h",
 	}
-	rsNames := []string{"cfg"}
+	rsNames := []string{}
 	for s := range c.shards {
 		rsNames = append(rsNames, s)
 	}
 
-	for k, rs := range rsNames {
-		if k >= len(timeShifts) {
-			k %= len(timeShifts)
-		}
-		shift := timeShifts[k]
+	for _, rs := range rsNames {
+		randomIndex := rand.Intn(len(timeShifts))
+		shift := timeShifts[randomIndex]
 
 		err := pbmt.ClockSkew(rs, shift, c.cfg.DockerURI)
 		if err != nil {

@@ -3,6 +3,7 @@ package pbm
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -13,7 +14,9 @@ import (
 )
 
 func ClockSkew(rsName, ts, dockerHost string) error {
-	log.Printf("== Skew the clock for %s on the replicaset %s ", ts, rsName)
+	if ts != "0" {
+		log.Printf("==Skew the clock for %s on the replicaset %s ", ts, rsName)
+	}
 
 	cn, err := client.NewClientWithOpts(client.WithHost(dockerHost))
 	if err != nil {
@@ -36,17 +39,40 @@ func ClockSkew(rsName, ts, dockerHost string) error {
 			return errors.Wrapf(err, "ContainerInspect for %s", c.ID)
 		}
 
+		envs := append([]string{}, containerOld.Config.Env...)
+		if ts == "0" {
+			ldPreloadDefined := false
+			for _, env := range envs {
+				if strings.HasPrefix(env, "LD_PRELOAD") {
+					ldPreloadDefined = true
+					break
+				}
+			}
+
+			if !ldPreloadDefined {
+				log.Printf("Variable LD_PRELOAD isn't defined, skipping container restart for %s\n", containerOld.Name)
+				continue
+			}
+
+			var filteredEnvs []string
+			for _, env := range envs {
+				if !strings.HasPrefix(env, "LD_PRELOAD") {
+					filteredEnvs = append(filteredEnvs, env)
+				}
+			}
+			envs = filteredEnvs
+		} else {
+			envs = append(envs,
+				`LD_PRELOAD=/lib64/faketime/libfaketime.so.1`,
+				`FAKETIME=`+ts,
+			)
+		}
+
 		log.Printf("Removing container %s/%s\n", containerOld.ID, containerOld.Name)
 		err = cn.ContainerRemove(context.Background(), c.ID, container.RemoveOptions{Force: true})
 		if err != nil {
 			return errors.Wrapf(err, "remove container %s", c.ID)
 		}
-
-		envs := append([]string{}, containerOld.Config.Env...)
-		envs = append(envs,
-			`LD_PRELOAD=/lib64/faketime/libfaketime.so.1`,
-			`FAKETIME=`+ts,
-		)
 
 		log.Printf("Creating container %s/%s with the clock skew %s\n", containerOld.ID, containerOld.Name, ts)
 		containerNew, err := cn.ContainerCreate(context.Background(), &container.Config{
