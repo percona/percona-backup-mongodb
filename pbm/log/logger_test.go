@@ -22,7 +22,6 @@ func TestLoggerConstructor(t *testing.T) {
 			if !strings.Contains(string(lEntry), "msg: nil conn") {
 				t.Errorf("expected: 'msg: nil conn', got: %q", string(lEntry))
 			}
-
 		})
 
 		t.Run("logger without opts", func(t *testing.T) {
