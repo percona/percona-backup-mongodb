@@ -305,3 +305,23 @@ func (l *loggerImpl) Output(ctx context.Context, e *Entry) error {
 
 	return rerr
 }
+
+func (l *loggerImpl) SetOpts(cfg *Opts) {
+	if cfg == nil {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if cfg.LogPath != "" && l.logger.logPath != cfg.LogPath {
+		l.createLogger(cfg.LogPath)
+	}
+	if cfg.LogLevel != "" && l.logLevel.String() != cfg.LogLevel {
+		l.logLevel = strToSeverity(cfg.LogLevel)
+	}
+	if l.logJSON != cfg.LogJSON {
+		l.logJSON = cfg.LogJSON
+	}
+
+	fmt.Printf("Updated log options: %+v\n", &Opts{l.logger.logPath, l.logJSON, l.logLevel.String()})
+}

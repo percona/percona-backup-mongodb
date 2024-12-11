@@ -54,6 +54,9 @@ func (discardLoggerImpl) Output(ctx context.Context, e *Entry) error {
 	return nil
 }
 
+func (discardLoggerImpl) SetOpts(cfg *Opts) {
+}
+
 type discardEventImpl struct{}
 
 func (discardEventImpl) Debug(msg string, args ...any)   {}
