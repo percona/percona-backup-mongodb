@@ -131,19 +131,6 @@ func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
 					strings.Join(tss, ", "))
 		}
 	}
-
-	if a.brief.Sharded && a.brief.Version.IsConfigShardSupported() {
-		hasConfigShard, err := topo.HasConfigShard(ctx, a.leadConn)
-		if err != nil {
-			log.FromContext(ctx).
-				Error("", "", "", primitive.Timestamp{},
-					"failed to check for Config Shard: %v", err)
-		} else if hasConfigShard {
-			log.FromContext(ctx).
-				Warning("", "", "", primitive.Timestamp{},
-					"WARNING: selective backup and restore is not supported with Config Shard")
-		}
-	}
 }
 
 // Start starts listening the commands stream.

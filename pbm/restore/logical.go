@@ -295,7 +295,7 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 
 	return func(r *oplog.Record) bool {
 		if r.Namespace != "config.databases" {
-			return false
+			return true
 		}
 
 		// create/drop database and movePrimary ops contain o2._id with the database name
@@ -435,7 +435,7 @@ func (r *Restore) PITR(
 		cloudNS: cloneNS,
 	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-		oplogOption.nss = []string{"config.databases"}
+		oplogOption.nss = append(oplogOption.nss, "config.databases")
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
 	err = r.applyOplog(ctx, oplogRanges, &oplogOption)

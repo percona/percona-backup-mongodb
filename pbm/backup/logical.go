@@ -143,7 +143,6 @@ func (b *Backup) doLogical(
 
 			docFilter = makeConfigsvrDocFilter(bcp.Namespaces, chunkSelector)
 			nsFilter = makeConfigsvrNSFilter(bcp.Namespaces)
-
 		} else {
 			nsFilter = util.MakeSelectedPred(bcp.Namespaces)
 		}
