@@ -166,18 +166,6 @@ func (b *Backup) Init(
 //
 //nolint:nonamedreturns
 func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
-	if b.brief.Sharded &&
-		b.brief.Version.IsConfigShardSupported() &&
-		util.IsSelective(bcp.Namespaces) {
-		hasConfigShard, err := topo.HasConfigShard(ctx, b.leadConn)
-		if err != nil {
-			return errors.Wrap(err, "check for Config Shard")
-		}
-		if hasConfigShard {
-			return errors.New("selective backup is not supported with Config Shard")
-		}
-	}
-
 	inf, err := topo.GetNodeInfoExt(ctx, b.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
@@ -199,9 +187,17 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	}
 	if v := inf.IsConfigSrv(); v {
 		rsMeta.IsConfigSvr = &v
+
+		isConfigShard, err := topo.HasConfigShard(ctx, b.leadConn)
+		if err != nil {
+			return errors.Wrap(err, "has configshard")
+		}
+		if isConfigShard {
+			rsMeta.IsConfigShard = &isConfigShard
+		}
 	}
 
-	stg, err := util.StorageFromConfig(&b.config.Storage, l)
+	stg, err := util.StorageFromConfig(&b.config.Storage, inf.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}

@@ -3,14 +3,19 @@ package sdk
 import (
 	"context"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 type (
@@ -86,4 +91,78 @@ func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 			return err
 		}
 	}
+}
+
+func FindCommandIDByName(ctx context.Context, c *Client, name string) (CommandID, error) {
+	res := c.conn.CmdStreamCollection().FindOne(ctx,
+		bson.D{{"$or", bson.A{
+			bson.M{"backup.name": name},
+			bson.M{"restore.name": name},
+		}}},
+		options.FindOne().SetProjection(bson.D{{"_id", 1}}))
+	raw, err := res.Raw()
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return NoOpID, ErrNotFound
+		}
+		return NoOpID, err
+	}
+
+	return CommandID(ctrl.OPID(raw.Lookup("_id").ObjectID()).String()), nil
+}
+
+type DiagnosticReport struct {
+	OPID          string              `json:"opid" bson:"opid"`
+	ClusterTime   primitive.Timestamp `json:"cluster_time" bson:"cluster_time"`
+	ServerVersion string              `json:"server_version" bson:"server_version"`
+	FCV           string              `json:"fcv" bson:"fcv"`
+	Command       *Command            `json:"command" bson:"command"`
+	Members       []topo.Shard        `json:"replsets" bson:"replsets"`
+	Agents        []AgentStatus       `json:"agents" bson:"agents"`
+	Locks         []lock.LockData     `json:"locks,omitempty" bson:"locks,omitempty"`
+	OpLocks       []lock.LockData     `json:"op_locks,omitempty" bson:"op_locks,omitempty"`
+}
+
+func Diagnostic(ctx context.Context, c *Client, cid CommandID) (*DiagnosticReport, error) {
+	var err error
+	rv := &DiagnosticReport{OPID: string(cid)}
+
+	rv.ClusterTime, err = topo.GetClusterTime(ctx, c.conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get cluster time")
+	}
+	serVer, err := version.GetMongoVersion(ctx, c.conn.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get server version")
+	}
+	rv.ServerVersion = serVer.String()
+
+	rv.FCV, err = version.GetFCV(ctx, c.conn.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get fcv")
+	}
+
+	rv.Command, err = c.CommandInfo(ctx, cid)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, errors.Wrap(err, "get command info")
+	}
+	rv.Members, err = topo.ClusterMembers(ctx, c.conn.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get members")
+	}
+	rv.Agents, err = topo.ListAgents(ctx, c.conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get agents")
+	}
+
+	rv.Locks, err = lock.GetLocks(ctx, c.conn, &lock.LockHeader{})
+	if err != nil {
+		return nil, errors.Wrap(err, "get locks")
+	}
+	rv.OpLocks, err = lock.GetOpLocks(ctx, c.conn, &lock.LockHeader{})
+	if err != nil {
+		return nil, errors.Wrap(err, "get op locks")
+	}
+
+	return rv, nil
 }

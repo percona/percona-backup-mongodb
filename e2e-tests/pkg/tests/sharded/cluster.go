@@ -145,6 +145,14 @@ func (c *Cluster) PhysicalRestore(ctx context.Context, bcpName string) {
 }
 
 func (c *Cluster) PhysicalRestoreWithParams(ctx context.Context, bcpName string, options []string) {
+	stdlog.Println("reset ENV variables")
+	for name := range c.shards {
+		err := pbmt.ClockSkew(name, "0", c.cfg.DockerURI)
+		if err != nil {
+			stdlog.Fatalln("reset ENV variables:", err)
+		}
+	}
+
 	stdlog.Println("restoring the backup")
 	name, err := c.pbm.Restore(bcpName, options)
 	if err != nil {

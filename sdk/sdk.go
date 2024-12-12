@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -13,16 +12,18 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 var (
 	ErrUnsupported      = errors.New("unsupported")
 	ErrInvalidCommandID = errors.New("invalid command id")
-	ErrNotFound         = errors.New("not found")
+	ErrNotFound         = errors.ErrNotFound
 )
 
 type (
@@ -137,7 +138,16 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 		return nil, err
 	}
 
-	return &Client{conn: conn}, nil
+	inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
+	if err != nil {
+		return nil, errors.Wrap(err, "get node info")
+	}
+
+	return &Client{conn: conn, node: inf.Me}, nil
+}
+
+func CommandLogCursor(ctx context.Context, c *Client, cid CommandID) (*log.Cursor, error) {
+	return log.CommandLogCursor(ctx, c.conn, string(cid))
 }
 
 func WaitForAddProfile(ctx context.Context, client *Client, cid CommandID) error {

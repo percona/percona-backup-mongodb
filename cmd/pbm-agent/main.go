@@ -49,6 +49,20 @@ func main() {
 		versionFormat = versionCmd.Flag("format", "Output format <json or \"\">").
 				Default("").
 				String()
+
+		logPath = pbmCmd.Flag("log-path", "Path to file").
+			Envar("LOG_PATH").
+			Default("/dev/stderr").
+			String()
+		logJSON = pbmCmd.Flag("log-json", "Enable JSON output").
+			Envar("LOG_JSON").
+			Bool()
+		logLevel = pbmCmd.Flag(
+			"log-level",
+			"Minimal log level based on severity level: D, I, W, E or F, low to high. Choosing one includes higher levels too.").
+			Envar("LOG_LEVEL").
+			Default(log.D).
+			Enum(log.D, log.I, log.W, log.E, log.F)
 	)
 
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
@@ -74,19 +88,26 @@ func main() {
 
 	hidecreds()
 
-	fmt.Print(perconaSquadNotice)
+	logOpts := &log.Opts{
+		LogPath:  *logPath,
+		LogLevel: *logLevel,
+		LogJSON:  *logJSON,
+	}
+	l := log.NewWithOpts(nil, "", "", logOpts).NewDefaultEvent()
 
-	err = runAgent(url, *dumpConns)
-	stdlog.Println("Exit:", err)
+	err = runAgent(url, *dumpConns, logOpts)
 	if err != nil {
+		l.Error("Exit: %v", err)
 		os.Exit(1)
 	}
+	l.Info("Exit: <nil>")
 }
 
-func runAgent(mongoURI string, dumpConns int) error {
-	mtLog.SetDateFormat(log.LogTimeFormat)
-	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
-
+func runAgent(
+	mongoURI string,
+	dumpConns int,
+	logOpts *log.Opts,
+) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
@@ -95,15 +116,32 @@ func runAgent(mongoURI string, dumpConns int) error {
 		return errors.Wrap(err, "connect to PBM")
 	}
 
+	err = setupNewDB(ctx, leadConn)
+	if err != nil {
+		return errors.Wrap(err, "setup pbm collections")
+	}
+
 	agent, err := newAgent(ctx, leadConn, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
 
-	logger := log.New(agent.leadConn.LogCollection(), agent.brief.SetName, agent.brief.Me)
+	logger := log.NewWithOpts(
+		agent.leadConn,
+		agent.brief.SetName,
+		agent.brief.Me,
+		logOpts)
 	defer logger.Close()
 
 	ctx = log.SetLoggerToContext(ctx, logger)
+
+	mtLog.SetDateFormat(log.LogTimeFormat)
+	mtLog.SetVerbosity(&options.Verbosity{VLevel: mtLog.DebugLow})
+	mtLog.SetWriter(logger)
+
+	logger.Printf(perconaSquadNotice)
+	logger.Printf("log options: log-path=%s, log-level:%s, log-json:%t",
+		logOpts.LogPath, logOpts.LogLevel, logOpts.LogJSON)
 
 	canRunSlicer := true
 	if err := agent.CanStart(ctx); err != nil {
@@ -112,11 +150,6 @@ func runAgent(mongoURI string, dumpConns int) error {
 		} else {
 			return errors.Wrap(err, "pre-start check")
 		}
-	}
-
-	err = setupNewDB(ctx, agent.leadConn)
-	if err != nil {
-		return errors.Wrap(err, "setup pbm collections")
 	}
 
 	agent.showIncompatibilityWarning(ctx)

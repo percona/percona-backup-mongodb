@@ -48,7 +48,8 @@ type Restore struct {
 	bcpStg   storage.Storage
 	oplogStg storage.Storage
 
-	numParallelColls int
+	numParallelColls          int
+	numInsertionWorkersPerCol int
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok. Only these shards
 	// would be expected to run restore (distributed transactions sync,
@@ -85,7 +86,8 @@ func New(
 	brief topo.NodeBrief,
 	cfg *config.Config,
 	rsMap map[string]string,
-	numParallelColls int,
+	numParallelColls,
+	numInsertionWorkersPerCol int,
 ) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)
@@ -99,9 +101,9 @@ func New(
 
 		cfg: cfg,
 
-		numParallelColls: numParallelColls,
-
-		indexCatalog: idx.NewIndexCatalog(),
+		numParallelColls:          numParallelColls,
+		numInsertionWorkersPerCol: numInsertionWorkersPerCol,
+		indexCatalog:              idx.NewIndexCatalog(),
 	}
 }
 
@@ -126,8 +128,11 @@ func (r *Restore) exit(ctx context.Context, err error) {
 }
 
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
-// restore namespace, and option whether we should restore users&roles
-func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) []string {
+// restore namespace, cloning options and option whether we should restore users&roles
+func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, usingUsersAndRoles bool) []string {
+	if cloneNS.IsSpecified() {
+		return []string{cloneNS.FromNS}
+	}
 	if util.IsSelective(nssRestore) {
 		if usingUsersAndRoles {
 			var nss []string
@@ -149,7 +154,14 @@ func resolveNamespace(nssBackup, nssRestore []string, usingUsersAndRoles bool) [
 }
 
 // shouldRestoreUsersAndRoles determines whether user&roles should be restored from the backup
-func shouldRestoreUsersAndRoles(nssBackup, nssRestore []string, usingUsersAndRoles bool) restoreUsersAndRolesOption {
+func shouldRestoreUsersAndRoles(
+	nssBackup, nssRestore []string,
+	cloneNS snapshot.CloneNS,
+	usingUsersAndRoles bool,
+) restoreUsersAndRolesOption {
+	if cloneNS.IsSpecified() {
+		return false
+	}
 	if util.IsSelective(nssBackup) {
 		return false
 	}
@@ -178,13 +190,26 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
+	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
 
-	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
-	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	cloneNS := snapshot.CloneNS{FromNS: cmd.NamespaceFrom, ToNS: cmd.NamespaceTo}
+	if r.brief.Sharded && cloneNS.IsSpecified() {
+		return errors.New("Namespace cloning is not supported in sharded cluster")
+	}
+
+	nss := resolveNamespace(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
 
 	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
 	if err != nil {
@@ -210,12 +235,17 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
+	err = r.checkForCompatibility(ctx, util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName), bcp)
+	if err != nil {
+		return err
+	}
+
 	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
 	if err != nil {
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -228,17 +258,26 @@ func (r *Restore) Snapshot(
 	oplogRanges := []oplogRange{
 		{chunks: chunks, storage: r.bcpStg},
 	}
-	oplogOption := &applyOplogOption{end: &bcp.LastWriteTS, nss: nss}
+	oplogOption := &applyOplogOption{
+		end:     &bcp.LastWriteTS,
+		nss:     nss,
+		cloudNS: cloneNS,
+	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
+
 	err = r.applyOplog(ctx, oplogRanges, oplogOption)
 	if err != nil {
 		return err
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss)
+	if cloneNS.IsSpecified() {
+		err = r.restoreIndexes(ctx, []string{cloneNS.ToNS})
+	} else {
+		err = r.restoreIndexes(ctx, oplogOption.nss)
+	}
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -296,17 +335,30 @@ func (r *Restore) PITR(
 			"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
+	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
-	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get oplog storage")
 	}
 
-	nss := resolveNamespace(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
-	usersAndRolesOpt := shouldRestoreUsersAndRoles(bcp.Namespaces, cmd.Namespaces, cmd.UsersAndRoles)
+	cloneNS := snapshot.CloneNS{FromNS: cmd.NamespaceFrom, ToNS: cmd.NamespaceTo}
+	if r.brief.Sharded && cloneNS.IsSpecified() {
+		return errors.New("Namespace cloning is not supported in sharded cluster")
+	}
+
+	nss := resolveNamespace(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
+	usersAndRolesOpt := shouldRestoreUsersAndRoles(
+		bcp.Namespaces,
+		cmd.Namespaces,
+		cloneNS,
+		cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {
 		err = SetOplogTimestamps(ctx, r.leadConn, r.name, 0, int64(cmd.OplogTS.T))
@@ -353,12 +405,17 @@ func (r *Restore) PITR(
 		return err
 	}
 
+	err = r.checkForCompatibility(ctx, util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName), bcp)
+	if err != nil {
+		return err
+	}
+
 	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
 	if err != nil {
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, usersAndRolesOpt)
+	err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -372,7 +429,11 @@ func (r *Restore) PITR(
 		{chunks: bcpChunks, storage: r.bcpStg},
 		{chunks: chunks, storage: r.oplogStg},
 	}
-	oplogOption := applyOplogOption{end: &cmd.OplogTS, nss: nss}
+	oplogOption := applyOplogOption{
+		end:     &cmd.OplogTS,
+		nss:     nss,
+		cloudNS: cloneNS,
+	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.filter = newConfigsvrOpFilter(nss)
@@ -382,7 +443,11 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.restoreIndexes(ctx, oplogOption.nss)
+	if cloneNS.IsSpecified() {
+		err = r.restoreIndexes(ctx, []string{cloneNS.ToNS})
+	} else {
+		err = r.restoreIndexes(ctx, oplogOption.nss)
+	}
 	if err != nil {
 		return errors.Wrap(err, "restore indexes")
 	}
@@ -432,7 +497,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return r.Done(ctx) // skip. no oplog for current rs
 	}
 
-	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrapf(err, "get oplog storage")
 	}
@@ -578,6 +643,7 @@ func LookupBackupMeta(
 	ctx context.Context,
 	conn connect.Client,
 	backupName string,
+	node string,
 ) (*backup.BackupMeta, error) {
 	bcp, err := backup.NewDBManager(conn).GetBackupByName(ctx, backupName)
 	if err == nil {
@@ -588,7 +654,7 @@ func LookupBackupMeta(
 	}
 
 	var stg storage.Storage
-	stg, err = util.GetStorage(ctx, conn, log.LogEventFromContext(ctx))
+	stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -639,7 +705,10 @@ func (r *Restore) setShards(ctx context.Context, bcp *backup.BackupMeta) error {
 	return nil
 }
 
-var ErrNoDataForShard = errors.New("no data for shard")
+var (
+	ErrNoDataForShard     = errors.New("no data for shard")
+	ErrNoDataForConfigsvr = errors.New("no data for the config server or sole rs in backup")
+)
 
 func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.OplogChunk, error) {
 	var ok bool
@@ -655,7 +724,7 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 	}
 	if !ok {
 		if r.nodeInfo.IsLeader() {
-			return "", nil, errors.New("no data for the config server or sole rs in backup")
+			return "", nil, ErrNoDataForConfigsvr
 		}
 		return "", nil, ErrNoDataForShard
 	}
@@ -760,94 +829,167 @@ func (r *Restore) RunSnapshot(
 	dump string,
 	bcp *backup.BackupMeta,
 	nss []string,
+	cloneNS snapshot.CloneNS,
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) error {
-	var rdr io.ReadCloser
-	var err error
 	if version.IsLegacyArchive(bcp.PBMVersion) {
-		sr, err := r.bcpStg.SourceReader(dump)
-		if err != nil {
-			return errors.Wrapf(err, "get object %s for the storage", dump)
-		}
-		defer sr.Close()
-
-		rdr, err = compress.Decompress(sr, bcp.Compression)
-		if err != nil {
-			return errors.Wrapf(err, "decompress object %s", dump)
-		}
-	} else {
-		if !util.IsSelective(nss) {
-			nss = bcp.Namespaces
-		}
-		if !util.IsSelective(nss) {
-			nss = []string{"*.*"}
+		if util.IsSelective(bcp.Namespaces) || util.IsSelective(nss) {
+			return errors.New("selective restore is not supported from legacy backup")
 		}
 
-		mapRS := util.MakeReverseRSMapFunc(r.rsMap)
-		if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-			// restore cluster specific configs only
-			if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
-				return err
+		return r.restoreLegacyArchive(ctx, dump, bcp)
+	}
+
+	if !util.IsSelective(nss) {
+		nss = bcp.Namespaces
+	}
+	if !util.IsSelective(nss) {
+		nss = []string{"*.*"}
+	}
+
+	mapRS := util.MakeReverseRSMapFunc(r.rsMap)
+
+	r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
+
+	rdr, err := snapshot.DownloadDump(
+		func(ns string) (io.ReadCloser, error) {
+			stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
+			if err != nil {
+				return nil, errors.Wrap(err, "get storage")
 			}
-			if !usersAndRolesOpt {
-				return nil
+			// while importing backup made by RS with another name
+			// that current RS we can't use our r.node.RS() to point files
+			// we have to use mapping passed by --replset-mapping option
+			rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.brief.SetName), ns))
+			if err != nil {
+				return nil, err
 			}
 
-			// selective restore needs to process users and roles from the full backup,
-			// so we'll continue with selective restore
-		}
-
-		r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
-
-		rdr, err = snapshot.DownloadDump(
-			func(ns string) (io.ReadCloser, error) {
-				stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.log)
-				if err != nil {
-					return nil, errors.Wrap(err, "get storage")
-				}
-				// while importing backup made by RS with another name
-				// that current RS we can't use our r.node.RS() to point files
-				// we have to use mapping passed by --replset-mapping option
-				rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.brief.SetName), ns))
+			if ns == archive.MetaFile {
+				data, err := io.ReadAll(rdr)
 				if err != nil {
 					return nil, err
 				}
 
-				if ns == archive.MetaFile {
-					data, err := io.ReadAll(rdr)
-					if err != nil {
-						return nil, err
-					}
-
-					err = r.loadIndexesFrom(bytes.NewReader(data))
-					if err != nil {
-						return nil, errors.Wrap(err, "load indexes")
-					}
-
-					rdr = io.NopCloser(bytes.NewReader(data))
+				err = r.loadIndexesFrom(bytes.NewReader(data), cloneNS)
+				if err != nil {
+					return nil, errors.Wrap(err, "load indexes")
 				}
 
-				return rdr, nil
-			},
-			bcp.Compression,
-			util.MakeSelectedPred(nss),
-			r.numParallelColls)
-	}
+				rdr = io.NopCloser(bytes.NewReader(data))
+			}
+
+			return rdr, nil
+		},
+		bcp.Compression,
+		util.MakeSelectedPred(nss),
+		r.numParallelColls)
 	if err != nil {
 		return err
 	}
 	defer rdr.Close()
 
-	// Restore snapshot (mongorestore)
-	err = r.snapshot(rdr)
-	if err != nil {
-		return errors.Wrap(err, "mongorestore")
+	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
+		err = r.snapshot(rdr, cloneNS, true)
+		if err != nil {
+			return errors.Wrap(err, "mongorestore")
+		}
+
+		// restore cluster specific configs only
+		if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
+			return err
+		}
+	} else {
+		err = r.snapshot(rdr, cloneNS, false)
+		if err != nil {
+			return errors.Wrap(err, "mongorestore")
+		}
 	}
 
 	if usersAndRolesOpt {
 		if err := r.restoreUsersAndRoles(ctx, nss); err != nil {
 			return errors.Wrap(err, "restoring users and roles")
 		}
+	}
+
+	return nil
+}
+
+func (r *Restore) restoreLegacyArchive(
+	ctx context.Context,
+	dump string,
+	bcp *backup.BackupMeta,
+) error {
+	sr, err := r.bcpStg.SourceReader(dump)
+	if err != nil {
+		return errors.Wrapf(err, "get object %s for the storage", dump)
+	}
+	defer sr.Close()
+
+	rdr, err := compress.Decompress(sr, bcp.Compression)
+	if err != nil {
+		return errors.Wrapf(err, "decompress object %s", dump)
+	}
+	defer rdr.Close()
+
+	// Restore snapshot (mongorestore)
+	err = r.snapshot(rdr, snapshot.CloneNS{}, false)
+	if err != nil {
+		return errors.Wrap(err, "mongorestore")
+	}
+
+	if err := r.restoreUsersAndRoles(ctx, nil); err != nil {
+		return errors.Wrap(err, "restoring users and roles")
+	}
+
+	return nil
+}
+
+func (r *Restore) checkForCompatibility(
+	ctx context.Context,
+	name string,
+	bcp *backup.BackupMeta,
+) error {
+	var rs *backup.BackupReplset
+	for i := range bcp.Replsets {
+		if bcp.Replsets[i].Name == name {
+			rs = &bcp.Replsets[i]
+			break
+		}
+	}
+	if rs == nil {
+		// it is ok if target cluster has more shards then source.
+		// however, data for configsvr is required
+		if !r.brief.ConfigSvr {
+			return ErrNoDataForConfigsvr
+		}
+
+		return ErrNoDataForShard
+	}
+
+	isRSConfigsvr := rs.IsConfigSvr != nil && *rs.IsConfigSvr
+	if isRSConfigsvr && !r.brief.ConfigSvr {
+		return errors.New("cannot restore configsvr data to non-configsvr")
+	}
+	if !isRSConfigsvr && r.brief.ConfigSvr {
+		return errors.New("cannot restore non-configsvr data to configsvr")
+	}
+
+	isConfigShard := false
+	if r.brief.ConfigSvr && r.brief.Version.IsConfigShardSupported() {
+		var err error
+		isConfigShard, err = topo.HasConfigShard(ctx, r.leadConn)
+		if err != nil {
+			return errors.Wrap(err, "has configshard")
+		}
+	}
+
+	isRSConfigShard := rs.IsConfigShard != nil && *rs.IsConfigShard
+	if isRSConfigShard && !isConfigShard {
+		return errors.New("cannot restore configshard data to non-configshard")
+	}
+	if !isRSConfigShard && isConfigShard {
+		return errors.New("cannot restore non-configshard data to configshard")
 	}
 
 	return nil
@@ -873,11 +1015,14 @@ func (r *Restore) restoreUsersAndRoles(ctx context.Context, nss []string) error 
 	return nil
 }
 
-func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
+func (r *Restore) loadIndexesFrom(rdr io.Reader, cloneNS snapshot.CloneNS) error {
 	meta, err := archive.ReadMetadata(rdr)
 	if err != nil {
 		return errors.Wrap(err, "read metadata")
 	}
+
+	fromDB, fromColl := cloneNS.SplitFromNS()
+	toDB, toColl := cloneNS.SplitToNS()
 
 	for _, ns := range meta.Namespaces {
 		var md mongorestore.Metadata
@@ -887,7 +1032,11 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader) error {
 				ns.Database, ns.Collection)
 		}
 
-		r.indexCatalog.AddIndexes(ns.Database, ns.Collection, md.Indexes)
+		if cloneNS.IsSpecified() && ns.Database == fromDB && ns.Collection == fromColl {
+			r.indexCatalog.AddIndexes(toDB, toColl, md.Indexes)
+		} else {
+			r.indexCatalog.AddIndexes(ns.Database, ns.Collection, md.Indexes)
+		}
 
 		simple := true
 		if md.Options != nil {
@@ -1192,8 +1341,13 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 	return nil
 }
 
-func (r *Restore) snapshot(input io.Reader) error {
-	rf, err := snapshot.NewRestore(r.brief.URI, r.cfg, r.numParallelColls)
+func (r *Restore) snapshot(input io.Reader, cloneNS snapshot.CloneNS, excludeRouterCollections bool) error {
+	rf, err := snapshot.NewRestore(
+		r.brief.URI,
+		r.cfg, cloneNS,
+		r.numParallelColls,
+		r.numInsertionWorkersPerCol,
+		excludeRouterCollections)
 	if err != nil {
 		return err
 	}

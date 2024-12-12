@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
@@ -243,8 +244,18 @@ func main() {
 		StringVar(&restore.pitrBase)
 	restoreCmd.Flag("num-parallel-collections", "Number of parallel collections").
 		Int32Var(&restore.numParallelColls)
+	restoreCmd.Flag("num-insertion-workers-per-collection",
+		"Specifies the number of insertion workers to run concurrently per collection. For large imports, "+
+			"increasing the number of insertion workers may increase the speed of the import.").
+		Int32Var(&restore.numInsertionWorkers)
 	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
 		StringVar(&restore.ns)
+	restoreCmd.Flag("ns-from", "Allows collection cloning (creating from the backup with different name) "+
+		"and specifies source collection for cloning from.").
+		StringVar(&restore.nsFrom)
+	restoreCmd.Flag("ns-to", "Allows collection cloning (creating from the backup with different name) "+
+		"and specifies destination collection for cloning to.").
+		StringVar(&restore.nsTo)
 	restoreCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
 		BoolVar(&restore.usersAndRoles)
 	restoreCmd.Flag("wait", "Wait for the restore to finish.").
@@ -433,6 +444,18 @@ func main() {
 		Short('c').
 		StringVar(&describeRestoreOpts.cfg)
 
+	diagnosticCmd := pbmCmd.Command("diagnostic", "Create diagnostic report")
+	diagnosticOpts := diagnosticOptions{}
+	diagnosticCmd.Flag("path", "Path where files will be saved").
+		Required().
+		StringVar(&diagnosticOpts.path)
+	diagnosticCmd.Flag("archive", "create zip file").
+		BoolVar(&diagnosticOpts.archive)
+	diagnosticCmd.Flag("opid", "OPID/Command ID").
+		StringVar(&diagnosticOpts.opid)
+	diagnosticCmd.Flag("name", "Backup or Restore name").
+		StringVar(&diagnosticOpts.name)
+
 	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: parse command line parameters:", err)
@@ -468,6 +491,7 @@ func main() {
 
 	var conn connect.Client
 	var pbm *sdk.Client
+	var node string
 	// we don't need pbm connection if it is `pbm describe-restore -c ...`
 	// or `pbm restore-finish `
 	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
@@ -475,7 +499,7 @@ func main() {
 		if err != nil {
 			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
 		}
-		ctx = log.SetLoggerToContext(ctx, log.New(conn.LogCollection(), "", ""))
+		ctx = log.SetLoggerToContext(ctx, log.New(conn, "", ""))
 
 		ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 		if err != nil {
@@ -491,6 +515,12 @@ func main() {
 			exitErr(errors.Wrap(err, "init sdk"), pbmOutF)
 		}
 		defer pbm.Close(context.Background())
+
+		inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
+		if err != nil {
+			exitErr(errors.Wrap(err, "unable to obtain node info"), pbmOutF)
+		}
+		node = inf.Me
 	}
 
 	switch cmd {
@@ -514,13 +544,13 @@ func main() {
 	case backupFinishCmd.FullCommand():
 		out, err = runFinishBcp(ctx, conn, finishBackupName)
 	case restoreFinishCmd.FullCommand():
-		out, err = runFinishRestore(finishRestore)
+		out, err = runFinishRestore(finishRestore, node)
 	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, pbm, &descBcp)
+		out, err = describeBackup(ctx, pbm, &descBcp, node)
 	case restoreCmd.FullCommand():
-		out, err = runRestore(ctx, conn, pbm, &restore, pbmOutF)
+		out, err = runRestore(ctx, conn, pbm, &restore, node, pbmOutF)
 	case replayCmd.FullCommand():
-		out, err = replayOplog(ctx, conn, pbm, replayOpts, pbmOutF)
+		out, err = replayOplog(ctx, conn, pbm, replayOpts, node, pbmOutF)
 	case listCmd.FullCommand():
 		out, err = runList(ctx, conn, pbm, &list)
 	case deleteBcpCmd.FullCommand():
@@ -534,7 +564,9 @@ func main() {
 	case statusCmd.FullCommand():
 		out, err = status(ctx, conn, pbm, *mURL, statusOpts, pbmOutF == outJSONpretty)
 	case describeRestoreCmd.FullCommand():
-		out, err = describeRestore(ctx, conn, describeRestoreOpts)
+		out, err = describeRestore(ctx, conn, describeRestoreOpts, node)
+	case diagnosticCmd.FullCommand():
+		out, err = handleDiagnostic(ctx, pbm, diagnosticOpts)
 	}
 
 	if err != nil {

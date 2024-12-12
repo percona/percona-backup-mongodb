@@ -20,13 +20,14 @@ import (
 // ErrStorageUndefined is an error for undefined storage
 var ErrStorageUndefined = errors.New("storage undefined")
 
-// StorageFromConfig creates and returns a storage object based on a given config
-func StorageFromConfig(cfg *config.StorageConf, l log.LogEvent) (storage.Storage, error) {
+// StorageFromConfig creates and returns a storage object based on a given config and node name.
+// Node name is used for fetching endpoint url from config for specific cluster member (node).
+func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (storage.Storage, error) {
 	switch cfg.Type {
 	case storage.S3:
-		return s3.New(cfg.S3, l)
+		return s3.New(cfg.S3, node, l)
 	case storage.Azure:
-		return azure.New(cfg.Azure, l)
+		return azure.New(cfg.Azure, node, l)
 	case storage.Filesystem:
 		return fs.New(cfg.Filesystem)
 	case storage.Blackhole:
@@ -39,14 +40,14 @@ func StorageFromConfig(cfg *config.StorageConf, l log.LogEvent) (storage.Storage
 }
 
 // GetStorage reads current storage config and creates and
-// returns respective storage.Storage object
-func GetStorage(ctx context.Context, m connect.Client, l log.LogEvent) (storage.Storage, error) {
+// returns respective storage.Storage object.
+func GetStorage(ctx context.Context, m connect.Client, node string, l log.LogEvent) (storage.Storage, error) {
 	c, err := config.GetConfig(ctx, m)
 	if err != nil {
 		return nil, errors.Wrap(err, "get config")
 	}
 
-	return StorageFromConfig(&c.Storage, l)
+	return StorageFromConfig(&c.Storage, node, l)
 }
 
 // Initialize write current PBM version to PBM init file.

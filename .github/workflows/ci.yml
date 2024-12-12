@@ -28,11 +28,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        psmdb: ["5.0", "6.0", "7.0"]
+        psmdb: ["6.0", "7.0", "8.0"]
         test: [logical, physical, incremental, external]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || 'main' }}
@@ -49,7 +49,7 @@ jobs:
 
       - name: Setup environment with PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
         run: |
-          PSMDB=percona/percona-server-mongodb:${{ matrix.psmdb }} docker compose build
+          PSMDB=perconalab/percona-server-mongodb:${{ matrix.psmdb }} docker compose build
           docker compose up -d
         working-directory: psmdb-testing/pbm-functional/pytest
 

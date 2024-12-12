@@ -11,7 +11,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
@@ -97,7 +96,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 		}
 
 		l.Info("deleting backups older than %v", t)
-		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType)
+		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType, nodeInfo.Me)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -107,7 +106,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 		ctx := log.SetLogEventToContext(ctx, l)
 
 		l.Info("deleting backup")
-		err := backup.DeleteBackup(ctx, a.leadConn, d.Backup)
+		err := backup.DeleteBackup(ctx, a.leadConn, d.Backup, nodeInfo.Me)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -188,7 +187,7 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 
 	ts := primitive.Timestamp{T: uint32(t.Unix())}
 	l.Info("deleting pitr chunks older than %v", t)
-	err = deletePITRImpl(ctx, a.leadConn, ts)
+	err = a.deletePITRImpl(ctx, ts)
 	if err != nil {
 		l.Error("deleting: %v", err)
 		return
@@ -260,7 +259,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error("get config: %v", err)
 	}
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, l)
+	stg, err := util.StorageFromConfig(&cfg.Storage, a.brief.Me, l)
 	if err != nil {
 		l.Error("get storage: " + err.Error())
 	}
@@ -298,16 +297,16 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error(err.Error())
 	}
 
-	err = resync.Resync(ctx, a.leadConn, &cfg.Storage)
+	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me)
 	if err != nil {
 		l.Error("storage resync: " + err.Error())
 	}
 }
 
-func deletePITRImpl(ctx context.Context, conn connect.Client, ts primitive.Timestamp) error {
+func (a *Agent) deletePITRImpl(ctx context.Context, ts primitive.Timestamp) error {
 	l := log.LogEventFromContext(ctx)
 
-	r, err := backup.MakeCleanupInfo(ctx, conn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, a.leadConn, ts)
 	if err != nil {
 		return errors.Wrap(err, "get pitr chunks")
 	}
@@ -316,15 +315,15 @@ func deletePITRImpl(ctx context.Context, conn connect.Client, ts primitive.Times
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, conn, l)
+	stg, err := util.GetStorage(ctx, a.leadConn, a.brief.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
 
-	return deleteChunks(ctx, conn, stg, r.Chunks)
+	return a.deleteChunks(ctx, stg, r.Chunks)
 }
 
-func deleteChunks(ctx context.Context, m connect.Client, stg storage.Storage, chunks []oplog.OplogChunk) error {
+func (a *Agent) deleteChunks(ctx context.Context, stg storage.Storage, chunks []oplog.OplogChunk) error {
 	l := log.LogEventFromContext(ctx)
 
 	for _, chnk := range chunks {
@@ -333,7 +332,7 @@ func deleteChunks(ctx context.Context, m connect.Client, stg storage.Storage, ch
 			return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", chnk.FName, chnk)
 		}
 
-		_, err = m.PITRChunksCollection().DeleteOne(
+		_, err = a.leadConn.PITRChunksCollection().DeleteOne(
 			ctx,
 			bson.D{
 				{"rs", chnk.RS},

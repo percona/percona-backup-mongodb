@@ -324,6 +324,39 @@ func waitMgoShutdown(dbpath string) error {
 	return nil
 }
 
+// waitToBecomePrimary pause execution until RS member becomes primary node.
+// Error is returned in case of timeout.
+// Unexpected error while getting node info is just logged.
+func (r *PhysRestore) waitToBecomePrimary(ctx context.Context, m *mongo.Client) error {
+	tk := time.NewTicker(time.Second)
+	defer tk.Stop()
+
+	tout := time.NewTimer(2 * time.Minute)
+	defer tout.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			inf, err := topo.GetNodeInfo(ctx, m)
+			if err != nil {
+				r.log.Debug("get node info error while waiting to become primary: %v", err)
+				continue
+			}
+
+			if inf.IsPrimary {
+				return nil
+			}
+			r.log.Debug("node: %s is still not primary, waiting for another cycle", inf.Me)
+
+		case <-tout.C:
+			return errors.New("timeout while waiting the node to become primary")
+
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 // toState moves cluster to the given restore state.
 // All communication happens via files in the restore dir on storage.
 //
@@ -1347,6 +1380,11 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrap(err, "define mongo version")
 	}
 
+	err = r.waitToBecomePrimary(ctx, nodeConn)
+	if err != nil {
+		return errors.Wrap(err, "wait to become primary before applying oplog")
+	}
+
 	oplogOption := applyOplogOption{
 		start:  &from,
 		end:    &to,
@@ -1797,7 +1835,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(&cfg.Storage, l)
+	r.stg, err = util.StorageFromConfig(&cfg.Storage, r.nodeInfo.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -2156,7 +2194,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get backup metadata")
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
@@ -2232,7 +2270,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 	if !ok {
 		if r.nodeInfo.IsLeader() {
-			return errors.New("no data for the config server or sole rs in backup")
+			return ErrNoDataForConfigsvr
 		}
 		return ErrNoDataForShard
 	}

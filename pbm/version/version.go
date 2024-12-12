@@ -16,7 +16,7 @@ import (
 )
 
 // current PBM version
-const version = "2.7.0"
+const version = "2.8.0"
 
 var (
 	platform  string
@@ -179,6 +179,14 @@ type MongoVersion struct {
 	PSMDBVersion  string `bson:"psmdbVersion,omitempty"`
 	VersionString string `bson:"version"`
 	Version       []int  `bson:"versionArray"`
+}
+
+func (v MongoVersion) String() string {
+	if v.PSMDBVersion != "" {
+		return v.PSMDBVersion
+	}
+
+	return v.VersionString
 }
 
 func (v MongoVersion) Major() int {

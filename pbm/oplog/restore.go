@@ -81,12 +81,41 @@ var selectedNSSupportedCommands = map[string]struct{}{
 	"commitIndexBuild": {},
 }
 
+var cloningNSSupportedCommands = map[string]struct{}{
+	"create":           {},
+	"drop":             {},
+	"createIndexes":    {},
+	"deleteIndex":      {},
+	"deleteIndexes":    {},
+	"dropIndex":        {},
+	"dropIndexes":      {},
+	"commitIndexBuild": {},
+}
+
 var dontPreserveUUID = []string{
 	"admin.system.users",
 	"admin.system.roles",
 	"admin.system.keys",
 	"*.system.buckets.*", // timeseries
 	"*.system.views",     // timeseries
+}
+
+var ErrNoCloningNamespace = errors.New("cloning namespace desn't exist")
+
+// cloneNS has all data related to cloning namespace within oplog
+type cloneNS struct {
+	snapshot.CloneNS
+	fromDB   string
+	fromColl string
+	toDB     string
+	toColl   string
+	toUUID   primitive.Binary
+}
+
+func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
+	c.CloneNS = nsPair
+	c.fromDB, c.fromColl = nsPair.SplitFromNS()
+	c.toDB, c.toColl = nsPair.SplitToNS()
 }
 
 // OplogRestore is the oplog applyer
@@ -120,7 +149,8 @@ type OplogRestore struct {
 
 	unsafe bool
 
-	filter OpFilter
+	filter  OpFilter
+	cloneNS cloneNS
 }
 
 const saveLastDistTxns = 100
@@ -196,6 +226,7 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 	defer bsonSource.Close()
 
 	var lts primitive.Timestamp
+
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
 		if rawOplogEntry == nil {
@@ -257,6 +288,27 @@ func (o *OplogRestore) SetIncludeNS(nss []string) {
 	o.includeNS = dbs
 }
 
+// SetCloneNS sets all needed data for cloning namespace:
+// collection names and target namespace UUID
+func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) error {
+	if !ns.IsSpecified() {
+		return nil
+	}
+
+	o.cloneNS.SetNSPair(ns)
+
+	var err error
+	o.cloneNS.toUUID, err = getUUIDForNS(ctx, o.dst, o.cloneNS.ToNS)
+	if err != nil {
+		return errors.Wrap(err, "get to ns uuid")
+	}
+	if o.cloneNS.toUUID.IsZero() {
+		return ErrNoCloningNamespace
+	}
+
+	return nil
+}
+
 func isOpAllowed(oe *Record) bool {
 	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
 	if !ok {
@@ -310,6 +362,84 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 	return false
 }
 
+// isOpForCloning returns whether op needs to be processed or not in case of cloning NS.
+// In case of non cloning use case, it's always true.
+func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
+	if !o.cloneNS.IsSpecified() {
+		return true
+	}
+
+	// i, u, d ops for cloning ns
+	if oe.Namespace == o.cloneNS.FromNS {
+		return true
+	}
+
+	// filter out all other i, u, d ops
+	if oe.Operation != "c" {
+		return false
+	}
+
+	db, coll, _ := strings.Cut(oe.Namespace, ".")
+	if coll != "$cmd" {
+		return false
+	}
+
+	cmd := oe.Object[0].Key
+	if cmd == "applyOps" {
+		return true // internal ops of applyOps are checked one by one later
+	}
+
+	if db != o.cloneNS.fromDB {
+		// it's command not relevant for db to clone from
+		return false
+	}
+
+	if _, ok := cloningNSSupportedCommands[cmd]; ok {
+		// check if command targets collection
+		collForCmd, _ := oe.Object[0].Value.(string)
+		if collForCmd == o.cloneNS.fromColl {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (o *OplogRestore) isOpExcluded(oe *Record) bool {
+	if o.excludeNS == nil {
+		return false
+	}
+	db, coll, _ := strings.Cut(oe.Namespace, ".")
+	if coll != "$cmd" {
+		return o.excludeNS.Has(oe.Namespace)
+	}
+
+	cmd := oe.Object[0].Key
+	if cmd == "applyOps" {
+		return false // internal ops of applyOps are checked one by one later
+	}
+	if _, ok := selectedNSSupportedCommands[cmd]; ok {
+		coll, _ = oe.Object[0].Value.(string)
+		return o.excludeNS.Has(db + "." + coll)
+	}
+	// handle renameCollection and convertToCapped commands.
+	// NOTE: convertToCapped is done by creating a temporary capped collection,
+	//       inserting docs from the source collection to the collection,
+	//       and renaming it to the source collection.
+	if cmd == "renameCollection" {
+		from, _ := oe.Object[0].Value.(string)
+		if o.excludeNS.Has(from) {
+			return true
+		}
+		to, _ := oe.Object[1].Value.(string)
+		if o.excludeNS.Has(to) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (o *OplogRestore) LastOpTS() uint32 {
 	return atomic.LoadUint32(&o.lastOpT)
 }
@@ -325,11 +455,8 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if o.excludeNS.Has(oe.Namespace) {
-		return nil
-	}
-
-	if !isOpAllowed(&oe) || !o.isOpSelected(&oe) {
+	if o.isOpExcluded(&oe) || !isOpAllowed(&oe) ||
+		!o.isOpSelected(&oe) || !o.isOpForCloning(&oe) {
 		return nil
 	}
 
@@ -645,14 +772,48 @@ func (o *OplogRestore) HandleUncommittedTxn(
 	return partial, uncommitted, nil
 }
 
+func (o *OplogRestore) cloneEntry(op *db.Oplog) {
+	if !o.cloneNS.IsSpecified() {
+		return
+	}
+
+	// op: i, u, d
+	if op.Namespace == o.cloneNS.FromNS {
+		op.UI = nil
+		op.Namespace = o.cloneNS.ToNS
+		return
+	}
+
+	if op.Operation != "c" || len(op.Object) == 0 {
+		return
+	}
+
+	dbName, _, _ := strings.Cut(op.Namespace, ".")
+	if dbName != o.cloneNS.fromDB {
+		return
+	}
+
+	cmdName := op.Object[0].Key
+	if _, ok := cloningNSSupportedCommands[cmdName]; !ok {
+		return
+	}
+
+	collName, _ := op.Object[0].Value.(string)
+	if collName != o.cloneNS.fromColl {
+		return
+	}
+
+	// op: create/drop
+	op.Namespace = fmt.Sprintf("%s.$cmd", o.cloneNS.toDB)
+	op.Object[0].Value = o.cloneNS.toColl
+	op.UI = nil
+}
+
 func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	// have to handle it here one more time because before the op gets thru
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
-	if o.excludeNS.Has(op.Namespace) {
-		return nil
-	}
-
-	if !isOpAllowed(&op) || !o.isOpSelected(&op) {
+	if o.isOpExcluded(&op) || !isOpAllowed(&op) ||
+		!o.isOpSelected(&op) || !o.isOpForCloning(&op) {
 		return nil
 	}
 
@@ -660,6 +821,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	if err != nil {
 		return errors.Wrap(err, "filtering UUIDs from oplog")
 	}
+
+	o.cloneEntry(&op)
 
 	dbName, collName, _ := strings.Cut(op.Namespace, ".")
 	if op.Operation == "c" {
@@ -1097,4 +1260,30 @@ func isTruthy(val interface{}) bool {
 // False values include numbers == 0, false, and nil
 func isFalsy(val interface{}) bool {
 	return !isTruthy(val)
+}
+
+// getUUIDForNS ruturns UUID of existing collection.
+// When ns doesn't exist, it returns zero value without an error.
+// In case of error, it returns zero value for UUID in addition to error.
+func getUUIDForNS(ctx context.Context, m *mongo.Client, ns string) (primitive.Binary, error) {
+	var uuid primitive.Binary
+
+	d, c, _ := strings.Cut(ns, ".")
+	cur, err := m.Database(d).ListCollections(ctx, bson.D{{"name", c}})
+	if err != nil {
+		return uuid, errors.Wrap(err, "list collections")
+	}
+	defer cur.Close(ctx)
+
+	for cur.Next(ctx) {
+		if subtype, data, ok := cur.Current.Lookup("info", "uuid").BinaryOK(); ok {
+			uuid = primitive.Binary{
+				Subtype: subtype,
+				Data:    data,
+			}
+			break
+		}
+	}
+
+	return uuid, errors.Wrap(cur.Err(), "list collections cursor")
 }

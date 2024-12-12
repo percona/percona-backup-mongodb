@@ -3,6 +3,7 @@ package snapshot
 import (
 	"io"
 	"runtime"
+	"strings"
 
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/mongorestore"
@@ -16,8 +17,7 @@ import (
 const (
 	preserveUUID = true
 
-	batchSizeDefault           = 500
-	numInsertionWorkersDefault = 10
+	batchSizeDefault = 500
 )
 
 var ExcludeFromRestore = []string{
@@ -43,7 +43,36 @@ var ExcludeFromRestore = []string{
 
 type restorer struct{ *mongorestore.MongoRestore }
 
-func NewRestore(uri string, cfg *config.Config, numParallelColls int) (io.ReaderFrom, error) {
+// CloneNS contains clone from/to info for cloning NS use case.
+type CloneNS struct {
+	FromNS string
+	ToNS   string
+}
+
+// IsSpecified returns true in case of cloning use case.
+func (c *CloneNS) IsSpecified() bool {
+	return c.FromNS != "" && c.ToNS != ""
+}
+
+// SplitFromNS breaks cloning-from namespace to database & collection pair.
+func (c *CloneNS) SplitFromNS() (string, string) {
+	db, coll, _ := strings.Cut(c.FromNS, ".")
+	return db, coll
+}
+
+// SplitToNS breaks cloning-to namespace to database & collection pair.
+func (c *CloneNS) SplitToNS() (string, string) {
+	db, coll, _ := strings.Cut(c.ToNS, ".")
+	return db, coll
+}
+
+func NewRestore(uri string,
+	cfg *config.Config,
+	cloneNS CloneNS,
+	numParallelColls,
+	numInsertionWorkersPerCol int,
+	excludeRouterCollections bool,
+) (io.ReaderFrom, error) {
 	topts := options.New("mongorestore",
 		"0.0.1",
 		"none",
@@ -73,12 +102,21 @@ func NewRestore(uri string, cfg *config.Config, numParallelColls int) (io.Reader
 	if cfg.Restore.BatchSize > 0 {
 		batchSize = cfg.Restore.BatchSize
 	}
-	numInsertionWorkers := numInsertionWorkersDefault
-	if cfg.Restore.NumInsertionWorkers > 0 {
-		numInsertionWorkers = cfg.Restore.NumInsertionWorkers
-	}
+
 	if numParallelColls < 1 {
 		numParallelColls = 1
+	}
+
+	nsExclude := ExcludeFromRestore
+	if excludeRouterCollections {
+		configColls := []string{
+			"config.databases",
+			"config.collections",
+			"config.chunks",
+		}
+		nsExclude := make([]string, len(ExcludeFromRestore)+len(configColls))
+		n := copy(nsExclude, ExcludeFromRestore)
+		copy(nsExclude[:n], configColls)
 	}
 
 	mopts := mongorestore.Options{}
@@ -90,7 +128,7 @@ func NewRestore(uri string, cfg *config.Config, numParallelColls int) (io.Reader
 		BulkBufferSize:           batchSize,
 		BypassDocumentValidation: true,
 		Drop:                     true,
-		NumInsertionWorkers:      numInsertionWorkers,
+		NumInsertionWorkers:      numInsertionWorkersPerCol,
 		NumParallelCollections:   numParallelColls,
 		PreserveUUID:             preserveUUID,
 		StopOnError:              true,
@@ -98,8 +136,18 @@ func NewRestore(uri string, cfg *config.Config, numParallelColls int) (io.Reader
 		NoIndexRestore:           true,
 	}
 	mopts.NSOptions = &mongorestore.NSOptions{
-		NSExclude: ExcludeFromRestore,
+		NSExclude: nsExclude,
 	}
+
+	// in case of namespace cloning, we need to add/override following opts
+	if cloneNS.IsSpecified() {
+		mopts.NSOptions.NSInclude = []string{cloneNS.FromNS}
+		mopts.NSFrom = []string{cloneNS.FromNS}
+		mopts.NSTo = []string{cloneNS.ToNS}
+		mopts.Drop = false
+		mopts.PreserveUUID = false
+	}
+
 	// mongorestore calls runtime.GOMAXPROCS(MaxProcs).
 	mopts.MaxProcs = runtime.GOMAXPROCS(0)
 

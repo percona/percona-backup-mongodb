@@ -97,9 +97,6 @@ func runBackup(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
 	}
-	if len(nss) > 1 {
-		return nil, errors.New("parse --ns option: multiple namespaces are not supported")
-	}
 	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
@@ -348,6 +345,7 @@ type bcpReplDesc struct {
 	LastWriteTime      string              `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string              `json:"last_transition_time" yaml:"last_transition_time"`
 	IsConfigSvr        *bool               `json:"configsvr,omitempty" yaml:"configsvr,omitempty"`
+	IsConfigShard      *bool               `json:"configshard,omitempty" yaml:"configshard,omitempty"`
 	SecurityOpts       *topo.MongodOptsSec `json:"security,omitempty" yaml:"security,omitempty"`
 	Error              *string             `json:"error,omitempty" yaml:"error,omitempty"`
 	Collections        []string            `json:"collections,omitempty" yaml:"collections,omitempty"`
@@ -378,7 +376,12 @@ func byteCountIEC(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-func describeBackup(ctx context.Context, pbm *sdk.Client, b *descBcp) (fmt.Stringer, error) {
+func describeBackup(
+	ctx context.Context,
+	pbm *sdk.Client,
+	b *descBcp,
+	node string,
+) (fmt.Stringer, error) {
 	bcp, err := pbm.GetBackupByName(ctx, b.name, sdk.GetBackupByNameOptions{})
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup meta")
@@ -388,7 +391,7 @@ func describeBackup(ctx context.Context, pbm *sdk.Client, b *descBcp) (fmt.Strin
 	if b.coll || bcp.Size == 0 {
 		// to read backed up collection names
 		// or calculate size of files for legacy backups
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -437,6 +440,7 @@ func describeBackup(ctx context.Context, pbm *sdk.Client, b *descBcp) (fmt.Strin
 			Name:               r.Name,
 			Node:               r.Node,
 			IsConfigSvr:        r.IsConfigSvr,
+			IsConfigShard:      r.IsConfigShard,
 			Status:             r.Status,
 			LastWriteTS:        int64(r.LastWriteTS.T),
 			LastTransitionTS:   r.LastTransitionTS,

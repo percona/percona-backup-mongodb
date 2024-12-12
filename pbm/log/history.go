@@ -58,16 +58,21 @@ func (e *Entry) Stringify(f tsFormatFn, showNode, extr bool) string {
 }
 
 func (e *Entry) String() string {
-	return e.Stringify(tsLocal, false, false)
+	return e.Stringify(AsLocal, false, false)
 }
 
 func (e *Entry) StringNode() string {
-	return e.Stringify(tsLocal, true, false)
+	return e.Stringify(AsLocal, true, false)
 }
 
-func tsLocal(ts int64) string {
+func AsLocal(ts int64) string {
 	//nolint:gosmopolitan
 	return time.Unix(ts, 0).Local().Format(LogTimeFormat)
+}
+
+func AsUTC(ts int64) string {
+	//nolint:gosmopolitan
+	return time.Unix(ts, 0).UTC().Format(LogTimeFormat)
 }
 
 type LogKeys struct {
@@ -255,4 +260,74 @@ func LogGet(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (
 
 func LogGetExactSeverity(ctx context.Context, m connect.Client, r *LogRequest, limit int64) (*Entries, error) {
 	return fetch(ctx, m, r, limit, true)
+}
+
+func GetFirstTSForOPID(ctx context.Context, conn connect.Client, opid string) (int64, error) {
+	return getTSForOPIDImpl(ctx, conn, opid, 1)
+}
+
+func GetLastTSForOPID(ctx context.Context, conn connect.Client, opid string) (int64, error) {
+	return getTSForOPIDImpl(ctx, conn, opid, -1)
+}
+
+func CommandLogCursor(
+	ctx context.Context,
+	conn connect.Client,
+	opid string,
+) (*Cursor, error) {
+	from, err := GetFirstTSForOPID(ctx, conn, opid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get first opid ts")
+	}
+	till, err := GetLastTSForOPID(ctx, conn, opid)
+	if err != nil {
+		return nil, errors.Wrap(err, "get last opid ts")
+	}
+
+	cur, err := conn.LogCollection().Find(ctx, bson.D{{"ts", bson.M{"$gte": from, "$lte": till}}})
+	if err != nil {
+		return nil, errors.Wrap(err, "log: create cursor")
+	}
+
+	return &Cursor{cur: cur}, nil
+}
+
+type Cursor struct {
+	cur *mongo.Cursor
+}
+
+func (c *Cursor) Close(ctx context.Context) error {
+	return c.cur.Close(ctx)
+}
+
+func (c *Cursor) Err() error {
+	return c.cur.Err()
+}
+
+func (c *Cursor) Next(ctx context.Context) bool {
+	return c.cur.Next(ctx)
+}
+
+func (c *Cursor) Record() (*Entry, error) {
+	var e *Entry
+	err := c.cur.Decode(&e)
+	return e, err
+}
+
+func getTSForOPIDImpl(
+	ctx context.Context,
+	conn connect.Client,
+	opid string,
+	sort int,
+) (int64, error) {
+	raw, err := conn.LogCollection().FindOne(ctx,
+		bson.D{{"opid", opid}},
+		options.FindOne().SetSort(bson.D{{"ts", sort}}).SetProjection(bson.D{{"ts", 1}})).
+		Raw()
+	if err != nil {
+		return 0, err
+	}
+
+	ts, _ := raw.Lookup("ts").AsInt64OK()
+	return ts, nil
 }

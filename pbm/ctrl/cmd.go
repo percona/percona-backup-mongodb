@@ -152,10 +152,13 @@ type RestoreCmd struct {
 	Name          string            `bson:"name"`
 	BackupName    string            `bson:"backupName"`
 	Namespaces    []string          `bson:"nss,omitempty"`
+	NamespaceFrom string            `bson:"nsFrom,omitempty"`
+	NamespaceTo   string            `bson:"nsTo,omitempty"`
 	UsersAndRoles bool              `bson:"usersAndRoles,omitempty"`
 	RSMap         map[string]string `bson:"rsMap,omitempty"`
 
-	NumParallelColls *int32 `bson:"numParallelColls,omitempty"`
+	NumParallelColls    *int32 `bson:"numParallelColls,omitempty"`
+	NumInsertionWorkers *int32 `bson:"numInsertionWorkers,omitempty"`
 
 	OplogTS primitive.Timestamp `bson:"oplogTS,omitempty"`
 

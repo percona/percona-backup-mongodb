@@ -7,6 +7,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -14,6 +15,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+)
+
+const (
+	numInsertionWorkersDefault = 10
 )
 
 func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID, ep config.Epoch) {
@@ -91,15 +96,24 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		l.Info("backup: %s", r.BackupName)
 
 		// XXX: why is backup searched on storage?
-		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName)
+		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName, a.brief.Me)
 		if err != nil {
-			l.Error("define base backup: %v", err)
+			err1 := addRestoreMetaWithError(ctx, a.leadConn, l, opid, r, nodeInfo.SetName,
+				"define base backup: %v", err)
+			if err1 != nil {
+				l.Error("failed to save meta: %v", err1)
+			}
 			return
 		}
 
 		if !r.OplogTS.IsZero() && bcp.LastWriteTS.Compare(r.OplogTS) >= 0 {
-			l.Error("snapshot's last write is later than the target time. " +
-				"Try to set an earlier snapshot. Or leave the snapshot empty so PBM will choose one.")
+			err1 := addRestoreMetaWithError(ctx, a.leadConn, l, opid, r, nodeInfo.SetName,
+				"snapshot's last write is later than the target time. "+
+					"Try to set an earlier snapshot. Or leave the snapshot empty "+
+					"so PBM will choose one.")
+			if err1 != nil {
+				l.Error("failed to save meta: %v", err)
+			}
 			return
 		}
 		bcpType = bcp.Type
@@ -121,14 +135,10 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			return
 		}
 
-		numParallelColls := runtime.NumCPU() / 2
-		if r.NumParallelColls != nil && *r.NumParallelColls > 0 {
-			numParallelColls = int(*r.NumParallelColls)
-		} else if cfg.Restore != nil && cfg.Restore.NumParallelCollections > 0 {
-			numParallelColls = cfg.Restore.NumParallelCollections
-		}
+		numParallelColls := getNumParallelCollsConfig(r.NumParallelColls, cfg.Restore)
+		numInsertionWorkersPerCol := getNumInsertionWorkersConfig(r.NumInsertionWorkers, cfg.Restore)
 
-		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls)
+		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
 		if r.OplogTS.IsZero() {
 			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {
@@ -171,4 +181,67 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	}
 
 	l.Info("recovery successfully finished")
+}
+
+func getNumParallelCollsConfig(rParallelColls *int32, restoreConf *config.RestoreConf) int {
+	numParallelColls := runtime.NumCPU() / 2
+	if rParallelColls != nil && *rParallelColls > 0 {
+		numParallelColls = int(*rParallelColls)
+	} else if restoreConf != nil && restoreConf.NumParallelCollections > 0 {
+		numParallelColls = restoreConf.NumParallelCollections
+	}
+	return numParallelColls
+}
+
+func getNumInsertionWorkersConfig(rInsWorkers *int32, restoreConf *config.RestoreConf) int {
+	numInsertionWorkersPerCol := numInsertionWorkersDefault
+	if rInsWorkers != nil && int(*rInsWorkers) > 0 {
+		numInsertionWorkersPerCol = int(*rInsWorkers)
+	} else if restoreConf != nil && restoreConf.NumInsertionWorkers > 0 {
+		numInsertionWorkersPerCol = restoreConf.NumInsertionWorkers
+	}
+	return numInsertionWorkersPerCol
+}
+
+func addRestoreMetaWithError(
+	ctx context.Context,
+	conn connect.Client,
+	l log.LogEvent,
+	opid ctrl.OPID,
+	cmd *ctrl.RestoreCmd,
+	setName string,
+	errStr string,
+	args ...any,
+) error {
+	l.Error(errStr, args...)
+
+	meta := &restore.RestoreMeta{
+		Type:     defs.LogicalBackup,
+		OPID:     opid.String(),
+		Name:     cmd.Name,
+		Backup:   cmd.BackupName,
+		PITR:     int64(cmd.OplogTS.T),
+		StartTS:  time.Now().UTC().Unix(),
+		Status:   defs.StatusError,
+		Error:    errStr,
+		Replsets: []restore.RestoreReplset{},
+	}
+	err := restore.SetRestoreMetaIfNotExists(ctx, conn, meta)
+	if err != nil {
+		return errors.Wrap(err, "write restore meta to db")
+	}
+
+	rs := restore.RestoreReplset{
+		Name:       setName,
+		StartTS:    time.Now().UTC().Unix(),
+		Status:     defs.StatusError,
+		Error:      errStr,
+		Conditions: restore.Conditions{},
+	}
+	err = restore.AddRestoreRSMeta(ctx, conn, cmd.Name, rs)
+	if err != nil {
+		return errors.Wrap(err, "write backup meta to db")
+	}
+
+	return nil
 }

@@ -26,10 +26,10 @@ import (
 //
 // It checks for read and write permissions, drops all meta from the database
 // and populate it again by reading meta from the storage.
-func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) error {
+func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf, node string) error {
 	l := log.LogEventFromContext(ctx)
 
-	stg, err := util.StorageFromConfig(cfg, l)
+	stg, err := util.StorageFromConfig(cfg, node, l)
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
@@ -52,7 +52,7 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf) e
 		}
 	}
 
-	err = SyncBackupList(ctx, conn, cfg, "")
+	err = SyncBackupList(ctx, conn, cfg, "", node)
 	if err != nil {
 		l.Error("failed sync backup metadata: %v", err)
 	}
@@ -97,10 +97,11 @@ func SyncBackupList(
 	conn connect.Client,
 	cfg *config.StorageConf,
 	profile string,
+	node string,
 ) error {
 	l := log.LogEventFromContext(ctx)
 
-	stg, err := util.StorageFromConfig(cfg, l)
+	stg, err := util.StorageFromConfig(cfg, node, l)
 	if err != nil {
 		return errors.Wrap(err, "storage from config")
 	}

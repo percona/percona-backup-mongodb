@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"gopkg.in/yaml.v2"
 
@@ -28,6 +29,15 @@ import (
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
+var (
+	ErrNSFromMissing        = errors.New("--ns-from should be specified as the cloning source")
+	ErrNSToMissing          = errors.New("--ns-to should be specified as the cloning destination")
+	ErrSelAndCloning        = errors.New("cloning with selective restore is not possible (remove --ns option)")
+	ErrCloningWithUAndR     = errors.New("cloning with restoring users and rolles is not possible")
+	ErrCloningWithPITR      = errors.New("cloning with restore to the point-in-time is not possible")
+	ErrCloningWithWildCards = errors.New("cloning with wild-cards is not possible")
+)
+
 type restoreOpts struct {
 	bcp           string
 	pitr          string
@@ -36,12 +46,15 @@ type restoreOpts struct {
 	waitTime      time.Duration
 	extern        bool
 	ns            string
+	nsFrom        string
+	nsTo          string
 	usersAndRoles bool
 	rsMap         string
 	conf          string
 	ts            string
 
-	numParallelColls int32
+	numParallelColls    int32
+	numInsertionWorkers int32
 }
 
 type restoreRet struct {
@@ -105,15 +118,23 @@ func runRestore(
 	conn connect.Client,
 	pbm *sdk.Client,
 	o *restoreOpts,
+	node string,
 	outf outFormat,
 ) (fmt.Stringer, error) {
 	numParallelColls, err := parseCLINumParallelCollsOption(o.numParallelColls)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
 	}
+	numInsertionWorkers, err := parseCLINumInsertionWorkersOption(o.numInsertionWorkers)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-insertion-workers option")
+	}
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
+	}
+	if err := validateNSFromNSTo(o); err != nil {
+		return nil, errors.Wrap(err, "parse --ns-from and --ns-to options")
 	}
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
@@ -138,12 +159,12 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, nss, rsMap, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
 	if o.extern && outf == outText {
-		err = waitRestore(ctx, conn, m, defs.StatusCopyReady, tdiff)
+		err = waitRestore(ctx, conn, m, node, defs.StatusCopyReady, tdiff)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -169,7 +190,7 @@ func runRestore(
 		typ = " physical restore.\nWaiting to finish"
 	}
 	fmt.Printf("Started%s", typ)
-	err = waitRestore(ctx, conn, m, defs.StatusDone, tdiff)
+	err = waitRestore(ctx, conn, m, node, defs.StatusDone, tdiff)
 	if err == nil {
 		return restoreRet{
 			Name:     m.Name,
@@ -196,13 +217,14 @@ func waitRestore(
 	ctx context.Context,
 	conn connect.Client,
 	m *restore.RestoreMeta,
+	node string,
 	status defs.Status,
 	tskew int64,
 ) error {
 	ep, _ := config.GetEpoch(ctx, conn)
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorage(ctx, conn, l)
+	stg, err := util.GetStorage(ctx, conn, node, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -281,6 +303,8 @@ func checkBackup(
 	conn connect.Client,
 	o *restoreOpts,
 	nss []string,
+	nsFrom string,
+	nsTo string,
 ) (string, defs.BackupType, error) {
 	if o.extern && o.bcp == "" {
 		return "", defs.ExternalBackup, nil
@@ -316,6 +340,9 @@ func checkBackup(
 	if len(nss) != 0 && bcp.Type != defs.LogicalBackup {
 		return "", "", errors.New("--ns flag is only allowed for logical restore")
 	}
+	if nsFrom != "" && nsTo != "" && bcp.Type != defs.LogicalBackup {
+		return "", "", errors.New("--ns-from and ns-to flags are only allowed for logical restore")
+	}
 	if bcp.Status != defs.StatusDone {
 		return "", "", errors.Errorf("backup '%s' didn't finish successfully", b)
 	}
@@ -323,18 +350,54 @@ func checkBackup(
 	return bcp.Name, bcp.Type, nil
 }
 
+// nsIsTaken returns error in case when specified namesapce is already in use (collection is created)
+// or when any other error ocurres within the checking process.
+func nsIsTaken(
+	ctx context.Context,
+	conn connect.Client,
+	ns string,
+) error {
+	ns = strings.TrimSpace(ns)
+	dbName, coll, ok := strings.Cut(ns, ".")
+	if !ok {
+		return errors.Wrap(ErrInvalidNamespace, ns)
+	}
+
+	collNames, err := conn.MongoClient().Database(dbName).ListCollectionNames(ctx, bson.D{{"name", coll}})
+	if err != nil {
+		return errors.Wrap(err, "list collection names for cloning target validation")
+	}
+
+	if len(collNames) > 0 {
+		return errors.New("cloning namespace (--ns-to) is already in use, specify another one that doesn't exist in database")
+	}
+
+	return nil
+}
+
 func doRestore(
 	ctx context.Context,
 	conn connect.Client,
 	o *restoreOpts,
 	numParallelColls *int32,
+	numInsertionWorkers *int32,
 	nss []string,
+	nsFrom string,
+	nsTo string,
 	rsMapping map[string]string,
+	node string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
-	bcp, bcpType, err := checkBackup(ctx, conn, o, nss)
+	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
 	if err != nil {
 		return nil, err
+	}
+
+	// check if namespace exists when cloning collection
+	if nsFrom != "" && nsTo != "" {
+		if err := nsIsTaken(ctx, conn, nsTo); err != nil {
+			return nil, err
+		}
 	}
 
 	name := time.Now().UTC().Format(time.RFC3339Nano)
@@ -342,13 +405,16 @@ func doRestore(
 	cmd := ctrl.Cmd{
 		Cmd: ctrl.CmdRestore,
 		Restore: &ctrl.RestoreCmd{
-			Name:             name,
-			BackupName:       bcp,
-			NumParallelColls: numParallelColls,
-			Namespaces:       nss,
-			UsersAndRoles:    o.usersAndRoles,
-			RSMap:            rsMapping,
-			External:         o.extern,
+			Name:                name,
+			BackupName:          bcp,
+			NumParallelColls:    numParallelColls,
+			NumInsertionWorkers: numInsertionWorkers,
+			Namespaces:          nss,
+			NamespaceFrom:       nsFrom,
+			NamespaceTo:         nsTo,
+			UsersAndRoles:       o.usersAndRoles,
+			RSMap:               rsMapping,
+			External:            o.extern,
 		},
 	}
 	if o.pitr != "" {
@@ -421,12 +487,16 @@ func doRestore(
 		ep, _ := config.GetEpoch(ctx, conn)
 		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
 
-		stg, err := util.GetStorage(ctx, conn, l)
+		stg, err := util.GetStorage(ctx, conn, node, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
 
-		fn = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
+		fn = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
+			meta, err := restore.GetRestoreMeta(ctx, conn, name)
+			if err == nil {
+				return meta, nil
+			}
 			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
 		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
@@ -436,8 +506,8 @@ func doRestore(
 	return waitForRestoreStatus(startCtx, conn, name, fn)
 }
 
-func runFinishRestore(o descrRestoreOpts) (fmt.Stringer, error) {
-	stg, err := getRestoreMetaStg(o.cfg)
+func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
+	stg, err := getRestoreMetaStg(o.cfg, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -583,7 +653,7 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
+func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
 	buf, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read config file")
@@ -596,17 +666,22 @@ func getRestoreMetaStg(cfgPath string) (storage.Storage, error) {
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(&cfg.Storage, l)
+	return util.StorageFromConfig(&cfg.Storage, node, l)
 }
 
-func describeRestore(ctx context.Context, conn connect.Client, o descrRestoreOpts) (fmt.Stringer, error) {
+func describeRestore(
+	ctx context.Context,
+	conn connect.Client,
+	o descrRestoreOpts,
+	node string,
+) (fmt.Stringer, error) {
 	var (
 		meta *restore.RestoreMeta
 		err  error
 		res  describeRestoreResult
 	)
 	if o.cfg != "" {
-		stg, err := getRestoreMetaStg(o.cfg)
+		stg, err := getRestoreMetaStg(o.cfg, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -706,4 +781,44 @@ func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
 	}
 
 	return nil
+}
+
+func validateNSFromNSTo(o *restoreOpts) error {
+	if o.nsFrom == "" && o.nsTo == "" {
+		return nil
+	}
+	if o.nsFrom == "" && o.nsTo != "" {
+		return ErrNSFromMissing
+	}
+	if o.nsFrom != "" && o.nsTo == "" {
+		return ErrNSToMissing
+	}
+	if _, _, ok := strings.Cut(o.nsFrom, "."); !ok {
+		return errors.Wrap(ErrInvalidNamespace, o.nsFrom)
+	}
+	if _, _, ok := strings.Cut(o.nsTo, "."); !ok {
+		return errors.Wrap(ErrInvalidNamespace, o.nsTo)
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.ns != "" {
+		return ErrSelAndCloning
+	}
+	if o.nsFrom != "" && o.nsTo != "" && o.usersAndRoles {
+		return ErrCloningWithUAndR
+	}
+	if strings.Contains(o.nsTo, "*") || strings.Contains(o.nsFrom, "*") {
+		return ErrCloningWithWildCards
+	}
+
+	return nil
+}
+
+func parseCLINumInsertionWorkersOption(value int32) (*int32, error) {
+	if value < 0 {
+		return nil, errors.New("Number of insertion workers has to be greater than zero.")
+	}
+	if value == 0 {
+		return nil, nil //nolint:nilnil
+	}
+
+	return &value, nil
 }

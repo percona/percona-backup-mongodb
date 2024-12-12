@@ -157,6 +157,21 @@ func SetRestoreMeta(ctx context.Context, m connect.Client, meta *RestoreMeta) er
 	return err
 }
 
+func SetRestoreMetaIfNotExists(ctx context.Context, m connect.Client, meta *RestoreMeta) error {
+	meta.LastTransitionTS = meta.StartTS
+	meta.Conditions = append(meta.Conditions, &Condition{
+		Timestamp: meta.StartTS,
+		Status:    meta.Status,
+	})
+
+	_, err := m.RestoresCollection().UpdateOne(ctx,
+		bson.D{{"name", meta.Name}},
+		bson.D{{"$set", meta}},
+		options.Update().SetUpsert(true))
+
+	return err
+}
+
 // GetLastRestore returns last successfully finished restore
 // and nil if there is no such restore yet.
 func GetLastRestore(ctx context.Context, m connect.Client) (*RestoreMeta, error) {
