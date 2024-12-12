@@ -22,8 +22,6 @@ import (
 
 const mongoConnFlag = "mongodb-uri"
 
-var logOpts *log.Opts
-
 func main() {
 	rootCmd := rootCommand()
 	rootCmd.AddCommand(versionCommand())
@@ -34,12 +32,6 @@ func main() {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 	viper.WatchConfig()
-
-	viper.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Printf("Config file changed: %s\n", e.Name)
-		*logOpts = *buildLogOpts()
-		fmt.Printf("Updated log options: %+v\n", logOpts)
-	})
 
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
@@ -83,7 +75,7 @@ func rootCommand() *cobra.Command {
 
 			hidecreds()
 
-			logOpts = buildLogOpts()
+			logOpts := buildLogOpts()
 
 			l := log.NewWithOpts(nil, "", "", logOpts).NewDefaultEvent()
 
@@ -195,6 +187,11 @@ func runAgent(
 		agent.brief.Me,
 		logOpts)
 	defer logger.Close()
+
+	viper.OnConfigChange(func(e fsnotify.Event) {
+		fmt.Printf("Config file changed: %s\n", e.Name)
+		logger.SetOpts(buildLogOpts())
+	})
 
 	ctx = log.SetLoggerToContext(ctx, logger)
 
