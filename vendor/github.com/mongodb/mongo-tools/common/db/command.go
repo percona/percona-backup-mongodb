@@ -16,7 +16,7 @@ import (
 	mopt "go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// Query flags
+// Query flags.
 const (
 	Snapshot = 1 << iota
 	LogReplay
@@ -27,9 +27,9 @@ type NodeType string
 
 const (
 	Mongos     NodeType = "mongos"
-	Standalone          = "standalone"
-	ReplSet             = "replset"
-	Unknown             = "unknown"
+	Standalone NodeType = "standalone"
+	ReplSet    NodeType = "replset"
+	Unknown    NodeType = "unknown"
 )
 
 // CommandRunner exposes functions that can be run against a server
@@ -37,7 +37,14 @@ const (
 type CommandRunner interface {
 	Run(command interface{}, out interface{}, database string) error
 	RunString(commandName string, out interface{}, database string) error
-	FindOne(db, collection string, skip int, query interface{}, sort []string, into interface{}, opts int) error
+	FindOne(
+		db, collection string,
+		skip int,
+		query interface{},
+		sort []string,
+		into interface{},
+		opts int,
+	) error
 	Remove(db, collection string, query interface{}) error
 	DatabaseNames() ([]string, error)
 	CollectionNames(db string) ([]string, error)
@@ -115,7 +122,7 @@ func (sp *SessionProvider) ServerVersionArray() (Version, error) {
 // DatabaseNames returns a slice containing the names of all the databases on the
 // connected server.
 func (sp *SessionProvider) DatabaseNames() ([]string, error) {
-	return sp.client.ListDatabaseNames(nil, bson.D{})
+	return sp.client.ListDatabaseNames(context.TODO(), bson.D{})
 }
 
 // CollectionNames returns the names of all the collections in the dbName database.
@@ -215,9 +222,16 @@ func (sp *SessionProvider) IsMongos() (bool, error) {
 // 	return (masterDoc.Ok == 1 && masterDoc.MaxWire >= 2), nil
 // }
 
-// FindOne retuns the first document in the collection and database that matches
+// FindOne returns the first document in the collection and database that matches
 // the query after skip, sort and query flags are applied.
-func (sp *SessionProvider) FindOne(db, collection string, skip int, query interface{}, sort interface{}, into interface{}, flags int) error {
+func (sp *SessionProvider) FindOne(
+	db, collection string,
+	skip int,
+	query interface{},
+	sort interface{},
+	into interface{},
+	flags int,
+) error {
 	session, err := sp.GetSession()
 	if err != nil {
 		return err
@@ -230,7 +244,7 @@ func (sp *SessionProvider) FindOne(db, collection string, skip int, query interf
 	opts := mopt.FindOne().SetSort(sort).SetSkip(int64(skip))
 	ApplyFlags(opts, flags)
 
-	res := session.Database(db).Collection(collection).FindOne(nil, query, opts)
+	res := session.Database(db).Collection(collection).FindOne(context.TODO(), query, opts)
 	err = res.Decode(into)
 	return err
 }
@@ -248,7 +262,12 @@ func ApplyFlags(opts *mopt.FindOneOptions, flags int) {
 // RunApplyOpsCreateIndex will create index using applyOps.
 // For versions that support collection UUIDs (<3.6) it uses an insert to system indexes.
 // Later versions use the createIndexes command.
-func (sp *SessionProvider) RunApplyOpsCreateIndex(C, DB string, index bson.D, UUID *primitive.Binary, result *interface{}) error {
+func (sp *SessionProvider) RunApplyOpsCreateIndex(
+	C, DB string,
+	index bson.D,
+	UUID *primitive.Binary,
+	result *interface{},
+) error {
 	var op Oplog
 
 	// Add an index version if it is missing. An index version could be missing because

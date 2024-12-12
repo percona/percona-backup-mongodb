@@ -7,18 +7,18 @@
 package db
 
 import (
+	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/mongodb/mongo-tools/common/json"
 	"github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/util"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
-
-	"fmt"
-	"strconv"
-	"time"
 )
 
-// write concern fields
+// write concern fields.
 const (
 	j         = "j"
 	w         = "w"
@@ -29,7 +29,10 @@ const (
 // NewMongoWriteConcern takes a string (from the command line writeConcern option) and a ConnString object
 // (from the command line uri option) and returns a WriteConcern. If both are provided, preference is given to
 // the command line writeConcern option. If neither is provided, the default 'majority' write concern is constructed.
-func NewMongoWriteConcern(writeConcern string, cs *connstring.ConnString) (wc *writeconcern.WriteConcern, err error) {
+func NewMongoWriteConcern(
+	writeConcern string,
+	cs *connstring.ConnString,
+) (wc *writeconcern.WriteConcern, err error) {
 
 	// Log whatever write concern was generated
 	defer func() {
@@ -102,8 +105,10 @@ func constructWCFromString(writeConcern string) (*writeconcern.WriteConcern, err
 	return writeconcern.New(wOpt), err
 }
 
-// parseJSONWriteConcern converts a JSON map representing a write concern object into a WriteConcern
-func parseJSONWriteConcern(jsonWriteConcern map[string]interface{}) (*writeconcern.WriteConcern, error) {
+// parseJSONWriteConcern converts a JSON map representing a write concern object into a WriteConcern.
+func parseJSONWriteConcern(
+	jsonWriteConcern map[string]interface{},
+) (*writeconcern.WriteConcern, error) {
 	var opts []writeconcern.Option
 
 	// Construct new options from 'w', if it exists; otherwise default to 'majority'
@@ -150,7 +155,7 @@ func parseWField(wValue interface{}) (writeconcern.Option, error) {
 	return nil, fmt.Errorf("invalid 'w' argument type: %v has type %T", wValue, wValue)
 }
 
-// Given an integer, returns a write concern object or error
+// Given an integer, returns a write concern object or error.
 func parseModeNumber(wNumber int) (writeconcern.Option, error) {
 	if wNumber < 0 {
 		return nil, fmt.Errorf("invalid 'w' argument: %v", wNumber)
@@ -159,7 +164,7 @@ func parseModeNumber(wNumber int) (writeconcern.Option, error) {
 	return writeconcern.W(wNumber), nil
 }
 
-// Given a string, returns a write concern object or error
+// Given a string, returns a write concern object or error.
 func parseModeString(wString string) (writeconcern.Option, error) {
 	// Default case
 	if wString == "" {

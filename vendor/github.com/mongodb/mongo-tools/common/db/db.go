@@ -16,7 +16,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -49,26 +49,13 @@ const (
 	MaxBSONSize = 16 * 1024 * 1024 // 16MB - maximum BSON document size
 )
 
-// Default port for integration tests
+// Default port for integration tests.
 const (
 	DefaultTestPort = "33333"
 )
 
 const (
-	ErrLostConnection     = "lost connection to server"
-	ErrNoReachableServers = "no reachable servers"
-	ErrNsNotFound         = "ns not found"
-	// replication errors list the replset name if we are talking to a mongos,
-	// so we can only check for this universal prefix
-	ErrReplTimeoutPrefix            = "waiting for replication timed out"
-	ErrCouldNotContactPrimaryPrefix = "could not contact primary for replica set"
-	ErrWriteResultsUnavailable      = "write results unavailable from"
-	ErrCouldNotFindPrimaryPrefix    = `could not find host matching read preference { mode: "primary"`
-	ErrUnableToTargetPrefix         = "unable to target"
-	ErrNotMaster                    = "not master"
-	ErrConnectionRefusedSuffix      = "Connection refused"
-
-	// ignorable errors
+	// ignorable errors.
 	ErrDuplicateKeyCode         = 11000
 	ErrFailedDocumentValidation = 121
 	ErrUnacknowledgedWrite      = "unacknowledged write"
@@ -77,13 +64,16 @@ const (
 	ErrCannotInsertTimeseriesBucketsWithMixedSchema = 408
 )
 
-var ignorableWriteErrorCodes = map[int]bool{ErrDuplicateKeyCode: true, ErrFailedDocumentValidation: true}
+var ignorableWriteErrorCodes = map[int]bool{
+	ErrDuplicateKeyCode:         true,
+	ErrFailedDocumentValidation: true,
+}
 
 const (
 	continueThroughErrorFormat = "continuing through error: %v"
 )
 
-// Used to manage database sessions
+// Used to manage database sessions.
 type SessionProvider struct {
 	sync.Mutex
 
@@ -104,7 +94,7 @@ func (sp *SessionProvider) GetSession() (*mongo.Client, error) {
 	return sp.client, nil
 }
 
-// Close closes the master session in the connection pool
+// Close closes the master session in the connection pool.
 func (sp *SessionProvider) Close() {
 	sp.Lock()
 	defer sp.Unlock()
@@ -114,7 +104,7 @@ func (sp *SessionProvider) Close() {
 	}
 }
 
-// DB provides a database with the default read preference
+// DB provides a database with the default read preference.
 func (sp *SessionProvider) DB(name string) *mongo.Database {
 	return sp.client.Database(name)
 }
@@ -141,7 +131,7 @@ func NewSessionProvider(opts options.ToolOptions) (*SessionProvider, error) {
 // addClientCertFromFile adds a client certificate to the configuration given a path to the
 // containing file and returns the certificate's subject name.
 func addClientCertFromFile(cfg *tls.Config, clientFile, keyPassword string) (string, error) {
-	data, err := ioutil.ReadFile(clientFile)
+	data, err := os.ReadFile(clientFile)
 	if err != nil {
 		return "", err
 	}
@@ -149,12 +139,15 @@ func addClientCertFromFile(cfg *tls.Config, clientFile, keyPassword string) (str
 	return addClientCertFromBytes(cfg, data, keyPassword)
 }
 
-func addClientCertFromSeparateFiles(cfg *tls.Config, keyFile, certFile, keyPassword string) (string, error) {
-	keyData, err := ioutil.ReadFile(keyFile)
+func addClientCertFromSeparateFiles(
+	cfg *tls.Config,
+	keyFile, certFile, keyPassword string,
+) (string, error) {
+	keyData, err := os.ReadFile(keyFile)
 	if err != nil {
 		return "", err
 	}
-	certData, err := ioutil.ReadFile(certFile)
+	certData, err := os.ReadFile(certFile)
 	if err != nil {
 		return "", err
 	}
@@ -189,6 +182,7 @@ func addClientCertFromBytes(cfg *tls.Config, data []byte, keyPasswd string) (str
 				certDecodedBlock = currentBlock.Bytes
 			}
 		} else if strings.HasSuffix(currentBlock.Type, "PRIVATE KEY") {
+			//nolint:staticcheck
 			isEncrypted := x509.IsEncryptedPEMBlock(currentBlock) || strings.Contains(currentBlock.Type, "ENCRYPTED PRIVATE KEY")
 			if isEncrypted {
 				if keyPasswd == "" {
@@ -198,6 +192,8 @@ func addClientCertFromBytes(cfg *tls.Config, data []byte, keyPasswd string) (str
 				var keyBytes []byte
 				var err error
 				// Process the X.509-encrypted or PKCS-encrypted PEM block.
+				//
+				//nolint:staticcheck
 				if x509.IsEncryptedPEMBlock(currentBlock) {
 					// Only covers encrypted PEM data with a DEK-Info header.
 					keyBytes, err = x509.DecryptPEMBlock(currentBlock, []byte(keyPasswd))
@@ -217,7 +213,9 @@ func addClientCertFromBytes(cfg *tls.Config, data []byte, keyPasswd string) (str
 				}
 
 				var encoded bytes.Buffer
-				pem.Encode(&encoded, &pem.Block{Type: currentBlock.Type, Bytes: keyBytes})
+				if err := pem.Encode(&encoded, &pem.Block{Type: currentBlock.Type, Bytes: keyBytes}); err != nil {
+					return "", err
+				}
 				keyBlock := encoded.Bytes()
 				keyBlocks = append(keyBlocks, keyBlock)
 				start = len(data) - len(remaining)
@@ -236,7 +234,10 @@ func addClientCertFromBytes(cfg *tls.Config, data []byte, keyPasswd string) (str
 		return "", fmt.Errorf("failed to find PRIVATE KEY")
 	}
 
-	cert, err := tls.X509KeyPair(bytes.Join(certBlocks, []byte("\n")), bytes.Join(keyBlocks, []byte("\n")))
+	cert, err := tls.X509KeyPair(
+		bytes.Join(certBlocks, []byte("\n")),
+		bytes.Join(keyBlocks, []byte("\n")),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -267,7 +268,7 @@ func extractX509UsernameFromSubject(subject string) string {
 // addCACertsFromFile adds root CA certificate and all the intermediate certificates in the same file to the configuration given a path
 // to the containing file.
 func addCACertsFromFile(cfg *tls.Config, file string) error {
-	data, err := ioutil.ReadFile(file)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
@@ -277,7 +278,10 @@ func addCACertsFromFile(cfg *tls.Config, file string) error {
 	}
 
 	if cfg.RootCAs.AppendCertsFromPEM(data) == false {
-		return fmt.Errorf("SSL trusted server certificates file does not contain any valid certificates. File: `%v`", file)
+		return fmt.Errorf(
+			"SSL trusted server certificates file does not contain any valid certificates. File: `%v`",
+			file,
+		)
 	}
 	return nil
 }
@@ -289,7 +293,9 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 		// be created in options parsing, but tests still manually construct
 		// options and generally don't construct a URI, so we invoke the URI
 		// normalization routine here to correct for that.
-		opts.NormalizeOptionsAndURI()
+		if err := opts.NormalizeOptionsAndURI(); err != nil {
+			return nil, err
+		}
 	}
 
 	clientopt := mopt.Client()
@@ -304,7 +310,9 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 	clientopt.SetConnectTimeout(time.Duration(opts.Timeout) * time.Second)
 	clientopt.SetSocketTimeout(time.Duration(opts.SocketTimeout) * time.Second)
 	if opts.Connection.ServerSelectionTimeout > 0 {
-		clientopt.SetServerSelectionTimeout(time.Duration(opts.Connection.ServerSelectionTimeout) * time.Second)
+		clientopt.SetServerSelectionTimeout(
+			time.Duration(opts.Connection.ServerSelectionTimeout) * time.Second,
+		)
 	}
 	if opts.ReplicaSetName != "" {
 		clientopt.SetReplicaSet(opts.ReplicaSetName)
@@ -324,7 +332,7 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 		clientopt.SetWriteConcern(opts.WriteConcern)
 	} else {
 		// If no write concern was specified, default to majority
-		clientopt.SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+		clientopt.SetWriteConcern(writeconcern.Majority())
 	}
 
 	if opts.Compressors != "" && opts.Compressors != "none" {
@@ -468,12 +476,19 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 			keyPasswd = cs.SSLClientCertificateKeyPassword()
 		}
 		if cs.SSLClientCertificateKeyFileSet {
-			x509Subject, err = addClientCertFromFile(tlsConfig, cs.SSLClientCertificateKeyFile, keyPasswd)
+			x509Subject, err = addClientCertFromFile(
+				tlsConfig,
+				cs.SSLClientCertificateKeyFile,
+				keyPasswd,
+			)
 		} else if cs.SSLCertificateFileSet || cs.SSLPrivateKeyFileSet {
 			x509Subject, err = addClientCertFromSeparateFiles(tlsConfig, cs.SSLCertificateFile, cs.SSLPrivateKeyFile, keyPasswd)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("error configuring client, can't load client certificate: %v", err)
+			return nil, fmt.Errorf(
+				"error configuring client, can't load client certificate: %v",
+				err,
+			)
 		}
 		if opts.SSLCAFile != "" {
 			if err := addCACertsFromFile(tlsConfig, opts.SSLCAFile); err != nil {
@@ -482,7 +497,9 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 		}
 
 		// If a username wasn't specified for x509, add one from the certificate.
-		if clientopt.Auth != nil && strings.ToLower(clientopt.Auth.AuthMechanism) == "mongodb-x509" && clientopt.Auth.Username == "" {
+		if clientopt.Auth != nil &&
+			strings.ToLower(clientopt.Auth.AuthMechanism) == "mongodb-x509" &&
+			clientopt.Auth.Username == "" {
 			// The Go x509 package gives the subject with the pairs in reverse order that we want.
 			clientopt.Auth.Username = extractX509UsernameFromSubject(x509Subject)
 		}

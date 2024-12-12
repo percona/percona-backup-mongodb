@@ -254,6 +254,7 @@ var encodeStatePool sync.Pool
 
 func newEncodeState() *encodeState {
 	if v := encodeStatePool.Get(); v != nil {
+		//nolint:errcheck
 		e := v.(*encodeState)
 		e.Reset()
 		return e
@@ -270,6 +271,7 @@ func (e *encodeState) marshal(v interface{}) (err error) {
 			if s, ok := r.(string); ok {
 				panic(s)
 			}
+			//nolint:errcheck
 			err = r.(error)
 		}
 	}()
@@ -291,7 +293,12 @@ func isEmptyValue(v reflect.Value) bool {
 		return !v.Bool()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return v.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+	case reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr:
 		return v.Uint() == 0
 	case reflect.Float32, reflect.Float64:
 		return v.Float() == 0
@@ -384,7 +391,12 @@ func newTypeEncoder(t reflect.Type, allowAddr bool) encoderFunc {
 		return boolEncoder
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return intEncoder
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+	case reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr:
 		return uintEncoder
 	case reflect.Float32:
 		return float32Encoder
@@ -418,6 +430,7 @@ func marshalerEncoder(e *encodeState, v reflect.Value, quoted bool) {
 		e.WriteString("null")
 		return
 	}
+	//nolint:errcheck
 	m := v.Interface().(Marshaler)
 	b, err := m.MarshalJSON()
 	if err == nil {
@@ -435,6 +448,7 @@ func addrMarshalerEncoder(e *encodeState, v reflect.Value, quoted bool) {
 		e.WriteString("null")
 		return
 	}
+	//nolint:errcheck
 	m := va.Interface().(Marshaler)
 	b, err := m.MarshalJSON()
 	if err == nil {
@@ -451,6 +465,7 @@ func textMarshalerEncoder(e *encodeState, v reflect.Value, quoted bool) {
 		e.WriteString("null")
 		return
 	}
+	//nolint:errcheck
 	m := v.Interface().(encoding.TextMarshaler)
 	b, err := m.MarshalText()
 	if err == nil {
@@ -467,6 +482,7 @@ func addrTextMarshalerEncoder(e *encodeState, v reflect.Value, quoted bool) {
 		e.WriteString("null")
 		return
 	}
+	//nolint:errcheck
 	m := va.Interface().(encoding.TextMarshaler)
 	b, err := m.MarshalText()
 	if err == nil {
@@ -559,8 +575,10 @@ func stringEncoder(e *encodeState, v reflect.Value, quoted bool) {
 		if err != nil {
 			e.error(err)
 		}
+		//nolint:errcheck
 		e.string(string(sb))
 	} else {
+		//nolint:errcheck
 		e.string(v.String())
 	}
 }
@@ -595,6 +613,7 @@ func (se *structEncoder) encode(e *encodeState, v reflect.Value, quoted bool) {
 		} else {
 			e.WriteByte(',')
 		}
+		//nolint:errcheck
 		e.string(f.name)
 		e.WriteByte(':')
 		se.fieldEncs[i](e, fv, f.quoted)
@@ -631,6 +650,7 @@ func (me *mapEncoder) encode(e *encodeState, v reflect.Value, _ bool) {
 		if i > 0 {
 			e.WriteByte(',')
 		}
+		//nolint:errcheck
 		e.string(k.String())
 		e.WriteByte(':')
 		me.elemEnc(e, v.MapIndex(k), false)
@@ -662,6 +682,7 @@ func encodeByteSlice(e *encodeState, v reflect.Value, _ bool) {
 		// for large buffers, avoid unnecessary extra temporary
 		// buffer space.
 		enc := base64.NewEncoder(base64.StdEncoding, e)
+		//nolint:errcheck
 		enc.Write(s)
 		enc.Close()
 	}
@@ -799,6 +820,8 @@ func (sv stringValues) Less(i, j int) bool { return sv.get(i) < sv.get(j) }
 func (sv stringValues) get(i int) string   { return sv[i].String() }
 
 // NOTE: keep in sync with stringBytes below.
+//
+//nolint:unparam
 func (e *encodeState) string(s string) (int, error) {
 	len0 := e.Len()
 	e.WriteByte('"')
@@ -872,6 +895,8 @@ func (e *encodeState) string(s string) (int, error) {
 }
 
 // NOTE: keep in sync with string above.
+//
+//nolint:unparam
 func (e *encodeState) stringBytes(s []byte) (int, error) {
 	len0 := e.Len()
 	e.WriteByte('"')
@@ -1013,7 +1038,7 @@ func typeFields(t reflect.Type) []field {
 	next := []field{{typ: t}}
 
 	// Count of queued names for current level and the next.
-	count := map[reflect.Type]int{}
+	var count map[reflect.Type]int
 	nextCount := map[reflect.Type]int{}
 
 	// Types already visited at an earlier level.
