@@ -68,6 +68,10 @@ func rootCommand() *cobra.Command {
 				return errors.New("required flag " + mongoConnFlag + " not set")
 			}
 
+			if !isValidLogLevel(viper.GetString("log.level")) {
+				return errors.New("invalid log level")
+			}
+
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
