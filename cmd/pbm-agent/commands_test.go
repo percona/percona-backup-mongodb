@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
-	"github.com/percona/percona-backup-mongodb/pbm/version"
-	"github.com/spf13/cobra"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
+
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 func TestRootCmd_NoArgs(t *testing.T) {
