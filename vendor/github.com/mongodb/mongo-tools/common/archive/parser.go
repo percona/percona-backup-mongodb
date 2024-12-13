@@ -23,14 +23,14 @@ var errInterrupted = errors.New("archive reading interrupted")
 //   zero or more body BSON documents
 //   a four byte terminator (0xFFFFFFFF)
 
-// ParserConsumer is the interface that one needs to implement to consume data from the Parser
+// ParserConsumer is the interface that one needs to implement to consume data from the Parser.
 type ParserConsumer interface {
 	HeaderBSON([]byte) error
 	BodyBSON([]byte) error
 	End() error
 }
 
-// Parser encapsulates the small amount of state that the parser needs to keep
+// Parser encapsulates the small amount of state that the parser needs to keep.
 type Parser struct {
 	In     io.Reader
 	buf    [db.MaxBSONSize]byte
@@ -51,14 +51,14 @@ func (pe *parserError) Error() string {
 	return err
 }
 
-// newParserError creates a parserError with just a message
+// newParserError creates a parserError with just a message.
 func newParserError(msg string) error {
 	return &parserError{
 		Msg: msg,
 	}
 }
 
-// newParserWrappedError creates a parserError with a message as well as an underlying cause error
+// newParserWrappedError creates a parserError with a message as well as an underlying cause error.
 func newParserWrappedError(msg string, err error) error {
 	// If parsing was terminated intentionally, pass through that error
 	// instead of a parser error.
@@ -95,7 +95,9 @@ func (parse *Parser) readBSONOrTerminator() (isTerminator bool, err error) {
 		return true, nil
 	}
 	if size < minBSONSize || size > db.MaxBSONSize {
-		return false, newParserError(fmt.Sprintf("%v is neither a valid bson length nor a archive terminator", size))
+		return false, newParserError(
+			fmt.Sprintf("%v is neither a valid bson length nor a archive terminator", size),
+		)
 	}
 	// TODO Because we're reusing this same buffer for all of our IO, we are basically guaranteeing that we'll
 	// copy the bytes twice.  At some point we should fix this. It's slightly complex, because we'll need consumer
@@ -106,14 +108,20 @@ func (parse *Parser) readBSONOrTerminator() (isTerminator bool, err error) {
 		return false, newParserWrappedError("read bson", err)
 	}
 	if parse.buf[size-1] != 0x00 {
-		return false, newParserError(fmt.Sprintf("bson (size: %v, byte: %d) doesn't end with a null byte", size, parse.buf[size-1]))
+		return false, newParserError(
+			fmt.Sprintf(
+				"bson (size: %v, byte: %d) doesn't end with a null byte",
+				size,
+				parse.buf[size-1],
+			),
+		)
 	}
 	parse.length = int(size)
 	return false, nil
 }
 
 // ReadAllBlocks calls ReadBlock() until it returns an error.
-// If the error is EOF, then nil is returned, otherwise it returns the error
+// If the error is EOF, then nil is returned, otherwise it returns the error.
 func (parse *Parser) ReadAllBlocks(consumer ParserConsumer) (err error) {
 	for err == nil {
 		err = parse.ReadBlock(consumer)

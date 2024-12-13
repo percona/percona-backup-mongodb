@@ -26,12 +26,12 @@ type IndexCatalog struct {
 	indexes map[string]map[string]*CollectionIndexCatalog
 }
 
-// NewIndexCatalog inits an IndexCatalog
+// NewIndexCatalog inits an IndexCatalog.
 func NewIndexCatalog() *IndexCatalog {
 	return &IndexCatalog{indexes: make(map[string]map[string]*CollectionIndexCatalog)}
 }
 
-// Namespaces returns all the namespaces in the IndexCatalog
+// Namespaces returns all the namespaces in the IndexCatalog.
 func (i *IndexCatalog) Namespaces() (namespaces []options.Namespace) {
 	for database, dbIndexMap := range i.indexes {
 		for collection := range dbIndexMap {
@@ -57,7 +57,9 @@ func (i *IndexCatalog) getCollectionIndexes(database, collection string) map[str
 	return collIndexCatalog.indexes
 }
 
-func (i *IndexCatalog) getCollectionIndexCatalog(database, collection string) *CollectionIndexCatalog {
+func (i *IndexCatalog) getCollectionIndexCatalog(
+	database, collection string,
+) *CollectionIndexCatalog {
 	dbIndexes, found := i.indexes[database]
 	if !found {
 		dbIndexes = make(map[string]*CollectionIndexCatalog)
@@ -98,7 +100,7 @@ func (i *IndexCatalog) AddIndex(database, collection string, index *IndexDocumen
 	i.addIndex(database, collection, indexName, index)
 }
 
-// SetCollation sets if a collection has a simple collation
+// SetCollation sets if a collection has a simple collation.
 func (i *IndexCatalog) SetCollation(database, collection string, simpleCollation bool) {
 	i.Lock()
 	defer i.Unlock()
@@ -113,7 +115,7 @@ func (i *IndexCatalog) AddIndexes(database, collection string, indexes []*IndexD
 	}
 }
 
-// GetIndex returns an IndexDocument for a given index name
+// GetIndex returns an IndexDocument for a given index name.
 func (i *IndexCatalog) GetIndex(database, collection, indexName string) *IndexDocument {
 	dbIndexes, found := i.indexes[database]
 	if !found {
@@ -130,7 +132,7 @@ func (i *IndexCatalog) GetIndex(database, collection, indexName string) *IndexDo
 	return indexSpec
 }
 
-// String formats the IndexCatalog for debugging purposes
+// String formats the IndexCatalog for debugging purposes.
 func (i *IndexCatalog) String() string {
 	var b strings.Builder
 	b.WriteString("IndexCatalog:\n")
@@ -191,7 +193,7 @@ func (i *IndexCatalog) DropCollection(database, collection string) {
 // DeleteIndexes removes indexes from the index catalog. dropCmd may be,
 // {"deleteIndexes": "eventlog", "index": "*"}
 // or,
-// {"deleteIndexes": "eventlog", "index": "name_1"}
+// {"deleteIndexes": "eventlog", "index": "name_1"}.
 func (i *IndexCatalog) DeleteIndexes(database, collection string, dropCmd bson.D) error {
 	collIndexes := i.getCollectionIndexes(database, collection)
 	if len(collIndexes) == 0 {
@@ -279,7 +281,10 @@ func updateHidden(index *IndexDocument, hidden bool) {
 
 // GetIndexByIndexMod returns an index that matches the name or key pattern specified in
 // a collMod command.
-func (i *IndexCatalog) GetIndexByIndexMod(database, collection string, indexMod bson.D) (*IndexDocument, error) {
+func (i *IndexCatalog) GetIndexByIndexMod(
+	database, collection string,
+	indexMod bson.D,
+) (*IndexDocument, error) {
 	// Look for "name" or "keyPattern".
 	name, nameErr := bsonutil.FindStringValueByKey("name", &indexMod)
 	keyPattern, keyPatternErr := bsonutil.FindSubdocumentByKey("keyPattern", &indexMod)
@@ -287,7 +292,10 @@ func (i *IndexCatalog) GetIndexByIndexMod(database, collection string, indexMod 
 	case nameErr == nil && keyPatternErr == nil:
 		return nil, errors.Errorf("cannot specify both index name and keyPattern: %v", indexMod)
 	case nameErr != nil && keyPatternErr != nil:
-		return nil, errors.Errorf("must specify either index name (as a string) or keyPattern (as a document): %v", indexMod)
+		return nil, errors.Errorf(
+			"must specify either index name (as a string) or keyPattern (as a document): %v",
+			indexMod,
+		)
 	case nameErr == nil:
 		matchingIndex := i.GetIndex(database, collection, name)
 		if matchingIndex == nil {
@@ -299,7 +307,10 @@ func (i *IndexCatalog) GetIndexByIndexMod(database, collection string, indexMod 
 		for _, indexSpec := range collIndexes {
 			isEq, err := bsonutil.IsEqual(keyPattern, indexSpec.Key)
 			if err != nil {
-				return nil, fmt.Errorf("was unable to find matching index in indexCatalog. Error with equality test: %v", err)
+				return nil, fmt.Errorf(
+					"was unable to find matching index in indexCatalog. Error with equality test: %v",
+					err,
+				)
 			}
 			if isEq {
 				return indexSpec, nil
@@ -330,7 +341,12 @@ func (i *IndexCatalog) collMod(database, collection string, indexModValue interf
 	if expireKeyError == nil {
 		newExpire, ok := expireValue.(int64)
 		if !ok {
-			return errors.Errorf("expireAfterSeconds must be a number (found %v of type %T): %v", expireValue, expireValue, indexMod)
+			return errors.Errorf(
+				"expireAfterSeconds must be a number (found %v of type %T): %v",
+				expireValue,
+				expireValue,
+				indexMod,
+			)
 		}
 		err = updateExpireAfterSeconds(matchingIndex, newExpire)
 		if err != nil {
@@ -342,7 +358,12 @@ func (i *IndexCatalog) collMod(database, collection string, indexModValue interf
 	if hiddenKeyError == nil {
 		newHidden, ok := expireValue.(bool)
 		if !ok {
-			return errors.Errorf("hidden must be a boolean (found %v of type %T): %v", expireValue, expireValue, indexMod)
+			return errors.Errorf(
+				"hidden must be a boolean (found %v of type %T): %v",
+				expireValue,
+				expireValue,
+				indexMod,
+			)
 		}
 		updateHidden(matchingIndex, newHidden)
 	}
@@ -378,7 +399,7 @@ func (i *IndexCatalog) CollMod(database, collection string, indexModValue interf
 	return nil
 }
 
-// NamespaceQueue is a goroutine-safe queue of namespaces
+// NamespaceQueue is a goroutine-safe queue of namespaces.
 type NamespaceQueue struct {
 	m          sync.Mutex
 	namespaces []options.Namespace

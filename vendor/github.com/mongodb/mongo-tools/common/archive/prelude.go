@@ -19,7 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// MetadataFile implements intents.file
+// MetadataFile implements intents.file.
 type MetadataFile struct {
 	pos int64 // updated atomically, aligned at the beginning of the struct
 	*bytes.Buffer
@@ -71,12 +71,10 @@ func (prelude *Prelude) Read(in io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("I/O failure reading beginning of archive: %v", err)
 	}
-	readMagicNumber := uint32(
-		(uint32(readMagicNumberBuf[0]) << 0) |
-			(uint32(readMagicNumberBuf[1]) << 8) |
-			(uint32(readMagicNumberBuf[2]) << 16) |
-			(uint32(readMagicNumberBuf[3]) << 24),
-	)
+	readMagicNumber := (uint32(readMagicNumberBuf[0]) << 0) |
+		(uint32(readMagicNumberBuf[1]) << 8) |
+		(uint32(readMagicNumberBuf[2]) << 16) |
+		(uint32(readMagicNumberBuf[3]) << 24)
 
 	if readMagicNumber != MagicNumber {
 		return fmt.Errorf("stream or file does not appear to be a mongodump archive")
@@ -92,7 +90,11 @@ func (prelude *Prelude) Read(in io.Reader) error {
 }
 
 // NewPrelude generates a Prelude using the contents of an intent.Manager.
-func NewPrelude(manager *intents.Manager, concurrentColls int, serverVersion, toolVersion string) (*Prelude, error) {
+func NewPrelude(
+	manager *intents.Manager,
+	concurrentColls int,
+	serverVersion, toolVersion string,
+) (*Prelude, error) {
 	prelude := Prelude{
 		Header: &Header{
 			FormatVersion:         archiveFormatVersion,
@@ -136,7 +138,10 @@ func (prelude *Prelude) AddMetadata(cm *CollectionMetadata) {
 	if !ok {
 		prelude.DBS = append(prelude.DBS, cm.Database)
 	}
-	prelude.NamespaceMetadatasByDB[cm.Database] = append(prelude.NamespaceMetadatasByDB[cm.Database], cm)
+	prelude.NamespaceMetadatasByDB[cm.Database] = append(
+		prelude.NamespaceMetadatasByDB[cm.Database],
+		cm,
+	)
 	log.Logvf(log.Info, "archive prelude %v.%v", cm.Database, cm.Collection)
 }
 
@@ -144,7 +149,7 @@ func (prelude *Prelude) AddMetadata(cm *CollectionMetadata) {
 func (prelude *Prelude) Write(out io.Writer) error {
 	magicNumberBytes := make([]byte, 4)
 	for i := range magicNumberBytes {
-		magicNumberBytes[i] = byte(uint32(MagicNumber) >> uint(i*8))
+		magicNumberBytes[i] = byte(MagicNumber >> uint(i*8))
 	}
 	_, err := out.Write(magicNumberBytes)
 	if err != nil {
@@ -353,7 +358,7 @@ func (pe *PreludeExplorer) Parent() DirLike {
 	}
 }
 
-// MetadataPreludeFile is part of the intents.file. It allows the metadata contained in the prelude to be opened and read
+// MetadataPreludeFile is part of the intents.file. It allows the metadata contained in the prelude to be opened and read.
 type MetadataPreludeFile struct {
 	pos     int64 // updated atomically, aligned at the beginning of the struct
 	Intent  *intents.Intent
