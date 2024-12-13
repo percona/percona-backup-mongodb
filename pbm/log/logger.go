@@ -313,6 +313,13 @@ func (l *loggerImpl) SetOpts(cfg *Opts) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	oldOpts := &Opts{
+		LogPath:  l.logger.logPath,
+		LogJSON:  l.logJSON,
+		LogLevel: l.logLevel.String(),
+	}
+
 	if cfg.LogPath != "" && l.logger.logPath != cfg.LogPath {
 		l.createLogger(cfg.LogPath)
 	}
@@ -323,5 +330,13 @@ func (l *loggerImpl) SetOpts(cfg *Opts) {
 		l.logJSON = cfg.LogJSON
 	}
 
-	fmt.Printf("Updated log options: %+v\n", &Opts{l.logger.logPath, l.logJSON, l.logLevel.String()})
+	newOpts := &Opts{
+		LogPath:  l.logger.logPath,
+		LogJSON:  l.logJSON,
+		LogLevel: l.logLevel.String(),
+	}
+
+	if *oldOpts != *newOpts {
+		fmt.Printf("Updated log options: %+v\n", newOpts)
+	}
 }
