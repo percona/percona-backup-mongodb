@@ -39,12 +39,7 @@ func rootCommand() *cobra.Command {
 			if err := loadConfig(); err != nil {
 				return err
 			}
-
-			if err := validateRootCommand(); err != nil {
-				return err
-			}
-
-			return nil
+			return validateRootCommand()
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			url := "mongodb://" + strings.Replace(viper.GetString(mongoConnFlag), "mongodb://", "", 1)
@@ -115,14 +110,14 @@ func setRootFlags(rootCmd *cobra.Command) {
 
 	rootCmd.Flags().Bool("log-json", false, "Enable JSON logging")
 	_ = viper.BindPFlag("log.json", rootCmd.Flags().Lookup("log-json"))
-	_ = viper.BindEnv("log.json", "LOG_PATH")
+	_ = viper.BindEnv("log.json", "LOG_JSON")
 	viper.SetDefault("log.json", false)
 
 	rootCmd.Flags().String("log-level", "",
 		"Minimal log level based on severity level: D, I, W, E or F, low to high."+
 			"Choosing one includes higher levels too.")
 	_ = viper.BindPFlag("log.level", rootCmd.Flags().Lookup("log-level"))
-	_ = viper.BindEnv("log.level", "LOG_JSON")
+	_ = viper.BindEnv("log.level", "LOG_LEVEL")
 	viper.SetDefault("log.level", log.D)
 }
 
