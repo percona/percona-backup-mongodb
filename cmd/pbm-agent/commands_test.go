@@ -14,7 +14,6 @@ import (
 func TestRootCmd_NoArgs(t *testing.T) {
 	rootCmd, _ := setupTestCmd()
 	err := rootCmd.Execute()
-
 	if err == nil || !strings.Contains(err.Error(), "required flag mongodb-uri") {
 		t.Fatal(err)
 	}
@@ -31,7 +30,6 @@ log:
 
 	rootCmd, _ := setupTestCmd("--config", tmpConfig)
 	err := rootCmd.Execute()
-
 	if err == nil || !strings.Contains(err.Error(), "required flag mongodb-uri") {
 		t.Fatal(err)
 	}
@@ -51,7 +49,6 @@ func createTempConfigFile(content string) (string, func()) {
 func TestVersionCommand_Default(t *testing.T) {
 	rootCmd, buf := setupTestCmd("version")
 	err := rootCmd.Execute()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +63,6 @@ func TestVersionCommand_Default(t *testing.T) {
 func TestVersionCommand_Short(t *testing.T) {
 	rootCmd, buf := setupTestCmd("version", "--short")
 	err := rootCmd.Execute()
-
 	if err != nil {
 		t.Fatal(err)
 	}
