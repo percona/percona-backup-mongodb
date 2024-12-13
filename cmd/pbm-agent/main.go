@@ -134,11 +134,11 @@ func versionCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			switch {
 			case versionShort:
-				fmt.Println(version.Current().Short())
+				cmd.Println(version.Current().Short())
 			case versionCommit:
-				fmt.Println(version.Current().GitCommit)
+				cmd.Println(version.Current().GitCommit)
 			default:
-				fmt.Println(version.Current().All(versionFormat))
+				cmd.Println(version.Current().All(versionFormat))
 			}
 		},
 	}
