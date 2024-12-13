@@ -26,40 +26,28 @@ func main() {
 	rootCmd := rootCommand()
 	rootCmd.AddCommand(versionCommand())
 
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-	viper.WatchConfig()
-
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	}
-
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 	}
 }
 
 func rootCommand() *cobra.Command {
-	var mURI string
-
 	rootCmd := &cobra.Command{
 		Use:   "pbm-agent",
 		Short: "Percona Backup for MongoDB",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			mURI = viper.GetString(mongoConnFlag)
-			if mURI == "" {
-				return errors.New("required flag " + mongoConnFlag + " not set")
+			if err := loadConfig(); err != nil {
+				return err
 			}
 
-			if !isValidLogLevel(viper.GetString("log.level")) {
-				return errors.New("invalid log level")
+			if err := validateRootCommand(); err != nil {
+				return err
 			}
 
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
-			url := "mongodb://" + strings.Replace(mURI, "mongodb://", "", 1)
+			url := "mongodb://" + strings.Replace(viper.GetString(mongoConnFlag), "mongodb://", "", 1)
 
 			hidecreds()
 
@@ -76,6 +64,38 @@ func rootCommand() *cobra.Command {
 		},
 	}
 
+	setRootFlags(rootCmd)
+	return rootCmd
+}
+
+func loadConfig() error {
+	cfgFile := viper.GetString("config")
+	if cfgFile == "" {
+		return nil
+	}
+
+	viper.SetConfigFile(cfgFile)
+	if err := viper.ReadInConfig(); err != nil {
+		return errors.New("failed to read config: " + err.Error())
+	}
+
+	viper.WatchConfig()
+	return nil
+}
+
+func validateRootCommand() error {
+	if viper.GetString(mongoConnFlag) == "" {
+		return errors.New("required flag " + mongoConnFlag + " not set")
+	}
+
+	if !isValidLogLevel(viper.GetString("log.level")) {
+		return errors.New("invalid log level")
+	}
+
+	return nil
+}
+
+func setRootFlags(rootCmd *cobra.Command) {
 	rootCmd.Flags().StringP("config", "f", "", "Path to the config file")
 	_ = viper.BindPFlag("config", rootCmd.Flags().Lookup("config"))
 
@@ -104,8 +124,6 @@ func rootCommand() *cobra.Command {
 	_ = viper.BindPFlag("log.level", rootCmd.Flags().Lookup("log-level"))
 	_ = viper.BindEnv("log.level", "LOG_JSON")
 	viper.SetDefault("log.level", log.D)
-
-	return rootCmd
 }
 
 func versionCommand() *cobra.Command {
@@ -194,7 +212,6 @@ func runAgent(
 	defer logger.Close()
 
 	viper.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Printf("Config file changed: %s\n", e.Name)
 		logger.SetOpts(buildLogOpts())
 	})
 
