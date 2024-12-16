@@ -54,6 +54,8 @@ func (discardLoggerImpl) Output(ctx context.Context, e *Entry) error {
 	return nil
 }
 
+func (discardLoggerImpl) Opts() *Opts { return nil }
+
 func (discardLoggerImpl) SetOpts(cfg *Opts) {
 }
 
