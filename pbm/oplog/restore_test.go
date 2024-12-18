@@ -3,6 +3,7 @@ package oplog
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
+	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
@@ -33,6 +35,11 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 }
 
 type mdbTestClient struct {
+	applyOpsInv []map[string]string
+}
+
+func newMDBTestClient() *mdbTestClient {
+	return &mdbTestClient{applyOpsInv: []map[string]string{}}
 }
 
 func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (primitive.Binary, error) {
@@ -44,6 +51,17 @@ func (d *mdbTestClient) ensureCollExists(_ string) error {
 }
 
 func (d *mdbTestClient) applyOps(entries []interface{}) error {
+	if len(entries) != 1 {
+		return errors.New("applyOps without single oplog entry")
+	}
+
+	oe := entries[0].(db.Oplog)
+	invParams := map[string]string{
+		"op": oe.Operation,
+		"ns": oe.Namespace,
+	}
+	d.applyOpsInv = append(d.applyOpsInv, invParams)
+
 	return nil
 }
 
@@ -121,31 +139,94 @@ func TestIsOpForCloning(t *testing.T) {
 }
 
 func TestApply(t *testing.T) {
-	oRestore := newOplogRestoreTest(&mdbTestClient{})
-	oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{FromNS: "mydb.c5", ToNS: "mydb.c5"})
+	t.Run("oplog restore", func(t *testing.T) {
+		//todo:
+	})
 
-	fr := useTestFile(t, "oplog_test.json")
+	t.Run("selective restore", func(t *testing.T) {
+		//todo:
+	})
 
-	lts, err := oRestore.Apply(fr)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Run("cloning namespace", func(t *testing.T) {
+		testCases := []struct {
+			desc      string
+			oplogFile string
+			nsFrom    string
+			nsTo      string
+			resOps    []string
+			resNS     []string
+		}{
+			{
+				desc:      "clone: insert, update, delete ops",
+				oplogFile: "ops_i_u_d",
+				nsFrom:    "mydb.c1",
+				nsTo:      "mydb.c1_clone",
+				resOps:    []string{"i", "u", "d"},
+				resNS:     []string{"mydb.c1_clone", "mydb.c1_clone", "mydb.c1_clone"},
+			},
+			{
+				desc:      "ignore namespaces not relevent for cloning",
+				oplogFile: "ops_i_u_d",
+				nsFrom:    "mydb.xyz",
+				nsTo:      "mydb.xyz_clone",
+				resOps:    []string{},
+				resNS:     []string{},
+			},
+			{
+				desc:      "ignore noop op",
+				oplogFile: "ops_n",
+				nsFrom:    "mydb.xyz",
+				nsTo:      "mydb.xyz_clone",
+				resOps:    []string{},
+				resNS:     []string{},
+			},
+		}
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				db := newMDBTestClient()
+				oRestore := newOplogRestoreTest(db)
+				oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{FromNS: tC.nsFrom, ToNS: tC.nsTo})
 
-	t.Log(lts)
+				fr := useTestFile(t, tC.oplogFile)
+
+				_, err := oRestore.Apply(fr)
+				if err != nil {
+					t.Fatalf("error while applying oplog: %v", err)
+				}
+
+				if len(tC.resOps) != len(db.applyOpsInv) {
+					t.Errorf("wrong number of applyOps invocation, want=%d, got=%d", len(tC.resOps), len(db.applyOpsInv))
+				}
+				for i, wantOp := range tC.resOps {
+					gotOp := db.applyOpsInv[i]["op"]
+					if wantOp != gotOp {
+						t.Errorf("wrong #%d. operation: want=%s, got=%s", i, wantOp, gotOp)
+					}
+				}
+				for i, wantNS := range tC.resNS {
+					gotNS := db.applyOpsInv[i]["ns"]
+					if wantNS != gotNS {
+						t.Errorf("wrong #%d. namespace: want=%s, got=%s", i, wantNS, gotNS)
+					}
+				}
+			})
+		}
+	})
 }
 
 func useTestFile(t *testing.T, testFileName string) io.ReadCloser {
 	t.Helper()
 
-	jsonData, err := os.ReadFile(filepath.Join("./testdata", testFileName))
+	f := fmt.Sprintf("%s.json", testFileName)
+	jsonData, err := os.ReadFile(filepath.Join("./testdata", f))
 	if err != nil {
-		t.Fatalf("failed to read test json file: filename=%s, err=%v", testFileName, err)
+		t.Fatalf("failed to read test json file: filename=%s, err=%v", f, err)
 	}
 
 	var jsonDocs []map[string]interface{}
 	err = bson.UnmarshalExtJSON(jsonData, false, &jsonDocs)
 	if err != nil {
-		t.Fatalf("failed to parse test json array: filename=%s, err=%v", testFileName, err)
+		t.Fatalf("failed to parse test json array: filename=%s, err=%v", f, err)
 	}
 
 	b := &bytes.Buffer{}
