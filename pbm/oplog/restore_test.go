@@ -1,18 +1,34 @@
 package oplog
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
+	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
 
 func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
+	noUUID, _ := ns.NewMatcher(dontPreserveUUID)
+	matcher, _ := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	return &OplogRestore{
-		mdb: mdb,
+		mdb:             mdb,
+		ver:             &db.Version{7, 0, 0},
+		excludeNS:       matcher,
+		noUUIDns:        noUUID,
+		preserveUUIDopt: true,
+		preserveUUID:    true,
+		indexCatalog:    idx.NewIndexCatalog(),
+		filter:          DefaultOpFilter,
 	}
 }
 
@@ -102,6 +118,49 @@ func TestIsOpForCloning(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApply(t *testing.T) {
+	oRestore := newOplogRestoreTest(&mdbTestClient{})
+	oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{FromNS: "mydb.c5", ToNS: "mydb.c5"})
+
+	fr := useTestFile(t, "oplog_test.json")
+
+	lts, err := oRestore.Apply(fr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log(lts)
+}
+
+func useTestFile(t *testing.T, testFileName string) io.ReadCloser {
+	t.Helper()
+
+	jsonData, err := os.ReadFile(filepath.Join("./testdata", testFileName))
+	if err != nil {
+		t.Fatalf("failed to read test json file: filename=%s, err=%v", testFileName, err)
+	}
+
+	var jsonDocs []map[string]interface{}
+	err = bson.UnmarshalExtJSON(jsonData, false, &jsonDocs)
+	if err != nil {
+		t.Fatalf("failed to parse test json array: filename=%s, err=%v", testFileName, err)
+	}
+
+	b := &bytes.Buffer{}
+	for _, jsonDoc := range jsonDocs {
+		bsonDoc, err := bson.Marshal(jsonDoc)
+		if err != nil {
+			t.Fatalf("failed to marshal json to bson: %v", err)
+		}
+		_, err = b.Write(bsonDoc)
+		if err != nil {
+			t.Fatalf("Failed to write BSON: %v", err)
+		}
+	}
+
+	return io.NopCloser(b)
 }
 
 func createInsertOp(t *testing.T, ns string) *db.Oplog {
