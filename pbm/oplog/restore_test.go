@@ -71,7 +71,7 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 
 func TestIsOpForCloning(t *testing.T) {
 	oRestore := newOplogRestoreTest(&mdbTestClient{})
-	oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{FromNS: "mydb.cloningFrom", ToNS: "mydb.cloningTo"})
+	_ = oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{FromNS: "mydb.cloningFrom", ToNS: "mydb.cloningTo"})
 
 	testCases := []struct {
 		desc         string
@@ -136,7 +136,6 @@ func TestIsOpForCloning(t *testing.T) {
 			if res != tC.isForCloning {
 				t.Errorf("%s: for entry: %+v isOpForCloning is: %t, but it should be opposite",
 					tC.desc, tC.entry, tC.isForCloning)
-
 			}
 		})
 	}
@@ -160,7 +159,7 @@ func TestApply(t *testing.T) {
 				resCmd:    []string{"drop", "create", "drop", "drop", "create"},
 				resColl:   []string{"c1", "c1", "c1", "c2", "c2"},
 			},
-			//todo: add more cases
+			// todo: add more cases
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -206,7 +205,7 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("selective restore", func(t *testing.T) {
-		//todo:
+		// todo: add tests
 	})
 
 	t.Run("index restore", func(t *testing.T) {
@@ -224,7 +223,7 @@ func TestApply(t *testing.T) {
 				coll:      "c1",
 				idxs:      bson.D{{"fieldX", -1}, {"fieldZ", -1}},
 			},
-			//todo: add more cases
+			// todo: add more cases
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -269,7 +268,7 @@ func TestApply(t *testing.T) {
 				resNS:     []string{"mydb.c1_clone", "mydb.c1_clone", "mydb.c1_clone"},
 			},
 			{
-				desc:      "ignore namespaces not relevent for cloning",
+				desc:      "ignore namespaces not relevant for cloning",
 				oplogFile: "ops_i_u_d",
 				nsFrom:    "mydb.xyz",
 				nsTo:      "mydb.xyz_clone",
@@ -290,7 +289,7 @@ func TestApply(t *testing.T) {
 			t.Run(tC.desc, func(t *testing.T) {
 				db := newMDBTestClient()
 				oRestore := newOplogRestoreTest(db)
-				oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{FromNS: tC.nsFrom, ToNS: tC.nsTo})
+				_ = oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{FromNS: tC.nsFrom, ToNS: tC.nsTo})
 
 				fr := useTestFile(t, tC.oplogFile)
 
