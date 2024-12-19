@@ -60,6 +60,10 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 		"op": oe.Operation,
 		"ns": oe.Namespace,
 	}
+	if oe.Operation == "c" && oe.Object != nil && len(oe.Object) > 0 {
+		invParams["cmd"] = oe.Object[0].Key
+		invParams["coll"] = oe.Object[0].Value.(string)
+	}
 	d.applyOpsInv = append(d.applyOpsInv, invParams)
 
 	return nil
@@ -139,12 +143,112 @@ func TestIsOpForCloning(t *testing.T) {
 }
 
 func TestApply(t *testing.T) {
-	t.Run("oplog restore", func(t *testing.T) {
-		//todo:
+	t.Run("collection restore", func(t *testing.T) {
+		testCases := []struct {
+			desc      string
+			oplogFile string
+			resOps    []string
+			resNS     []string
+			resCmd    []string
+			resColl   []string
+		}{
+			{
+				desc:      "collection: create-drop-create",
+				oplogFile: "ops_cmd_create_drop",
+				resOps:    []string{"c", "c", "c", "c", "c"},
+				resNS:     []string{"mydb.$cmd", "mydb.$cmd", "mydb.$cmd", "mydb.$cmd", "mydb.$cmd"},
+				resCmd:    []string{"drop", "create", "drop", "drop", "create"},
+				resColl:   []string{"c1", "c1", "c1", "c2", "c2"},
+			},
+			//todo: add more cases
+		}
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				db := newMDBTestClient()
+				oRestore := newOplogRestoreTest(db)
+
+				fr := useTestFile(t, tC.oplogFile)
+
+				_, err := oRestore.Apply(fr)
+				if err != nil {
+					t.Fatalf("error while applying oplog: %v", err)
+				}
+
+				if len(tC.resOps) != len(db.applyOpsInv) {
+					t.Errorf("wrong number of applyOps invocation, want=%d, got=%d", len(tC.resOps), len(db.applyOpsInv))
+				}
+				for i, wantOp := range tC.resOps {
+					gotOp := db.applyOpsInv[i]["op"]
+					if wantOp != gotOp {
+						t.Errorf("wrong #%d. operation: want=%s, got=%s", i, wantOp, gotOp)
+					}
+				}
+				for i, wantNS := range tC.resNS {
+					gotNS := db.applyOpsInv[i]["ns"]
+					if wantNS != gotNS {
+						t.Errorf("wrong #%d. namespace: want=%s, got=%s", i, wantNS, gotNS)
+					}
+				}
+				for i, wantCmd := range tC.resCmd {
+					gotCmd := db.applyOpsInv[i]["cmd"]
+					if wantCmd != gotCmd {
+						t.Errorf("wrong #%d. command: want=%s, got=%s", i, wantCmd, gotCmd)
+					}
+				}
+				for i, wantColl := range tC.resColl {
+					gotColl := db.applyOpsInv[i]["coll"]
+					if wantColl != gotColl {
+						t.Errorf("wrong #%d. collection: want=%s, got=%s", i, wantColl, gotColl)
+					}
+				}
+			})
+		}
 	})
 
 	t.Run("selective restore", func(t *testing.T) {
 		//todo:
+	})
+
+	t.Run("index restore", func(t *testing.T) {
+		testCases := []struct {
+			desc      string
+			oplogFile string
+			db        string
+			coll      string
+			idxs      bson.D
+		}{
+			{
+				desc:      "index: dropIndexes-createIndexes",
+				oplogFile: "ops_cmd_createIndexes_dropIndexes",
+				db:        "mydb",
+				coll:      "c1",
+				idxs:      bson.D{{"fieldX", -1}, {"fieldZ", -1}},
+			},
+			//todo: add more cases
+		}
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				db := newMDBTestClient()
+				oRestore := newOplogRestoreTest(db)
+
+				fr := useTestFile(t, tC.oplogFile)
+
+				_, err := oRestore.Apply(fr)
+				if err != nil {
+					t.Fatalf("error while applying oplog: %v", err)
+				}
+
+				idxs := oRestore.indexCatalog.GetIndexes(tC.db, tC.coll)
+				if len(idxs) != len(tC.idxs) {
+					t.Errorf("wrong number of indexes: want=%d, got=%d", len(tC.idxs), len(idxs))
+				}
+				for i, idx := range idxs {
+					if idx.Key[0].Key != tC.idxs[i].Key {
+						t.Errorf("wrong key: want=%v, got=%v", tC.idxs[i], idx.Key[0])
+					}
+				}
+			})
+		}
 	})
 
 	t.Run("cloning namespace", func(t *testing.T) {
@@ -180,6 +284,7 @@ func TestApply(t *testing.T) {
 				resOps:    []string{},
 				resNS:     []string{},
 			},
+			// add index creation
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -223,7 +328,7 @@ func useTestFile(t *testing.T, testFileName string) io.ReadCloser {
 		t.Fatalf("failed to read test json file: filename=%s, err=%v", f, err)
 	}
 
-	var jsonDocs []map[string]interface{}
+	var jsonDocs []db.Oplog
 	err = bson.UnmarshalExtJSON(jsonData, false, &jsonDocs)
 	if err != nil {
 		t.Fatalf("failed to parse test json array: filename=%s, err=%v", f, err)
