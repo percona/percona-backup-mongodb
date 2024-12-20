@@ -118,9 +118,16 @@ func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
 	c.toDB, c.toColl = nsPair.SplitToNS()
 }
 
+// mDBCl represents client interface for MongoDB logic used by OplogRestore
+type mDBCl interface {
+	getUUIDForNS(ctx context.Context, ns string) (primitive.Binary, error)
+	ensureCollExists(dbName string) error
+	applyOps(entries []interface{}) error
+}
+
 // OplogRestore is the oplog applyer
 type OplogRestore struct {
-	dst               *mongo.Client
+	mdb               mDBCl
 	ver               *db.Version
 	needIdxWorkaround bool
 	preserveUUIDopt   bool
@@ -157,7 +164,7 @@ const saveLastDistTxns = 100
 
 // NewOplogRestore creates an object for an oplog applying
 func NewOplogRestore(
-	dst *mongo.Client,
+	m *mongo.Client,
 	ic *idx.IndexCatalog,
 	sv *version.MongoVersion,
 	unsafe,
@@ -165,7 +172,7 @@ func NewOplogRestore(
 	ctxn chan phys.RestoreTxn,
 	txnErr chan error,
 ) (*OplogRestore, error) {
-	m, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
+	matcher, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create matcher for the collections exclude")
 	}
@@ -185,13 +192,13 @@ func NewOplogRestore(
 	}
 	ver := &db.Version{v[0], v[1], v[2]}
 	return &OplogRestore{
-		dst:               dst,
+		mdb:               newMDB(m),
 		ver:               ver,
 		preserveUUIDopt:   preserveUUID,
 		preserveUUID:      preserveUUID,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      ic,
-		excludeNS:         m,
+		excludeNS:         matcher,
 		noUUIDns:          noUUID,
 		txn:               ctxn,
 		txnSyncErr:        txnErr,
@@ -298,7 +305,7 @@ func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) erro
 	o.cloneNS.SetNSPair(ns)
 
 	var err error
-	o.cloneNS.toUUID, err = getUUIDForNS(ctx, o.dst, o.cloneNS.ToNS)
+	o.cloneNS.toUUID, err = o.mdb.getUUIDForNS(ctx, o.cloneNS.ToNS)
 	if err != nil {
 		return errors.Wrap(err, "get to ns uuid")
 	}
@@ -956,20 +963,14 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		}
 	} else if op.Operation == "i" && collName == "system.views" {
 		// PBM-921: ensure the collection exists before "creating" views or timeseries
-		err := o.dst.Database(dbName).CreateCollection(context.TODO(), "system.views")
+		err := o.mdb.ensureCollExists(dbName)
 		if err != nil {
-			// MongoDB 5.0 and 6.0 returns NamespaceExists error.
-			// MongoDB 7.0 and 8.0 does not return error.
-			// https://github.com/mongodb/mongo/blob/v6.0/src/mongo/base/error_codes.yml#L84
-			const NamespaceExists = 48
-			var cmdError mongo.CommandError
-			if !errors.As(err, &cmdError) || cmdError.Code != NamespaceExists {
-				return errors.Wrapf(err, "ensure %s.system.views collection", dbName)
-			}
+			return err
 		}
+
 	}
 
-	err = o.applyOps([]interface{}{op})
+	err = o.mdb.applyOps([]interface{}{op})
 	if err != nil {
 		// https://jira.percona.com/browse/PBM-818
 		if o.unsafe && op.Namespace == "config.chunks" {
@@ -1069,25 +1070,6 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 	}
 
 	return collectionName, nil
-}
-
-// applyOps is a wrapper for the applyOps database command, we pass in
-// a session to avoid opening a new connection for a few inserts at a time.
-func (o *OplogRestore) applyOps(entries []interface{}) error {
-	singleRes := o.dst.Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
-	if err := singleRes.Err(); err != nil {
-		return errors.Wrap(err, "applyOps")
-	}
-	res := bson.M{}
-	err := singleRes.Decode(&res)
-	if err != nil {
-		return errors.Wrap(err, "decode singleRes")
-	}
-	if isFalsy(res["ok"]) {
-		return errors.Errorf("applyOps command: %v", res["errmsg"])
-	}
-
-	return nil
 }
 
 // filterUUIDs removes 'ui' entries from ops, including nested applyOps ops.
@@ -1260,30 +1242,4 @@ func isTruthy(val interface{}) bool {
 // False values include numbers == 0, false, and nil
 func isFalsy(val interface{}) bool {
 	return !isTruthy(val)
-}
-
-// getUUIDForNS ruturns UUID of existing collection.
-// When ns doesn't exist, it returns zero value without an error.
-// In case of error, it returns zero value for UUID in addition to error.
-func getUUIDForNS(ctx context.Context, m *mongo.Client, ns string) (primitive.Binary, error) {
-	var uuid primitive.Binary
-
-	d, c, _ := strings.Cut(ns, ".")
-	cur, err := m.Database(d).ListCollections(ctx, bson.D{{"name", c}})
-	if err != nil {
-		return uuid, errors.Wrap(err, "list collections")
-	}
-	defer cur.Close(ctx)
-
-	for cur.Next(ctx) {
-		if subtype, data, ok := cur.Current.Lookup("info", "uuid").BinaryOK(); ok {
-			uuid = primitive.Binary{
-				Subtype: subtype,
-				Data:    data,
-			}
-			break
-		}
-	}
-
-	return uuid, errors.Wrap(cur.Err(), "list collections cursor")
 }
