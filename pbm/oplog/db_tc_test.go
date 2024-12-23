@@ -47,7 +47,10 @@ func TestGetUUIDForNSv2(t *testing.T) {
 		db := newMDB(mClient)
 
 		tDB, tColl := "my_test_db", "my_test_coll"
-		mClient.Database(tDB).CreateCollection(context.Background(), tColl)
+		err := mClient.Database(tDB).CreateCollection(context.Background(), tColl)
+		if err != nil {
+			t.Errorf("create collection err: %v", err)
+		}
 
 		uuid, err := db.getUUIDForNS(context.Background(), fmt.Sprintf("%s.%s", tDB, tColl))
 		if err != nil {
@@ -58,7 +61,7 @@ func TestGetUUIDForNSv2(t *testing.T) {
 		}
 	})
 
-	t.Run("uuid for existing collection", func(t *testing.T) {
+	t.Run("uuid for not existing collection", func(t *testing.T) {
 		db := newMDB(mClient)
 
 		tDB, tColl := "xDB", "yColl"
@@ -67,7 +70,7 @@ func TestGetUUIDForNSv2(t *testing.T) {
 			t.Errorf("got err=%v", err)
 		}
 		if !uuid.IsZero() {
-			t.Errorf("expected to get zero value for uuid for non existing collection, got=%v", uuid)
+			t.Errorf("expected to get zero value for uuid for not existing collection, got=%v", uuid)
 		}
 	})
 }
@@ -76,7 +79,9 @@ func TestApplyOps(t *testing.T) {
 	db := newMDB(mClient)
 
 	tDB, tColl := "tAODB", "dAOColl"
-	mClient.Database(tDB).Collection(tColl).InsertOne(context.Background(), bson.D{})
+	if _, err := mClient.Database(tDB).Collection(tColl).InsertOne(context.Background(), bson.D{}); err != nil {
+		t.Errorf("insert doc err: %v", err)
+	}
 	iOps := createInsertSimpleOp(t, fmt.Sprintf("%s.%s", tDB, tColl))
 
 	err := db.applyOps([]any{iOps})
