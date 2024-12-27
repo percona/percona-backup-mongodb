@@ -427,6 +427,62 @@ func createInsertOp(t *testing.T, ns string) *db.Oplog {
 	return replaceNsWithinOpEntry(t, iOpJSON, ns)
 }
 
+func createInsertSimpleOp(t *testing.T, ns string) *db.Oplog {
+	t.Helper()
+	iOpJSON := `
+		{
+		  "op": "i",
+		  "ns": "db.coll",
+		  "o": {
+			"_id": {
+			  "$oid": "6747008178d82a2b1134a2b8"
+			},
+			"d": {
+			  "$numberInt": "6"
+			},
+			"desc": "doc-6"
+		  },
+		  "o2": {
+			"_id": {
+			  "$oid": "6747008178d82a2b1134a2b8"
+			}
+		  },
+		  "stmtId": {
+			"$numberInt": "0"
+		  },
+		  "ts": {
+			"$timestamp": {
+			  "t": 1732706433,
+			  "i": 1
+			}
+		  },
+		  "t": {
+			"$numberLong": "2"
+		  },
+		  "v": {
+			"$numberLong": "2"
+		  },
+		  "wall": {
+			"$date": {
+			  "$numberLong": "1732706433987"
+			}
+		  },
+		  "prevOpTime": {
+			"ts": {
+			  "$timestamp": {
+				"t": 0,
+				"i": 0
+			  }
+			},
+			"t": {
+			  "$numberLong": "-1"
+			}
+		  }
+		}`
+
+	return replaceNsWithinOpEntry(t, iOpJSON, ns)
+}
+
 func createUpdateOp(t *testing.T, ns string) *db.Oplog {
 	t.Helper()
 
