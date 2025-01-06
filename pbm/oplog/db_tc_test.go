@@ -17,7 +17,7 @@ var mClient *mongo.Client
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:7")
+	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:7.0")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error while creating mongo test container: %v", err)
 		return
