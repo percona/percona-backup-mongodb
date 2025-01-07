@@ -62,14 +62,13 @@ type cliResult interface {
 type pbmApp struct {
 	rootCmd *cobra.Command
 
-	ctx      context.Context
-	cancel   context.CancelFunc
-	pbmOutF  outFormat
-	mURL     string
-	conn     connect.Client
-	pbm      *sdk.Client
-	node     string
-	skipConn bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	pbmOutF outFormat
+	mURL    string
+	conn    connect.Client
+	pbm     *sdk.Client
+	node    string
 }
 
 func (app *pbmApp) wrapRunE(
@@ -85,14 +84,14 @@ func (app *pbmApp) wrapRunE(
 	}
 }
 
-func (app *pbmApp) validateEnum(fieldName string, value string, valid []string) error {
+func (app *pbmApp) validateEnum(fieldName, value string, valid []string) error {
 	for _, validItem := range valid {
 		if value == validItem {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("invalid %s value: %q (must be one of %v)", fieldName, value, valid)
+	return errors.New(fmt.Sprintf("invalid %s value: %q (must be one of %v)", fieldName, value, valid))
 }
 
 func newPbmApp() *pbmApp {
@@ -152,7 +151,6 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr,
 			"       Usual practice is the set it by the PBM_MONGODB_URI environment variable. "+
 				"It can also be set with commandline argument --mongodb-uri.")
-		//pbmCmd.Usage(os.Args[1:])
 		os.Exit(1)
 		// TODO: handle return
 	}
@@ -238,11 +236,15 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	}
 
 	backupCmd.Flags().StringVar(
-		&backupOptions.compression, "compression", "none", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>",
+		&backupOptions.compression, "compression", "none",
+		"Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>",
 	)
 	backupCmd.Flags().StringVarP(
 		&backupOptions.typ, "type", "t", string(defs.LogicalBackup),
-		fmt.Sprintf("backup type: <%s>/<%s>/<%s>/<%s>", defs.PhysicalBackup, defs.LogicalBackup, defs.IncrementalBackup, defs.ExternalBackup),
+		fmt.Sprintf(
+			"backup type: <%s>/<%s>/<%s>/<%s>",
+			defs.PhysicalBackup, defs.LogicalBackup, defs.IncrementalBackup, defs.ExternalBackup,
+		),
 	)
 	backupCmd.Flags().BoolVar(
 		&backupOptions.base, "base", false, "Is this a base for incremental backups",
@@ -266,7 +268,8 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 		&backupOptions.waitTime, "wait-time", 0, "Maximum wait time",
 	)
 	backupCmd.Flags().BoolVarP(
-		&backupOptions.externList, "list-files", "l", false, "Shows the list of files per node to copy (only for external backups)",
+		&backupOptions.externList, "list-files", "l", false,
+		"Shows the list of files per node to copy (only for external backups)",
 	)
 
 	return backupCmd
@@ -499,7 +502,10 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 	)
 	deleteBcpCmd.Flags().StringVarP(
 		&deleteBcpOptions.bcpType, "type", "t", "",
-		fmt.Sprintf("backup type: <%s>/<%s>/<%s>/<%s>", defs.PhysicalBackup, defs.LogicalBackup, defs.IncrementalBackup, defs.ExternalBackup),
+		fmt.Sprintf(
+			"backup type: <%s>/<%s>/<%s>/<%s>",
+			defs.PhysicalBackup, defs.LogicalBackup, defs.IncrementalBackup, defs.ExternalBackup,
+		),
 	)
 	deleteBcpCmd.Flags().BoolVarP(
 		&deleteBcpOptions.yes, "yes", "y", false, "Don't ask for confirmation",
@@ -731,11 +737,13 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	)
 	restoreCmd.Flags().StringVar(
 		&restoreOptions.nsFrom, "ns-from", "",
-		"Allows collection cloning (creating from the backup with different name) and specifies source collection for cloning from.",
+		"Allows collection cloning (creating from the backup with different name) "+
+			"and specifies source collection for cloning from.",
 	)
 	restoreCmd.Flags().StringVar(
 		&restoreOptions.nsTo, "ns-to", "",
-		"Allows collection cloning (creating from the backup with different name) and specifies destination collection for cloning to.",
+		"Allows collection cloning (creating from the backup with different name) "+
+			"and specifies destination collection for cloning to.",
 	)
 	restoreCmd.Flags().BoolVar(
 		&restoreOptions.usersAndRoles, "with-users-and-roles", false,
