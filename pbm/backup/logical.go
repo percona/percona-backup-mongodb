@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -377,6 +378,11 @@ func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.D
 			return ok && selectedNS(ns)
 		case "config.chunks":
 			return selector.Selected(doc)
+		}
+
+		// Config Shard should keep non-config collections
+		if slices.Contains(nss, ns) {
+			return true
 		}
 
 		return false
