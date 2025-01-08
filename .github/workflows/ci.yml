@@ -25,6 +25,15 @@ on:
       - "packaging/**"
       - "version/**"
 
+  push:
+    branches:
+      - main
+      - dev
+    paths-ignore:
+      - "e2e-tests/**"
+      - "packaging/**"
+      - "version/**"      
+
 jobs:
   test:
     runs-on: ubuntu-latest
