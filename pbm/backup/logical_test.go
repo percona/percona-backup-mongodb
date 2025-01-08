@@ -3,8 +3,9 @@ package backup
 import (
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"go.mongodb.org/mongo-driver/bson"
+
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 func TestMakeConfigsvrDocFilter(t *testing.T) {
