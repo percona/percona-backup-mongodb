@@ -85,6 +85,10 @@ func (app *pbmApp) wrapRunE(
 }
 
 func (app *pbmApp) validateEnum(fieldName, value string, valid []string) error {
+	if value == "" {
+		return nil
+	}
+
 	for _, validItem := range valid {
 		if value == validItem {
 			return nil
@@ -236,7 +240,7 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	}
 
 	backupCmd.Flags().StringVar(
-		&backupOptions.compression, "compression", "none",
+		&backupOptions.compression, "compression", "",
 		"Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>",
 	)
 	backupCmd.Flags().StringVarP(
