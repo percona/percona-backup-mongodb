@@ -294,6 +294,9 @@ func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
 	selected := util.MakeSelectedPred(nss)
 
 	return func(r *oplog.Record) bool {
+		if selected(r.Namespace) {
+			return true
+		}
 		if r.Namespace != "config.databases" {
 			return false
 		}
@@ -436,6 +439,7 @@ func (r *Restore) PITR(
 	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
+		oplogOption.nss = append(oplogOption.nss, nss...)
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
 	err = r.applyOplog(ctx, oplogRanges, &oplogOption)
