@@ -838,6 +838,10 @@ func (app *pbmApp) buildReplayCmd() *cobra.Command {
 }
 
 func (app *pbmApp) buildStatusCmd() *cobra.Command {
+	sectionTypes := []string{
+		"cluster", "pitr", "running", "backups",
+	}
+
 	statusOpts := statusOptions{}
 
 	statusCmd := &cobra.Command{
@@ -845,6 +849,12 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 		Aliases: []string{"s"},
 		Short:   "Show PBM status",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			for _, value := range statusOpts.sections {
+				if err := app.validateEnum("sections", value, sectionTypes); err != nil {
+					return nil, err
+				}
+			}
+
 			return status(app.ctx, app.conn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
 		}),
 	}
