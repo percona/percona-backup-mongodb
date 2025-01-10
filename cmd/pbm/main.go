@@ -151,12 +151,11 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 
 	app.mURL = viper.GetString(mongoConnFlag)
 	if app.mURL == "" {
-		fmt.Fprintln(os.Stderr, "Error: no mongodb connection URI supplied")
-		fmt.Fprintln(os.Stderr,
-			"       Usual practice is the set it by the PBM_MONGODB_URI environment variable. "+
-				"It can also be set with commandline argument --mongodb-uri.")
-		os.Exit(1)
-		// TODO: handle return
+		return errors.New(
+			"no MongoDB connection URI supplied\n" +
+				"       Usual practice is the set it by the PBM_MONGODB_URI environment variable. " +
+				"It can also be set with commandline argument --mongodb-uri.",
+		)
 	}
 
 	if viper.GetString("describe-restore.config") != "" || viper.GetString("restore-finish.config") != "" {
@@ -403,7 +402,8 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 			if err != nil {
 				return nil, errors.Wrap(err, "open config file")
 			}
-			// TODO: handle close
+			defer f.Close()
+
 			addConfigProfileOpts.file = f
 			return handleAddConfigProfile(app.ctx, app.pbm, addConfigProfileOpts)
 		}),
@@ -847,14 +847,6 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
 			return status(app.ctx, app.conn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
 		}),
-		//RunE: func(cmd *cobra.Command, args []string) error {
-		//	out, err := status(app.ctx, app.conn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
-		//	if err != nil {
-		//		return err
-		//	}
-		//	printo(out, app.pbmOutF)
-		//	return nil
-		//},
 	}
 
 	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
