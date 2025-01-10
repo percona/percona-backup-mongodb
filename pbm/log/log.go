@@ -36,7 +36,7 @@ type Logger interface {
 	Fatal(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)
 	Output(ctx context.Context, e *Entry) error
 	Opts() *Opts
-	SetOpts(cfg *Opts)
+	SetLogLevelAndJSON(cfg *Opts)
 }
 
 type LogEvent interface {

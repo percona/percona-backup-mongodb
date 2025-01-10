@@ -314,7 +314,7 @@ func (l *loggerImpl) Opts() *Opts {
 	}
 }
 
-func (l *loggerImpl) SetOpts(cfg *Opts) {
+func (l *loggerImpl) SetLogLevelAndJSON(cfg *Opts) {
 	if cfg == nil {
 		return
 	}
