@@ -322,9 +322,6 @@ func (l *loggerImpl) SetLogLevelAndJSON(cfg *Opts) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if cfg.LogPath != "" && l.logger.logPath != cfg.LogPath {
-		l.createLogger(cfg.LogPath)
-	}
 	if cfg.LogLevel != "" && l.logLevel.String() != cfg.LogLevel {
 		l.logLevel = strToSeverity(cfg.LogLevel)
 	}
