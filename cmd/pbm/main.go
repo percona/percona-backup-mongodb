@@ -207,6 +207,12 @@ func (app *pbmApp) persistentPostRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if app.conn != nil {
+		if err := app.conn.Disconnect(context.Background()); err != nil {
+			return errors.Wrap(err, "close conn")
+		}
+	}
+
 	app.cancel()
 	return nil
 }
