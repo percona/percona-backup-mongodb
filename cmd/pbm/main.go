@@ -71,6 +71,13 @@ type pbmApp struct {
 	node    string
 }
 
+func main() {
+	app := newPbmApp()
+	if err := app.rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
 func (app *pbmApp) wrapRunE(
 	fn func(cmd *cobra.Command, args []string) (fmt.Stringer, error),
 ) func(*cobra.Command, []string) error {
@@ -103,10 +110,11 @@ func newPbmApp() *pbmApp {
 	app.ctx, app.cancel = context.WithCancel(context.Background())
 
 	app.rootCmd = &cobra.Command{
-		Use:               "pbm",
-		Short:             "Percona Backup for MongoDB",
-		PersistentPreRunE: app.persistentPreRun,
-		PersistentPostRun: app.persistentPostRun,
+		Use:                "pbm",
+		Short:              "Percona Backup for MongoDB",
+		PersistentPreRunE:  app.persistentPreRun,
+		PersistentPostRunE: app.persistentPostRun,
+		SilenceUsage:       true,
 	}
 
 	app.rootCmd.PersistentFlags().String(
@@ -145,8 +153,8 @@ func newPbmApp() *pbmApp {
 func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	app.pbmOutF = outFormat(viper.GetString("out"))
 
-	if cmd.Name() == "version" {
-		return nil // Skip setup for version command
+	if cmd.Name() == "help" || cmd.Name() == "version" {
+		return nil
 	}
 
 	app.mURL = viper.GetString(mongoConnFlag)
@@ -182,7 +190,6 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		exitErr(errors.Wrap(err, "init sdk"), app.pbmOutF)
 	}
-	// defer pbm.Close(context.Background())
 
 	inf, err := topo.GetNodeInfo(app.ctx, app.conn.MongoClient())
 	if err != nil {
@@ -193,12 +200,15 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (app *pbmApp) persistentPostRun(cmd *cobra.Command, args []string) {
+func (app *pbmApp) persistentPostRun(cmd *cobra.Command, args []string) error {
 	if app.pbm != nil {
-		app.pbm.Close(context.Background())
+		if err := app.pbm.Close(context.Background()); err != nil {
+			return errors.Wrap(err, "close pbm")
+		}
 	}
 
 	app.cancel()
+	return nil
 }
 
 func (app *pbmApp) buildBackupCmd() *cobra.Command {
@@ -832,8 +842,6 @@ func (app *pbmApp) buildReplayCmd() *cobra.Command {
 	_ = viper.BindPFlag(RSMappingFlag, replayCmd.Flags().Lookup(RSMappingFlag))
 	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
 
-	// todo(add oplog cancel)
-
 	return replayCmd
 }
 
@@ -907,13 +915,6 @@ func (app *pbmApp) buildVersionCmd() *cobra.Command {
 	)
 
 	return versionCmd
-}
-
-func main() {
-	app := newPbmApp()
-	if err := app.rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
 }
 
 func printo(out fmt.Stringer, f outFormat) {
