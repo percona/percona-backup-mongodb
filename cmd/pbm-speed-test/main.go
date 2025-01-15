@@ -106,7 +106,7 @@ func main() {
 			if rootOptions.mURL == "" {
 				rootOptions.mURL = viper.GetString("mongodb-uri")
 			}
-			
+
 			if err := validateEnum("compression", rootOptions.compression, validCompressions); err != nil {
 				return err
 			}

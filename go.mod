@@ -5,7 +5,6 @@ go 1.22
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.10.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.3.1
-	github.com/alecthomas/kingpin v2.2.6+incompatible
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/docker/docker v27.1.1+incompatible
 	github.com/fsnotify/fsnotify v1.7.0
@@ -31,8 +30,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.5.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
-	github.com/alecthomas/units v0.0.0-20231202071711-9a357b53e9c9 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/containerd/containerd v1.7.18 // indirect
 	github.com/containerd/log v0.1.0 // indirect
