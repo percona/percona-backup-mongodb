@@ -39,10 +39,10 @@ func deleteBackup(
 		return nil, errors.New("either --name or --older-than should be set")
 	}
 	if d.name != "" && d.olderThan != "" {
-		return nil, errors.New("cannot use --name and --older-then at the same command")
+		return nil, errors.New("cannot use --name and --older-than at the same command")
 	}
 	if d.bcpType != "" && d.olderThan == "" {
-		return nil, errors.New("cannot use --type without --older-then")
+		return nil, errors.New("cannot use --type without --older-than")
 	}
 	if !d.dryRun {
 		err := checkForAnotherOperation(ctx, pbm)
@@ -174,7 +174,7 @@ func deletePITR(
 		return nil, errors.New("either --older-than or --all should be set")
 	}
 	if d.olderThan != "" && d.all {
-		return nil, errors.New("cannot use --older-then and --all at the same command")
+		return nil, errors.New("cannot use --older-than and --all at the same command")
 	}
 	if !d.dryRun {
 		err := checkForAnotherOperation(ctx, pbm)
@@ -190,7 +190,7 @@ func deletePITR(
 		var err error
 		until, err = parseOlderThan(d.olderThan)
 		if err != nil {
-			return nil, errors.Wrap(err, "parse --older-then")
+			return nil, errors.Wrap(err, "parse --older-than")
 		}
 
 		now := time.Now().UTC()

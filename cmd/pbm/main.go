@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alecthomas/kingpin"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -29,6 +30,7 @@ const (
 )
 
 const (
+	mongoConnFlag   = "mongodb-uri"
 	RSMappingEnvVar = "PBM_REPLSET_REMAPPING"
 	RSMappingFlag   = "replset-remapping"
 	RSMappingDoc    = "re-map replset names for backups/oplog (e.g. to_name_1=from_name_1,to_name_2=from_name_2)"
@@ -57,527 +59,877 @@ type cliResult interface {
 	HasError() bool
 }
 
+type pbmApp struct {
+	rootCmd *cobra.Command
+
+	ctx     context.Context
+	cancel  context.CancelFunc
+	pbmOutF outFormat
+	mURL    string
+	conn    connect.Client
+	pbm     *sdk.Client
+	node    string
+}
+
 func main() {
-	var (
-		pbmCmd = kingpin.New("pbm", "Percona Backup for MongoDB")
-		mURL   = pbmCmd.Flag("mongodb-uri",
-			"MongoDB connection string (Default = PBM_MONGODB_URI environment variable)").
-			Envar("PBM_MONGODB_URI").
-			String()
-		pbmOutFormat = pbmCmd.Flag("out", "Output format <text>/<json>").
-				Short('o').
-				Default(string(outText)).
-				Enum(string(outJSON), string(outJSONpretty), string(outText))
+	app := newPbmApp()
+	if err := app.rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func (app *pbmApp) wrapRunE(
+	fn func(cmd *cobra.Command, args []string) (fmt.Stringer, error),
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		out, err := fn(cmd, args)
+		if err != nil {
+			return err
+		}
+		printo(out, app.pbmOutF)
+		return nil
+	}
+}
+
+func (app *pbmApp) validateEnum(fieldName, value string, valid []string) error {
+	if value == "" {
+		return nil
+	}
+
+	for _, validItem := range valid {
+		if value == validItem {
+			return nil
+		}
+	}
+
+	return errors.New(fmt.Sprintf("invalid %s value: %q (must be one of %v)", fieldName, value, valid))
+}
+
+func newPbmApp() *pbmApp {
+	app := &pbmApp{}
+	app.ctx, app.cancel = context.WithCancel(context.Background())
+
+	app.rootCmd = &cobra.Command{
+		Use:                "pbm",
+		Short:              "Percona Backup for MongoDB",
+		PersistentPreRunE:  app.persistentPreRun,
+		PersistentPostRunE: app.persistentPostRun,
+		SilenceUsage:       true,
+	}
+
+	app.rootCmd.PersistentFlags().String(
+		mongoConnFlag,
+		"",
+		"MongoDB connection string (Default = PBM_MONGODB_URI environment variable)",
 	)
-	pbmCmd.HelpFlag.Short('h')
+	_ = viper.BindPFlag(mongoConnFlag, app.rootCmd.PersistentFlags().Lookup(mongoConnFlag))
+	_ = viper.BindEnv(mongoConnFlag, "PBM_MONGODB_URI")
 
-	versionCmd := pbmCmd.Command("version", "PBM version info")
-	versionShort := versionCmd.Flag("short", "Show only version info").
-		Short('s').
-		Default("false").
-		Bool()
-	versionCommit := versionCmd.Flag("commit", "Show only git commit info").
-		Short('c').
-		Default("false").
-		Bool()
+	app.rootCmd.PersistentFlags().StringP("out", "o", string(outText), "Output format <text>/<json>")
+	_ = viper.BindPFlag("out", app.rootCmd.PersistentFlags().Lookup("out"))
 
-	configCmd := pbmCmd.Command("config", "Set, change or list the config")
+	app.rootCmd.AddCommand(app.buildBackupCmd())
+	app.rootCmd.AddCommand(app.buildBackupFinishCmd())
+	app.rootCmd.AddCommand(app.buildCancelBackupCmd())
+	app.rootCmd.AddCommand(app.buildConfigCmd())
+	app.rootCmd.AddCommand(app.buildCleanupCmd())
+	app.rootCmd.AddCommand(app.buildConfigProfileCmd())
+	app.rootCmd.AddCommand(app.buildDeleteBackupCmd())
+	app.rootCmd.AddCommand(app.buildDeletePitrCmd())
+	app.rootCmd.AddCommand(app.buildDescBackupCmd())
+	app.rootCmd.AddCommand(app.buildDescRestoreCmd())
+	app.rootCmd.AddCommand(app.buildDiagnosticCmd())
+	app.rootCmd.AddCommand(app.buildListCmd())
+	app.rootCmd.AddCommand(app.buildLogCmd())
+	app.rootCmd.AddCommand(app.buildRestoreCmd())
+	app.rootCmd.AddCommand(app.buildReplayCmd())
+	app.rootCmd.AddCommand(app.buildRestoreFinishCmd())
+	app.rootCmd.AddCommand(app.buildStatusCmd())
+	app.rootCmd.AddCommand(app.buildVersionCmd())
+
+	return app
+}
+
+func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
+	app.pbmOutF = outFormat(viper.GetString("out"))
+
+	if cmd.Name() == "help" || cmd.Name() == "version" {
+		return nil
+	}
+
+	app.mURL = viper.GetString(mongoConnFlag)
+	if app.mURL == "" {
+		return errors.New(
+			"no MongoDB connection URI supplied\n" +
+				"       Usual practice is the set it by the PBM_MONGODB_URI environment variable. " +
+				"It can also be set with commandline argument --mongodb-uri.",
+		)
+	}
+
+	if viper.GetString("describe-restore.config") != "" || viper.GetString("restore-finish.config") != "" {
+		return nil
+	}
+
+	var err error
+	app.conn, err = connect.Connect(app.ctx, app.mURL, "pbm-ctl")
+	if err != nil {
+		exitErr(errors.Wrap(err, "connect to mongodb"), app.pbmOutF)
+	}
+	app.ctx = log.SetLoggerToContext(app.ctx, log.New(app.conn, "", ""))
+
+	ver, err := version.GetMongoVersion(app.ctx, app.conn.MongoClient())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "get mongo version: %v", err)
+		os.Exit(1)
+	}
+	if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
+	}
+
+	app.pbm, err = sdk.NewClient(app.ctx, app.mURL)
+	if err != nil {
+		exitErr(errors.Wrap(err, "init sdk"), app.pbmOutF)
+	}
+
+	inf, err := topo.GetNodeInfo(app.ctx, app.conn.MongoClient())
+	if err != nil {
+		exitErr(errors.Wrap(err, "unable to obtain node info"), app.pbmOutF)
+	}
+	app.node = inf.Me
+
+	return nil
+}
+
+func (app *pbmApp) persistentPostRun(cmd *cobra.Command, args []string) error {
+	if app.pbm != nil {
+		ctxPbm, cancelPbm := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancelPbm()
+
+		if err := app.pbm.Close(ctxPbm); err != nil {
+			return errors.Wrap(err, "close pbm")
+		}
+	}
+
+	if app.conn != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := app.conn.Disconnect(ctx); err != nil {
+			return errors.Wrap(err, "close conn")
+		}
+	}
+
+	if app.cancel != nil {
+		app.cancel()
+	}
+
+	return nil
+}
+
+func (app *pbmApp) buildBackupCmd() *cobra.Command {
+	validCompressions := []string{
+		string(compress.CompressionTypeNone),
+		string(compress.CompressionTypeGZIP),
+		string(compress.CompressionTypeSNAPPY),
+		string(compress.CompressionTypeLZ4),
+		string(compress.CompressionTypeS2),
+		string(compress.CompressionTypePGZIP),
+		string(compress.CompressionTypeZstandard),
+	}
+
+	validBackupTypes := []string{
+		string(defs.PhysicalBackup),
+		string(defs.LogicalBackup),
+		string(defs.IncrementalBackup),
+		string(defs.ExternalBackup),
+	}
+
+	backupOptions := backupOpts{}
+
+	backupCmd := &cobra.Command{
+		Use:   "backup",
+		Short: "Make backup",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if err := app.validateEnum("compression", backupOptions.compression, validCompressions); err != nil {
+				return nil, err
+			}
+
+			if err := app.validateEnum("type", backupOptions.typ, validBackupTypes); err != nil {
+				return nil, err
+			}
+
+			backupOptions.name = time.Now().UTC().Format(time.RFC3339)
+			return runBackup(app.ctx, app.conn, app.pbm, &backupOptions, app.pbmOutF)
+		}),
+	}
+
+	backupCmd.Flags().StringVar(
+		&backupOptions.compression, "compression", "",
+		"Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>",
+	)
+	backupCmd.Flags().StringVarP(
+		&backupOptions.typ, "type", "t", string(defs.LogicalBackup),
+		fmt.Sprintf(
+			"backup type: <%s>/<%s>/<%s>/<%s>",
+			defs.PhysicalBackup, defs.LogicalBackup, defs.IncrementalBackup, defs.ExternalBackup,
+		),
+	)
+	backupCmd.Flags().BoolVar(
+		&backupOptions.base, "base", false, "Is this a base for incremental backups",
+	)
+	backupCmd.Flags().StringVar(
+		&backupOptions.profile, "profile", "", "Config profile name",
+	)
+	backupCmd.Flags().IntSliceVar(
+		&backupOptions.compressionLevel, "compression-level", nil, "Compression level (specific to the compression type)",
+	)
+	backupCmd.Flags().Int32Var(
+		&backupOptions.numParallelColls, "num-parallel-collections", 0, "Number of parallel collections",
+	)
+	backupCmd.Flags().StringVar(
+		&backupOptions.ns, "ns", "", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`,
+	)
+	backupCmd.Flags().BoolVarP(
+		&backupOptions.wait, "wait", "w", false, "Wait for the backup to finish",
+	)
+	backupCmd.Flags().DurationVar(
+		&backupOptions.waitTime, "wait-time", 0, "Maximum wait time",
+	)
+	backupCmd.Flags().BoolVarP(
+		&backupOptions.externList, "list-files", "l", false,
+		"Shows the list of files per node to copy (only for external backups)",
+	)
+
+	return backupCmd
+}
+
+func (app *pbmApp) buildBackupFinishCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "backup-finish [backup_name]",
+		Short: "Finish external backup",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			finishBackupName := ""
+			if len(args) == 1 {
+				finishBackupName = args[0]
+			}
+			return runFinishBcp(app.ctx, app.conn, finishBackupName)
+		}),
+	}
+}
+
+func (app *pbmApp) buildCancelBackupCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "cancel-backup",
+		Short: "Cancel backup",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			return cancelBcp(app.ctx, app.pbm)
+		}),
+	}
+}
+
+func (app *pbmApp) buildCleanupCmd() *cobra.Command {
+	cleanupOpts := cleanupOptions{}
+
+	deletePitrCmd := &cobra.Command{
+		Use:   "cleanup",
+		Short: "Delete Backups and PITR chunks",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			return doCleanup(app.ctx, app.conn, app.pbm, &cleanupOpts)
+		}),
+	}
+
+	deletePitrCmd.Flags().StringVar(
+		&cleanupOpts.olderThan, "older-than", "",
+		fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat),
+	)
+	deletePitrCmd.Flags().BoolVarP(
+		&cleanupOpts.yes, "yes", "y", false, "Don't ask for confirmation",
+	)
+	deletePitrCmd.Flags().BoolVarP(
+		&cleanupOpts.wait, "wait", "w", false, "Wait for deletion done",
+	)
+	deletePitrCmd.Flags().DurationVar(
+		&cleanupOpts.waitTime, "wait-time", 0, "Maximum wait time",
+	)
+	deletePitrCmd.Flags().BoolVar(
+		&cleanupOpts.dryRun, "dry-run", false, "Report but do not delete",
+	)
+
+	return deletePitrCmd
+}
+
+func (app *pbmApp) buildConfigCmd() *cobra.Command {
 	cfg := configOpts{set: make(map[string]string)}
-	configCmd.Flag("force-resync", "Resync backup list with the current store").
-		BoolVar(&cfg.rsync)
-	configCmd.Flag("list", "List current settings").
-		BoolVar(&cfg.list)
-	configCmd.Flag("file", "Upload config from YAML file").
-		StringVar(&cfg.file)
-	configCmd.Flag("set", "Set the option value <key.name=value>").
-		StringMapVar(&cfg.set)
-	configCmd.Arg("key", "Show the value of a specified key").
-		StringVar(&cfg.key)
-	configCmd.Flag("wait", "Wait for finish").
-		Short('w').
-		BoolVar(&cfg.wait)
-	configCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&cfg.waitTime)
 
-	configProfileCmd := pbmCmd.
-		Command("profile", "Configuration profiles")
+	configCmd := &cobra.Command{
+		Use:   "config [key]",
+		Short: "Set, change or list the config",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if len(args) == 1 {
+				cfg.key = args[0]
+			}
+			return runConfig(app.ctx, app.conn, app.pbm, &cfg)
+		}),
+	}
 
-	listConfigProfileCmd := configProfileCmd.
-		Command("list", "List configuration profiles").
-		Default()
+	configCmd.Flags().BoolVar(&cfg.rsync, "force-resync", false, "Resync backup list with the current store")
+	configCmd.Flags().BoolVar(&cfg.list, "list", false, "List current settings")
+	configCmd.Flags().StringVar(&cfg.file, "file", "", "Upload config from YAML file")
+	configCmd.Flags().StringToStringVar(&cfg.set, "set", nil, "Set the option value <key.name=value>")
+	configCmd.Flags().BoolVarP(&cfg.wait, "wait", "w", false, "Wait for finish")
+	configCmd.Flags().DurationVar(&cfg.waitTime, "wait-time", 0, "Maximum wait time")
+
+	return configCmd
+}
+
+func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
+	runListConfigProfileCmd := app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+		return handleListConfigProfiles(app.ctx, app.pbm)
+	})
+
+	configProfileCmd := &cobra.Command{
+		Use:   "profile",
+		Short: "Configuration profiles",
+		RunE:  runListConfigProfileCmd,
+	}
+
+	listConfigProfileCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List configuration profiles",
+		RunE:  runListConfigProfileCmd,
+	}
+
+	configProfileCmd.AddCommand(listConfigProfileCmd)
 
 	showConfigProfileOpts := showConfigProfileOptions{}
-	showConfigProfileCmd := configProfileCmd.
-		Command("show", "Show configuration profile")
-	showConfigProfileCmd.
-		Arg("profile-name", "Profile name").
-		Required().
-		StringVar(&showConfigProfileOpts.name)
+	showConfigProfileCmd := &cobra.Command{
+		Use:   "show [profile-name]",
+		Short: "Show configuration profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			showConfigProfileOpts.name = args[0]
+			return handleShowConfigProfiles(app.ctx, app.pbm, showConfigProfileOpts)
+		}),
+	}
+
+	configProfileCmd.AddCommand(showConfigProfileCmd)
 
 	addConfigProfileOpts := addConfigProfileOptions{}
-	addConfigProfileCmd := configProfileCmd.
-		Command("add", "Save configuration profile")
-	addConfigProfileCmd.
-		Arg("profile-name", "Profile name").
-		Required().
-		StringVar(&addConfigProfileOpts.name)
-	addConfigProfileCmd.
-		Arg("file", "Path to configuration file").
-		Required().
-		FileVar(&addConfigProfileOpts.file)
-	addConfigProfileCmd.
-		Flag("sync", "Sync from the external storage").
-		BoolVar(&addConfigProfileOpts.sync)
-	addConfigProfileCmd.
-		Flag("wait", "Wait for done by agents").
-		Short('w').
-		BoolVar(&addConfigProfileOpts.wait)
-	addConfigProfileCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&addConfigProfileOpts.waitTime)
+	addConfigProfileCmd := &cobra.Command{
+		Use:   "add [profile-name] [file]",
+		Short: "Save configuration profile",
+		Args:  cobra.ExactArgs(2),
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			addConfigProfileOpts.name = args[0]
+
+			f, err := os.Open(args[1])
+			if err != nil {
+				return nil, errors.Wrap(err, "open config file")
+			}
+			defer f.Close()
+
+			addConfigProfileOpts.file = f
+			return handleAddConfigProfile(app.ctx, app.pbm, addConfigProfileOpts)
+		}),
+	}
+
+	addConfigProfileCmd.Flags().BoolVar(
+		&addConfigProfileOpts.sync, "sync", false, "Sync from the external storage",
+	)
+	addConfigProfileCmd.Flags().BoolVarP(
+		&addConfigProfileOpts.wait, "wait", "w", false, "Wait for done by agents",
+	)
+	addConfigProfileCmd.Flags().DurationVar(
+		&addConfigProfileOpts.waitTime, "wait-time", 0, "Maximum wait time",
+	)
+
+	configProfileCmd.AddCommand(addConfigProfileCmd)
 
 	removeConfigProfileOpts := removeConfigProfileOptions{}
-	removeConfigProfileCmd := configProfileCmd.
-		Command("remove", "Remove configuration profile")
-	removeConfigProfileCmd.
-		Arg("profile-name", "Profile name").
-		Required().
-		StringVar(&removeConfigProfileOpts.name)
-	removeConfigProfileCmd.
-		Flag("wait", "Wait for done by agents").
-		Short('w').
-		BoolVar(&removeConfigProfileOpts.wait)
-	removeConfigProfileCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&removeConfigProfileOpts.waitTime)
+	removeConfigProfileCmd := &cobra.Command{
+		Use:   "remove [profile-name]",
+		Short: "Remove configuration profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			removeConfigProfileOpts.name = args[0]
+			return handleRemoveConfigProfile(app.ctx, app.pbm, removeConfigProfileOpts)
+		}),
+	}
+
+	removeConfigProfileCmd.Flags().BoolVarP(
+		&removeConfigProfileOpts.wait, "wait", "w", false, "Wait for done by agents",
+	)
+	removeConfigProfileCmd.Flags().DurationVar(
+		&removeConfigProfileOpts.waitTime, "wait-time", 0, "Maximum wait time",
+	)
+
+	configProfileCmd.AddCommand(removeConfigProfileCmd)
 
 	syncConfigProfileOpts := syncConfigProfileOptions{}
-	syncConfigProfileCmd := configProfileCmd.
-		Command("sync", "Sync backup list from configuration profile")
-	syncConfigProfileCmd.
-		Arg("profile-name", "Profile name").
-		StringVar(&syncConfigProfileOpts.name)
-	syncConfigProfileCmd.
-		Flag("all", "Sync from all external storages").
-		BoolVar(&syncConfigProfileOpts.all)
-	syncConfigProfileCmd.
-		Flag("clear", "Clear backup list (can be used with profile name or --all)").
-		BoolVar(&syncConfigProfileOpts.clear)
-	syncConfigProfileCmd.
-		Flag("wait", "Wait for done by agents").
-		Short('w').
-		BoolVar(&syncConfigProfileOpts.wait)
-	syncConfigProfileCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&syncConfigProfileOpts.waitTime)
+	syncConfigProfileCmd := &cobra.Command{
+		Use:   "sync [profile-name]",
+		Short: "Sync backup list from configuration profile",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if len(args) == 1 {
+				removeConfigProfileOpts.name = args[0]
+			}
+			return handleSyncConfigProfile(app.ctx, app.pbm, syncConfigProfileOpts)
+		}),
+	}
 
-	backupCmd := pbmCmd.Command("backup", "Make backup")
-	backupOptions := backupOpts{}
-	backupCmd.Flag("compression", "Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>").
-		EnumVar(&backupOptions.compression,
-			string(compress.CompressionTypeNone),
-			string(compress.CompressionTypeGZIP),
-			string(compress.CompressionTypeSNAPPY),
-			string(compress.CompressionTypeLZ4),
-			string(compress.CompressionTypeS2),
-			string(compress.CompressionTypePGZIP),
-			string(compress.CompressionTypeZstandard))
-	backupCmd.Flag("type",
-		fmt.Sprintf("backup type: <%s>/<%s>/<%s>/<%s>",
-			defs.PhysicalBackup,
-			defs.LogicalBackup,
-			defs.IncrementalBackup,
-			defs.ExternalBackup)).
-		Default(string(defs.LogicalBackup)).
-		Short('t').
-		EnumVar(&backupOptions.typ,
-			string(defs.PhysicalBackup),
-			string(defs.LogicalBackup),
-			string(defs.IncrementalBackup),
-			string(defs.ExternalBackup))
-	backupCmd.Flag("base", "Is this a base for incremental backups").
-		BoolVar(&backupOptions.base)
-	backupCmd.Flag("profile", "Config profile name").StringVar(&backupOptions.profile)
-	backupCmd.Flag("compression-level", "Compression level (specific to the compression type)").
-		IntsVar(&backupOptions.compressionLevel)
-	backupCmd.Flag("num-parallel-collections", "Number of parallel collections").
-		Int32Var(&backupOptions.numParallelColls)
-	backupCmd.Flag("ns", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`).
-		StringVar(&backupOptions.ns)
-	backupCmd.Flag("wait", "Wait for the backup to finish").
-		Short('w').
-		BoolVar(&backupOptions.wait)
-	backupCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&backupOptions.waitTime)
-	backupCmd.Flag("list-files", "Shows the list of files per node to copy (only for external backups)").
-		Short('l').
-		BoolVar(&backupOptions.externList)
+	syncConfigProfileCmd.Flags().BoolVar(
+		&syncConfigProfileOpts.all, "all", false, "Sync from all external storages",
+	)
+	syncConfigProfileCmd.Flags().BoolVar(
+		&syncConfigProfileOpts.clear, "clear", false, "Clear backup list (can be used with profile name or --all)",
+	)
+	syncConfigProfileCmd.Flags().BoolVarP(
+		&syncConfigProfileOpts.wait, "wait", "w", false, "Wait for done by agents",
+	)
+	syncConfigProfileCmd.Flags().DurationVar(
+		&syncConfigProfileOpts.waitTime, "wait-time", 0, "Maximum wait time",
+	)
 
-	cancelBcpCmd := pbmCmd.Command("cancel-backup", "Cancel backup")
+	configProfileCmd.AddCommand(syncConfigProfileCmd)
 
-	descBcpCmd := pbmCmd.Command("describe-backup", "Describe backup")
-	descBcp := descBcp{}
-	descBcpCmd.Flag("with-collections", "Show collections in backup").
-		BoolVar(&descBcp.coll)
-	descBcpCmd.Arg("backup_name", "Backup name").
-		StringVar(&descBcp.name)
+	return configProfileCmd
+}
 
-	finishBackupName := ""
-	backupFinishCmd := pbmCmd.Command("backup-finish", "Finish external backup")
-	backupFinishCmd.Arg("backup_name", "Backup name").
-		StringVar(&finishBackupName)
+func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
+	validBackupTypes := []string{
+		string(defs.PhysicalBackup),
+		string(defs.LogicalBackup),
+		string(defs.IncrementalBackup),
+		string(defs.ExternalBackup),
+		string(backup.SelectiveBackup),
+	}
 
-	finishRestore := descrRestoreOpts{}
-	restoreFinishCmd := pbmCmd.Command("restore-finish", "Finish external backup")
-	restoreFinishCmd.Arg("restore_name", "Restore name").
-		StringVar(&finishRestore.restore)
-	restoreFinishCmd.Flag("config", "Path to PBM config").
-		Short('c').
-		Required().
-		StringVar(&finishRestore.cfg)
+	deleteBcpOptions := deleteBcpOpts{}
 
-	restoreCmd := pbmCmd.Command("restore", "Restore backup")
-	restore := restoreOpts{}
-	restoreCmd.Arg("backup_name", "Backup name to restore").
-		StringVar(&restore.bcp)
-	restoreCmd.Flag("time", fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat)).
-		StringVar(&restore.pitr)
-	restoreCmd.Flag("base-snapshot",
-		"Override setting: Name of older snapshot that PITR will be based on during restore.").
-		StringVar(&restore.pitrBase)
-	restoreCmd.Flag("num-parallel-collections", "Number of parallel collections").
-		Int32Var(&restore.numParallelColls)
-	restoreCmd.Flag("num-insertion-workers-per-collection",
-		"Specifies the number of insertion workers to run concurrently per collection. For large imports, "+
-			"increasing the number of insertion workers may increase the speed of the import.").
-		Int32Var(&restore.numInsertionWorkers)
-	restoreCmd.Flag("ns", `Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`).
-		StringVar(&restore.ns)
-	restoreCmd.Flag("ns-from", "Allows collection cloning (creating from the backup with different name) "+
-		"and specifies source collection for cloning from.").
-		StringVar(&restore.nsFrom)
-	restoreCmd.Flag("ns-to", "Allows collection cloning (creating from the backup with different name) "+
-		"and specifies destination collection for cloning to.").
-		StringVar(&restore.nsTo)
-	restoreCmd.Flag("with-users-and-roles", "Includes users and roles for selected database (--ns flag)").
-		BoolVar(&restore.usersAndRoles)
-	restoreCmd.Flag("wait", "Wait for the restore to finish.").
-		Short('w').
-		BoolVar(&restore.wait)
-	restoreCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&restore.waitTime)
-	restoreCmd.Flag("external", "External restore.").
-		Short('x').
-		BoolVar(&restore.extern)
-	restoreCmd.Flag("config", "Mongod config for the source data. External backups only!").
-		Short('c').
-		StringVar(&restore.conf)
-	restoreCmd.Flag("ts",
-		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!").
-		StringVar(&restore.ts)
-	restoreCmd.Flag(RSMappingFlag, RSMappingDoc).
-		Envar(RSMappingEnvVar).
-		StringVar(&restore.rsMap)
+	deleteBcpCmd := &cobra.Command{
+		Use:   "delete-backup [name]",
+		Short: "Delete a backup",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if deleteBcpOptions.bcpType != "" {
+				if err := app.validateEnum("type", deleteBcpOptions.bcpType, validBackupTypes); err != nil {
+					return nil, err
+				}
+			}
 
-	replayCmd := pbmCmd.Command("oplog-replay", "Replay oplog")
-	replayOpts := replayOptions{}
-	replayCmd.Flag("start", fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat)).
-		Required().
-		StringVar(&replayOpts.start)
-	replayCmd.Flag("end", fmt.Sprintf("Replay oplog to the time. Set in format %s", datetimeFormat)).
-		Required().
-		StringVar(&replayOpts.end)
-	replayCmd.Flag("wait", "Wait for the restore to finish.").
-		Short('w').
-		BoolVar(&replayOpts.wait)
-	replayCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&replayOpts.waitTime)
-	replayCmd.Flag(RSMappingFlag, RSMappingDoc).
-		Envar(RSMappingEnvVar).
-		StringVar(&replayOpts.rsMap)
-	// todo(add oplog cancel)
+			if len(args) == 1 {
+				deleteBcpOptions.name = args[0]
+			}
 
-	listCmd := pbmCmd.Command("list", "Backup list")
-	list := listOpts{}
-	listCmd.Flag("restore", "Show last N restores").
-		Default("false").
-		BoolVar(&list.restore)
-	listCmd.Flag("unbacked", "Show unbacked oplog ranges").
-		Default("false").
-		BoolVar(&list.unbacked)
-	listCmd.Flag("full", "Show extended restore info").
-		Default("false").
-		Short('f').
-		Hidden().
-		BoolVar(&list.full)
-	listCmd.Flag("size", "Show last N backups").
-		Default("0").
-		IntVar(&list.size)
-	listCmd.Flag(RSMappingFlag, RSMappingDoc).
-		Envar(RSMappingEnvVar).
-		StringVar(&list.rsMap)
+			return deleteBackup(app.ctx, app.conn, app.pbm, &deleteBcpOptions)
+		}),
+	}
 
-	deleteBcpCmd := pbmCmd.Command("delete-backup", "Delete a backup")
-	deleteBcp := deleteBcpOpts{}
-	deleteBcpCmd.Arg("name", "Backup name").
-		StringVar(&deleteBcp.name)
-	deleteBcpCmd.Flag("older-than",
-		fmt.Sprintf("Delete backups older than date/time in format %s or %s",
-			datetimeFormat,
-			dateFormat)).
-		StringVar(&deleteBcp.olderThan)
-	deleteBcpCmd.Flag("type",
-		fmt.Sprintf("backup type: <%s>/<%s>/<%s>/<%s>/<%s>",
-			defs.LogicalBackup,
-			defs.PhysicalBackup,
-			defs.IncrementalBackup,
-			defs.ExternalBackup,
-			backup.SelectiveBackup,
-		)).
-		Short('t').
-		EnumVar(&deleteBcp.bcpType,
-			string(defs.LogicalBackup),
-			string(defs.PhysicalBackup),
-			string(defs.IncrementalBackup),
-			string(defs.ExternalBackup),
-			string(backup.SelectiveBackup),
-		)
-	deleteBcpCmd.Flag("yes", "Don't ask for confirmation").
-		Short('y').
-		BoolVar(&deleteBcp.yes)
-	deleteBcpCmd.Flag("force", "Don't ask for confirmation (deprecated)").
-		Short('f').
-		BoolVar(&deleteBcp.yes)
-	deleteBcpCmd.Flag("dry-run", "Report but do not delete").
-		BoolVar(&deleteBcp.dryRun)
+	deleteBcpCmd.Flags().StringVar(
+		&deleteBcpOptions.olderThan, "older-than", "",
+		fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat),
+	)
+	deleteBcpCmd.Flags().StringVarP(
+		&deleteBcpOptions.bcpType, "type", "t", "",
+		fmt.Sprintf(
+			"backup type: <%s>/<%s>/<%s>/<%s>",
+			defs.PhysicalBackup, defs.LogicalBackup, defs.IncrementalBackup, defs.ExternalBackup,
+		),
+	)
+	deleteBcpCmd.Flags().BoolVarP(
+		&deleteBcpOptions.yes, "yes", "y", false, "Don't ask for confirmation",
+	)
+	deleteBcpCmd.Flags().BoolVarP(
+		&deleteBcpOptions.yes, "force", "f", false, "Don't ask for confirmation (deprecated)",
+	)
+	deleteBcpCmd.Flags().BoolVar(
+		&deleteBcpOptions.dryRun, "dry-run", false, "Report but do not delete",
+	)
 
-	deletePitrCmd := pbmCmd.Command("delete-pitr", "Delete PITR chunks")
-	deletePitr := deletePitrOpts{}
-	deletePitrCmd.Flag("older-than",
-		fmt.Sprintf("Delete backups older than date/time in format %s or %s",
-			datetimeFormat,
-			dateFormat)).
-		StringVar(&deletePitr.olderThan)
-	deletePitrCmd.Flag("all", `Delete all chunks (deprecated). Use --older-than="0d"`).
-		Short('a').
-		BoolVar(&deletePitr.all)
-	deletePitrCmd.Flag("yes", "Don't ask for confirmation").
-		Short('y').
-		BoolVar(&deletePitr.yes)
-	deletePitrCmd.Flag("force", "Don't ask for confirmation (deprecated)").
-		Short('f').
-		BoolVar(&deletePitr.yes)
-	deletePitrCmd.Flag("wait", "Wait for deletion done").
-		Short('w').
-		BoolVar(&deletePitr.wait)
-	deletePitrCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&deletePitr.waitTime)
-	deletePitrCmd.Flag("dry-run", "Report but do not delete").
-		BoolVar(&deletePitr.dryRun)
+	return deleteBcpCmd
+}
 
-	cleanupCmd := pbmCmd.Command("cleanup", "Delete Backups and PITR chunks")
-	cleanupOpts := cleanupOptions{}
-	cleanupCmd.Flag("older-than",
-		fmt.Sprintf("Delete older than date/time in format %s or %s",
-			datetimeFormat,
-			dateFormat)).
-		StringVar(&cleanupOpts.olderThan)
-	cleanupCmd.Flag("yes", "Don't ask for confirmation").
-		Short('y').
-		BoolVar(&cleanupOpts.yes)
-	cleanupCmd.Flag("wait", "Wait for deletion done").
-		Short('w').
-		BoolVar(&cleanupOpts.wait)
-	cleanupCmd.Flag("wait-time", "Maximum wait time").
-		DurationVar(&cleanupOpts.waitTime)
-	cleanupCmd.Flag("dry-run", "Report but do not delete").
-		BoolVar(&cleanupOpts.dryRun)
+func (app *pbmApp) buildDeletePitrCmd() *cobra.Command {
+	deletePitrOptions := deletePitrOpts{}
 
-	logsCmd := pbmCmd.Command("logs", "PBM logs")
-	logs := logsOpts{}
-	logsCmd.Flag("follow", "Follow output").
-		Short('f').
-		Default("false").
-		BoolVar(&logs.follow)
-	logsCmd.Flag("tail", "Show last N entries, 20 entries are shown by default, 0 for all logs").
-		Short('t').
-		Default("20").
-		Int64Var(&logs.tail)
-	logsCmd.Flag("node", "Target node in format replset[/host:posrt]").
-		Short('n').
-		StringVar(&logs.node)
-	logsCmd.Flag("severity", "Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.").
-		Short('s').
-		Default("I").
-		EnumVar(&logs.severity, "D", "I", "W", "E", "F")
-	logsCmd.Flag("event",
-		"Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resync, pitr, delete").
-		Short('e').
-		StringVar(&logs.event)
-	logsCmd.Flag("opid", "Operation ID").
-		Short('i').
-		StringVar(&logs.opid)
-	logsCmd.Flag("timezone",
+	deletePitrCmd := &cobra.Command{
+		Use:   "delete-pitr",
+		Short: "Delete PITR chunks",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			return deletePITR(app.ctx, app.conn, app.pbm, &deletePitrOptions)
+		}),
+	}
+
+	deletePitrCmd.Flags().StringVar(
+		&deletePitrOptions.olderThan, "older-than", "",
+		fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat),
+	)
+	deletePitrCmd.Flags().BoolVarP(
+		&deletePitrOptions.all, "all", "a", false,
+		`Delete all chunks (deprecated). Use --older-than="0d"`,
+	)
+	deletePitrCmd.Flags().BoolVarP(
+		&deletePitrOptions.yes, "yes", "y", false, "Don't ask for confirmation",
+	)
+	deletePitrCmd.Flags().BoolVarP(
+		&deletePitrOptions.yes, "force", "f", false, "Don't ask for confirmation (deprecated)",
+	)
+	deletePitrCmd.Flags().BoolVarP(
+		&deletePitrOptions.wait, "wait", "w", false, "Wait for deletion done",
+	)
+	deletePitrCmd.Flags().DurationVar(
+		&deletePitrOptions.waitTime, "wait-time", 0, "Maximum wait time",
+	)
+	deletePitrCmd.Flags().BoolVar(
+		&deletePitrOptions.dryRun, "dry-run", false, "Report but do not delete",
+	)
+
+	return deletePitrCmd
+}
+
+func (app *pbmApp) buildDescBackupCmd() *cobra.Command {
+	descBackup := descBcp{}
+
+	descBackupCmd := &cobra.Command{
+		Use:   "describe-backup [backup_name]",
+		Short: "Describe backup",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if len(args) == 1 {
+				descBackup.name = args[0]
+			}
+			return describeBackup(app.ctx, app.pbm, &descBackup, app.node)
+		}),
+	}
+
+	descBackupCmd.Flags().BoolVar(
+		&descBackup.coll, "with-collections", false, "Show collections in backup",
+	)
+
+	return descBackupCmd
+}
+
+func (app *pbmApp) buildDescRestoreCmd() *cobra.Command {
+	descRestoreOption := descrRestoreOpts{}
+
+	descRestoreCmd := &cobra.Command{
+		Use:   "describe-restore [name]",
+		Short: "Describe restore",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if len(args) == 1 {
+				descRestoreOption.restore = args[0]
+			}
+			return describeRestore(app.ctx, app.conn, descRestoreOption, app.node)
+		}),
+	}
+
+	descRestoreCmd.Flags().StringVarP(
+		&descRestoreOption.cfg, "config", "c", "", "Show collections in backup",
+	)
+	_ = viper.BindPFlag("describe-restore.config", descRestoreCmd.Flags().Lookup("config"))
+
+	return descRestoreCmd
+}
+
+func (app *pbmApp) buildDiagnosticCmd() *cobra.Command {
+	diagnosticOpts := diagnosticOptions{}
+
+	diagnosticCmd := &cobra.Command{
+		Use:   "diagnostic",
+		Short: "Create diagnostic report",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			return handleDiagnostic(app.ctx, app.pbm, diagnosticOpts)
+		}),
+	}
+
+	diagnosticCmd.Flags().StringVar(
+		&diagnosticOpts.path, "path", "", "Path where files will be saved",
+	)
+	_ = diagnosticCmd.MarkFlagRequired("path")
+
+	diagnosticCmd.Flags().BoolVar(
+		&diagnosticOpts.archive, "archive", false, "Create zip file",
+	)
+	diagnosticCmd.Flags().StringVar(
+		&diagnosticOpts.opid, "opid", "", "OPID/Command ID",
+	)
+	diagnosticCmd.Flags().StringVar(
+		&diagnosticOpts.name, "name", "", "Backup or Restore name",
+	)
+
+	return diagnosticCmd
+}
+
+func (app *pbmApp) buildListCmd() *cobra.Command {
+	listOptions := listOpts{}
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "Backup list",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			return runList(app.ctx, app.conn, app.pbm, &listOptions)
+		}),
+	}
+
+	listCmd.Flags().BoolVar(&listOptions.restore, "restore", false, "Show last N restores")
+	listCmd.Flags().BoolVar(&listOptions.unbacked, "unbacked", false, "Show unbacked oplog ranges")
+	listCmd.Flags().BoolVarP(&listOptions.full, "full", "f", false, "Show extended restore info")
+	listCmd.Flags().IntVar(&listOptions.size, "size", 0, "Show last N backups")
+
+	listCmd.Flags().StringVar(&listOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
+	_ = viper.BindPFlag(RSMappingFlag, listCmd.Flags().Lookup(RSMappingFlag))
+	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
+
+	return listCmd
+}
+
+func (app *pbmApp) buildLogCmd() *cobra.Command {
+	severityTypes := []string{
+		"D", "I", "W", "E", "F",
+	}
+
+	logOptions := logsOpts{}
+	logCmd := &cobra.Command{
+		Use:   "logs",
+		Short: "PBM logs",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if err := app.validateEnum("type", logOptions.severity, severityTypes); err != nil {
+				return nil, err
+			}
+
+			return runLogs(app.ctx, app.conn, &logOptions, app.pbmOutF)
+		}),
+	}
+
+	logCmd.Flags().BoolVarP(&logOptions.follow, "follow", "f", false, "Follow output")
+	logCmd.Flags().Int64VarP(&logOptions.tail, "tail", "t", 20,
+		"Show last N entries, 20 entries are shown by default, 0 for all logs",
+	)
+	logCmd.Flags().StringVarP(
+		&logOptions.node, "node", "n", "",
+		"Target node in format replset[/host:posrt]",
+	)
+	logCmd.Flags().StringVarP(
+		&logOptions.severity, "severity", "s", "I",
+		"Severity level D, I, W, E or F, low to high. Choosing one includes higher levels too.",
+	)
+	logCmd.Flags().StringVarP(
+		&logOptions.event, "event", "e", "",
+		"Event in format backup[/2020-10-06T11:45:14Z]. Events: backup, restore, cancelBackup, resync, pitr, delete",
+	)
+	logCmd.Flags().StringVar(
+		&logOptions.location, "timezone", "",
 		"Timezone of log output. `Local`, `UTC` or a location name corresponding to "+
-			"a file in the IANA Time Zone database, such as `America/New_York`").
-		StringVar(&logs.location)
-	logsCmd.Flag("extra", "Show extra data in text format").
-		Hidden().
-		Short('x').
-		BoolVar(&logs.extr)
+			"a file in the IANA Time Zone database, such as `America/New_York`",
+	)
+	logCmd.Flags().StringVarP(&logOptions.opid, "opid", "i", "", "Operation ID")
+	logCmd.Flags().BoolVarP(&logOptions.extr, "extra", "x", false, "Show extra data in text format")
+
+	return logCmd
+}
+
+func (app *pbmApp) buildRestoreCmd() *cobra.Command {
+	restoreOptions := restoreOpts{}
+
+	restoreCmd := &cobra.Command{
+		Use:   "restore [backup_name]",
+		Short: "Restore backup",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if len(args) == 1 {
+				restoreOptions.bcp = args[0]
+			}
+			return runRestore(app.ctx, app.conn, app.pbm, &restoreOptions, app.node, app.pbmOutF)
+		}),
+	}
+
+	restoreCmd.Flags().StringVar(
+		&restoreOptions.pitr, "time", "",
+		fmt.Sprintf("Restore to the point-in-time. Set in format %s", datetimeFormat),
+	)
+	restoreCmd.Flags().StringVar(
+		&restoreOptions.pitrBase, "base-snapshot", "",
+		"Override setting: Name of older snapshot that PITR will be based on during restore.",
+	)
+	restoreCmd.Flags().Int32Var(
+		&restoreOptions.numParallelColls, "num-parallel-collections", 0,
+		"Number of parallel collections",
+	)
+	restoreCmd.Flags().Int32Var(
+		&restoreOptions.numInsertionWorkers, "num-insertion-workers-per-collection", 0,
+		"Specifies the number of insertion workers to run concurrently per collection. For large imports, "+
+			"increasing the number of insertion workers may increase the speed of the import.",
+	)
+	restoreCmd.Flags().StringVar(
+		&restoreOptions.ns, "ns", "",
+		`Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`,
+	)
+	restoreCmd.Flags().StringVar(
+		&restoreOptions.nsFrom, "ns-from", "",
+		"Allows collection cloning (creating from the backup with different name) "+
+			"and specifies source collection for cloning from.",
+	)
+	restoreCmd.Flags().StringVar(
+		&restoreOptions.nsTo, "ns-to", "",
+		"Allows collection cloning (creating from the backup with different name) "+
+			"and specifies destination collection for cloning to.",
+	)
+	restoreCmd.Flags().BoolVar(
+		&restoreOptions.usersAndRoles, "with-users-and-roles", false,
+		"Includes users and roles for selected database (--ns flag)",
+	)
+	restoreCmd.Flags().BoolVarP(
+		&restoreOptions.wait, "wait", "w", false, "Wait for the restore to finish",
+	)
+	restoreCmd.Flags().DurationVar(
+		&restoreOptions.waitTime, "wait-time", 0, "Maximum wait time",
+	)
+	restoreCmd.Flags().BoolVarP(
+		&restoreOptions.extern, "external", "x", false, "External restore.",
+	)
+	restoreCmd.Flags().StringVarP(
+		&restoreOptions.conf, "config", "c", "",
+		"Mongod config for the source data. External backups only!",
+	)
+	restoreCmd.Flags().StringVar(
+		&restoreOptions.ts, "ts", "",
+		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!",
+	)
+
+	restoreCmd.Flags().StringVar(&restoreOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
+	_ = viper.BindPFlag(RSMappingFlag, restoreCmd.Flags().Lookup(RSMappingFlag))
+	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
+
+	return restoreCmd
+}
+
+func (app *pbmApp) buildRestoreFinishCmd() *cobra.Command {
+	finishRestore := descrRestoreOpts{}
+
+	restoreFinishCmd := &cobra.Command{
+		Use:   "restore-finish [restore_name]",
+		Short: "Finish external restore",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if len(args) == 1 {
+				finishRestore.restore = args[0]
+			}
+			return runFinishRestore(finishRestore, app.node)
+		}),
+	}
+
+	restoreFinishCmd.Flags().StringVarP(
+		&finishRestore.cfg, "config", "c", "", "Path to PBM config",
+	)
+	_ = restoreFinishCmd.MarkFlagRequired("config")
+	_ = viper.BindPFlag("restore-finish.config", restoreFinishCmd.Flags().Lookup("config"))
+
+	return restoreFinishCmd
+}
+
+func (app *pbmApp) buildReplayCmd() *cobra.Command {
+	replayOpts := replayOptions{}
+
+	replayCmd := &cobra.Command{
+		Use:   "oplog-replay",
+		Short: "Replay oplog",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			return replayOplog(app.ctx, app.conn, app.pbm, replayOpts, app.node, app.pbmOutF)
+		}),
+	}
+
+	replayCmd.Flags().StringVar(
+		&replayOpts.start, "start", "",
+		fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat),
+	)
+	_ = replayCmd.MarkFlagRequired("start")
+
+	replayCmd.Flags().StringVar(
+		&replayOpts.end, "end", "",
+		fmt.Sprintf("Replay oplog from the time. Set in format %s", datetimeFormat),
+	)
+	_ = replayCmd.MarkFlagRequired("end")
+
+	replayCmd.Flags().BoolVar(&replayOpts.wait, "wait", false, "Wait for the restore to finish")
+	replayCmd.Flags().DurationVar(&replayOpts.waitTime, "wait-time", 0, "Maximum wait time")
+
+	replayCmd.Flags().StringVar(&replayOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
+	_ = viper.BindPFlag(RSMappingFlag, replayCmd.Flags().Lookup(RSMappingFlag))
+	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
+
+	return replayCmd
+}
+
+func (app *pbmApp) buildStatusCmd() *cobra.Command {
+	sectionTypes := []string{
+		"cluster", "pitr", "running", "backups",
+	}
 
 	statusOpts := statusOptions{}
-	statusCmd := pbmCmd.Command("status", "Show PBM status").Alias("s")
-	statusCmd.Flag(RSMappingFlag, RSMappingDoc).
-		Envar(RSMappingEnvVar).
-		StringVar(&statusOpts.rsMap)
-	statusCmd.Flag("sections", "Sections of status to display <cluster>/<pitr>/<running>/<backups>.").
-		Short('s').
-		EnumsVar(&statusOpts.sections, "cluster", "pitr", "running", "backups")
-	statusCmd.Flag("priority", "Show backup and PITR priorities").
-		Short('p').
-		Default("false").
-		BoolVar(&statusOpts.priority)
 
-	describeRestoreCmd := pbmCmd.Command("describe-restore", "Describe restore")
-	describeRestoreOpts := descrRestoreOpts{}
-	describeRestoreCmd.Arg("name", "Restore name").
-		StringVar(&describeRestoreOpts.restore)
-	describeRestoreCmd.Flag("config", "Path to PBM config").
-		Short('c').
-		StringVar(&describeRestoreOpts.cfg)
+	statusCmd := &cobra.Command{
+		Use:     "status",
+		Aliases: []string{"s"},
+		Short:   "Show PBM status",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			for _, value := range statusOpts.sections {
+				if err := app.validateEnum("sections", value, sectionTypes); err != nil {
+					return nil, err
+				}
+			}
 
-	diagnosticCmd := pbmCmd.Command("diagnostic", "Create diagnostic report")
-	diagnosticOpts := diagnosticOptions{}
-	diagnosticCmd.Flag("path", "Path where files will be saved").
-		Required().
-		StringVar(&diagnosticOpts.path)
-	diagnosticCmd.Flag("archive", "create zip file").
-		BoolVar(&diagnosticOpts.archive)
-	diagnosticCmd.Flag("opid", "OPID/Command ID").
-		StringVar(&diagnosticOpts.opid)
-	diagnosticCmd.Flag("name", "Backup or Restore name").
-		StringVar(&diagnosticOpts.name)
-
-	cmd, err := pbmCmd.DefaultEnvars().Parse(os.Args[1:])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error: parse command line parameters:", err)
-		os.Exit(1)
-	}
-	pbmOutF := outFormat(*pbmOutFormat)
-	var out fmt.Stringer
-
-	if cmd == versionCmd.FullCommand() {
-		switch {
-		case *versionCommit:
-			out = outCaption{"GitCommit", version.Current().GitCommit}
-		case *versionShort:
-			out = outCaption{"Version", version.Current().Version}
-		default:
-			out = version.Current()
-		}
-		printo(out, pbmOutF)
-		return
+			return status(app.ctx, app.conn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
+		}),
 	}
 
-	if *mURL == "" {
-		fmt.Fprintln(os.Stderr, "Error: no mongodb connection URI supplied")
-		fmt.Fprintln(os.Stderr,
-			"       Usual practice is the set it by the PBM_MONGODB_URI environment variable. "+
-				"It can also be set with commandline argument --mongodb-uri.")
-		pbmCmd.Usage(os.Args[1:])
-		os.Exit(1)
+	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
+	_ = viper.BindPFlag(RSMappingFlag, statusCmd.Flags().Lookup(RSMappingFlag))
+	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
+
+	statusCmd.Flags().StringArrayVarP(
+		&statusOpts.sections, "sections", "s", []string{},
+		"Sections of status to display <cluster>/<pitr>/<running>/<backups>.",
+	)
+
+	statusCmd.Flags().BoolVarP(
+		&statusOpts.priority, "priority", "p", false, "Show backup and PITR priorities",
+	)
+
+	return statusCmd
+}
+
+func (app *pbmApp) buildVersionCmd() *cobra.Command {
+	var (
+		versionShort  bool
+		versionCommit bool
+	)
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "PBM version info",
+		Run: func(cmd *cobra.Command, args []string) {
+			var out fmt.Stringer
+			switch {
+			case versionCommit:
+				out = outCaption{"GitCommit", version.Current().GitCommit}
+			case versionShort:
+				out = outCaption{"Version", version.Current().Version}
+			default:
+				out = version.Current()
+			}
+
+			printo(out, app.pbmOutF)
+		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	versionCmd.Flags().BoolVarP(
+		&versionShort, "short", "s", false, "Show only version info",
+	)
+	versionCmd.Flags().BoolVarP(
+		&versionCommit, "commit", "c", false, "Show only git commit info",
+	)
 
-	var conn connect.Client
-	var pbm *sdk.Client
-	var node string
-	// we don't need pbm connection if it is `pbm describe-restore -c ...`
-	// or `pbm restore-finish `
-	if describeRestoreOpts.cfg == "" && finishRestore.cfg == "" {
-		conn, err = connect.Connect(ctx, *mURL, "pbm-ctl")
-		if err != nil {
-			exitErr(errors.Wrap(err, "connect to mongodb"), pbmOutF)
-		}
-		ctx = log.SetLoggerToContext(ctx, log.New(conn, "", ""))
-
-		ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "get mongo version: %v", err)
-			os.Exit(1)
-		}
-		if err := version.FeatureSupport(ver).PBMSupport(); err != nil {
-			fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
-		}
-
-		pbm, err = sdk.NewClient(ctx, *mURL)
-		if err != nil {
-			exitErr(errors.Wrap(err, "init sdk"), pbmOutF)
-		}
-		defer pbm.Close(context.Background())
-
-		inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
-		if err != nil {
-			exitErr(errors.Wrap(err, "unable to obtain node info"), pbmOutF)
-		}
-		node = inf.Me
-	}
-
-	switch cmd {
-	case configCmd.FullCommand():
-		out, err = runConfig(ctx, conn, pbm, &cfg)
-	case listConfigProfileCmd.FullCommand():
-		out, err = handleListConfigProfiles(ctx, pbm)
-	case showConfigProfileCmd.FullCommand():
-		out, err = handleShowConfigProfiles(ctx, pbm, showConfigProfileOpts)
-	case addConfigProfileCmd.FullCommand():
-		out, err = handleAddConfigProfile(ctx, pbm, addConfigProfileOpts)
-	case removeConfigProfileCmd.FullCommand():
-		out, err = handleRemoveConfigProfile(ctx, pbm, removeConfigProfileOpts)
-	case syncConfigProfileCmd.FullCommand():
-		out, err = handleSyncConfigProfile(ctx, pbm, syncConfigProfileOpts)
-	case backupCmd.FullCommand():
-		backupOptions.name = time.Now().UTC().Format(time.RFC3339)
-		out, err = runBackup(ctx, conn, pbm, &backupOptions, pbmOutF)
-	case cancelBcpCmd.FullCommand():
-		out, err = cancelBcp(ctx, pbm)
-	case backupFinishCmd.FullCommand():
-		out, err = runFinishBcp(ctx, conn, finishBackupName)
-	case restoreFinishCmd.FullCommand():
-		out, err = runFinishRestore(finishRestore, node)
-	case descBcpCmd.FullCommand():
-		out, err = describeBackup(ctx, pbm, &descBcp, node)
-	case restoreCmd.FullCommand():
-		out, err = runRestore(ctx, conn, pbm, &restore, node, pbmOutF)
-	case replayCmd.FullCommand():
-		out, err = replayOplog(ctx, conn, pbm, replayOpts, node, pbmOutF)
-	case listCmd.FullCommand():
-		out, err = runList(ctx, conn, pbm, &list)
-	case deleteBcpCmd.FullCommand():
-		out, err = deleteBackup(ctx, conn, pbm, &deleteBcp)
-	case deletePitrCmd.FullCommand():
-		out, err = deletePITR(ctx, conn, pbm, &deletePitr)
-	case cleanupCmd.FullCommand():
-		out, err = doCleanup(ctx, conn, pbm, &cleanupOpts)
-	case logsCmd.FullCommand():
-		out, err = runLogs(ctx, conn, &logs, pbmOutF)
-	case statusCmd.FullCommand():
-		out, err = status(ctx, conn, pbm, *mURL, statusOpts, pbmOutF == outJSONpretty)
-	case describeRestoreCmd.FullCommand():
-		out, err = describeRestore(ctx, conn, describeRestoreOpts, node)
-	case diagnosticCmd.FullCommand():
-		out, err = handleDiagnostic(ctx, pbm, diagnosticOpts)
-	}
-
-	if err != nil {
-		exitErr(err, pbmOutF)
-	}
-
-	printo(out, pbmOutF)
-
-	if r, ok := out.(cliResult); ok && r.HasError() {
-		os.Exit(1)
-	}
+	return versionCmd
 }
 
 func printo(out fmt.Stringer, f outFormat) {
