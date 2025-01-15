@@ -202,7 +202,10 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 
 func (app *pbmApp) persistentPostRun(cmd *cobra.Command, args []string) error {
 	if app.pbm != nil {
-		if err := app.pbm.Close(context.Background()); err != nil {
+		ctxPbm, cancelPbm := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancelPbm()
+
+		if err := app.pbm.Close(ctxPbm); err != nil {
 			return errors.Wrap(err, "close pbm")
 		}
 	}
@@ -216,7 +219,10 @@ func (app *pbmApp) persistentPostRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	app.cancel()
+	if app.cancel != nil {
+		app.cancel()
+	}
+
 	return nil
 }
 
