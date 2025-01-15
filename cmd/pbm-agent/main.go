@@ -207,7 +207,7 @@ func runAgent(
 	defer logger.Close()
 
 	viper.OnConfigChange(func(e fsnotify.Event) {
-		logger.SetOpts(buildLogOpts())
+		logger.SetLogLevelAndJSON(buildLogOpts())
 		newOpts := logger.Opts()
 		logger.Printf("log options updated: log-path=%s, log-level:%s, log-json:%t",
 			newOpts.LogPath, newOpts.LogLevel, newOpts.LogJSON)

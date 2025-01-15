@@ -379,6 +379,11 @@ func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.D
 			return selector.Selected(doc)
 		}
 
+		// Config Shard should keep non-config collections
+		if selectedNS(ns) {
+			return true
+		}
+
 		return false
 	}
 }
