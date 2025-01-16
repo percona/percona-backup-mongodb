@@ -87,7 +87,7 @@ func TestGetNumParallelCollsConfig(t *testing.T) {
 
 	rZeroParallelColls := int32(0)
 	rValidParallelColls := int32(99)
-	defaultValue := max(runtime.NumCPU() / 2, 1)
+	defaultValue := max(runtime.NumCPU()/2, 1)
 
 	tests := []struct {
 		name string
