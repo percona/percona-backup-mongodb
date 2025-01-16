@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alecthomas/kingpin"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -29,43 +30,64 @@ import (
 
 var logger = stdlog.New(os.Stdout, "", stdlog.Ltime)
 
+type rootOpts struct {
+	mURL  string
+	fromS string
+	tillS string
+}
+
 func main() {
-	ctx := context.Background()
+	rootOptions := rootOpts{}
+	rootCmd := &cobra.Command{
+		Use:          "ensure-oplog",
+		Short:        "ensure oplog chunks",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
 
-	app := kingpin.New("ensure-oplog", "ensure oplog chunks")
-	cmd := app.Command("run", "").Default().Hidden()
-	uri := cmd.Flag("mongodb-uri", "mongodb URI").Envar("PBM_MONGODB_URI").String()
-	fromS := cmd.Flag("from", "first op time").String()
-	tillS := cmd.Flag("till", "last op time").String()
-	_, err := app.DefaultEnvars().Parse(os.Args[1:])
-	if err != nil {
-		stdlog.Fatal(err)
+			if rootOptions.mURL == "" {
+				rootOptions.mURL = viper.GetString("mongodb-uri")
+			}
+
+			fromTS, err := parseTS(rootOptions.fromS)
+			if err != nil {
+				return errors.Wrap(err, "parse from time")
+			}
+			tillTS, err := parseTS(rootOptions.tillS)
+			if err != nil {
+				return errors.Wrap(err, "parse till time")
+			}
+
+			t, err := connTopo(ctx, rootOptions.mURL)
+			if err != nil {
+				return errors.Wrap(err, "getTopo")
+			}
+
+			switch t {
+			case topoMongos:
+				err = ensureClusterOplog(ctx, rootOptions.mURL, fromTS, tillTS)
+			case topoReplset:
+				err = ensureReplsetOplog(ctx, rootOptions.mURL, fromTS, tillTS)
+			default:
+				err = errors.New("unsupported connection")
+			}
+
+			if err != nil {
+				return err
+			}
+
+			return nil
+		},
 	}
 
-	fromTS, err := parseTS(*fromS)
-	if err != nil {
-		stdlog.Fatalf("parse from time: %s", err.Error())
-	}
-	tillTS, err := parseTS(*tillS)
-	if err != nil {
-		stdlog.Fatalf("parse till time: %s", err.Error())
-	}
+	rootCmd.PersistentFlags().StringVar(&rootOptions.mURL, "mongodb-uri", "", "MongoDB connection string")
+	_ = viper.BindPFlag("mongodb-uri", rootCmd.PersistentFlags().Lookup("mongodb-uri"))
+	_ = viper.BindEnv("mongodb-uri", "PBM_MONGODB_URI")
 
-	t, err := connTopo(ctx, *uri)
-	if err != nil {
-		stdlog.Fatalf("getTopo: %s", err.Error())
-	}
+	rootCmd.Flags().StringVar(&rootOptions.fromS, "from", "", "first op time")
+	rootCmd.Flags().StringVar(&rootOptions.tillS, "till", "", "last op time")
 
-	switch t {
-	case topoMongos:
-		err = ensureClusterOplog(ctx, *uri, fromTS, tillTS)
-	case topoReplset:
-		err = ensureReplsetOplog(ctx, *uri, fromTS, tillTS)
-	default:
-		err = errors.New("unsupported connection")
-	}
-
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		stdlog.Fatal(err)
 	}
 }
