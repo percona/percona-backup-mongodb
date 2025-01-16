@@ -184,7 +184,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 }
 
 func getNumParallelCollsConfig(rParallelColls *int32, restoreConf *config.RestoreConf) int {
-	numParallelColls := runtime.NumCPU() / 2
+	numParallelColls := max(runtime.NumCPU()/2, 1)
 	if rParallelColls != nil && *rParallelColls > 0 {
 		numParallelColls = int(*rParallelColls)
 	} else if restoreConf != nil && restoreConf.NumParallelCollections > 0 {
