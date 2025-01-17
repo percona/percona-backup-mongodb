@@ -214,14 +214,14 @@ func TestApply(t *testing.T) {
 			oplogFile string
 			db        string
 			coll      string
-			idxs      bson.D
+			idxs      bson.M
 		}{
 			{
 				desc:      "index: dropIndexes-createIndexes",
 				oplogFile: "ops_cmd_createIndexes_dropIndexes",
 				db:        "mydb",
 				coll:      "c1",
-				idxs:      bson.D{{"fieldX", -1}, {"fieldZ", -1}},
+				idxs:      bson.M{"fieldX": -1, "fieldZ": -1},
 			},
 			// todo: add more cases
 		}
@@ -237,13 +237,13 @@ func TestApply(t *testing.T) {
 					t.Fatalf("error while applying oplog: %v", err)
 				}
 
-				idxs := oRestore.indexCatalog.GetIndexes(tC.db, tC.coll)
-				if len(idxs) != len(tC.idxs) {
-					t.Errorf("wrong number of indexes: want=%d, got=%d", len(tC.idxs), len(idxs))
+				idxDocs := oRestore.indexCatalog.GetIndexes(tC.db, tC.coll)
+				if len(idxDocs) != len(tC.idxs) {
+					t.Errorf("wrong number of indexes: want=%d, got=%d", len(tC.idxs), len(idxDocs))
 				}
-				for i, idx := range idxs {
-					if idx.Key[0].Key != tC.idxs[i].Key {
-						t.Errorf("wrong key: want=%v, got=%v", tC.idxs[i], idx.Key[0])
+				for _, idxDoc := range idxDocs {
+					if _, ok := tC.idxs[idxDoc.Key[0].Key]; !ok {
+						t.Errorf("wrong key: %v", idxDoc.Key[0])
 					}
 				}
 			})
