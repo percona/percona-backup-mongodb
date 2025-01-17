@@ -3,6 +3,7 @@ package oplog
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"testing"
 
@@ -17,29 +18,30 @@ var mClient *mongo.Client
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:7.0")
+	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:8.0.4-multi")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error while creating mongo test container: %v", err)
-		return
+		log.Fatalf("error while creating mongo test container: %v", err)
 	}
-	defer func() {
-		if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to terminate container: %s", err)
-		}
-	}()
-
 	connStr, err := mongodbContainer.ConnectionString(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "conn string error: %v", err)
-		return
+		log.Fatalf("conn string error: %v", err)
 	}
 	mClient, err = mongo.Connect(ctx, options.Client().ApplyURI(connStr))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mongo client connect error: %v", err)
-		return
+		log.Fatalf("mongo client connect error: %v", err)
 	}
 
-	m.Run()
+	code := m.Run()
+
+	err = mClient.Disconnect(ctx)
+	if err != nil {
+		log.Fatalf("mongo client disconnect error: %v", err)
+	}
+	if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
+		log.Fatalf("failed to terminate container: %s", err)
+	}
+
+	os.Exit(code)
 }
 
 func TestGetUUIDForNSv2(t *testing.T) {
