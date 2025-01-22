@@ -2,19 +2,20 @@ package s3
 
 import (
 	"container/heap"
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"fmt"
 	"io"
-	"net/http"
 	"path"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -188,7 +189,7 @@ type partReader struct {
 	written   int64
 	chunkSize int64
 
-	getSess func() (*s3.S3, error)
+	getSess func() (*s3.Client, error)
 	l       log.LogEvent
 	opts    *Config
 	buf     []byte // preallocated buf for io.Copy
@@ -207,13 +208,13 @@ func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader
 		fname:     fname,
 		fsize:     fsize,
 		chunkSize: int64(chunkSize),
-		getSess: func() (*s3.S3, error) {
-			sess, err := s.s3session()
+		getSess: func() (*s3.Client, error) {
+			cli, err := s.s3client()
 			if err != nil {
 				return nil, err
 			}
-			sess.Client.Config.HTTPClient.Timeout = time.Second * 60
-			return sess, nil
+			//sess.Client.Config.HTTPClient.Timeout = time.Second * 60
+			return cli, nil
 		},
 	}
 }
@@ -379,7 +380,7 @@ func (pr *partReader) worker(buf *arena) {
 	}
 }
 
-func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries int) (io.ReadCloser, error) {
+func (pr *partReader) retryChunk(buf *arena, s *s3.Client, start, end int64, retries int) (io.ReadCloser, error) {
 	var r io.ReadCloser
 	var err error
 
@@ -402,7 +403,7 @@ func (pr *partReader) retryChunk(buf *arena, s *s3.S3, start, end int64, retries
 	return nil, err
 }
 
-func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadCloser, error) {
+func (pr *partReader) tryChunk(buf *arena, s *s3.Client, start, end int64) (io.ReadCloser, error) {
 	// just quickly retry w/o new session in case of fail.
 	// more sophisticated retry on a caller side.
 	const retry = 2
@@ -425,7 +426,7 @@ func (pr *partReader) tryChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 	return nil, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", start, end, pr.fsize, retry)
 }
 
-func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadCloser, error) {
+func (pr *partReader) getChunk(buf *arena, s *s3.Client, start, end int64) (io.ReadCloser, error) {
 	getObjOpts := &s3.GetObjectInput{
 		Bucket: aws.String(pr.opts.Bucket),
 		Key:    aws.String(path.Join(pr.opts.Prefix, pr.fname)),
@@ -444,12 +445,13 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 		getObjOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
-	s3obj, err := s.GetObject(getObjOpts)
+	s3obj, err := s.GetObject(context.TODO(), getObjOpts)
 	if err != nil {
 		// if object size is undefined, we would read
 		// until HTTP code 416 (Requested Range Not Satisfiable)
-		rerr, ok := err.(awserr.RequestFailure) //nolint:errorlint
-		if ok && rerr.StatusCode() == http.StatusRequestedRangeNotSatisfiable {
+		// TODO: better handling
+		msg := err.Error()
+		if strings.Contains(msg, "416") {
 			return nil, io.EOF
 		}
 
@@ -459,8 +461,8 @@ func (pr *partReader) getChunk(buf *arena, s *s3.S3, start, end int64) (io.ReadC
 	defer s3obj.Body.Close()
 
 	if sse != nil {
-		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-			s3obj.ServerSideEncryption = aws.String(sse.SseAlgorithm)
+		if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
+			s3obj.ServerSideEncryption = types.ServerSideEncryptionAwsKms
 			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
 			s3obj.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
