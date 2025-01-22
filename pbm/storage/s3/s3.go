@@ -6,8 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
-	"github.com/aws/smithy-go/logging"
+
 	"io"
 	"maps"
 	"net/http"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	aws2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	v2credentials "github.com/aws/aws-sdk-go-v2/credentials"
 	v2stscreds "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
@@ -569,9 +569,12 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 		})
 	*/
 
-	if s.log != nil {
-		cfgOpts = append(cfgOpts, config.WithLogger(awsLogger{l: s.log}))
-	}
+	// TODO: implement logger
+	/*
+		if s.log != nil {
+			cfgOpts = append(cfgOpts, config.WithLogger(awsLogger{l: s.log}))
+		}
+	*/
 
 	if s.opts.Retryer != nil {
 		customRetryer := func() aws2.Retryer {
@@ -625,7 +628,7 @@ type awsLogger struct {
 	l log.LogEvent
 }
 
-func (a awsLogger) Logf(_ logging.Classification, _ string, xs ...interface{}) {
+func (a awsLogger) Logf(_ string, xs ...interface{}) {
 	if a.l == nil {
 		return
 	}
