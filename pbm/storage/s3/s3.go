@@ -1,10 +1,13 @@
 package s3
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"github.com/aws/smithy-go/logging"
 	"io"
 	"maps"
 	"net/http"
@@ -15,17 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/client"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/defaults"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/aws/aws-sdk-go/service/sts"
+	aws2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	v2credentials "github.com/aws/aws-sdk-go-v2/credentials"
+	v2stscreds "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	s3v2 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	stsv2 "github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -34,9 +34,9 @@ import (
 
 const (
 	// GCSEndpointURL is the endpoint url for Google Clound Strage service
-	GCSEndpointURL = "storage.googleapis.com"
-
-	defaultS3Region = "us-east-1"
+	GCSEndpointURL        = "storage.googleapis.com"
+	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
+	defaultS3Region       = "us-east-1"
 )
 
 //nolint:lll
@@ -51,7 +51,7 @@ type Config struct {
 	Credentials          Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
 	ServerSideEncryption *AWSsse           `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 	UploadPartSize       int               `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
-	MaxUploadParts       int               `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	MaxUploadParts       int32             `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 	StorageClass         string            `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
@@ -94,27 +94,6 @@ const (
 	RequestErrors   SDKDebugLogLevel = "RequestErrors"
 	EventStreamBody SDKDebugLogLevel = "EventStreamBody"
 )
-
-// SDKLogLevel returns the appropriate AWS SDK debug logging level. If the level
-// is not recognized, returns aws.LogLevelType(0)
-func (l SDKDebugLogLevel) SDKLogLevel() aws.LogLevelType {
-	switch l {
-	case LogDebug:
-		return aws.LogDebug
-	case Signing:
-		return aws.LogDebugWithSigning
-	case HTTPBody:
-		return aws.LogDebugWithHTTPBody
-	case RequestRetries:
-		return aws.LogDebugWithRequestRetries
-	case RequestErrors:
-		return aws.LogDebugWithRequestErrors
-	case EventStreamBody:
-		return aws.LogDebugWithEventStreamBody
-	}
-
-	return aws.LogLevelType(0)
-}
 
 type AWSsse struct {
 	// Used to specify the SSE algorithm used when keys are managed by the server
@@ -203,21 +182,24 @@ func (cfg *Config) Cast() error {
 		cfg.Region = defaultS3Region
 	}
 	if cfg.ForcePathStyle == nil {
-		cfg.ForcePathStyle = aws.Bool(true)
+		trueVal := true
+		cfg.ForcePathStyle = &trueVal
 	}
 	if cfg.MaxUploadParts <= 0 {
-		cfg.MaxUploadParts = s3manager.MaxUploadParts
+		cfg.MaxUploadParts = manager.MaxUploadParts
 	}
 	if cfg.StorageClass == "" {
-		cfg.StorageClass = s3.StorageClassStandard
+		cfg.StorageClass = string(types.StorageClassStandard)
 	}
 
 	if cfg.Retryer != nil {
 		if cfg.Retryer.MinRetryDelay == 0 {
-			cfg.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
+			//cfg.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
+			cfg.Retryer.MinRetryDelay = 30 * time.Millisecond
 		}
 		if cfg.Retryer.MaxRetryDelay == 0 {
-			cfg.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
+			//cfg.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
+			cfg.Retryer.MaxRetryDelay = 300 * time.Second
 		}
 	}
 
@@ -241,12 +223,13 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 //
 // If the string is incorrect formatted, prints warnings to the io.Writer.
 // Passing nil as the io.Writer will discard any warnings.
-func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
+func SDKLogLevel(levels string, out io.Writer) aws2.ClientLogMode {
 	if out == nil {
 		out = io.Discard
 	}
 
-	var logLevel aws.LogLevelType
+	//var logLevel aws.LogLevelType
+	var logLevel aws2.ClientLogMode
 
 	for _, lvl := range strings.Split(levels, ",") {
 		lvl = strings.TrimSpace(lvl)
@@ -254,17 +237,13 @@ func SDKLogLevel(levels string, out io.Writer) aws.LogLevelType {
 			continue
 		}
 
-		l := SDKDebugLogLevel(lvl).SDKLogLevel()
+		l := toClientLogMode(lvl)
 		if l == 0 {
 			fmt.Fprintf(out, "Warning: S3 client debug log level: unsupported %q\n", lvl)
 			continue
 		}
 
 		logLevel |= l
-	}
-
-	if logLevel == 0 {
-		logLevel = aws.LogOff
 	}
 
 	return logLevel
@@ -282,19 +261,19 @@ type Credentials struct {
 }
 
 type S3 struct {
-	opts *Config
-	node string
-	log  log.LogEvent
-	s3s  *s3.S3
+	opts  *Config
+	node  string
+	log   log.LogEvent
+	s3cli *s3v2.Client
 
 	d *Download // default downloader for small files
 }
 
 func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
-	err := opts.Cast()
-	if err != nil {
+	if err := opts.Cast(); err != nil {
 		return nil, errors.Wrap(err, "cast options")
 	}
+
 	if l == nil {
 		l = log.DiscardEvent
 	}
@@ -305,10 +284,11 @@ func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
 		node: node,
 	}
 
-	s.s3s, err = s.s3session()
+	cli, err := s.s3client()
 	if err != nil {
 		return nil, errors.Wrap(err, "AWS session")
 	}
+	s.s3cli = cli
 
 	s.d = &Download{
 		s3:       s,
@@ -320,45 +300,46 @@ func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
 	return s, nil
 }
 
-const defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
-
 func (*S3) Type() storage.Type {
 	return storage.S3
 }
 
 func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
-	awsSession, err := s.session()
-	if err != nil {
-		return errors.Wrap(err, "create AWS session")
-	}
 	cc := runtime.NumCPU() / 2
 	if cc == 0 {
 		cc = 1
 	}
 
-	uplInput := &s3manager.UploadInput{
-		Bucket:       aws.String(s.opts.Bucket),
-		Key:          aws.String(path.Join(s.opts.Prefix, name)),
+	putInput := &s3v2.PutObjectInput{
+		Bucket:       aws2.String(s.opts.Bucket),
+		Key:          aws2.String(path.Join(s.opts.Prefix, name)),
 		Body:         data,
-		StorageClass: &s.opts.StorageClass,
+		StorageClass: types.StorageClass(s.opts.StorageClass),
 	}
 
 	sse := s.opts.ServerSideEncryption
 	if sse != nil {
-		if sse.SseAlgorithm == s3.ServerSideEncryptionAes256 {
-			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-		} else if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-			uplInput.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-			uplInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		switch sse.SseAlgorithm {
+		case string(types.ServerSideEncryptionAes256):
+		//
+		case string(types.ServerSideEncryptionAwsKms):
+			//
+		}
+
+		if sse.SseAlgorithm == string(types.ServerSideEncryptionAes256) {
+			putInput.ServerSideEncryption = types.ServerSideEncryptionAes256
+		} else if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
+			putInput.ServerSideEncryption = types.ServerSideEncryptionAwsKms
+			putInput.SSEKMSKeyId = aws2.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
-			uplInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+			putInput.SSECustomerAlgorithm = aws2.String(sse.SseCustomerAlgorithm)
 			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-			uplInput.SSECustomerKey = aws.String(string(decodedKey))
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
+			putInput.SSECustomerKey = aws2.String(string(decodedKey))
 			keyMD5 := md5.Sum(decodedKey)
-			uplInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+			putInput.SSECustomerKeyMD5 = aws2.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
 	}
 
@@ -370,14 +351,14 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 	// with the UploadPartSize set the calculated PartSize woulbe used if it's bigger.
 	partSize := defaultPartSize
 	if s.opts.UploadPartSize > 0 {
-		if s.opts.UploadPartSize < int(s3manager.MinUploadPartSize) {
-			s.opts.UploadPartSize = int(s3manager.MinUploadPartSize)
+		if s.opts.UploadPartSize < int(manager.MinUploadPartSize) {
+			s.opts.UploadPartSize = int(manager.MinUploadPartSize)
 		}
 
 		partSize = int64(s.opts.UploadPartSize)
 	}
 	if sizeb > 0 {
-		ps := sizeb / s3manager.MaxUploadParts * 11 / 10 // add 10% just in case
+		ps := sizeb / int64(manager.MaxUploadParts) * 11 / 10 // add 10% just in case
 		if ps > partSize {
 			partSize = ps
 		}
@@ -392,90 +373,84 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 			storage.PrettySize(partSize))
 	}
 
-	_, err = s3manager.NewUploader(awsSession, func(u *s3manager.Uploader) {
+	_, err := manager.NewUploader(s.s3cli, func(u *manager.Uploader) {
 		u.MaxUploadParts = s.opts.MaxUploadParts
 		u.PartSize = partSize      // 10MB part size
 		u.LeavePartsOnError = true // Don't delete the parts if the upload fails.
 		u.Concurrency = cc
+	}).Upload(context.TODO(), putInput)
 
-		u.RequestOptions = append(u.RequestOptions, func(r *request.Request) {
-			if s.opts.Retryer != nil {
-				r.Retryer = client.DefaultRetryer{
-					NumMaxRetries: s.opts.Retryer.NumMaxRetries,
-					MinRetryDelay: s.opts.Retryer.MinRetryDelay,
-					MaxRetryDelay: s.opts.Retryer.MaxRetryDelay,
-				}
-			}
-		})
-	}).Upload(uplInput)
 	return errors.Wrap(err, "upload to S3")
 }
 
 func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
+	ctx := context.TODO()
+
 	prfx := path.Join(s.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
 		prfx += "/"
 	}
 
-	lparams := &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.opts.Bucket),
+	lparams := &s3v2.ListObjectsV2Input{
+		Bucket: aws2.String(s.opts.Bucket),
 	}
 
 	if prfx != "" {
-		lparams.Prefix = aws.String(prfx)
+		lparams.Prefix = aws2.String(prfx)
 	}
 
 	var files []storage.FileInfo
-	err := s.s3s.ListObjectsV2Pages(lparams,
-		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
-			for _, o := range page.Contents {
-				f := aws.StringValue(o.Key)
-				f = strings.TrimPrefix(f, aws.StringValue(lparams.Prefix))
-				if len(f) == 0 {
-					continue
-				}
-				if f[0] == '/' {
-					f = f[1:]
-				}
+	paginator := s3v2.NewListObjectsV2Paginator(s.s3cli, lparams)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "list objects pagination")
+		}
 
-				if strings.HasSuffix(f, suffix) {
-					files = append(files, storage.FileInfo{
-						Name: f,
-						Size: aws.Int64Value(o.Size),
-					})
-				}
+		for _, obj := range page.Contents {
+			f := aws2.ToString(obj.Key)
+			f = strings.TrimPrefix(f, prfx)
+			if len(f) == 0 {
+				continue
 			}
-			return true
-		})
-	if err != nil {
-		return nil, err
+			if f[0] == '/' {
+				f = f[1:]
+			}
+
+			if strings.HasSuffix(f, suffix) {
+				files = append(files, storage.FileInfo{
+					Name: f,
+					Size: *obj.Size,
+				})
+			}
+		}
 	}
 
 	return files, nil
 }
 
 func (s *S3) Copy(src, dst string) error {
-	copyOpts := &s3.CopyObjectInput{
-		Bucket:     aws.String(s.opts.Bucket),
-		CopySource: aws.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
-		Key:        aws.String(path.Join(s.opts.Prefix, dst)),
+	copyOpts := &s3v2.CopyObjectInput{
+		Bucket:     aws2.String(s.opts.Bucket),
+		CopySource: aws2.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
+		Key:        aws2.String(path.Join(s.opts.Prefix, dst)),
 	}
 
 	sse := s.opts.ServerSideEncryption
 	if sse != nil {
-		if sse.SseAlgorithm == s3.ServerSideEncryptionAwsKms {
-			copyOpts.ServerSideEncryption = aws.String(sse.SseAlgorithm)
-			copyOpts.SSEKMSKeyId = aws.String(sse.KmsKeyID)
+		if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
+			copyOpts.ServerSideEncryption = types.ServerSideEncryptionAwsKms
+			copyOpts.SSEKMSKeyId = aws2.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
-			copyOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+			copyOpts.SSECustomerAlgorithm = aws2.String(sse.SseCustomerAlgorithm)
 			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-			copyOpts.SSECustomerKey = aws.String(string(decodedKey))
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
+			copyOpts.SSECustomerKey = aws2.String(string(decodedKey))
 			keyMD5 := md5.Sum(decodedKey)
-			copyOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+			copyOpts.SSECustomerKeyMD5 = aws2.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 
 			copyOpts.CopySourceSSECustomerAlgorithm = copyOpts.SSECustomerAlgorithm
 			copyOpts.CopySourceSSECustomerKey = copyOpts.SSECustomerKey
@@ -483,7 +458,7 @@ func (s *S3) Copy(src, dst string) error {
 		}
 	}
 
-	_, err := s.s3s.CopyObject(copyOpts)
+	_, err := s.s3cli.CopyObject(context.TODO(), copyOpts)
 
 	return err
 }
@@ -491,39 +466,40 @@ func (s *S3) Copy(src, dst string) error {
 func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
-	headOpts := &s3.HeadObjectInput{
-		Bucket: aws.String(s.opts.Bucket),
-		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+	headOpts := &s3v2.HeadObjectInput{
+		Bucket: aws2.String(s.opts.Bucket),
+		Key:    aws2.String(path.Join(s.opts.Prefix, name)),
 	}
 
 	sse := s.opts.ServerSideEncryption
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
-		headOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
+		headOpts.SSECustomerAlgorithm = aws2.String(sse.SseCustomerAlgorithm)
 		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		headOpts.SSECustomerKey = aws.String(string(decodedKey))
+		headOpts.SSECustomerKey = aws2.String(string(decodedKey))
 		if err != nil {
 			return inf, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
 		keyMD5 := md5.Sum(decodedKey)
-		headOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+		headOpts.SSECustomerKeyMD5 = aws2.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
-	h, err := s.s3s.HeadObject(headOpts)
+	h, err := s.s3cli.HeadObject(context.TODO(), headOpts)
 	if err != nil {
-		//nolint:errorlint
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NotFound" {
+		var noSuchKeyErr *types.NoSuchKey
+		if errors.As(err, &noSuchKeyErr) {
 			return inf, storage.ErrNotExist
 		}
 
 		return inf, errors.Wrap(err, "get S3 object header")
 	}
 	inf.Name = name
-	inf.Size = aws.Int64Value(h.ContentLength)
+	inf.Size = *h.ContentLength
 
 	if inf.Size == 0 {
 		return inf, storage.ErrEmpty
 	}
-	if aws.BoolValue(h.DeleteMarker) {
+
+	if h.DeleteMarker != nil && *h.DeleteMarker {
 		return inf, errors.New("file has delete marker")
 	}
 
@@ -533,65 +509,26 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
-	_, err := s.s3s.DeleteObject(&s3.DeleteObjectInput{
-		Bucket: aws.String(s.opts.Bucket),
-		Key:    aws.String(path.Join(s.opts.Prefix, name)),
+	// no longer raise error if it does not exist
+	// TODO: update
+
+	_, err := s.s3cli.DeleteObject(context.TODO(), &s3v2.DeleteObjectInput{
+		Bucket: aws2.String(s.opts.Bucket),
+		Key:    aws2.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
-		//nolint:errorlint
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == s3.ErrCodeNoSuchKey {
+		var noSuchKeyErr *types.NoSuchKey
+		if errors.As(err, &noSuchKeyErr) {
 			return storage.ErrNotExist
 		}
+
 		return errors.Wrapf(err, "delete '%s/%s' file from S3", s.opts.Bucket, name)
 	}
 
 	return nil
 }
 
-func (s *S3) s3session() (*s3.S3, error) {
-	sess, err := s.session()
-	if err != nil {
-		return nil, errors.Wrap(err, "create aws session")
-	}
-
-	return s3.New(sess), nil
-}
-
-func (s *S3) session() (*session.Session, error) {
-	var providers []credentials.Provider
-
-	// if we have credentials, set them first in the providers list
-	if s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != "" {
-		providers = append(providers, &credentials.StaticProvider{Value: credentials.Value{
-			AccessKeyID:     s.opts.Credentials.AccessKeyID,
-			SecretAccessKey: s.opts.Credentials.SecretAccessKey,
-			SessionToken:    s.opts.Credentials.SessionToken,
-		}})
-	}
-
-	awsSession, err := session.NewSession()
-	if err != nil {
-		return nil, errors.Wrap(err, "new session")
-	}
-
-	// allow fetching credentials from env variables and ec2 metadata endpoint
-	providers = append(providers, &credentials.EnvProvider{})
-
-	// If defined, IRSA-related credentials should have the priority over any potential role attached to the EC2.
-	awsRoleARN := os.Getenv("AWS_ROLE_ARN")
-	awsTokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
-
-	if awsRoleARN != "" && awsTokenFile != "" {
-		tokenFetcher := stscreds.FetchTokenPath(awsTokenFile)
-
-		providers = append(providers, stscreds.NewWebIdentityRoleProviderWithOptions(
-			sts.New(awsSession),
-			awsRoleARN,
-			"",
-			tokenFetcher,
-		))
-	}
-
+func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 	httpClient := &http.Client{}
 	if s.opts.InsecureSkipTLSVerify {
 		httpClient = &http.Client{
@@ -601,38 +538,168 @@ func (s *S3) session() (*session.Session, error) {
 		}
 	}
 
-	cfg := &aws.Config{
-		Region:           aws.String(s.opts.Region),
-		Endpoint:         aws.String(s.opts.resolveEndpointURL(s.node)),
-		S3ForcePathStyle: s.opts.ForcePathStyle,
-		HTTPClient:       httpClient,
-		LogLevel:         aws.LogLevel(SDKLogLevel(s.opts.DebugLogLevels, nil)),
-		Logger:           awsLogger(s.log),
+	cfgOpts := []func(*config.LoadOptions) error{
+		config.WithRegion(s.opts.Region),
+		config.WithHTTPClient(httpClient),
+		config.WithClientLogMode(toClientLogMode(s.opts.DebugLogLevels)),
 	}
 
-	// fetch credentials from remote endpoints like EC2 or ECS roles
-	providers = append(providers, defaults.RemoteCredProvider(*cfg, defaults.Handlers()))
+	endpointURL := s.opts.resolveEndpointURL(s.node)
+	if endpointURL != "" {
+		cfgOpts = append(cfgOpts, config.WithEndpointResolver(
+			aws2.EndpointResolverFunc(func(service, region string) (aws2.Endpoint, error) {
+				return aws2.Endpoint{
+					URL:               endpointURL,
+					SigningRegion:     s.opts.Region,
+					HostnameImmutable: true,
+				}, nil
+			}),
+		))
+	}
 
-	cfg.Credentials = credentials.NewChainCredentials(providers)
+	/*
+		usePathStyle := false
+		if s.opts.ForcePathStyle != nil {
+			usePathStyle = *s.opts.ForcePathStyle
+		}
 
-	return session.NewSession(cfg)
+		cfgOpts = append(cfgOpts, func(lo *config.LoadOptions) error {
+			lo.UsePathStyle = usePathStyle
+			return nil
+		})
+	*/
+
+	if s.log != nil {
+		cfgOpts = append(cfgOpts, config.WithLogger(awsLogger{l: s.log}))
+	}
+
+	if s.opts.Retryer != nil {
+		customRetryer := func() aws2.Retryer {
+			return retry.NewStandard(func(o *retry.StandardOptions) {
+				// v2 MaxAttempts includes the first try
+				o.MaxAttempts = s.opts.Retryer.NumMaxRetries + 1
+				// TODO: determine Backoff based on MinRetryDelay and MaxRetryDelay
+			})
+		}
+		cfgOpts = append(cfgOpts, config.WithRetryer(customRetryer))
+	}
+
+	if s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != "" {
+		staticProv := v2credentials.NewStaticCredentialsProvider(
+			s.opts.Credentials.AccessKeyID,
+			s.opts.Credentials.SecretAccessKey,
+			s.opts.Credentials.SessionToken,
+		)
+		cfgOpts = append(cfgOpts, config.WithCredentialsProvider(staticProv))
+	}
+
+	return cfgOpts
 }
 
-func awsLogger(l log.LogEvent) aws.Logger {
-	if l == nil {
-		return aws.NewDefaultLogger()
+func (s *S3) s3client() (*s3v2.Client, error) {
+	ctx := context.TODO()
+
+	cfgOpts := s.buildLoadOptions()
+
+	cfg, err := config.LoadDefaultConfig(ctx, cfgOpts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "load default config")
 	}
 
-	return aws.LoggerFunc(func(xs ...interface{}) {
-		if len(xs) == 0 {
-			return
-		}
+	// If defined, IRSA-related credentials should have the priority over any potential role attached to the EC2.
+	awsRoleARN := os.Getenv("AWS_ROLE_ARN")
+	awsTokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
 
-		msg := "%v"
-		for i := len(xs) - 1; i != 0; i++ {
-			msg += " %v"
-		}
+	if awsRoleARN != "" && awsTokenFile != "" {
+		stsClient := stsv2.NewFromConfig(cfg)
+		webRole := v2stscreds.NewWebIdentityRoleProvider(
+			stsClient, awsRoleARN, v2stscreds.IdentityTokenFile(awsTokenFile),
+		)
+		cfg.Credentials = aws2.NewCredentialsCache(webRole)
+	}
 
-		l.Debug(msg, xs...)
-	})
+	return s3v2.NewFromConfig(cfg), nil
+}
+
+type awsLogger struct {
+	l log.LogEvent
+}
+
+func (a awsLogger) Logf(_ logging.Classification, _ string, xs ...interface{}) {
+	if a.l == nil {
+		return
+	}
+
+	if len(xs) == 0 {
+		return
+	}
+
+	msg := "%v"
+	for i := len(xs) - 1; i > 0; i-- {
+		msg += " %v"
+	}
+
+	a.l.Debug(msg, xs...)
+}
+
+func toClientLogMode(levels string) aws2.ClientLogMode {
+	var mode aws2.ClientLogMode
+	items := strings.Split(levels, ",")
+
+	for _, item := range items {
+		flag := strings.TrimSpace(item)
+
+		switch flag {
+		case "Signing":
+			// v1 had "LogDebugWithSigning"
+			mode |= aws2.LogSigning
+
+		case "Retries":
+			mode |= aws2.LogRetries
+
+		case "Request":
+			mode |= aws2.LogRequest
+
+		case "RequestWithBody":
+			mode |= aws2.LogRequestWithBody
+
+		case "Response":
+			mode |= aws2.LogResponse
+
+		case "ResponseWithBody":
+			mode |= aws2.LogResponseWithBody
+
+		case "DeprecatedUsage":
+			mode |= aws2.LogDeprecatedUsage
+
+		case "RequestEventMessage":
+			mode |= aws2.LogRequestEventMessage
+
+		case "ResponseEventMessage":
+			mode |= aws2.LogResponseEventMessage
+
+		// Mapping deprecated flags from v1 for backwards compatibility
+		case "LogDebug":
+			// v1 had "LogDebug"
+			mode |= aws2.LogRequest | aws2.LogResponse
+
+		case "HTTPBody":
+			// v1 had "LogDebugWithHTTPBody"
+			mode |= aws2.LogRequestWithBody | aws2.LogResponseWithBody
+
+		case "RequestRetries":
+			// v1 had "LogDebugWithRequestRetries"
+			mode |= aws2.LogRetries
+
+		case "RequestErrors":
+			// v1 had "LogDebugWithRequestErrors"
+			mode |= aws2.LogResponse
+
+		case "EventStreamBody":
+			// v1 had "LogDebugWithEventStreamBody"
+			mode |= aws2.LogRequestWithBody | aws2.LogResponseWithBody
+		}
+	}
+
+	return mode
 }
