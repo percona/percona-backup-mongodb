@@ -101,7 +101,7 @@ func setRootFlags(rootCmd *cobra.Command) {
 	rootCmd.Flags().Int("dump-parallel-collections", 0, "Number of collections to dump in parallel")
 	_ = viper.BindPFlag("backup.dump-parallel-collections", rootCmd.Flags().Lookup("dump-parallel-collections"))
 	_ = viper.BindEnv("backup.dump-parallel-collections", "PBM_DUMP_PARALLEL_COLLECTIONS")
-	viper.SetDefault("backup.dump-parallel-collections", runtime.NumCPU()/2)
+	viper.SetDefault("backup.dump-parallel-collections", max(runtime.NumCPU()/2, 1))
 
 	rootCmd.Flags().String("log-path", "", "Path to file")
 	_ = viper.BindPFlag("log.path", rootCmd.Flags().Lookup("log-path"))

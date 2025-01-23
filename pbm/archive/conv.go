@@ -62,7 +62,7 @@ func GenerateV1FromV2(ctx context.Context, stg storage.Storage, bcp, rs string) 
 func convertMetaToV1(metaV2 *ArchiveMetaV2) (*archiveMeta, error) {
 	metaV1 := &archiveMeta{
 		Header: &mtArchive.Header{
-			ConcurrentCollections: int32(runtime.NumCPU() / 2),
+			ConcurrentCollections: int32(max(runtime.NumCPU()/2, 1)),
 
 			FormatVersion: "0.1",
 			ServerVersion: metaV2.ServerVersion,
