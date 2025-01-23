@@ -105,7 +105,7 @@ func NewBackup(ctx context.Context, options BackupOptions) (*backupImpl, error) 
 		newFile:     options.NewFile,
 		nsFilter:    DefaultNSFilter,
 		docFilter:   DefaultDocFilter,
-		concurrency: runtime.NumCPU() / 2,
+		concurrency: max(runtime.NumCPU()/2, 1),
 	}
 
 	if options.NSFilter != nil {
