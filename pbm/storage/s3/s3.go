@@ -87,8 +87,17 @@ type Retryer struct {
 type SDKDebugLogLevel string
 
 const (
+	Signing              SDKDebugLogLevel = "Signing"
+	Retries              SDKDebugLogLevel = "Retries"
+	Request              SDKDebugLogLevel = "Request"
+	RequestWithBody      SDKDebugLogLevel = "RequestWithBody"
+	Response             SDKDebugLogLevel = "Response"
+	ResponseWithBody     SDKDebugLogLevel = "ResponseWithBody"
+	DeprecatedUsage      SDKDebugLogLevel = "DeprecatedUsage"
+	RequestEventMessage  SDKDebugLogLevel = "RequestEventMessage"
+	ResponseEventMessage SDKDebugLogLevel = "ResponseEventMessage"
+
 	LogDebug        SDKDebugLogLevel = "LogDebug"
-	Signing         SDKDebugLogLevel = "Signing"
 	HTTPBody        SDKDebugLogLevel = "HTTPBody"
 	RequestRetries  SDKDebugLogLevel = "RequestRetries"
 	RequestErrors   SDKDebugLogLevel = "RequestErrors"
@@ -557,18 +566,6 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 		))
 	}
 
-	/*
-		usePathStyle := false
-		if s.opts.ForcePathStyle != nil {
-			usePathStyle = *s.opts.ForcePathStyle
-		}
-
-		cfgOpts = append(cfgOpts, func(lo *config.LoadOptions) error {
-			lo.UsePathStyle = usePathStyle
-			return nil
-		})
-	*/
-
 	// TODO: implement logger
 	/*
 		if s.log != nil {
@@ -621,7 +618,9 @@ func (s *S3) s3client() (*s3v2.Client, error) {
 		cfg.Credentials = aws2.NewCredentialsCache(webRole)
 	}
 
-	return s3v2.NewFromConfig(cfg), nil
+	return s3v2.NewFromConfig(cfg, func(o *s3v2.Options) {
+		o.UsePathStyle = *s.opts.ForcePathStyle
+	}), nil
 }
 
 type awsLogger struct {
