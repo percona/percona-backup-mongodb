@@ -213,7 +213,7 @@ func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *partReader
 			if err != nil {
 				return nil, err
 			}
-			//sess.Client.Config.HTTPClient.Timeout = time.Second * 60
+			// sess.Client.Config.HTTPClient.Timeout = time.Second * 60
 			return cli, nil
 		},
 	}

@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
-
 	"io"
 	"maps"
 	"net/http"
@@ -203,11 +202,11 @@ func (cfg *Config) Cast() error {
 
 	if cfg.Retryer != nil {
 		if cfg.Retryer.MinRetryDelay == 0 {
-			//cfg.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
+			// cfg.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
 			cfg.Retryer.MinRetryDelay = 30 * time.Millisecond
 		}
 		if cfg.Retryer.MaxRetryDelay == 0 {
-			//cfg.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
+			// cfg.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
 			cfg.Retryer.MaxRetryDelay = 300 * time.Second
 		}
 	}
@@ -237,7 +236,6 @@ func SDKLogLevel(levels string, out io.Writer) aws2.ClientLogMode {
 		out = io.Discard
 	}
 
-	//var logLevel aws.LogLevelType
 	var logLevel aws2.ClientLogMode
 
 	for _, lvl := range strings.Split(levels, ",") {
