@@ -25,6 +25,7 @@ import (
 	s3v2 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	stsv2 "github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go/logging"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -567,12 +568,9 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 		))
 	}
 
-	// TODO: implement logger
-	/*
-		if s.log != nil {
-			cfgOpts = append(cfgOpts, config.WithLogger(awsLogger{l: s.log}))
-		}
-	*/
+	if s.log != nil {
+		cfgOpts = append(cfgOpts, config.WithLogger(awsLogger{l: s.log}))
+	}
 
 	if s.opts.Retryer != nil {
 		customRetryer := func() aws2.Retryer {
@@ -628,7 +626,7 @@ type awsLogger struct {
 	l log.LogEvent
 }
 
-func (a awsLogger) Logf(_ string, xs ...interface{}) {
+func (a awsLogger) Logf(_ logging.Classification, _ string, xs ...interface{}) {
 	if a.l == nil {
 		return
 	}
