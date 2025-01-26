@@ -327,13 +327,6 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 
 	sse := s.opts.ServerSideEncryption
 	if sse != nil {
-		switch sse.SseAlgorithm {
-		case string(types.ServerSideEncryptionAes256):
-		//
-		case string(types.ServerSideEncryptionAwsKms):
-			//
-		}
-
 		if sse.SseAlgorithm == string(types.ServerSideEncryptionAes256) {
 			putInput.ServerSideEncryption = types.ServerSideEncryptionAes256
 		} else if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
