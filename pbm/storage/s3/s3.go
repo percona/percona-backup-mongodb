@@ -557,15 +557,7 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 
 	endpointURL := s.opts.resolveEndpointURL(s.node)
 	if endpointURL != "" {
-		cfgOpts = append(cfgOpts, config.WithEndpointResolver(
-			aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:               endpointURL,
-					SigningRegion:     s.opts.Region,
-					HostnameImmutable: true,
-				}, nil
-			}),
-		))
+		cfgOpts = append(cfgOpts, config.WithBaseEndpoint(endpointURL))
 	}
 
 	if s.log != nil {
