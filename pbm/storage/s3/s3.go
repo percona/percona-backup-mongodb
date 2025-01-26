@@ -502,7 +502,6 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 		if errors.As(err, &notFoundErr) {
 			return inf, storage.ErrNotExist
 		}
-		
 		return inf, errors.Wrap(err, "get S3 object header")
 	}
 	inf.Name = name
