@@ -7,15 +7,16 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net/http"
 	"path"
 	"runtime"
-	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -449,9 +450,8 @@ func (pr *partReader) getChunk(buf *arena, s *s3.Client, start, end int64) (io.R
 	if err != nil {
 		// if object size is undefined, we would read
 		// until HTTP code 416 (Requested Range Not Satisfiable)
-		// TODO: better handling
-		msg := err.Error()
-		if strings.Contains(msg, "416") {
+		var re *smithyhttp.ResponseError
+		if errors.As(err, &re) && re.Err != nil && re.Response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 			return nil, io.EOF
 		}
 
