@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.50
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.73.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.8
+	github.com/aws/smithy-go v1.22.1
 	github.com/docker/docker v27.1.1+incompatible
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/golang/snappy v0.0.4
@@ -47,7 +48,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.18.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.24.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.9 // indirect
-	github.com/aws/smithy-go v1.22.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/containerd/containerd v1.7.18 // indirect
 	github.com/containerd/log v0.1.0 // indirect
