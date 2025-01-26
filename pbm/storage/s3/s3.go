@@ -16,15 +16,15 @@ import (
 	"strings"
 	"time"
 
-	aws2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
-	v2credentials "github.com/aws/aws-sdk-go-v2/credentials"
-	v2stscreds "github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
-	s3v2 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	stsv2 "github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/logging"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -232,12 +232,12 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 //
 // If the string is incorrect formatted, prints warnings to the io.Writer.
 // Passing nil as the io.Writer will discard any warnings.
-func SDKLogLevel(levels string, out io.Writer) aws2.ClientLogMode {
+func SDKLogLevel(levels string, out io.Writer) aws.ClientLogMode {
 	if out == nil {
 		out = io.Discard
 	}
 
-	var logLevel aws2.ClientLogMode
+	var logLevel aws.ClientLogMode
 
 	for _, lvl := range strings.Split(levels, ",") {
 		lvl = strings.TrimSpace(lvl)
@@ -272,7 +272,7 @@ type S3 struct {
 	opts  *Config
 	node  string
 	log   log.LogEvent
-	s3cli *s3v2.Client
+	s3cli *s3.Client
 
 	d *Download // default downloader for small files
 }
@@ -318,9 +318,9 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		cc = 1
 	}
 
-	putInput := &s3v2.PutObjectInput{
-		Bucket:       aws2.String(s.opts.Bucket),
-		Key:          aws2.String(path.Join(s.opts.Prefix, name)),
+	putInput := &s3.PutObjectInput{
+		Bucket:       aws.String(s.opts.Bucket),
+		Key:          aws.String(path.Join(s.opts.Prefix, name)),
 		Body:         data,
 		StorageClass: types.StorageClass(s.opts.StorageClass),
 	}
@@ -338,16 +338,16 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 			putInput.ServerSideEncryption = types.ServerSideEncryptionAes256
 		} else if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
 			putInput.ServerSideEncryption = types.ServerSideEncryptionAwsKms
-			putInput.SSEKMSKeyId = aws2.String(sse.KmsKeyID)
+			putInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
-			putInput.SSECustomerAlgorithm = aws2.String(sse.SseCustomerAlgorithm)
+			putInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
-			putInput.SSECustomerKey = aws2.String(string(decodedKey))
+			putInput.SSECustomerKey = aws.String(string(decodedKey))
 			keyMD5 := md5.Sum(decodedKey)
-			putInput.SSECustomerKeyMD5 = aws2.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+			putInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
 	}
 
@@ -400,16 +400,16 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		prfx += "/"
 	}
 
-	lparams := &s3v2.ListObjectsV2Input{
-		Bucket: aws2.String(s.opts.Bucket),
+	lparams := &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.opts.Bucket),
 	}
 
 	if prfx != "" {
-		lparams.Prefix = aws2.String(prfx)
+		lparams.Prefix = aws.String(prfx)
 	}
 
 	var files []storage.FileInfo
-	paginator := s3v2.NewListObjectsV2Paginator(s.s3cli, lparams)
+	paginator := s3.NewListObjectsV2Paginator(s.s3cli, lparams)
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
@@ -417,7 +417,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		}
 
 		for _, obj := range page.Contents {
-			f := aws2.ToString(obj.Key)
+			f := aws.ToString(obj.Key)
 			f = strings.TrimPrefix(f, prfx)
 			if len(f) == 0 {
 				continue
@@ -439,26 +439,26 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (s *S3) Copy(src, dst string) error {
-	copyOpts := &s3v2.CopyObjectInput{
-		Bucket:     aws2.String(s.opts.Bucket),
-		CopySource: aws2.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
-		Key:        aws2.String(path.Join(s.opts.Prefix, dst)),
+	copyOpts := &s3.CopyObjectInput{
+		Bucket:     aws.String(s.opts.Bucket),
+		CopySource: aws.String(path.Join(s.opts.Bucket, s.opts.Prefix, src)),
+		Key:        aws.String(path.Join(s.opts.Prefix, dst)),
 	}
 
 	sse := s.opts.ServerSideEncryption
 	if sse != nil {
 		if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
 			copyOpts.ServerSideEncryption = types.ServerSideEncryptionAwsKms
-			copyOpts.SSEKMSKeyId = aws2.String(sse.KmsKeyID)
+			copyOpts.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
-			copyOpts.SSECustomerAlgorithm = aws2.String(sse.SseCustomerAlgorithm)
+			copyOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
-			copyOpts.SSECustomerKey = aws2.String(string(decodedKey))
+			copyOpts.SSECustomerKey = aws.String(string(decodedKey))
 			keyMD5 := md5.Sum(decodedKey)
-			copyOpts.SSECustomerKeyMD5 = aws2.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+			copyOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 
 			copyOpts.CopySourceSSECustomerAlgorithm = copyOpts.SSECustomerAlgorithm
 			copyOpts.CopySourceSSECustomerKey = copyOpts.SSECustomerKey
@@ -474,21 +474,21 @@ func (s *S3) Copy(src, dst string) error {
 func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
-	headOpts := &s3v2.HeadObjectInput{
-		Bucket: aws2.String(s.opts.Bucket),
-		Key:    aws2.String(path.Join(s.opts.Prefix, name)),
+	headOpts := &s3.HeadObjectInput{
+		Bucket: aws.String(s.opts.Bucket),
+		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	}
 
 	sse := s.opts.ServerSideEncryption
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
-		headOpts.SSECustomerAlgorithm = aws2.String(sse.SseCustomerAlgorithm)
+		headOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		headOpts.SSECustomerKey = aws2.String(string(decodedKey))
+		headOpts.SSECustomerKey = aws.String(string(decodedKey))
 		if err != nil {
 			return inf, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
 		keyMD5 := md5.Sum(decodedKey)
-		headOpts.SSECustomerKeyMD5 = aws2.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
+		headOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
 	h, err := s.s3cli.HeadObject(context.TODO(), headOpts)
@@ -523,9 +523,9 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 // v1 - It returns storage.ErrNotExist if a file doesn't exist
 // v2 - No longer returns an error if a file doesn't exist
 func (s *S3) Delete(name string) error {
-	_, err := s.s3cli.DeleteObject(context.TODO(), &s3v2.DeleteObjectInput{
-		Bucket: aws2.String(s.opts.Bucket),
-		Key:    aws2.String(path.Join(s.opts.Prefix, name)),
+	_, err := s.s3cli.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+		Bucket: aws.String(s.opts.Bucket),
+		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
 		var noSuchKeyErr *types.NoSuchKey
@@ -558,8 +558,8 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 	endpointURL := s.opts.resolveEndpointURL(s.node)
 	if endpointURL != "" {
 		cfgOpts = append(cfgOpts, config.WithEndpointResolver(
-			aws2.EndpointResolverFunc(func(service, region string) (aws2.Endpoint, error) {
-				return aws2.Endpoint{
+			aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) {
+				return aws.Endpoint{
 					URL:               endpointURL,
 					SigningRegion:     s.opts.Region,
 					HostnameImmutable: true,
@@ -573,7 +573,7 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 	}
 
 	if s.opts.Retryer != nil {
-		customRetryer := func() aws2.Retryer {
+		customRetryer := func() aws.Retryer {
 			return retry.NewStandard(func(o *retry.StandardOptions) {
 				// v2 MaxAttempts includes the first try
 				o.MaxAttempts = s.opts.Retryer.NumMaxRetries + 1
@@ -584,7 +584,7 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 	}
 
 	if s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != "" {
-		staticProv := v2credentials.NewStaticCredentialsProvider(
+		staticProv := credentials.NewStaticCredentialsProvider(
 			s.opts.Credentials.AccessKeyID,
 			s.opts.Credentials.SecretAccessKey,
 			s.opts.Credentials.SessionToken,
@@ -595,7 +595,7 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 	return cfgOpts
 }
 
-func (s *S3) s3client() (*s3v2.Client, error) {
+func (s *S3) s3client() (*s3.Client, error) {
 	ctx := context.TODO()
 
 	cfgOpts := s.buildLoadOptions()
@@ -610,14 +610,14 @@ func (s *S3) s3client() (*s3v2.Client, error) {
 	awsTokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
 
 	if awsRoleARN != "" && awsTokenFile != "" {
-		stsClient := stsv2.NewFromConfig(cfg)
-		webRole := v2stscreds.NewWebIdentityRoleProvider(
-			stsClient, awsRoleARN, v2stscreds.IdentityTokenFile(awsTokenFile),
+		stsClient := sts.NewFromConfig(cfg)
+		webRole := stscreds.NewWebIdentityRoleProvider(
+			stsClient, awsRoleARN, stscreds.IdentityTokenFile(awsTokenFile),
 		)
-		cfg.Credentials = aws2.NewCredentialsCache(webRole)
+		cfg.Credentials = aws.NewCredentialsCache(webRole)
 	}
 
-	return s3v2.NewFromConfig(cfg, func(o *s3v2.Options) {
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = *s.opts.ForcePathStyle
 	}), nil
 }
@@ -643,8 +643,8 @@ func (a awsLogger) Logf(_ logging.Classification, _ string, xs ...interface{}) {
 	a.l.Debug(msg, xs...)
 }
 
-func toClientLogMode(levels string) aws2.ClientLogMode {
-	var mode aws2.ClientLogMode
+func toClientLogMode(levels string) aws.ClientLogMode {
+	var mode aws.ClientLogMode
 	items := strings.Split(levels, ",")
 
 	for _, item := range items {
@@ -653,52 +653,52 @@ func toClientLogMode(levels string) aws2.ClientLogMode {
 		switch flag {
 		case "Signing":
 			// v1 had "LogDebugWithSigning"
-			mode |= aws2.LogSigning
+			mode |= aws.LogSigning
 
 		case "Retries":
-			mode |= aws2.LogRetries
+			mode |= aws.LogRetries
 
 		case "Request":
-			mode |= aws2.LogRequest
+			mode |= aws.LogRequest
 
 		case "RequestWithBody":
-			mode |= aws2.LogRequestWithBody
+			mode |= aws.LogRequestWithBody
 
 		case "Response":
-			mode |= aws2.LogResponse
+			mode |= aws.LogResponse
 
 		case "ResponseWithBody":
-			mode |= aws2.LogResponseWithBody
+			mode |= aws.LogResponseWithBody
 
 		case "DeprecatedUsage":
-			mode |= aws2.LogDeprecatedUsage
+			mode |= aws.LogDeprecatedUsage
 
 		case "RequestEventMessage":
-			mode |= aws2.LogRequestEventMessage
+			mode |= aws.LogRequestEventMessage
 
 		case "ResponseEventMessage":
-			mode |= aws2.LogResponseEventMessage
+			mode |= aws.LogResponseEventMessage
 
 		// Mapping deprecated flags from v1 for backwards compatibility
 		case "LogDebug":
 			// v1 had "LogDebug"
-			mode |= aws2.LogRequest | aws2.LogResponse
+			mode |= aws.LogRequest | aws.LogResponse
 
 		case "HTTPBody":
 			// v1 had "LogDebugWithHTTPBody"
-			mode |= aws2.LogRequestWithBody | aws2.LogResponseWithBody
+			mode |= aws.LogRequestWithBody | aws.LogResponseWithBody
 
 		case "RequestRetries":
 			// v1 had "LogDebugWithRequestRetries"
-			mode |= aws2.LogRetries
+			mode |= aws.LogRetries
 
 		case "RequestErrors":
 			// v1 had "LogDebugWithRequestErrors"
-			mode |= aws2.LogResponse
+			mode |= aws.LogResponse
 
 		case "EventStreamBody":
 			// v1 had "LogDebugWithEventStreamBody"
-			mode |= aws2.LogRequestWithBody | aws2.LogResponseWithBody
+			mode |= aws.LogRequestWithBody | aws.LogResponseWithBody
 		}
 	}
 
