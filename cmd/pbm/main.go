@@ -117,6 +117,8 @@ func newPbmApp() *pbmApp {
 		SilenceUsage:       true,
 	}
 
+	app.rootCmd.CompletionOptions.DisableDefaultCmd = true
+
 	app.rootCmd.PersistentFlags().String(
 		mongoConnFlag,
 		"",
