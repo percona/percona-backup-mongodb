@@ -18,6 +18,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
@@ -26,6 +27,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/logging"
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -603,6 +606,12 @@ func (s *S3) s3client() (*s3.Client, error) {
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = *s.opts.ForcePathStyle
+
+		// Google Cloud Storage alters the Accept-Encoding header, which breaks the v2 request signature
+		// (https://github.com/aws/aws-sdk-go-v2/issues/1816)
+		if strings.Contains(s.opts.EndpointURL, "storage.googleapis.com") {
+			ignoreSigningHeaders(o, []string{"Accept-Encoding"})
+		}
 	}), nil
 }
 
@@ -687,4 +696,65 @@ func toClientLogMode(levels string) aws.ClientLogMode {
 	}
 
 	return mode
+}
+
+// ignoreSigningHeaders excludes the listed headers
+// from the request signature because some providers may alter them.
+//
+// See https://github.com/aws/aws-sdk-go-v2/issues/1816.
+func ignoreSigningHeaders(o *s3.Options, headers []string) {
+	o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+		if err := stack.Finalize.Insert(ignoreHeaders(headers), "Signing", middleware.Before); err != nil {
+			return err
+		}
+
+		if err := stack.Finalize.Insert(restoreIgnored(), "Signing", middleware.After); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+type ignoredHeadersKey struct{}
+
+func ignoreHeaders(headers []string) middleware.FinalizeMiddleware {
+	return middleware.FinalizeMiddlewareFunc(
+		"IgnoreHeaders",
+		func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (out middleware.FinalizeOutput, metadata middleware.Metadata, err error) {
+			req, ok := in.Request.(*smithyhttp.Request)
+			if !ok {
+				return out, metadata, &v4.SigningError{Err: fmt.Errorf("(ignoreHeaders) unexpected request middleware type %T", in.Request)}
+			}
+
+			ignored := make(map[string]string, len(headers))
+			for _, h := range headers {
+				ignored[h] = req.Header.Get(h)
+				req.Header.Del(h)
+			}
+
+			ctx = middleware.WithStackValue(ctx, ignoredHeadersKey{}, ignored)
+
+			return next.HandleFinalize(ctx, in)
+		},
+	)
+}
+
+func restoreIgnored() middleware.FinalizeMiddleware {
+	return middleware.FinalizeMiddlewareFunc(
+		"RestoreIgnored",
+		func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (out middleware.FinalizeOutput, metadata middleware.Metadata, err error) {
+			req, ok := in.Request.(*smithyhttp.Request)
+			if !ok {
+				return out, metadata, &v4.SigningError{Err: fmt.Errorf("(restoreIgnored) unexpected request middleware type %T", in.Request)}
+			}
+
+			ignored, _ := middleware.GetStackValue(ctx, ignoredHeadersKey{}).(map[string]string)
+			for k, v := range ignored {
+				req.Header.Set(k, v)
+			}
+
+			return next.HandleFinalize(ctx, in)
+		},
+	)
 }
