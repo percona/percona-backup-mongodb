@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"reflect"
@@ -714,6 +715,10 @@ func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, 
 	timeDate, _ := time.Parse("20060102T150405Z", timeString)
 
 	creds, _ := lt.cfg.Credentials.Retrieve(req.Context())
+
+	u := url.URL{Path: req.URL.Path}
+	req.URL.RawPath = u.EscapedPath()
+
 	err := lt.signer.SignHTTP(req.Context(), creds, req, v4.GetPayloadHash(req.Context()), "s3", lt.cfg.Region, timeDate)
 	if err != nil {
 		return nil, err
