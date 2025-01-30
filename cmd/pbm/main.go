@@ -117,6 +117,8 @@ func newPbmApp() *pbmApp {
 		SilenceUsage:       true,
 	}
 
+	app.rootCmd.CompletionOptions.DisableDefaultCmd = true
+
 	app.rootCmd.PersistentFlags().String(
 		mongoConnFlag,
 		"",
@@ -385,6 +387,10 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 
 func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 	runListConfigProfileCmd := app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+		if len(args) != 0 {
+			return nil, errors.New(fmt.Sprintf("parse command line parameters: unexpected %s", args[0]))
+		}
+
 		return handleListConfigProfiles(app.ctx, app.pbm)
 	})
 
