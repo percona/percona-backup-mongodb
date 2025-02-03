@@ -442,7 +442,9 @@ func (s *S3) Copy(src, dst string) error {
 
 	sse := s.opts.ServerSideEncryption
 	if sse != nil {
-		if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
+		if sse.SseAlgorithm == string(types.ServerSideEncryptionAes256) {
+			copyOpts.ServerSideEncryption = types.ServerSideEncryptionAes256
+		} else if sse.SseAlgorithm == string(types.ServerSideEncryptionAwsKms) {
 			copyOpts.ServerSideEncryption = types.ServerSideEncryptionAwsKms
 			copyOpts.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
