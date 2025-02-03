@@ -340,7 +340,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
-			putInput.SSECustomerKey = aws.String(string(decodedKey))
+			putInput.SSECustomerKey = aws.String(sse.SseCustomerKey)
 			keyMD5 := md5.Sum(decodedKey)
 			putInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
@@ -451,7 +451,7 @@ func (s *S3) Copy(src, dst string) error {
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
-			copyOpts.SSECustomerKey = aws.String(string(decodedKey))
+			copyOpts.SSECustomerKey = aws.String(sse.SseCustomerKey)
 			keyMD5 := md5.Sum(decodedKey)
 			copyOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 
@@ -478,7 +478,7 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
 		headOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
 		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		headOpts.SSECustomerKey = aws.String(string(decodedKey))
+		headOpts.SSECustomerKey = aws.String(sse.SseCustomerKey)
 		if err != nil {
 			return inf, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
