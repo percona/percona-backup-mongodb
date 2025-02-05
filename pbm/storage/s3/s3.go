@@ -39,6 +39,9 @@ const (
 	GCSEndpointURL        = "storage.googleapis.com"
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 	defaultS3Region       = "us-east-1"
+
+	defaultRetryerMinRetryDelay = 30 * time.Millisecond
+	defaultRetryerMaxRetryDelay = 300 * time.Second
 )
 
 //nolint:lll
@@ -193,8 +196,7 @@ func (cfg *Config) Cast() error {
 		cfg.Region = defaultS3Region
 	}
 	if cfg.ForcePathStyle == nil {
-		trueVal := true
-		cfg.ForcePathStyle = &trueVal
+		cfg.ForcePathStyle = aws.Bool(true)
 	}
 	if cfg.MaxUploadParts <= 0 {
 		cfg.MaxUploadParts = manager.MaxUploadParts
@@ -205,12 +207,10 @@ func (cfg *Config) Cast() error {
 
 	if cfg.Retryer != nil {
 		if cfg.Retryer.MinRetryDelay == 0 {
-			// cfg.Retryer.MinRetryDelay = client.DefaultRetryerMinRetryDelay
-			cfg.Retryer.MinRetryDelay = 30 * time.Millisecond
+			cfg.Retryer.MinRetryDelay = defaultRetryerMinRetryDelay
 		}
 		if cfg.Retryer.MaxRetryDelay == 0 {
-			// cfg.Retryer.MaxRetryDelay = client.DefaultRetryerMaxRetryDelay
-			cfg.Retryer.MaxRetryDelay = 300 * time.Second
+			cfg.Retryer.MaxRetryDelay = defaultRetryerMaxRetryDelay
 		}
 	}
 
@@ -230,10 +230,13 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 
 // SDKLogLevel returns AWS SDK log level value from comma-separated
 // SDKDebugLogLevel values string. If the string does not contain a valid value,
-// returns aws.LogOff.
+// returns 0 (logging is disabled).
 //
 // If the string is incorrect formatted, prints warnings to the io.Writer.
 // Passing nil as the io.Writer will discard any warnings.
+//
+// Deprecated log level values from v1 are supported for backwards
+// compatibility and are automatically mapped to their current equivalents.
 func SDKLogLevel(levels string, out io.Writer) aws.ClientLogMode {
 	if out == nil {
 		out = io.Discard
@@ -381,13 +384,13 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		u.PartSize = partSize      // 10MB part size
 		u.LeavePartsOnError = true // Don't delete the parts if the upload fails.
 		u.Concurrency = cc
-	}).Upload(context.TODO(), putInput)
+	}).Upload(context.Background(), putInput)
 
 	return errors.Wrap(err, "upload to S3")
 }
 
 func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	ctx := context.TODO()
+	ctx := context.Background()
 
 	prfx := path.Join(s.opts.Prefix, prefix)
 
@@ -463,7 +466,7 @@ func (s *S3) Copy(src, dst string) error {
 		}
 	}
 
-	_, err := s.s3cli.CopyObject(context.TODO(), copyOpts)
+	_, err := s.s3cli.CopyObject(context.Background(), copyOpts)
 
 	return err
 }
@@ -488,21 +491,23 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 		headOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
-	h, err := s.s3cli.HeadObject(context.TODO(), headOpts)
+	h, err := s.s3cli.HeadObject(context.Background(), headOpts)
 	if err != nil {
-		var noSuchKeyErr *types.NoSuchKey
+		var noSuchKeyErr types.NoSuchKey
 		if errors.As(err, &noSuchKeyErr) {
 			return inf, storage.ErrNotExist
 		}
 
-		var notFoundErr *types.NotFound
+		var notFoundErr types.NotFound
 		if errors.As(err, &notFoundErr) {
 			return inf, storage.ErrNotExist
 		}
 		return inf, errors.Wrap(err, "get S3 object header")
 	}
 	inf.Name = name
-	inf.Size = *h.ContentLength
+	if h.ContentLength != nil {
+		inf.Size = *h.ContentLength
+	}
 
 	if inf.Size == 0 {
 		return inf, storage.ErrEmpty
@@ -516,15 +521,14 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 }
 
 // Delete deletes given file.
-// v1 - It returns storage.ErrNotExist if a file doesn't exist
-// v2 - No longer returns an error if a file doesn't exist
+// It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
-	_, err := s.s3cli.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+	_, err := s.s3cli.DeleteObject(context.Background(), &s3.DeleteObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
-		var noSuchKeyErr *types.NoSuchKey
+		var noSuchKeyErr types.NoSuchKey
 		if errors.As(err, &noSuchKeyErr) {
 			return storage.ErrNotExist
 		}
@@ -584,7 +588,7 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 }
 
 func (s *S3) s3client() (*s3.Client, error) {
-	ctx := context.TODO()
+	ctx := context.Background()
 
 	cfgOpts := s.buildLoadOptions()
 

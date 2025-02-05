@@ -446,7 +446,7 @@ func (pr *partReader) getChunk(buf *arena, s *s3.Client, start, end int64) (io.R
 		getObjOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
-	s3obj, err := s.GetObject(context.TODO(), getObjOpts)
+	s3obj, err := s.GetObject(context.Background(), getObjOpts)
 	if err != nil {
 		// if object size is undefined, we would read
 		// until HTTP code 416 (Requested Range Not Satisfiable)
