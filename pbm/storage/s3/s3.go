@@ -491,12 +491,12 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 
 	h, err := s.s3cli.HeadObject(context.Background(), headOpts)
 	if err != nil {
-		var noSuchKeyErr types.NoSuchKey
+		var noSuchKeyErr *types.NoSuchKey
 		if errors.As(err, &noSuchKeyErr) {
 			return inf, storage.ErrNotExist
 		}
 
-		var notFoundErr types.NotFound
+		var notFoundErr *types.NotFound
 		if errors.As(err, &notFoundErr) {
 			return inf, storage.ErrNotExist
 		}
@@ -526,7 +526,7 @@ func (s *S3) Delete(name string) error {
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
 	if err != nil {
-		var noSuchKeyErr types.NoSuchKey
+		var noSuchKeyErr *types.NoSuchKey
 		if errors.As(err, &noSuchKeyErr) {
 			return storage.ErrNotExist
 		}
