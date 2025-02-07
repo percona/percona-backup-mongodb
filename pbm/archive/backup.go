@@ -89,7 +89,7 @@ func (s *NamespaceV2) IsTimeseries() bool { return s.Type == "timeseries" }
 func (s *NamespaceV2) IsSystemCollection() bool { return strings.HasPrefix(s.Name, "system.") }
 func (s *NamespaceV2) IsBucketCollection() bool { return strings.HasPrefix(s.Name, "system.buckets") }
 
-type IndexSpec bson.M
+type IndexSpec bson.D
 
 type BackupOptions struct {
 	Client  *mongo.Client
@@ -263,20 +263,22 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]IndexSpec, error) {
 	cur, err := bcp.conn.Database(db).Collection(coll).Indexes().List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "listIndexes cmd for ns: %s.%s", db, coll)
 	}
 
 	idxs := []IndexSpec{}
 	err = cur.All(ctx, &idxs)
 	if err != nil {
-		return nil, errors.Wrap(err, "decode indexes")
+		return nil, errors.Wrapf(err, "decode indexes for ns: %s.%s", db, coll)
 	}
 
-	for _, idx := range idxs {
-		for opt := range idx {
-			if _, ok := validIndexOptions[opt]; !ok {
-				delete(idx, opt)
+	for i := range idxs {
+		var valid IndexSpec
+		for _, opt := range idxs[i] {
+			if _, ok := validIndexOptions[opt.Key]; ok {
+				valid = append(valid, opt)
 			}
+			idxs[i] = valid
 		}
 	}
 
