@@ -260,29 +260,33 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 	return rv, errors.Wrap(cur.Err(), "cursor")
 }
 
+// listIndexes fetch indexes definition for the specified namespace.
+// It returns dynamic bson.D index representation which is filtered by allowed index
+// specification keys.
 func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]IndexSpec, error) {
 	cur, err := bcp.conn.Database(db).Collection(coll).Indexes().List(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "listIndexes cmd for ns: %s.%s", db, coll)
 	}
 
-	idxs := []IndexSpec{}
+	idxs := []bson.D{}
 	err = cur.All(ctx, &idxs)
 	if err != nil {
 		return nil, errors.Wrapf(err, "decode indexes for ns: %s.%s", db, coll)
 	}
 
+	var idxSpecs []IndexSpec
 	for i := range idxs {
-		var valid IndexSpec
+		var idxSpec IndexSpec
 		for _, opt := range idxs[i] {
 			if _, ok := validIndexOptions[opt.Key]; ok {
-				valid = append(valid, opt)
+				idxSpec = append(idxSpec, opt)
 			}
-			idxs[i] = valid
 		}
+		idxSpecs = append(idxSpecs, idxSpec)
 	}
 
-	return idxs, nil
+	return idxSpecs, nil
 }
 
 func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV2) error {
