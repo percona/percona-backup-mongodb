@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	gcs "cloud.google.com/go/storage"
+	"google.golang.org/api/iterator"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -107,11 +108,11 @@ func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	for {
 		attrs, err := it.Next()
 
-		if err != nil {
-			if err.Error() == "no more items in iterator" {
-				break
-			}
+		if errors.Is(err, iterator.Done) {
+			break
+		}
 
+		if err != nil {
 			return nil, errors.Wrap(err, "list objects")
 		}
 
