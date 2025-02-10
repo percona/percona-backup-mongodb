@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -12,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -226,4 +228,38 @@ func ReplicationLag(ctx context.Context, m *mongo.Client, self string) (int, err
 	}
 
 	return primaryOptime - nodeOptime, nil
+}
+
+func WaitForBalancerOff(ctx context.Context, conn connect.Client, t time.Duration, l log.LogEvent) BalancerMode {
+	dn := time.NewTimer(t)
+	defer dn.Stop()
+
+	tk := time.NewTicker(time.Millisecond * 500)
+	defer tk.Stop()
+
+	var bs *BalancerStatus
+	var err error
+
+Loop:
+	for {
+		select {
+		case <-tk.C:
+			bs, err = GetBalancerStatus(ctx, conn)
+			if err != nil {
+				l.Error("get balancer status: %v", err)
+				continue
+			}
+			if bs.Mode == BalancerModeOff {
+				return BalancerModeOff
+			}
+		case <-dn.C:
+			break Loop
+		}
+	}
+
+	if bs == nil {
+		return BalancerMode("")
+	}
+
+	return bs.Mode
 }
