@@ -260,7 +260,7 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 	return rv, errors.Wrap(cur.Err(), "cursor")
 }
 
-// listIndexes fetch indexes definition for the specified namespace.
+// listIndexes fetches index definitions for the specified namespace.
 // It returns dynamic bson.D index representation which is filtered by allowed index
 // specification keys.
 func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]IndexSpec, error) {

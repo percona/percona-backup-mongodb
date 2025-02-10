@@ -58,6 +58,13 @@ func TestListIndexes(t *testing.T) {
 	}
 	defer func() { _ = mClient.Database(db).Drop(ctx) }()
 
+	bcp, err := NewBackup(ctx, BackupOptions{
+		Client: mClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	t.Run("single field index", func(t *testing.T) {
 		coll := "simple"
 		_, err := mClient.Database(db).Collection(coll).InsertOne(ctx, bson.M{
@@ -69,35 +76,19 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKey := bson.D{{"num", int32(1)}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys: expectedKey,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Errorf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
 	})
 
 	t.Run("compound index", func(t *testing.T) {
@@ -113,35 +104,19 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKey := bson.D{{"num", int32(1)}, {"email", int32(-1)}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys: expectedKey,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
 	})
 
 	t.Run("geospatial index", func(t *testing.T) {
@@ -159,38 +134,20 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKey := bson.D{{"location", "2dsphere"}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys: expectedKey,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
-		if !findIdxOpt(idx, "2dsphereIndexVersion", int32(3)) {
-			t.Fatalf("wrong geospatial option for index: %+v, want option: {Key:2dsphereIndexVersion Value:3}", idx)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
+		assertIdxOpt(t, idxs, idxName, "2dsphereIndexVersion", int32(3), "{Key:2dsphereIndexVersion Value:3}")
 	})
 
 	t.Run("text index", func(t *testing.T) {
@@ -205,44 +162,22 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKeyRaw := bson.D{{"_fts", "text"}, {"_ftsx", int32(1)}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys: bson.D{{"desc", "text"}},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKeyRaw, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKeyRaw, idxKey)
-		}
-		if !findIdxOpt(idx, "weights", bson.D{{"desc", int32(1)}}) {
-			t.Fatalf("wrong text option for index: %+v, want option: {Key:weights Value:[{Key:desc Value:1}]}", idx)
-		}
-		if !findIdxOpt(idx, "default_language", "english") {
-			t.Fatalf("wrong text option for index: %+v, want option: {Key:default_language Value:english}", idx)
-		}
-		if !findIdxOpt(idx, "language_override", "language") {
-			t.Fatalf("wrong text option for index: %+v, want option: {Key:language_override Value:language}", idx)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKeyRaw)
+		assertIdxOpt(t, idxs, idxName, "weights", bson.D{{"desc", int32(1)}}, "{Key:weights Value:[{Key:desc Value:1}]}")
+		assertIdxOpt(t, idxs, idxName, "default_language", "english", "{Key:default_language Value:english}")
+		assertIdxOpt(t, idxs, idxName, "language_override", "language", "{Key:language_override Value:language}")
 	})
 
 	t.Run("hashed index", func(t *testing.T) {
@@ -257,35 +192,19 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKey := bson.D{{"email", "hashed"}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys: expectedKey,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
 	})
 
 	t.Run("sparse index", func(t *testing.T) {
@@ -301,7 +220,7 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKey := bson.D{{"optional_field", int32(1)}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys:    expectedKey,
 			Options: options.Index().SetSparse(true),
 		})
@@ -309,31 +228,13 @@ func TestListIndexes(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
-		if !findIdxOpt(idx, "sparse", true) {
-			t.Fatalf("wrong sparse option for index: %+v, want option: {Key:sparse Value:true}", idx)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
+		assertIdxOpt(t, idxs, idxName, "sparse", true, "{Key:sparse Value:true}")
 	})
 
 	t.Run("partial index", func(t *testing.T) {
@@ -350,7 +251,7 @@ func TestListIndexes(t *testing.T) {
 
 		expectedKey := bson.D{{"email", int32(1)}}
 		partialFilter := bson.D{{"status", "active"}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys:    expectedKey,
 			Options: options.Index().SetPartialFilterExpression(partialFilter),
 		})
@@ -358,32 +259,14 @@ func TestListIndexes(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
-		if !findIdxOpt(idx, "partialFilterExpression", partialFilter) {
-			t.Fatalf("wrong sparse option for index: %+v, "+
-				"want option: {Key:partialFilterExpression Value:[{Key:status Value:active}]}", idx)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
+		assertIdxOpt(t, idxs, idxName, "partialFilterExpression",
+			partialFilter, "{Key:partialFilterExpression Value:[{Key:status Value:active}]}")
 	})
 
 	t.Run("ttl index", func(t *testing.T) {
@@ -399,7 +282,7 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKey := bson.D{{"createdAt", int32(1)}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys:    expectedKey,
 			Options: options.Index().SetExpireAfterSeconds(60),
 		})
@@ -407,31 +290,13 @@ func TestListIndexes(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
-		if !findIdxOpt(idx, "expireAfterSeconds", int32(60)) {
-			t.Fatalf("wrong sparse option for index: %+v, want option: {Key:expireAfterSeconds Value:60}", idx)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
+		assertIdxOpt(t, idxs, idxName, "expireAfterSeconds", int32(60), "{Key:expireAfterSeconds Value:60}")
 	})
 
 	t.Run("unique index", func(t *testing.T) {
@@ -446,7 +311,7 @@ func TestListIndexes(t *testing.T) {
 		}
 
 		expectedKey := bson.D{{"email", int32(1)}}
-		indexName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+		idxName, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
 			Keys:    expectedKey,
 			Options: options.Index().SetUnique(true),
 		})
@@ -454,31 +319,13 @@ func TestListIndexes(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		bcp, err := NewBackup(ctx, BackupOptions{
-			Client: mClient,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		idxs, err := bcp.listIndexes(ctx, db, coll)
 		if err != nil {
 			t.Fatalf("error within listIndexes: %v", err)
 		}
 
-		idx, found := findIdx(idxs, indexName)
-		if !found {
-			t.Fatalf("cannot find index: %s", indexName)
-		}
-		idxKey, found := findIdxKey(idx)
-		if !found {
-			t.Fatalf("cannot find index key for index: %s", indexName)
-		}
-		if !reflect.DeepEqual(expectedKey, idxKey) {
-			t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
-		}
-		if !findIdxOpt(idx, "unique", true) {
-			t.Fatalf("wrong sparse option for index: %+v, want option: {Key:unique Value:true}", idx)
-		}
+		assertIdxKey(t, idxs, idxName, expectedKey)
+		assertIdxOpt(t, idxs, idxName, "unique", true, "{Key:unique Value:true}")
 	})
 }
 
@@ -503,11 +350,35 @@ func findIdxKey(idx IndexSpec) (bson.D, bool) {
 	return bson.D{}, false
 }
 
-func findIdxOpt(idx IndexSpec, key string, val any) bool {
+func assertIdxKey(t *testing.T, idxs []IndexSpec, idxName string, expectedKey bson.D) {
+	t.Helper()
+	idx, found := findIdx(idxs, idxName)
+	if !found {
+		t.Fatalf("cannot find index: %s", idxName)
+	}
+	idxKey, found := findIdxKey(idx)
+	if !found {
+		t.Fatalf("cannot find index key for index: %s", idxName)
+	}
+	if !reflect.DeepEqual(expectedKey, idxKey) {
+		t.Fatalf("index key is wrong: want:%v, got:%v", expectedKey, idxKey)
+	}
+}
+
+func assertIdxOpt(t *testing.T, idxs []IndexSpec, idxName string,
+	optKey string, optVal any, optDesc string,
+) {
+	t.Helper()
+
+	idx, found := findIdx(idxs, idxName)
+	if !found {
+		t.Fatalf("cannot find index: %s", idxName)
+	}
 	for _, idxProps := range idx {
-		if idxProps.Key == key {
-			return reflect.DeepEqual(idxProps.Value, val)
+		if idxProps.Key == optKey {
+			if !reflect.DeepEqual(idxProps.Value, optVal) {
+				t.Fatalf("wrong option for index: %+v, want option: %s", idx, optDesc)
+			}
 		}
 	}
-	return false
 }
