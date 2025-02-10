@@ -18,10 +18,9 @@ type Config struct {
 }
 
 type GCS struct {
-	opts   *Config
-	cli    *gcs.Client
-	bucket string
-	node   string
+	opts         *Config
+	bucketHandle *gcs.BucketHandle
+	log          log.LogEvent
 }
 
 func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
@@ -33,10 +32,9 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	}
 
 	return &GCS{
-		opts:   opts,
-		cli:    client,
-		bucket: opts.Bucket,
-		node:   node,
+		opts:         opts,
+		bucketHandle: client.Bucket(opts.Bucket),
+		log:          l,
 	}, nil
 }
 
@@ -47,7 +45,9 @@ func (*GCS) Type() storage.Type {
 func (g *GCS) Save(name string, data io.Reader, size int64) error {
 	ctx := context.Background()
 
-	w := g.cli.Bucket(g.bucket).Object(name).NewWriter(ctx)
+	w := g.bucketHandle.Object(name).NewWriter(ctx)
+
+	// TODO: set ChunkSize
 
 	if _, err := io.Copy(w, data); err != nil {
 		return errors.Wrap(err, "save data")
@@ -63,7 +63,7 @@ func (g *GCS) Save(name string, data io.Reader, size int64) error {
 func (g *GCS) SourceReader(name string) (io.ReadCloser, error) {
 	ctx := context.Background()
 
-	reader, err := g.cli.Bucket(g.bucket).Object(name).NewReader(ctx)
+	reader, err := g.bucketHandle.Object(name).NewReader(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "object not found")
 	}
@@ -75,7 +75,7 @@ func (g *GCS) SourceReader(name string) (io.ReadCloser, error) {
 func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
 	ctx := context.Background()
 
-	attrs, err := g.cli.Bucket(g.bucket).Object(name).Attrs(ctx)
+	attrs, err := g.bucketHandle.Object(name).Attrs(ctx)
 	if err != nil {
 		if errors.Is(err, gcs.ErrObjectNotExist) {
 			return storage.FileInfo{}, storage.ErrNotExist
@@ -104,7 +104,7 @@ func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	}
 
 	var files []storage.FileInfo
-	it := g.cli.Bucket(g.bucket).Objects(ctx, query)
+	it := g.bucketHandle.Objects(ctx, query)
 	for {
 		attrs, err := it.Next()
 
@@ -133,10 +133,9 @@ func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 func (g *GCS) Delete(name string) error {
 	ctx := context.Background()
 
-	err := g.cli.Bucket(g.bucket).Object(name).Delete(ctx)
+	err := g.bucketHandle.Object(name).Delete(ctx)
 	if err != nil {
-		// TODO: check error
-		if errors.Is(err, storage.ErrNotExist) {
+		if errors.Is(err, gcs.ErrObjectNotExist) {
 			return storage.ErrNotExist
 		}
 		return errors.Wrap(err, "delete object")
@@ -148,8 +147,8 @@ func (g *GCS) Delete(name string) error {
 func (g *GCS) Copy(src, dst string) error {
 	ctx := context.Background()
 
-	srcObj := g.cli.Bucket(g.bucket).Object(src)
-	dstObj := g.cli.Bucket(g.bucket).Object(dst)
+	srcObj := g.bucketHandle.Object(src)
+	dstObj := g.bucketHandle.Object(dst)
 
 	_, err := dstObj.CopierFrom(srcObj).Run(ctx)
 	return err
