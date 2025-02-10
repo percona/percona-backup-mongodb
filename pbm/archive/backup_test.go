@@ -327,6 +327,66 @@ func TestListIndexes(t *testing.T) {
 		assertIdxKey(t, idxs, idxName, expectedKey)
 		assertIdxOpt(t, idxs, idxName, "unique", true, "{Key:unique Value:true}")
 	})
+
+	t.Run("only default", func(t *testing.T) {
+		coll := "default"
+
+		_, err := mClient.Database(db).Collection(coll).InsertOne(ctx, bson.M{
+			"num":   101,
+			"email": "abc@def.com",
+		})
+		if err != nil {
+			t.Fatalf("creating test collection %s: %v", coll, err)
+		}
+
+		idxs, err := bcp.listIndexes(ctx, db, coll)
+		if err != nil {
+			t.Fatalf("error within listIndexes: %v", err)
+		}
+
+		if len(idxs) != 1 {
+			t.Fatal("collection should have just default index")
+		}
+	})
+
+	t.Run("few indexes on the same collection", func(t *testing.T) {
+		coll := "more_than_one"
+
+		_, err := mClient.Database(db).Collection(coll).InsertOne(ctx, bson.M{
+			"num":   101,
+			"email": "abc@def.com",
+		})
+		if err != nil {
+			t.Fatalf("creating test collection %s: %v", coll, err)
+		}
+
+		expectedKey1 := bson.D{{"email", int32(1)}}
+		idxName1, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+			Keys:    expectedKey1,
+			Options: options.Index().SetUnique(true),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedKey2 := bson.D{{"num", int32(-1)}}
+		idxName2, err := mClient.Database(db).Collection(coll).Indexes().CreateOne(ctx, mongo.IndexModel{
+			Keys: expectedKey2,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		idxs, err := bcp.listIndexes(ctx, db, coll)
+		if err != nil {
+			t.Fatalf("error within listIndexes: %v", err)
+		}
+
+		if len(idxs) != 3 {
+			t.Fatalf("expected 3 indexes, got=%d", len(idxs))
+		}
+		assertIdxKey(t, idxs, idxName1, expectedKey1)
+		assertIdxOpt(t, idxs, idxName1, "unique", true, "{Key:unique Value:true}")
+		assertIdxKey(t, idxs, idxName2, expectedKey2)
+	})
 }
 
 func findIdx(idxs []IndexSpec, idxName string) (IndexSpec, bool) {
