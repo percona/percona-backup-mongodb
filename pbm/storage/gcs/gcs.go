@@ -3,12 +3,9 @@ package gcs
 import (
 	"context"
 	"io"
-	"net/http"
 	"strings"
 
 	gcs "cloud.google.com/go/storage"
-	"google.golang.org/api/googleapi"
-	"google.golang.org/api/iterator"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -79,11 +76,8 @@ func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
 
 	attrs, err := g.cli.Bucket(g.bucket).Object(name).Attrs(ctx)
 	if err != nil {
-		var e *googleapi.Error
-		if ok := errors.As(err, &e); ok {
-			if e.Code == http.StatusNotFound {
-				return storage.FileInfo{}, storage.ErrNotExist
-			}
+		if errors.Is(err, gcs.ErrObjectNotExist) {
+			return storage.FileInfo{}, storage.ErrNotExist
 		}
 
 		return storage.FileInfo{}, errors.Wrap(err, "get properties")
@@ -113,10 +107,11 @@ func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	for {
 		attrs, err := it.Next()
 
-		if errors.Is(err, iterator.Done) {
-			break
-		}
 		if err != nil {
+			if err.Error() == "no more items in iterator" {
+				break
+			}
+
 			return nil, errors.Wrap(err, "list objects")
 		}
 
