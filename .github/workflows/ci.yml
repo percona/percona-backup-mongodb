@@ -44,7 +44,7 @@ jobs:
         psmdb: ["6.0", "7.0", "8.0"]
         test: [logical, physical, incremental, external]
     env:
-      PBM_BRANCH: ${{ github.event.inputs.pbm_branch || 'main' }}
+      PBM_BRANCH: ${{ github.event.inputs.pbm_branch || github.ref_name }}
       GO_VER: ${{ github.event.inputs.go_ver || '1.22-bullseye' }}
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
       MAKE_TARGET: 'build-cover'
