@@ -146,6 +146,11 @@ func (c *Config) String() string {
 			c.Storage.Azure.Credentials.Key = "***"
 		}
 	}
+	if c.Storage.GCS != nil {
+		if c.Storage.GCS.Credentials.JSON != "" {
+			c.Storage.GCS.Credentials.JSON = "***"
+		}
+	}
 
 	b, err := yaml.Marshal(c)
 	if err != nil {
@@ -231,6 +236,8 @@ func (s *StorageConf) Clone() *StorageConf {
 		rv.S3 = s.S3.Clone()
 	case storage.Azure:
 		rv.Azure = s.Azure.Clone()
+	case storage.GCS:
+		rv.GCS = s.GCS.Clone()
 	case storage.Blackhole: // no config
 	}
 
