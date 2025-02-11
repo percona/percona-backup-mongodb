@@ -7,6 +7,7 @@ import (
 
 	gcs "cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -14,7 +15,21 @@ import (
 )
 
 type Config struct {
-	Bucket string `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
+}
+
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	return &rv
+}
+
+type Credentials struct {
+	JSON string `bson:"json" json:"json,omitempty" yaml:"json,omitempty"`
 }
 
 type GCS struct {
@@ -25,8 +40,21 @@ type GCS struct {
 
 func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	ctx := context.Background()
+	var client *gcs.Client
+	var err error
 
-	client, err := gcs.NewClient(ctx)
+	if opts.Credentials.JSON != "" {
+		if l != nil {
+			l.Debug("Using in-memory JSON credentials for GCS")
+		}
+		client, err = gcs.NewClient(ctx, option.WithCredentialsJSON([]byte(opts.Credentials.JSON)))
+	} else {
+		if l != nil {
+			l.Debug("Using Application Default Credentials")
+		}
+		client, err = gcs.NewClient(ctx)
+	}
+
 	if err != nil {
 		return nil, errors.Wrap(err, "create GCS client")
 	}
