@@ -293,8 +293,14 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			}
 
 			l.Debug("waiting for balancer off")
-			bs := topo.WaitForBalancerOff(ctx, b.leadConn, time.Second*30, l)
-			l.Debug("balancer status: %s", bs)
+			bs := topo.WaitForBalancerDisabled(ctx, b.leadConn, time.Second*30, l)
+			if bs.IsDisabled() {
+				l.Debug("balancer is disabled")
+			} else {
+				l.Warning("balancer is not disabled: balancer mode: %s, in balancer round: %t",
+					bs.Mode, bs.InBalancerRound)
+			}
+
 		}
 	}
 
