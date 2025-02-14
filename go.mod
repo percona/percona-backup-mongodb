@@ -21,7 +21,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.34.0
 	go.mongodb.org/mongo-driver v1.17.1
 	golang.org/x/mod v0.19.0
-	golang.org/x/sync v0.10.0
+	golang.org/x/sync v0.11.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -89,12 +89,12 @@ require (
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/exp v0.0.0-20240529005216-23cca8864a10 // indirect
-	golang.org/x/net v0.26.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/term v0.29.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
