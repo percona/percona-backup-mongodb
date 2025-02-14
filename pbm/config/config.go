@@ -147,8 +147,8 @@ func (c *Config) String() string {
 		}
 	}
 	if c.Storage.GCS != nil {
-		if c.Storage.GCS.Credentials.JSON != "" {
-			c.Storage.GCS.Credentials.JSON = "***"
+		if c.Storage.GCS.Credentials.PrivateKey != "" {
+			c.Storage.GCS.Credentials.PrivateKey = "***"
 		}
 	}
 
