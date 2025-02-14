@@ -560,6 +560,8 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 
 	if s.log != nil {
 		cfgOpts = append(cfgOpts, config.WithLogger(awsLogger{l: s.log}))
+	} else {
+		cfgOpts = append(cfgOpts, config.WithLogger(logging.NewStandardLogger(os.Stdout)))
 	}
 
 	if s.opts.Retryer != nil {
@@ -608,7 +610,9 @@ func (s *S3) s3client() (*s3.Client, error) {
 	}
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = *s.opts.ForcePathStyle
+		if s.opts.ForcePathStyle != nil {
+			o.UsePathStyle = *s.opts.ForcePathStyle
+		}
 	}), nil
 }
 
