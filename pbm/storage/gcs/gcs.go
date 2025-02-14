@@ -2,6 +2,7 @@ package gcs
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -29,7 +30,8 @@ func (cfg *Config) Clone() *Config {
 }
 
 type Credentials struct {
-	JSON string `bson:"json" json:"json,omitempty" yaml:"json,omitempty"`
+	ProjectId  string `bson:"project_id" json:"project_id,omitempty" yaml:"project_id,omitempty"`
+	PrivateKey string `bson:"private_key" json:"private_key,omitempty" yaml:"private_key,omitempty"`
 }
 
 type GCS struct {
@@ -43,15 +45,28 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	var client *gcs.Client
 	var err error
 
-	if opts.Credentials.JSON != "" {
-		if l != nil {
-			l.Debug("Using in-memory JSON credentials for GCS")
-		}
-		client, err = gcs.NewClient(ctx, option.WithCredentialsJSON([]byte(opts.Credentials.JSON)))
+	if opts.Credentials.ProjectId != "" && opts.Credentials.PrivateKey != "" {
+		credStr := fmt.Sprintf(`{
+			"type": "service_account",
+          	"project_id": "%s",
+			"private_key": "%s",
+			"client_email": "service@%s.iam.gserviceaccount.com",
+			"auth_uri": "https://accounts.google.com/o/oauth2/auth",
+			"token_uri": "https://oauth2.googleapis.com/token",
+			"auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+			"client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
+			"universe_domain": "googleapis.com"
+		}`,
+			opts.Credentials.ProjectId,
+			opts.Credentials.PrivateKey,
+			opts.Credentials.ProjectId,
+			opts.Credentials.ProjectId,
+		)
+
+		credentials := option.WithCredentialsJSON([]byte(credStr))
+
+		client, err = gcs.NewClient(ctx, credentials)
 	} else {
-		if l != nil {
-			l.Debug("Using Application Default Credentials")
-		}
 		client, err = gcs.NewClient(ctx)
 	}
 
