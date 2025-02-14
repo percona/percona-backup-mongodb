@@ -234,7 +234,12 @@ func ReplicationLag(ctx context.Context, m *mongo.Client, self string) (int, err
 // Disabling balancer means that balancer is in OFF mode and that it doesn't have active balancing round.
 // If balancer is not desibled during the specified duration t, function will stop waiting
 // and it'll return current statuses.
-func WaitForBalancerDisabled(ctx context.Context, conn connect.Client, t time.Duration, l log.LogEvent) *BalancerStatus {
+func WaitForBalancerDisabled(
+	ctx context.Context,
+	conn connect.Client,
+	t time.Duration,
+	l log.LogEvent,
+) *BalancerStatus {
 	dn := time.NewTimer(t)
 	defer dn.Stop()
 
