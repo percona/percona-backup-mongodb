@@ -59,6 +59,8 @@ func rootCommand() *cobra.Command {
 		},
 	}
 
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
 	setRootFlags(rootCmd)
 	return rootCmd
 }
