@@ -102,8 +102,13 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			}
 
 			l.Debug("waiting for balancer off")
-			bs := topo.WaitForBalancerOff(ctx, a.leadConn, time.Second*30, l)
-			l.Debug("balancer status: %s", bs)
+			bs := topo.WaitForBalancerDisabled(ctx, a.leadConn, time.Second*30, l)
+			if bs.IsDisabled() {
+				l.Debug("balancer is disabled")
+			} else {
+				l.Warning("balancer is not disabled: balancer mode: %s, in balancer round: %t",
+					bs.Mode, bs.InBalancerRound)
+			}
 		}
 	}
 
