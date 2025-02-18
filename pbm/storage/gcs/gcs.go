@@ -144,8 +144,14 @@ func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
 func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	ctx := context.Background()
 
+	prfx := path.Join(g.opts.Prefix, prefix)
+
+	if prfx != "" && !strings.HasSuffix(prfx, "/") {
+		prfx += "/"
+	}
+
 	query := &gcs.Query{
-		Prefix: path.Join(g.opts.Prefix, prefix),
+		Prefix: prfx,
 	}
 
 	var files []storage.FileInfo
@@ -162,6 +168,14 @@ func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 		}
 
 		name := attrs.Name
+		name = strings.TrimPrefix(name, prfx)
+		if len(name) == 0 {
+			continue
+		}
+		if name[0] == '/' {
+			name = name[1:]
+		}
+
 		if suffix != "" && !strings.HasSuffix(name, suffix) {
 			continue
 		}
