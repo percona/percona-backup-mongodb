@@ -293,8 +293,14 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			}
 
 			l.Debug("waiting for balancer off")
-			bs := waitForBalancerOff(ctx, b.leadConn, time.Second*30, l)
-			l.Debug("balancer status: %s", bs)
+			bs := topo.WaitForBalancerDisabled(ctx, b.leadConn, time.Second*30, l)
+			if bs.IsDisabled() {
+				l.Debug("balancer is disabled")
+			} else {
+				l.Warning("balancer is not disabled: balancer mode: %s, in balancer round: %t",
+					bs.Mode, bs.InBalancerRound)
+			}
+
 		}
 	}
 
@@ -376,40 +382,6 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
 		return errors.Wrap(err, "waiting for done")
 	}
-}
-
-func waitForBalancerOff(ctx context.Context, conn connect.Client, t time.Duration, l log.LogEvent) topo.BalancerMode {
-	dn := time.NewTimer(t)
-	defer dn.Stop()
-
-	tk := time.NewTicker(time.Millisecond * 500)
-	defer tk.Stop()
-
-	var bs *topo.BalancerStatus
-	var err error
-
-Loop:
-	for {
-		select {
-		case <-tk.C:
-			bs, err = topo.GetBalancerStatus(ctx, conn)
-			if err != nil {
-				l.Error("get balancer status: %v", err)
-				continue
-			}
-			if bs.Mode == topo.BalancerModeOff {
-				return topo.BalancerModeOff
-			}
-		case <-dn.C:
-			break Loop
-		}
-	}
-
-	if bs == nil {
-		return topo.BalancerMode("")
-	}
-
-	return bs.Mode
 }
 
 func (b *Backup) toState(

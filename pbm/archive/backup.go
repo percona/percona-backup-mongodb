@@ -31,6 +31,32 @@ var RouterConfigCollections = []string{
 
 const MetaFileV2 = "meta.pbm"
 
+var validIndexOptions = map[string]bool{
+	"2dsphereIndexVersion":    true,
+	"background":              true,
+	"bits":                    true,
+	"bucketSize":              true,
+	"coarsestIndexedLevel":    true,
+	"collation":               true,
+	"default_language":        true,
+	"expireAfterSeconds":      true,
+	"finestIndexedLevel":      true,
+	"key":                     true,
+	"language_override":       true,
+	"max":                     true,
+	"min":                     true,
+	"name":                    true,
+	"ns":                      true,
+	"partialFilterExpression": true,
+	"sparse":                  true,
+	"storageEngine":           true,
+	"textIndexVersion":        true,
+	"unique":                  true,
+	"v":                       true,
+	"weights":                 true,
+	"wildcardProjection":      true,
+}
+
 type ArchiveMetaV2 struct {
 	Version       string `bson:"version"`
 	ServerVersion string `bson:"serverVersion"`
@@ -46,7 +72,7 @@ type NamespaceV2 struct {
 	UUID    string `bson:"uuid,omitempty"`
 	Options bson.D `bson:"options,omitempty"`
 
-	Indexes []*IndexSpec `bson:"indexes"`
+	Indexes []IndexSpec `bson:"indexes"`
 
 	CRC  int64 `bson:"crc"`
 	Size int64 `bson:"size"`
@@ -63,18 +89,7 @@ func (s *NamespaceV2) IsTimeseries() bool { return s.Type == "timeseries" }
 func (s *NamespaceV2) IsSystemCollection() bool { return strings.HasPrefix(s.Name, "system.") }
 func (s *NamespaceV2) IsBucketCollection() bool { return strings.HasPrefix(s.Name, "system.buckets") }
 
-type IndexSpec struct {
-	Version int32 `bson:"v"`
-
-	Key  bson.D `bson:"key"`
-	Name string `bson:"name"`
-
-	Sparse    *bool `bson:"sparse,omitempty"`
-	Unique    *bool `bson:"unique,omitempty"`
-	Clustered *bool `bson:"clustered,omitempty"`
-
-	ExpireAfterSeconds *int32 `bson:"expireAfterSeconds,omitempty"`
-}
+type IndexSpec bson.D
 
 type BackupOptions struct {
 	Client  *mongo.Client
@@ -236,7 +251,7 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 				return nil, errors.Wrapf(err, "list indexes for %s", ns.Name)
 			}
 		} else {
-			ns.Indexes = []*IndexSpec{}
+			ns.Indexes = []IndexSpec{}
 		}
 
 		rv = append(rv, ns)
@@ -245,15 +260,33 @@ func (bcp *backupImpl) listDBNamespaces(ctx context.Context, db string) ([]*Name
 	return rv, errors.Wrap(cur.Err(), "cursor")
 }
 
-func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]*IndexSpec, error) {
+// listIndexes fetches index definitions for the specified namespace.
+// It returns dynamic bson.D index representation which is filtered by allowed index
+// specification keys.
+func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]IndexSpec, error) {
 	cur, err := bcp.conn.Database(db).Collection(coll).Indexes().List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "listIndexes cmd for ns: %s.%s", db, coll)
 	}
 
-	var indexes []*IndexSpec
-	err = cur.All(ctx, &indexes)
-	return indexes, err
+	idxs := []bson.D{}
+	err = cur.All(ctx, &idxs)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode indexes for ns: %s.%s", db, coll)
+	}
+
+	var idxSpecs []IndexSpec
+	for i := range idxs {
+		var idxSpec IndexSpec
+		for _, opt := range idxs[i] {
+			if _, ok := validIndexOptions[opt.Key]; ok {
+				idxSpec = append(idxSpec, opt)
+			}
+		}
+		idxSpecs = append(idxSpecs, idxSpec)
+	}
+
+	return idxSpecs, nil
 }
 
 func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV2) error {

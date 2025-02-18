@@ -87,6 +87,31 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		a.removePitr()
 	}
 
+	// stop balancer during the restore
+	if a.brief.Sharded && nodeInfo.IsClusterLeader() {
+		bs, err := topo.GetBalancerStatus(ctx, a.leadConn)
+		if err != nil {
+			l.Error("get balancer status: %v", err)
+			return
+		}
+
+		if bs.IsOn() {
+			err := topo.SetBalancerStatus(ctx, a.leadConn, topo.BalancerModeOff)
+			if err != nil {
+				l.Error("set balancer off: %v", err)
+			}
+
+			l.Debug("waiting for balancer off")
+			bs := topo.WaitForBalancerDisabled(ctx, a.leadConn, time.Second*30, l)
+			if bs.IsDisabled() {
+				l.Debug("balancer is disabled")
+			} else {
+				l.Warning("balancer is not disabled: balancer mode: %s, in balancer round: %t",
+					bs.Mode, bs.InBalancerRound)
+			}
+		}
+	}
+
 	var bcpType defs.BackupType
 	var bcp *backup.BackupMeta
 
