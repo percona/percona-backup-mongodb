@@ -3,6 +3,11 @@ name: 'codecov'
 on:
   push:
     branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
       - dev
 
 jobs:
@@ -21,5 +26,6 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           file: cover.out
+          flags: unittests
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}

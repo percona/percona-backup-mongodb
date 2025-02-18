@@ -54,6 +54,11 @@ func (discardLoggerImpl) Output(ctx context.Context, e *Entry) error {
 	return nil
 }
 
+func (discardLoggerImpl) Opts() *Opts { return nil }
+
+func (discardLoggerImpl) SetLogLevelAndJSON(cfg *Opts) {
+}
+
 type discardEventImpl struct{}
 
 func (discardEventImpl) Debug(msg string, args ...any)   {}

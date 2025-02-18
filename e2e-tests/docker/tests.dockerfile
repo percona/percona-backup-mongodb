@@ -1,4 +1,4 @@
-FROM oraclelinux:8 AS base-build
+FROM oraclelinux:9 AS base-build
 WORKDIR /build
 RUN dnf update && dnf install make gcc krb5-devel
 
