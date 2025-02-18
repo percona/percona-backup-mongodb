@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
@@ -578,14 +577,13 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 	}
 
 	if s.opts.Retryer != nil {
-		customRetryer := func() aws.Retryer {
-			return retry.NewStandard(func(o *retry.StandardOptions) {
-				// v2 MaxAttempts includes the first try
-				o.MaxAttempts = s.opts.Retryer.NumMaxRetries + 1
-				// TODO: determine Backoff based on MinRetryDelay and MaxRetryDelay
-			})
-		}
-		cfgOpts = append(cfgOpts, config.WithRetryer(customRetryer))
+		cfgOpts = append(cfgOpts, config.WithRetryer(func() aws.Retryer {
+			return NewCustomRetryer(
+				s.opts.Retryer.NumMaxRetries,
+				s.opts.Retryer.MinRetryDelay,
+				s.opts.Retryer.MaxRetryDelay,
+			)
+		}))
 	}
 
 	if s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != "" {
