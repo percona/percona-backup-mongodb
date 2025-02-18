@@ -376,23 +376,17 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 			storage.PrettySize(partSize))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
-	defer cancel()
-
 	_, err := manager.NewUploader(s.s3cli, func(u *manager.Uploader) {
 		u.MaxUploadParts = s.opts.MaxUploadParts
 		u.PartSize = partSize      // 10MB part size
 		u.LeavePartsOnError = true // Don't delete the parts if the upload fails.
 		u.Concurrency = cc
-	}).Upload(ctx, putInput)
+	}).Upload(context.Background(), putInput)
 
 	return errors.Wrap(err, "upload to S3")
 }
 
 func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
-	defer cancel()
-
 	prfx := path.Join(s.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
@@ -410,7 +404,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	var files []storage.FileInfo
 	paginator := s3.NewListObjectsV2Paginator(s.s3cli, lparams)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+		page, err := paginator.NextPage(context.Background())
 		if err != nil {
 			return nil, errors.Wrap(err, "list objects pagination")
 		}
@@ -467,10 +461,7 @@ func (s *S3) Copy(src, dst string) error {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
-	defer cancel()
-
-	_, err := s.s3cli.CopyObject(ctx, copyOpts)
+	_, err := s.s3cli.CopyObject(context.Background(), copyOpts)
 
 	return err
 }
@@ -495,10 +486,7 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 		headOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
-	defer cancel()
-
-	h, err := s.s3cli.HeadObject(ctx, headOpts)
+	h, err := s.s3cli.HeadObject(context.Background(), headOpts)
 	if err != nil {
 		var noSuchKeyErr *types.NoSuchKey
 		if errors.As(err, &noSuchKeyErr) {
@@ -530,10 +518,7 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
-	defer cancel()
-
-	_, err := s.s3cli.DeleteObject(ctx, &s3.DeleteObjectInput{
+	_, err := s.s3cli.DeleteObject(context.Background(), &s3.DeleteObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
 	})
@@ -599,12 +584,9 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 }
 
 func (s *S3) s3client() (*s3.Client, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
-	defer cancel()
-
 	cfgOpts := s.buildLoadOptions()
 
-	cfg, err := config.LoadDefaultConfig(ctx, cfgOpts...)
+	cfg, err := config.LoadDefaultConfig(context.Background(), cfgOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "load default config")
 	}
