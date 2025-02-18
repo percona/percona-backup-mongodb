@@ -47,7 +47,8 @@ func (r CustomRetryer) GetInitialToken() func(error) error {
 
 func NewCustomRetryer(numMaxRetries int, minBackoff, maxBackoff time.Duration) aws.Retryer {
 	baseRetryer := retry.NewStandard(func(o *retry.StandardOptions) {
-		o.MaxAttempts = numMaxRetries
+		// v2's MaxAttempts includes the first attempt, we add 1 to match v1 behavior
+		o.MaxAttempts = numMaxRetries + 1
 		o.MaxBackoff = maxBackoff
 	})
 
