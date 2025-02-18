@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
@@ -388,8 +387,6 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 }
 
 func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	ctx := context.Background()
-
 	prfx := path.Join(s.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
@@ -407,7 +404,7 @@ func (s *S3) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	var files []storage.FileInfo
 	paginator := s3.NewListObjectsV2Paginator(s.s3cli, lparams)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+		page, err := paginator.NextPage(context.Background())
 		if err != nil {
 			return nil, errors.Wrap(err, "list objects pagination")
 		}
@@ -560,17 +557,18 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 
 	if s.log != nil {
 		cfgOpts = append(cfgOpts, config.WithLogger(awsLogger{l: s.log}))
+	} else {
+		cfgOpts = append(cfgOpts, config.WithLogger(logging.NewStandardLogger(os.Stdout)))
 	}
 
 	if s.opts.Retryer != nil {
-		customRetryer := func() aws.Retryer {
-			return retry.NewStandard(func(o *retry.StandardOptions) {
-				// v2 MaxAttempts includes the first try
-				o.MaxAttempts = s.opts.Retryer.NumMaxRetries + 1
-				// TODO: determine Backoff based on MinRetryDelay and MaxRetryDelay
-			})
-		}
-		cfgOpts = append(cfgOpts, config.WithRetryer(customRetryer))
+		cfgOpts = append(cfgOpts, config.WithRetryer(func() aws.Retryer {
+			return NewCustomRetryer(
+				s.opts.Retryer.NumMaxRetries,
+				s.opts.Retryer.MinRetryDelay,
+				s.opts.Retryer.MaxRetryDelay,
+			)
+		}))
 	}
 
 	if s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != "" {
@@ -586,11 +584,9 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 }
 
 func (s *S3) s3client() (*s3.Client, error) {
-	ctx := context.Background()
-
 	cfgOpts := s.buildLoadOptions()
 
-	cfg, err := config.LoadDefaultConfig(ctx, cfgOpts...)
+	cfg, err := config.LoadDefaultConfig(context.Background(), cfgOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "load default config")
 	}
@@ -608,7 +604,9 @@ func (s *S3) s3client() (*s3.Client, error) {
 	}
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = *s.opts.ForcePathStyle
+		if s.opts.ForcePathStyle != nil {
+			o.UsePathStyle = *s.opts.ForcePathStyle
+		}
 	}), nil
 }
 

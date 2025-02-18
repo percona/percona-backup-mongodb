@@ -4,6 +4,7 @@
 %{?el7:          %global systemd 1}
 %{?el8:          %global systemd 1}
 %{?el9:          %global systemd 1}
+%{?amzn2023:     %global systemd 1}
 
 
 Name:  percona-backup-mongodb

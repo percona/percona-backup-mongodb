@@ -15,7 +15,7 @@ OPTIONS="--mongodb-uri='${PBM_MONGODB_URI}'"
 PIDFILEPATH=/run/pbm-agent/pbm-agent.pid
 PIDDIR=$(dirname $PIDFILEPATH)
 USER=mongod
-GROUP=mogod
+GROUP=mongod
 pbm_agent=${PBM_AGENT:-/usr/bin/pbm-agent}
 pbm_log="/var/log/pbm-agent.log"
 
