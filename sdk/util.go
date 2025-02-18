@@ -61,6 +61,11 @@ func AgentStatuses(ctx context.Context, client *Client) ([]AgentStatus, error) {
 	return topo.ListAgents(ctx, client.conn)
 }
 
+// GetNodeInfo returns information about the node.
+func GetNodeInfo(ctx context.Context, client *Client) (*topo.NodeInfo, error) {
+	return topo.GetNodeInfo(ctx, client.conn.MongoClient())
+}
+
 func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
