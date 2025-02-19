@@ -478,7 +478,7 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Sync backup list from configuration profile",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
 			if len(args) == 1 {
-				removeConfigProfileOpts.name = args[0]
+				syncConfigProfileOpts.name = args[0]
 			}
 			return handleSyncConfigProfile(app.ctx, app.pbm, syncConfigProfileOpts)
 		}),
