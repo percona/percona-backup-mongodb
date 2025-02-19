@@ -1115,8 +1115,11 @@ func (pr pitrRange) String() string {
 	return fmt.Sprintf("{ %s }", pr.Range)
 }
 
+// fmtTS converts timestamp to Zulu time string representation,
+// and removes Z identificator: 2025-02-05T11:04:59
 func fmtTS(ts int64) string {
-	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
+	t := time.Unix(ts, 0).UTC().Format(time.RFC3339)
+	return strings.TrimSuffix(t, "Z")
 }
 
 type outMsg struct {
