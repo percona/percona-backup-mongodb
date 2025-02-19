@@ -20,6 +20,10 @@ type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
 	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
+
+	// The maximum number of bytes that the Writer will attempt to send in a single request.
+	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
+	ChunkSize *int `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -92,7 +96,9 @@ func (g *GCS) Save(name string, data io.Reader, size int64) error {
 
 	w := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewWriter(ctx)
 
-	// TODO: set ChunkSize
+	if g.opts.ChunkSize != nil {
+		w.ChunkSize = *g.opts.ChunkSize
+	}
 
 	if _, err := io.Copy(w, data); err != nil {
 		return errors.Wrap(err, "save data")
