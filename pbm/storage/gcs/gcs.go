@@ -32,8 +32,8 @@ func (cfg *Config) Clone() *Config {
 }
 
 type Credentials struct {
-	ProjectId  string `bson:"project_id" json:"project_id,omitempty" yaml:"project_id,omitempty"`
-	PrivateKey string `bson:"private_key" json:"private_key,omitempty" yaml:"private_key,omitempty"`
+	ProjectId  string `bson:"projectId" json:"projectId,omitempty" yaml:"projectId,omitempty"`
+	PrivateKey string `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
 }
 
 type GCS struct {
