@@ -36,7 +36,7 @@ func (cfg *Config) Clone() *Config {
 }
 
 type Credentials struct {
-	ProjectId  string `bson:"projectId" json:"projectId,omitempty" yaml:"projectId,omitempty"`
+	ProjectID  string `bson:"projectId" json:"projectId,omitempty" yaml:"projectId,omitempty"`
 	PrivateKey string `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
 }
 
@@ -51,7 +51,7 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	var client *gcs.Client
 	var err error
 
-	if opts.Credentials.ProjectId != "" && opts.Credentials.PrivateKey != "" {
+	if opts.Credentials.ProjectID != "" && opts.Credentials.PrivateKey != "" {
 		credStr := fmt.Sprintf(`{
 			"type": "service_account",
           	"project_id": "%s",
@@ -63,10 +63,10 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 			"client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
 			"universe_domain": "googleapis.com"
 		}`,
-			opts.Credentials.ProjectId,
+			opts.Credentials.ProjectID,
 			opts.Credentials.PrivateKey,
-			opts.Credentials.ProjectId,
-			opts.Credentials.ProjectId,
+			opts.Credentials.ProjectID,
+			opts.Credentials.ProjectID,
 		)
 
 		credentials := option.WithCredentialsJSON([]byte(credStr))
@@ -120,7 +120,6 @@ func (g *GCS) SourceReader(name string) (io.ReadCloser, error) {
 	}
 
 	return reader, nil
-
 }
 
 func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
