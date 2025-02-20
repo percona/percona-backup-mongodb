@@ -25,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -145,6 +146,11 @@ func (c *Config) String() string {
 			c.Storage.Azure.Credentials.Key = "***"
 		}
 	}
+	if c.Storage.GCS != nil {
+		if c.Storage.GCS.Credentials.PrivateKey != "" {
+			c.Storage.GCS.Credentials.PrivateKey = "***"
+		}
+	}
 
 	b, err := yaml.Marshal(c)
 	if err != nil {
@@ -209,6 +215,7 @@ func (cfg *PITRConf) Clone() *PITRConf {
 type StorageConf struct {
 	Type       storage.Type  `bson:"type" json:"type" yaml:"type"`
 	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	GCS        *gcs.Config   `bson:"gcs,omitempty" json:"gcs,omitempty" yaml:"gcs,omitempty"`
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
@@ -229,6 +236,8 @@ func (s *StorageConf) Clone() *StorageConf {
 		rv.S3 = s.S3.Clone()
 	case storage.Azure:
 		rv.Azure = s.Azure.Clone()
+	case storage.GCS:
+		rv.GCS = s.GCS.Clone()
 	case storage.Blackhole: // no config
 	}
 
@@ -260,6 +269,8 @@ func (s *StorageConf) Cast() error {
 		return s.Filesystem.Cast()
 	case storage.S3:
 		return s.S3.Cast()
+	case storage.GCS:
+		return nil
 	case storage.Azure: // noop
 		return nil
 	case storage.Blackhole: // noop

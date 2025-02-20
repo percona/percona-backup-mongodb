@@ -27,6 +27,7 @@ const (
 	Azure      Type = "azure"
 	Filesystem Type = "filesystem"
 	Blackhole  Type = "blackhole"
+	GCS        Type = "gcs"
 )
 
 type FileInfo struct {
@@ -61,6 +62,8 @@ func ParseType(s string) Type {
 		return Filesystem
 	case string(Blackhole):
 		return Blackhole
+	case string(GCS):
+		return GCS
 	default:
 		return Undefined
 	}
