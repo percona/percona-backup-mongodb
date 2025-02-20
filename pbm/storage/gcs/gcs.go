@@ -2,6 +2,7 @@ package gcs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path"
@@ -40,6 +41,18 @@ type Credentials struct {
 	PrivateKey string `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
 }
 
+type ServiceAccountCredentials struct {
+	Type                string `json:"type"`
+	ProjectID           string `json:"project_id"`
+	PrivateKey          string `json:"private_key"`
+	ClientEmail         string `json:"client_email"`
+	AuthUri             string `json:"auth_uri"`
+	TokenUri            string `json:"token_uri"`
+	UniverseDomain      string `json:"universe_domain"`
+	AuthProviderCertUrl string `json:"auth_provider_x509_cert_url"`
+	ClientCertUrl       string `json:"client_x509_cert_url"`
+}
+
 type GCS struct {
 	opts         *Config
 	bucketHandle *gcs.BucketHandle
@@ -52,24 +65,27 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	var err error
 
 	if opts.Credentials.ProjectID != "" && opts.Credentials.PrivateKey != "" {
-		credStr := fmt.Sprintf(`{
-			"type": "service_account",
-          	"project_id": "%s",
-			"private_key": "%s",
-			"client_email": "service@%s.iam.gserviceaccount.com",
-			"auth_uri": "https://accounts.google.com/o/oauth2/auth",
-			"token_uri": "https://oauth2.googleapis.com/token",
-			"auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-			"client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
-			"universe_domain": "googleapis.com"
-		}`,
-			opts.Credentials.ProjectID,
-			opts.Credentials.PrivateKey,
-			opts.Credentials.ProjectID,
-			opts.Credentials.ProjectID,
-		)
+		creds := ServiceAccountCredentials{
+			Type:                "service_account",
+			ProjectID:           opts.Credentials.ProjectID,
+			PrivateKey:          opts.Credentials.PrivateKey,
+			ClientEmail:         fmt.Sprintf("service@%s.iam.gserviceaccount.com", opts.Credentials.ProjectID),
+			AuthUri:             "https://accounts.google.com/o/oauth2/auth",
+			TokenUri:            "https://oauth2.googleapis.com/token",
+			UniverseDomain:      "googleapis.com",
+			AuthProviderCertUrl: "https://www.googleapis.com/oauth2/v1/certs",
+			ClientCertUrl: fmt.Sprintf(
+				"https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
+				opts.Credentials.ProjectID,
+			),
+		}
 
-		credentials := option.WithCredentialsJSON([]byte(credStr))
+		credsJson, err := json.Marshal(creds)
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal GCS credentials")
+		}
+
+		credentials := option.WithCredentialsJSON(credsJson)
 
 		client, err = gcs.NewClient(ctx, credentials)
 	} else {
