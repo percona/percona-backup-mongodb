@@ -17,6 +17,7 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/golang/snappy v0.0.4
 	github.com/google/uuid v1.6.0
+	github.com/googleapis/gax-go/v2 v2.12.3
 	github.com/klauspost/compress v1.17.11
 	github.com/klauspost/pgzip v1.2.6
 	github.com/mongodb/mongo-tools v0.0.0-20240723193119-837c2bc263f4
@@ -72,7 +73,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
-	github.com/googleapis/gax-go/v2 v2.12.3 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jessevdk/go-flags v1.5.0 // indirect

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/googleapis/gax-go/v2"
 	"io"
 	"path"
 	"strings"
+	"time"
 
 	gcs "cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
@@ -25,20 +27,23 @@ type Config struct {
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
 	ChunkSize *int `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
-}
 
-func (cfg *Config) Clone() *Config {
-	if cfg == nil {
-		return nil
-	}
-
-	rv := *cfg
-	return &rv
+	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
 type Credentials struct {
 	ProjectID  string `bson:"projectId" json:"projectId,omitempty" yaml:"projectId,omitempty"`
 	PrivateKey string `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+}
+
+type Retryer struct {
+	// BackoffInitial is the initial value of the retry period.
+	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Initial
+	BackoffInitial time.Duration `bson:"backoffInitial" json:"backoffInitial" yaml:"backoffInitial"`
+
+	// BackoffMax is the maximum value of the retry period.
+	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Max
+	BackoffMax time.Duration `bson:"backoffMax" json:"backoffMax" yaml:"backoffMax"`
 }
 
 type ServiceAccountCredentials struct {
@@ -57,6 +62,15 @@ type GCS struct {
 	opts         *Config
 	bucketHandle *gcs.BucketHandle
 	log          log.LogEvent
+}
+
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	return &rv
 }
 
 func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
@@ -96,9 +110,22 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 		return nil, errors.Wrap(err, "create GCS client")
 	}
 
+	bucketHandle := client.Bucket(opts.Bucket)
+
+	if opts.Retryer != nil {
+		bucketHandle = bucketHandle.Retryer(
+			gcs.WithBackoff(gax.Backoff{
+				Initial: opts.Retryer.BackoffInitial,
+				Max:     opts.Retryer.BackoffMax,
+			}),
+
+			gcs.WithPolicy(gcs.RetryAlways),
+		)
+	}
+
 	return &GCS{
 		opts:         opts,
-		bucketHandle: client.Bucket(opts.Bucket),
+		bucketHandle: bucketHandle,
 		log:          l,
 	}, nil
 }
