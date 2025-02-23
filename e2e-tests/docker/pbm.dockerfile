@@ -1,7 +1,7 @@
 ARG MONGODB_VERSION=6.0
 ARG MONGODB_IMAGE=perconalab/percona-server-mongodb
 
-FROM ${MONGODB_IMAGE}:${MONGODB_VERSION}-multi AS mongo_image
+FROM ${MONGODB_IMAGE}:${MONGODB_VERSION} AS mongo_image
 
 FROM oraclelinux:9 AS base-build
 WORKDIR /build
