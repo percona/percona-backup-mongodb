@@ -51,11 +51,11 @@ type ServiceAccountCredentials struct {
 	ProjectID           string `json:"project_id"`
 	PrivateKey          string `json:"private_key"`
 	ClientEmail         string `json:"client_email"`
-	AuthUri             string `json:"auth_uri"`
-	TokenUri            string `json:"token_uri"`
+	AuthURI             string `json:"auth_uri"`
+	TokenURI            string `json:"token_uri"`
 	UniverseDomain      string `json:"universe_domain"`
-	AuthProviderCertUrl string `json:"auth_provider_x509_cert_url"`
-	ClientCertUrl       string `json:"client_x509_cert_url"`
+	AuthProviderCertURL string `json:"auth_provider_x509_cert_url"`
+	ClientCertURL       string `json:"client_x509_cert_url"`
 }
 
 type GCS struct {
@@ -74,43 +74,17 @@ func (cfg *Config) Clone() *Config {
 }
 
 func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
-	ctx := context.Background()
-	var client *gcs.Client
-	var err error
-
-	if opts.Credentials.ProjectID != "" && opts.Credentials.PrivateKey != "" {
-		creds := ServiceAccountCredentials{
-			Type:                "service_account",
-			ProjectID:           opts.Credentials.ProjectID,
-			PrivateKey:          opts.Credentials.PrivateKey,
-			ClientEmail:         fmt.Sprintf("service@%s.iam.gserviceaccount.com", opts.Credentials.ProjectID),
-			AuthUri:             "https://accounts.google.com/o/oauth2/auth",
-			TokenUri:            "https://oauth2.googleapis.com/token",
-			UniverseDomain:      "googleapis.com",
-			AuthProviderCertUrl: "https://www.googleapis.com/oauth2/v1/certs",
-			ClientCertUrl: fmt.Sprintf(
-				"https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
-				opts.Credentials.ProjectID,
-			),
-		}
-
-		credsJson, err := json.Marshal(creds)
-		if err != nil {
-			return nil, errors.Wrap(err, "marshal GCS credentials")
-		}
-
-		credentials := option.WithCredentialsJSON(credsJson)
-
-		client, err = gcs.NewClient(ctx, credentials)
-	} else {
-		client, err = gcs.NewClient(ctx)
+	g := &GCS{
+		opts: opts,
+		log:  l,
 	}
 
+	cli, err := g.gcsClient()
 	if err != nil {
-		return nil, errors.Wrap(err, "create GCS client")
+		return nil, errors.Wrap(err, "GCS client")
 	}
 
-	bucketHandle := client.Bucket(opts.Bucket)
+	bucketHandle := cli.Bucket(opts.Bucket)
 
 	if opts.Retryer != nil {
 		bucketHandle = bucketHandle.Retryer(
@@ -123,11 +97,9 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 		)
 	}
 
-	return &GCS{
-		opts:         opts,
-		bucketHandle: bucketHandle,
-		log:          l,
-	}, nil
+	g.bucketHandle = bucketHandle
+
+	return g, nil
 }
 
 func (*GCS) Type() storage.Type {
@@ -259,4 +231,33 @@ func (g *GCS) Copy(src, dst string) error {
 
 	_, err := dstObj.CopierFrom(srcObj).Run(ctx)
 	return err
+}
+
+func (g *GCS) gcsClient() (*gcs.Client, error) {
+	ctx := context.Background()
+
+	if g.opts.Credentials.ProjectID != "" && g.opts.Credentials.PrivateKey != "" {
+		creds, err := json.Marshal(ServiceAccountCredentials{
+			Type:                "service_account",
+			ProjectID:           g.opts.Credentials.ProjectID,
+			PrivateKey:          g.opts.Credentials.PrivateKey,
+			ClientEmail:         fmt.Sprintf("service@%s.iam.gserviceaccount.com", g.opts.Credentials.ProjectID),
+			AuthURI:             "https://accounts.google.com/o/oauth2/auth",
+			TokenURI:            "https://oauth2.googleapis.com/token",
+			UniverseDomain:      "googleapis.com",
+			AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
+			ClientCertURL: fmt.Sprintf(
+				"https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
+				g.opts.Credentials.ProjectID,
+			),
+		})
+
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal GCS credentials")
+		}
+
+		return gcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+	}
+
+	return gcs.NewClient(ctx)
 }
