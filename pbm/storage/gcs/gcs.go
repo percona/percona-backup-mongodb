@@ -251,7 +251,6 @@ func (g *GCS) gcsClient() (*gcs.Client, error) {
 				g.opts.Credentials.ProjectID,
 			),
 		})
-
 		if err != nil {
 			return nil, errors.Wrap(err, "marshal GCS credentials")
 		}
