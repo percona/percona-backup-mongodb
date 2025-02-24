@@ -236,27 +236,27 @@ func (g *GCS) Copy(src, dst string) error {
 func (g *GCS) gcsClient() (*gcs.Client, error) {
 	ctx := context.Background()
 
-	if g.opts.Credentials.ProjectID != "" && g.opts.Credentials.PrivateKey != "" {
-		creds, err := json.Marshal(ServiceAccountCredentials{
-			Type:                "service_account",
-			ProjectID:           g.opts.Credentials.ProjectID,
-			PrivateKey:          g.opts.Credentials.PrivateKey,
-			ClientEmail:         fmt.Sprintf("service@%s.iam.gserviceaccount.com", g.opts.Credentials.ProjectID),
-			AuthURI:             "https://accounts.google.com/o/oauth2/auth",
-			TokenURI:            "https://oauth2.googleapis.com/token",
-			UniverseDomain:      "googleapis.com",
-			AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
-			ClientCertURL: fmt.Sprintf(
-				"https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
-				g.opts.Credentials.ProjectID,
-			),
-		})
-		if err != nil {
-			return nil, errors.Wrap(err, "marshal GCS credentials")
-		}
-
-		return gcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+	if g.opts.Credentials.ProjectID == "" || g.opts.Credentials.PrivateKey == "" {
+		return nil, errors.New("projectID and privateKey are required for GCS credentials")
 	}
 
-	return gcs.NewClient(ctx)
+	creds, err := json.Marshal(ServiceAccountCredentials{
+		Type:                "service_account",
+		ProjectID:           g.opts.Credentials.ProjectID,
+		PrivateKey:          g.opts.Credentials.PrivateKey,
+		ClientEmail:         fmt.Sprintf("service@%s.iam.gserviceaccount.com", g.opts.Credentials.ProjectID),
+		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
+		TokenURI:            "https://oauth2.googleapis.com/token",
+		UniverseDomain:      "googleapis.com",
+		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
+		ClientCertURL: fmt.Sprintf(
+			"https://www.googleapis.com/robot/v1/metadata/x509/%s.iam.gserviceaccount.com",
+			g.opts.Credentials.ProjectID,
+		),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal GCS credentials")
+	}
+
+	return gcs.NewClient(ctx, option.WithCredentialsJSON(creds))
 }
