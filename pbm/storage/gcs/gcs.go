@@ -44,6 +44,10 @@ type Retryer struct {
 	// BackoffMax is the maximum value of the retry period.
 	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Max
 	BackoffMax time.Duration `bson:"backoffMax" json:"backoffMax" yaml:"backoffMax"`
+
+	// BackoffMultiplier is the factor by which the retry period increases.
+	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Multiplier
+	BackoffMultiplier float64 `bson:"backoffMultiplier" json:"backoffMultiplier" yaml:"backoffMultiplier"`
 }
 
 type ServiceAccountCredentials struct {
@@ -89,8 +93,9 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	if opts.Retryer != nil {
 		bucketHandle = bucketHandle.Retryer(
 			gcs.WithBackoff(gax.Backoff{
-				Initial: opts.Retryer.BackoffInitial,
-				Max:     opts.Retryer.BackoffMax,
+				Initial:    opts.Retryer.BackoffInitial,
+				Max:        opts.Retryer.BackoffMax,
+				Multiplier: opts.Retryer.BackoffMultiplier,
 			}),
 
 			gcs.WithPolicy(gcs.RetryAlways),
