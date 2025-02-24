@@ -5,7 +5,7 @@ import (
 	"io"
 	"runtime"
 
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/golang/snappy"
 	"github.com/klauspost/compress/s2"
 	"github.com/klauspost/compress/zstd"
