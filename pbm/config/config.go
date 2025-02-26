@@ -150,6 +150,9 @@ func (c *Config) String() string {
 		if c.Storage.GCS.Credentials.PrivateKey != "" {
 			c.Storage.GCS.Credentials.PrivateKey = "***"
 		}
+		if c.Storage.GCS.Credentials.ClientEmail != "" {
+			c.Storage.GCS.Credentials.ClientEmail = "***"
+		}
 	}
 
 	b, err := yaml.Marshal(c)
