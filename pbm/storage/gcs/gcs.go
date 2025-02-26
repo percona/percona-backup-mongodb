@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 
@@ -76,6 +77,28 @@ func (cfg *Config) Clone() *Config {
 
 	rv := *cfg
 	return &rv
+}
+
+func (cfg *Config) Equal(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Bucket != other.Bucket {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	if cfg.ChunkSize != other.ChunkSize {
+		return false
+	}
+
+	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
+		return false
+	}
+
+	return true
 }
 
 func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
