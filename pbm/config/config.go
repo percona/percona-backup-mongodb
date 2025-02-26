@@ -257,6 +257,8 @@ func (s *StorageConf) Equal(other *StorageConf) bool {
 		return s.S3.Equal(other.S3)
 	case storage.Azure:
 		return s.Azure.Equal(other.Azure)
+	case storage.GCS:
+		return s.GCS.Equal(other.GCS)
 	case storage.Filesystem:
 		return s.Filesystem.Equal(other.Filesystem)
 	case storage.Blackhole:
@@ -289,6 +291,8 @@ func (s *StorageConf) Typ() string {
 		return "S3"
 	case storage.Azure:
 		return "Azure"
+	case storage.GCS:
+		return "GCS"
 	case storage.Filesystem:
 		return "FS"
 	case storage.Blackhole:
@@ -320,6 +324,11 @@ func (s *StorageConf) Path() string {
 		path = epURL + "/" + s.Azure.Container
 		if s.Azure.Prefix != "" {
 			path += "/" + s.Azure.Prefix
+		}
+	case storage.GCS:
+		path = "gs://" + s.GCS.Bucket
+		if s.GCS.Prefix != "" {
+			path += "/" + s.GCS.Prefix
 		}
 	case storage.Filesystem:
 		path = s.Filesystem.Path
