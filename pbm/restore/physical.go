@@ -46,6 +46,7 @@ import (
 const (
 	defaultRSdbpath   = "/data/db"
 	defaultCSRSdbpath = "/data/configdb"
+	fallbackDir       = ".fallbackDbPath"
 
 	mongofslock = "mongod.lock"
 
@@ -53,6 +54,8 @@ const (
 
 	tryConnCount   = 5
 	tryConnTimeout = 5 * time.Minute
+
+	internalMongodLog = "pbm.restore.log"
 )
 
 type files struct {
@@ -1786,8 +1789,6 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 
 	return nil, errors.Errorf("failed to  connect after %d tries: %v", tryConnCount, err)
 }
-
-const internalMongodLog = "pbm.restore.log"
 
 func (r *PhysRestore) startMongo(opts ...string) error {
 	if r.tmpConf != nil {
