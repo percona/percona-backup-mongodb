@@ -234,11 +234,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 			r.log.Warning("remove file <%s>: %v", backup.FilelistName, err)
 		}
 	} else if cleanup { // clean-up dbpath on err if needed
-		r.log.Debug("clean-up dbpath")
-		err := removeAll(r.dbpath, r.log)
-		if err != nil {
-			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
-		}
+		r.migrateFromFallbackDirToDbDir()
 	}
 	if r.stopHB != nil {
 		close(r.stopHB)
@@ -293,10 +289,10 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		}
 	}
 
-	r.log.Debug("remove old data")
-	err = removeAll(r.dbpath, r.log)
+	r.log.Debug("move data to fallback path")
+	err = r.migrateDbDirToFallbackDir()
 	if err != nil {
-		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+		return errors.Wrapf(err, "move files to fallback path")
 	}
 
 	return nil
@@ -309,13 +305,12 @@ func (r *PhysRestore) migrateDbDirToFallbackDir() error {
 	fallbackPath := filepath.Join(dbpath, fallbackDir)
 	r.log.Debug("dbpath: %s, fallbackPath: %s", dbpath, fallbackPath)
 
-	r.log.Debug("remove old %s", fallbackPath)
 	err := os.RemoveAll(fallbackPath)
 	if err != nil {
 		return errors.Wrap(err, "remove fallback db path")
 	}
 
-	r.log.Debug("create new %s", fallbackPath)
+	r.log.Debug("create %s", fallbackPath)
 	info, err := os.Stat(dbpath)
 	if err != nil {
 		return errors.Wrap(err, "stat")
@@ -328,6 +323,23 @@ func (r *PhysRestore) migrateDbDirToFallbackDir() error {
 	err = r.moveToFallback()
 	if err != nil {
 		return errors.Wrapf(err, "fail to move to %s", fallbackPath)
+	}
+
+	return nil
+}
+
+// migrateFromFallbackDirToDbDir wipe up dbpath dir and
+// moves all content from fallback path.
+func (r *PhysRestore) migrateFromFallbackDirToDbDir() error {
+	r.log.Debug("clean-up dbpath")
+	err := removeAll(r.dbpath, r.log)
+	if err != nil {
+		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+	}
+
+	err = r.moveFromFallback()
+	if err != nil {
+		r.log.Error("moving from %s: %v", fallbackDir, err)
 	}
 
 	return nil
