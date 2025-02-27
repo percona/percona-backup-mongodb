@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -2349,6 +2350,32 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
 	}
 }
 
+// moveAll moves fromDir content (files and dirs) to toDir content.
+// It ignores all files/dirs specified within toIgnore slice.
+func moveAll(fromDir, toDir string, toIgnore []string, l log.LogEvent) error {
+	d, err := os.Open(fromDir)
+	if err != nil {
+		return errors.Wrap(err, "open dir")
+	}
+	defer d.Close()
+
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return errors.Wrap(err, "read file names")
+	}
+	for _, n := range names {
+		if slices.Contains(toIgnore, n) {
+			continue
+		}
+		err = os.Rename(filepath.Join(fromDir, n), filepath.Join(toDir, n))
+		if err != nil {
+			return errors.Wrapf(err, "move %s", n)
+		}
+		l.Debug("move to %s dir: %s", toDir, n)
+	}
+	return nil
+}
+
 func removeAll(dir string, l log.LogEvent) error {
 	d, err := os.Open(dir)
 	if err != nil {
@@ -2361,7 +2388,7 @@ func removeAll(dir string, l log.LogEvent) error {
 		return errors.Wrap(err, "read file names")
 	}
 	for _, n := range names {
-		if n == internalMongodLog {
+		if n == internalMongodLog || n == fallbackDir {
 			continue
 		}
 		err = os.RemoveAll(filepath.Join(dir, n))
