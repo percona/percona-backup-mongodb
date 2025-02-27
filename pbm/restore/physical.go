@@ -47,7 +47,7 @@ import (
 const (
 	defaultRSdbpath   = "/data/db"
 	defaultCSRSdbpath = "/data/configdb"
-	fallbackDir       = ".fallbackDbPath"
+	fallbackDir       = ".fallbacksync"
 
 	mongofslock = "mongod.lock"
 
@@ -300,6 +300,57 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// migrateDbDirToFallbackDir moves content of dbPath dir into fallback dir.
+// It also removes old fallback dir, and creates new with the same perms.
+func (r *PhysRestore) migrateDbDirToFallbackDir() error {
+	dbpath := filepath.Clean(r.dbpath)
+	fallbackPath := filepath.Join(dbpath, fallbackDir)
+	r.log.Debug("dbpath: %s, fallbackPath: %s", dbpath, fallbackPath)
+
+	r.log.Debug("remove old %s", fallbackPath)
+	err := os.RemoveAll(fallbackPath)
+	if err != nil {
+		return errors.Wrap(err, "remove fallback db path")
+	}
+
+	r.log.Debug("create new %s", fallbackPath)
+	info, err := os.Stat(dbpath)
+	if err != nil {
+		return errors.Wrap(err, "stat")
+	}
+	err = os.MkdirAll(fallbackPath, info.Mode())
+	if err != nil {
+		return errors.Wrapf(err, "creating dir %s", fallbackPath)
+	}
+
+	err = r.moveToFallback()
+	if err != nil {
+		return errors.Wrapf(err, "fail to move to %s", fallbackPath)
+	}
+
+	return nil
+}
+
+// moveFromFallback moves all files/dirs from fallback dir to dbpath dir.
+func (r *PhysRestore) moveFromFallback() error {
+	return moveAll(
+		path.Join(r.dbpath, fallbackDir),
+		r.dbpath,
+		nil,
+		r.log,
+	)
+}
+
+// moveToFallback moves all files/dirs except fallback dir from dbpath to fallback dir
+func (r *PhysRestore) moveToFallback() error {
+	return moveAll(
+		r.dbpath,
+		path.Join(r.dbpath, fallbackDir),
+		[]string{fallbackDir},
+		r.log,
+	)
 }
 
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
