@@ -290,7 +290,6 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		}
 	}
 
-	r.log.Debug("move data to fallback path")
 	err = r.migrateDbDirToFallbackDir()
 	if err != nil {
 		return errors.Wrapf(err, "move files to fallback path")
@@ -321,6 +320,7 @@ func (r *PhysRestore) migrateDbDirToFallbackDir() error {
 		return errors.Wrapf(err, "creating dir %s", fallbackPath)
 	}
 
+	r.log.Info("move data files from %s to %s", r.dbpath, fallbackDir)
 	err = r.moveToFallback()
 	if err != nil {
 		return errors.Wrapf(err, "fail to move to %s", fallbackPath)
@@ -338,6 +338,7 @@ func (r *PhysRestore) migrateFromFallbackDirToDbDir() error {
 		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 	}
 
+	r.log.Info("move data files from %s to %s", fallbackDir, r.dbpath)
 	err = r.moveFromFallback()
 	if err != nil {
 		r.log.Error("moving from %s: %v", fallbackDir, err)
