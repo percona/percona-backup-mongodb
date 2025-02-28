@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	slog "log"
+	"maps"
 	"math/rand"
 	"net"
 	"os"
@@ -508,7 +509,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 
 	if r.nodeInfo.IsPrimary || status == defs.StatusDone {
 		r.log.Info("waiting for `%s` status in rs %v", status, r.syncPathPeers)
-		cstat, err := r.waitFiles(status, copyMap(r.syncPathPeers), false)
+		cstat, err := r.waitFiles(status, maps.Clone(r.syncPathPeers), false)
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "wait for nodes in rs")
 		}
@@ -521,7 +522,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 
 	if r.nodeInfo.IsClusterLeader() || status == defs.StatusDone {
 		r.log.Info("waiting for shards %v", r.syncPathShards)
-		cstat, err := r.waitFiles(status, copyMap(r.syncPathShards), true)
+		cstat, err := r.waitFiles(status, maps.Clone(r.syncPathShards), true)
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "wait for shards")
 		}
@@ -590,15 +591,6 @@ type nodeError struct {
 
 func (n nodeError) Error() string {
 	return fmt.Sprintf("%s failed: %s", n.node, n.msg)
-}
-
-func copyMap[K comparable, V any](m map[K]V) map[K]V {
-	cp := make(map[K]V)
-	for k, v := range m {
-		cp[k] = v
-	}
-
-	return cp
 }
 
 func (r *PhysRestore) waitFiles(
@@ -1717,7 +1709,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 	}
 
 	if r.nodeInfo.IsClusterLeader() {
-		_, err := r.waitFiles(defs.StatusExtTS, copyMap(r.syncPathShards), true)
+		_, err := r.waitFiles(defs.StatusExtTS, maps.Clone(r.syncPathShards), true)
 		if err != nil {
 			return ts, errors.Wrap(err, "wait for shards timestamp")
 		}
@@ -1766,7 +1758,7 @@ func (r *PhysRestore) setcommittedTxn(_ context.Context, txn []phys.RestoreTxn) 
 }
 
 func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]primitive.Timestamp, error) {
-	shards := copyMap(r.syncPathShards)
+	shards := maps.Clone(r.syncPathShards)
 	txn := make(map[string]primitive.Timestamp)
 	for len(shards) > 0 {
 		for f := range shards {
