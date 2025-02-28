@@ -512,6 +512,9 @@ github.com/testcontainers/testcontainers-go/internal/config
 github.com/testcontainers/testcontainers-go/internal/core
 github.com/testcontainers/testcontainers-go/internal/core/network
 github.com/testcontainers/testcontainers-go/wait
+# github.com/testcontainers/testcontainers-go/modules/minio v0.34.0
+## explicit; go 1.22
+github.com/testcontainers/testcontainers-go/modules/minio
 # github.com/testcontainers/testcontainers-go/modules/mongodb v0.34.0
 ## explicit; go 1.22
 github.com/testcontainers/testcontainers-go/modules/mongodb
