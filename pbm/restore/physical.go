@@ -594,6 +594,39 @@ func (n nodeError) Error() string {
 	return fmt.Sprintf("%s failed: %s", n.node, n.msg)
 }
 
+// checkForRSLevelErr checks if all nodes have an error,
+// and in that case true is returned.
+// If any node doesn't have error, false is returned.
+func (r *PhysRestore) checkForRSLevelErr() bool {
+	for f := range r.syncPathPeers {
+		errFile := f + "." + string(defs.StatusError)
+		_, err := r.stg.FileStat(errFile)
+		if errors.Is(err, storage.ErrNotExist) {
+			return false
+		}
+		if err != nil {
+			r.log.Error("error while checking file %s: %v", errFile, err)
+		}
+		// error file is found
+	}
+	return true
+}
+
+// checkForClusterLevelErr checks if any RS (shard) has an error.
+// It returns true if at least one RS has error, otherwise false.
+func (r *PhysRestore) checkForClusterLevelErr() bool {
+	for f := range r.syncPathShards {
+		errFile := f + "." + string(defs.StatusError)
+		_, err := r.stg.FileStat(errFile)
+		if err == nil {
+			return true
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while checking file %s: %v", errFile, err)
+		}
+	}
+	return false
+}
+
 func (r *PhysRestore) waitFiles(
 	status defs.Status,
 	objs map[string]struct{},
@@ -816,7 +849,7 @@ func (r *PhysRestore) Snapshot(
 		// set failed status of node on error, but
 		// don't mark node as failed after the local restore succeed
 		if err != nil && !progress.is(restoreDone) && !errors.Is(err, ErrNoDataForShard) {
-			r.MarkFailed(meta, err, !progress.is(restoreStared))
+			r.MarkFailed(meta, err)
 		}
 
 		r.close(err == nil, progress.is(restoreStared) && !progress.is(restoreDone))
@@ -2367,7 +2400,7 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
-func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
+func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error) {
 	var nerr nodeError
 	if errors.As(e, &nerr) {
 		e = nerr
@@ -2390,14 +2423,14 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
 	// At some point, every node will try to set an rs and cluster state
 	// (in `toState` method).
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
-	if r.nodeInfo.IsPrimary && markCluster {
+	if r.checkForRSLevelErr() {
 		serr := util.RetryableWrite(r.stg,
 			r.syncPathRS+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
 			r.log.Error("MarkFailed: write replset error state `%v`: %v", e, serr)
 		}
 	}
-	if r.nodeInfo.IsClusterLeader() && markCluster {
+	if r.nodeInfo.IsLeader() && r.checkForClusterLevelErr() {
 		serr := util.RetryableWrite(r.stg,
 			r.syncPathCluster+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
