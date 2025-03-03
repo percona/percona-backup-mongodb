@@ -20,7 +20,7 @@ func TestGCS(t *testing.T) {
 	req := testcontainers.ContainerRequest{
 		Image:        "fsouza/fake-gcs-server",
 		ExposedPorts: []string{"4443/tcp"},
-		Cmd:          []string{"-backend", "memory", "-scheme", "http", "-port", "4443"},
+		Cmd:          []string{"-scheme", "http", "-port", "4443"},
 		WaitingFor:   wait.ForLog("server started at"),
 	}
 
