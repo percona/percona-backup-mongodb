@@ -1,17 +1,21 @@
 package gcs
 
 import (
-	gcs "cloud.google.com/go/storage"
 	"context"
 	"fmt"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"google.golang.org/api/option"
 	"io"
 	"os"
 	"strings"
 	"testing"
+
+	gcs "cloud.google.com/go/storage"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/go-connections/nat"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"google.golang.org/api/option"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 func TestGCS(t *testing.T) {
@@ -20,8 +24,13 @@ func TestGCS(t *testing.T) {
 	req := testcontainers.ContainerRequest{
 		Image:        "fsouza/fake-gcs-server",
 		ExposedPorts: []string{"4443/tcp"},
-		Cmd:          []string{"-scheme", "http", "-port", "4443"},
+		Cmd:          []string{"-public-host", "localhost:4443", "-scheme", "http", "-port", "4443"},
 		WaitingFor:   wait.ForLog("server started at"),
+		HostConfigModifier: func(hc *container.HostConfig) {
+			hc.PortBindings = nat.PortMap{
+				"4443/tcp": {{HostIP: "0.0.0.0", HostPort: "4443"}},
+			}
+		},
 	}
 
 	gcsContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -46,6 +55,7 @@ func TestGCS(t *testing.T) {
 		t.Fatalf("failed to get mapped port: %s", err)
 	}
 	endpoint := fmt.Sprintf("http://%s:%s", host, port.Port())
+	fmt.Println(endpoint)
 
 	_ = os.Setenv("STORAGE_EMULATOR_HOST", endpoint)
 	defer func() {
@@ -199,8 +209,7 @@ func TestGCS(t *testing.T) {
 
 		reader, err := stg.SourceReader(name)
 		if err != nil {
-			return
-			//t.Fatalf("SourceReader failed: %s", err)
+			t.Fatalf("SourceReader failed: %s", err)
 		}
 
 		defer func() {
