@@ -16,7 +16,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-func TestS3Save(t *testing.T) {
+func TestS3(t *testing.T) {
 	ctx := context.Background()
 
 	minioContainer, err := minio.Run(ctx, "minio/minio:RELEASE.2024-08-17T01-24-54Z")
