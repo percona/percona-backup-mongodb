@@ -78,11 +78,19 @@ func TestGCS(t *testing.T) {
 		t.Fatalf("failed to create bucket: %s", err)
 	}
 
+	chunkSize := 1024
+
 	opts := &Config{
-		Bucket: bucketName,
+		Bucket:    bucketName,
+		ChunkSize: &chunkSize,
 		Credentials: Credentials{
 			ClientEmail: "email@example.com",
 			PrivateKey:  "-----BEGIN PRIVATE KEY-----\nKey\n-----END PRIVATE KEY-----\n",
+		},
+		Retryer: &Retryer{
+			BackoffInitial:    1,
+			BackoffMax:        2,
+			BackoffMultiplier: 1,
 		},
 	}
 
@@ -176,6 +184,15 @@ func TestGCS(t *testing.T) {
 		}
 	})
 
+	t.Run("Delete fails", func(t *testing.T) {
+		name := "not_found.txt"
+		err := stg.Delete(name)
+
+		if err == nil {
+			t.Errorf("expected error when deleting non-existing file, got nil")
+		}
+	})
+
 	t.Run("Copy", func(t *testing.T) {
 		src := "copysrc.txt"
 		dst := "copydst.txt"
@@ -228,4 +245,65 @@ func TestGCS(t *testing.T) {
 			t.Errorf("expected content %s, got %s", content, string(data))
 		}
 	})
+}
+
+func TestConfig(t *testing.T) {
+	opts := &Config{
+		Bucket: "bucketName",
+		Prefix: "prefix",
+		Credentials: Credentials{
+			ClientEmail: "email@example.com",
+			PrivateKey:  "-----BEGIN PRIVATE KEY-----\nKey\n-----END PRIVATE KEY-----\n",
+		},
+	}
+
+	t.Run("Clone", func(t *testing.T) {
+		clone := opts.Clone()
+		if clone == opts {
+			t.Error("expected clone to be a different pointer")
+		}
+
+		if !opts.Equal(clone) {
+			t.Error("expected clone to be equal")
+		}
+
+		opts.Bucket = "updatedName"
+		if opts.Equal(clone) {
+			t.Error("expected clone to be unchanged when updating original")
+		}
+	})
+
+	t.Run("Equal fails", func(t *testing.T) {
+		if opts.Equal(nil) {
+			t.Error("expected not to be equal other nil")
+		}
+
+		clone := opts.Clone()
+		clone.Prefix = "updatedPrefix"
+		if opts.Equal(clone) {
+			t.Error("expected not to be equal when updating prefix")
+		}
+
+		clone = opts.Clone()
+		clone.Credentials.ClientEmail = "updated@example.com"
+		if opts.Equal(clone) {
+			t.Error("expected not to be equal when updating credentials")
+		}
+	})
+}
+
+func TestEmptyCredentialsFail(t *testing.T) {
+	opts := &Config{
+		Bucket: "bucketName",
+	}
+
+	_, err := New(opts, "node", nil)
+
+	if err == nil {
+		t.Fatalf("expected error when not specifying credentials")
+	}
+
+	if !strings.Contains(err.Error(), "required for GCS credentials") {
+		t.Errorf("expected required credentials, got %s", err)
+	}
 }
