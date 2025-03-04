@@ -22,11 +22,11 @@ func TestMoveAll(t *testing.T) {
 		for i, file := range testFiles {
 			_ = os.WriteFile(
 				filepath.Join(tempSrc, file),
-				[]byte(fmt.Sprintf("test content %d", i)), 0644)
+				[]byte(fmt.Sprintf("test content %d", i)), 0o644)
 		}
 
 		subDir := filepath.Join(tempSrc, "subdir")
-		_ = os.Mkdir(subDir, 0755)
+		_ = os.Mkdir(subDir, 0o755)
 
 		err := moveAll(tempSrc, tempDst, nil, log.DiscardLogger.NewDefaultEvent())
 		if err != nil {
@@ -63,11 +63,11 @@ func TestMoveAll(t *testing.T) {
 		for i, file := range testFiles {
 			_ = os.WriteFile(
 				filepath.Join(tempSrc, file),
-				[]byte(fmt.Sprintf("test content %d", i)), 0644)
+				[]byte(fmt.Sprintf("test content %d", i)), 0o644)
 		}
 
-		_ = os.Mkdir(filepath.Join(tempSrc, "ignore_dir"), 0755)
-		_ = os.Mkdir(filepath.Join(tempSrc, "normal_dir"), 0755)
+		_ = os.Mkdir(filepath.Join(tempSrc, "ignore_dir"), 0o755)
+		_ = os.Mkdir(filepath.Join(tempSrc, "normal_dir"), 0o755)
 
 		toIgnore := []string{"ignore_me", "ignore_dir"}
 
@@ -122,13 +122,12 @@ func TestMoveAll(t *testing.T) {
 		tempDst, _ := os.MkdirTemp("", "dst")
 		defer os.RemoveAll(tempDst)
 
-		_ = os.Chmod(tempDst, 0500)   // read-only
-		defer os.Chmod(tempDst, 0700) // Restore permissions for cleanup
+		_ = os.Chmod(tempDst, 0o400)
 
 		// Create test file in source
 		_ = os.WriteFile(
 			filepath.Join(tempSrc, "test"),
-			[]byte("test content"), 0644)
+			[]byte("test content"), 0o644)
 
 		err := moveAll(tempSrc, tempDst, nil, log.DiscardLogger.NewDefaultEvent())
 		if err == nil {

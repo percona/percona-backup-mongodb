@@ -242,7 +242,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		}
 
 		if cStatus == defs.StatusError {
-			err := r.migrateFromFallbackDirToDbDir()
+			err := r.migrateFromFallbackDirToDBDir()
 			if err != nil {
 				r.log.Error("migrate from fallback dir: %v", err)
 			}
@@ -349,7 +349,7 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		}
 	}
 
-	err = r.migrateDbDirToFallbackDir()
+	err = r.migrateDBDirToFallbackDir()
 	if err != nil {
 		return errors.Wrapf(err, "move files to fallback path")
 	}
@@ -357,9 +357,9 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 	return nil
 }
 
-// migrateDbDirToFallbackDir moves content of dbPath dir into fallback dir.
+// migrateDBDirToFallbackDir moves content of dbPath dir into fallback dir.
 // It also removes old fallback dir, and creates new with the same perms.
-func (r *PhysRestore) migrateDbDirToFallbackDir() error {
+func (r *PhysRestore) migrateDBDirToFallbackDir() error {
 	dbpath := filepath.Clean(r.dbpath)
 	fallbackPath := filepath.Join(dbpath, fallbackDir)
 	r.log.Debug("dbpath: %s, fallbackPath: %s", dbpath, fallbackPath)
@@ -388,19 +388,21 @@ func (r *PhysRestore) migrateDbDirToFallbackDir() error {
 	return nil
 }
 
-// migrateFromFallbackDirToDbDir wipe up dbpath dir and
+// migrateFromFallbackDirToDBDir wipe up dbpath dir and
 // moves all content from fallback path.
-func (r *PhysRestore) migrateFromFallbackDirToDbDir() error {
+func (r *PhysRestore) migrateFromFallbackDirToDBDir() error {
 	r.log.Debug("clean-up dbpath")
 	err := removeAll(r.dbpath, []string{fallbackDir}, r.log)
 	if err != nil {
 		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+		return errors.Wrap(err, "remove all from dbpath")
 	}
 
 	r.log.Info("move data files from %s to %s", fallbackDir, r.dbpath)
 	err = r.moveFromFallback()
 	if err != nil {
 		r.log.Error("moving from %s: %v", fallbackDir, err)
+		return errors.Wrapf(err, "move from %s", fallbackDir)
 	}
 
 	return nil
@@ -2483,6 +2485,7 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error) {
 	// (in `toState` method).
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
 	if r.checkForRSLevelErr() {
+		r.log.Debug("set error on rs level")
 		serr := util.RetryableWrite(r.stg,
 			r.syncPathRS+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
@@ -2490,6 +2493,7 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error) {
 		}
 	}
 	if r.nodeInfo.IsLeader() && r.checkForClusterLevelErr() {
+		r.log.Debug("set error on cluster level")
 		serr := util.RetryableWrite(r.stg,
 			r.syncPathCluster+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
