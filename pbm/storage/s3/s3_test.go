@@ -64,7 +64,9 @@ func TestS3(t *testing.T) {
 			AccessKeyID:     "minioadmin",
 			SecretAccessKey: "minioadmin",
 		},
-		Retryer: &Retryer{},
+		Retryer:               &Retryer{},
+		ServerSideEncryption:  &AWSsse{},
+		InsecureSkipTLSVerify: true,
 	}
 
 	stg, err := New(opts, "node", nil)
@@ -73,6 +75,13 @@ func TestS3(t *testing.T) {
 	}
 
 	storage.RunStorageTests(t, stg, storage.S3)
+
+	t.Run("default SDKLogLevel for invalid value", func(t *testing.T) {
+		logLvl := SDKLogLevel("invalid", nil)
+		if logLvl != 0 {
+			t.Fatalf("expected SDKLogLevel to be 0, got %v", 0)
+		}
+	})
 }
 
 func TestConfig(t *testing.T) {
@@ -154,6 +163,55 @@ func TestRetryer(t *testing.T) {
 	}
 }
 
-func TestSaveWithSSE(t *testing.T) {
+func TestToClientLogMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected aws.ClientLogMode
+	}{
+		{
+			name:     "Empty input",
+			input:    "",
+			expected: 0,
+		},
+		{
+			name:     "Single flag: Signing",
+			input:    "Signing",
+			expected: aws.LogSigning,
+		},
+		{
+			name:     "Multiple flags with commas",
+			input:    "Retries, Request, Response",
+			expected: aws.LogRetries | aws.LogRequest | aws.LogResponse,
+		},
+		{
+			name:     "Deprecated LogDebug",
+			input:    "LogDebug",
+			expected: aws.LogRequest | aws.LogResponse,
+		},
+		{
+			name:     "Deprecated HTTPBody",
+			input:    "HTTPBody",
+			expected: aws.LogRequestWithBody | aws.LogResponseWithBody,
+		},
+		{
+			name:     "Flags with extra spaces",
+			input:    "  Signing  ,   RequestEventMessage,ResponseEventMessage ",
+			expected: aws.LogSigning | aws.LogRequestEventMessage | aws.LogResponseEventMessage,
+		},
+		{
+			name:     "Multiple deprecated flags combined",
+			input:    "LogDebug, HTTPBody, RequestRetries, RequestErrors, EventStreamBody",
+			expected: aws.LogRequest | aws.LogResponse | aws.LogRequestWithBody | aws.LogResponseWithBody | aws.LogRetries,
+		},
+	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := toClientLogMode(tt.input)
+			if actual != tt.expected {
+				t.Errorf("toClientLogMode(%q) = %v, expected %v", tt.input, actual, tt.expected)
+			}
+		})
+	}
 }
