@@ -248,7 +248,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 			}
 		} else { // cluster status is done or partlyDone
 			r.log.Debug("clean-up dbpath")
-			err := removeAll(r.dbpath, r.log)
+			err := removeAll(r.dbpath, nil, r.log)
 			if err != nil {
 				r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 			}
@@ -392,7 +392,7 @@ func (r *PhysRestore) migrateDbDirToFallbackDir() error {
 // moves all content from fallback path.
 func (r *PhysRestore) migrateFromFallbackDirToDbDir() error {
 	r.log.Debug("clean-up dbpath")
-	err := removeAll(r.dbpath, r.log)
+	err := removeAll(r.dbpath, []string{fallbackDir}, r.log)
 	if err != nil {
 		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 	}
@@ -2524,7 +2524,7 @@ func moveAll(fromDir, toDir string, toIgnore []string, l log.LogEvent) error {
 	return nil
 }
 
-func removeAll(dir string, l log.LogEvent) error {
+func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return errors.Wrap(err, "open dir")
@@ -2536,7 +2536,7 @@ func removeAll(dir string, l log.LogEvent) error {
 		return errors.Wrap(err, "read file names")
 	}
 	for _, n := range names {
-		if n == internalMongodLog || n == fallbackDir {
+		if n == internalMongodLog || slices.Contains(toIgnore, n) {
 			continue
 		}
 		err = os.RemoveAll(filepath.Join(dir, n))
