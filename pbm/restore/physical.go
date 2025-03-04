@@ -234,26 +234,33 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove file <%s>: %v", backup.FilelistName, err)
 		}
-	} else if cleanup { // clean-up dbpath on err if needed
-		r.log.Debug("wait for cluster status")
-		cStatus, err := r.waitClusterStatus()
-		if err != nil {
-			r.log.Warning("waiting for cluster status during cleanup: %v", err)
-		}
+	}
 
-		if cStatus == defs.StatusError {
-			err := r.migrateFromFallbackDirToDBDir()
-			if err != nil {
-				r.log.Error("migrate from fallback dir: %v", err)
-			}
-		} else { // cluster status is done or partlyDone
-			r.log.Debug("clean-up dbpath")
-			err := removeAll(r.dbpath, nil, r.log)
-			if err != nil {
-				r.log.Error("flush dbpath %s: %v", r.dbpath, err)
-			}
+	r.log.Debug("wait for cluster status")
+	cStatus, err := r.waitClusterStatus()
+	if err != nil {
+		r.log.Warning("waiting for cluster status during cleanup: %v", err)
+	}
+	if cStatus == defs.StatusError {
+		r.log.Warning("apply db data from %s", fallbackDir)
+		err := r.migrateFromFallbackDirToDBDir()
+		if err != nil {
+			r.log.Error("migrate from fallback dir: %v", err)
+		}
+	} else if cleanup { // clean-up dbpath on err if needed (cluster is done or partlyDone)
+		r.log.Debug("clean-up dbpath")
+		err := removeAll(r.dbpath, nil, r.log)
+		if err != nil {
+			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+		}
+	} else { // free space by just deleting fallback dir in any other case
+		r.log.Debug("remove fallback dir")
+		err := r.removeFallback()
+		if err != nil {
+			r.log.Error("flush fallback: %v", err)
 		}
 	}
+
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
@@ -426,6 +433,14 @@ func (r *PhysRestore) moveToFallback() error {
 		[]string{fallbackDir},
 		r.log,
 	)
+}
+
+// removeFallback removes fallback dir
+func (r *PhysRestore) removeFallback() error {
+	dbpath := filepath.Clean(r.dbpath)
+	fallbackPath := filepath.Join(dbpath, fallbackDir)
+	err := os.RemoveAll(fallbackPath)
+	return errors.Wrap(err, "remove fallback db path")
 }
 
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
