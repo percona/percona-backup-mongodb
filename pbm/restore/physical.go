@@ -235,11 +235,70 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 			r.log.Warning("remove file <%s>: %v", backup.FilelistName, err)
 		}
 	} else if cleanup { // clean-up dbpath on err if needed
-		r.migrateFromFallbackDirToDbDir()
+		r.log.Debug("wait for cluster status")
+		cStatus, err := r.waitClusterStatus()
+		if err != nil {
+			r.log.Warning("waiting for cluster status during cleanup: %v", err)
+		}
+
+		if cStatus == defs.StatusError {
+			err := r.migrateFromFallbackDirToDbDir()
+			if err != nil {
+				r.log.Error("migrate from fallback dir: %v", err)
+			}
+		} else { // cluster status is done or partlyDone
+			r.log.Debug("clean-up dbpath")
+			err := removeAll(r.dbpath, r.log)
+			if err != nil {
+				r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+			}
+		}
 	}
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
+}
+
+// waitClusterStatus blocks until cluster status file is set on one of final statuses.
+// It also checks HB to see if cluster is stucked.
+func (r *PhysRestore) waitClusterStatus() (defs.Status, error) {
+	errF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusError)
+	doneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusDone)
+	partlyDoneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusPartlyDone)
+	hbF := fmt.Sprintf("%s.%s", r.syncPathCluster, syncHbSuffix)
+
+	tk := time.NewTicker(time.Second * 5)
+	defer tk.Stop()
+
+	for range tk.C {
+		_, err := r.stg.FileStat(errF)
+		if err == nil {
+			return defs.StatusError, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", errF)
+		}
+
+		_, err = r.stg.FileStat(doneF)
+		if err == nil {
+			return defs.StatusDone, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", errF)
+		}
+
+		_, err = r.stg.FileStat(partlyDoneF)
+		if err == nil {
+			return defs.StatusPartlyDone, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", errF)
+		}
+
+		err = r.checkHB(hbF)
+		if err != nil {
+			return defs.StatusError, errors.Wrap(err, "check hb for cluster")
+		}
+
+	}
+	return defs.StatusError, errors.New("wait cluster status")
 }
 
 func (r *PhysRestore) flush(ctx context.Context) error {
