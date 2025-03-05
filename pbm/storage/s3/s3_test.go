@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"testing"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
 
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -42,7 +42,6 @@ func TestS3(t *testing.T) {
 			credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", ""),
 		),
 	)
-
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err)
 	}
