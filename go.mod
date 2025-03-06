@@ -14,6 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.8
 	github.com/aws/smithy-go v1.22.1
 	github.com/docker/docker v27.1.1+incompatible
+	github.com/docker/go-connections v0.5.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/golang/snappy v0.0.4
 	github.com/google/uuid v1.6.0
@@ -26,6 +27,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/testcontainers/testcontainers-go v0.34.0
+	github.com/testcontainers/testcontainers-go/modules/minio v0.34.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.34.0
 	go.mongodb.org/mongo-driver v1.17.1
 	golang.org/x/mod v0.19.0
@@ -62,7 +64,6 @@ require (
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
