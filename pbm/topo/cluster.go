@@ -121,6 +121,7 @@ func ClusterMembers(ctx context.Context, m *mongo.Client) ([]Shard, error) {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
+	// sharded cluster topo
 	var shards []Shard
 	if inf.IsMongos() || inf.IsSharded() {
 		members, err := getShardMapImpl(ctx, m)
@@ -136,10 +137,15 @@ func ClusterMembers(ctx context.Context, m *mongo.Client) ([]Shard, error) {
 		return shards, nil
 	}
 
+	// RS topo
+	hosts, err := GetReplsetHosts(ctx, m)
+	if err != nil {
+		return nil, errors.Wrap(err, "get all hosts for RS")
+	}
 	shards = []Shard{{
 		ID:   inf.SetName,
 		RS:   inf.SetName,
-		Host: inf.SetName + "/" + strings.Join(inf.Hosts, ","),
+		Host: fmt.Sprintf("%s/%s", inf.SetName, strings.Join(hosts, ",")),
 	}}
 	return shards, nil
 }
