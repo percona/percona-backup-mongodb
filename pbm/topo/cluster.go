@@ -182,6 +182,15 @@ func getShardMapImpl(ctx context.Context, m *mongo.Client) (map[ReplsetName]Shar
 		hostsByShard[shardID] = append(hostsByShard[shardID], host)
 	}
 
+	// for PSMDB 6 and below, config srv is not reported within hosts field
+	if len(hostsByShard["config"]) == 0 {
+		cfgHostgs, err := GetReplsetHosts(ctx, m)
+		if err != nil {
+			return nil, errors.Wrap(err, "get all hosts for config RS")
+		}
+		hostsByShard["config"] = cfgHostgs
+	}
+
 	shards := make(map[string]Shard, len(shardMap.Map))
 	for id, host := range shardMap.Map {
 		rs, _, _ := strings.Cut(host, "/")
