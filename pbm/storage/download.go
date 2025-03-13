@@ -24,6 +24,8 @@ const (
 
 // DownloadOpts adjusts download options. We go from spanSize. But if bufMaxMb is
 // set, it will be a hard limit on total memory.
+//
+//nolint:nonamedreturns
 func DownloadOpts(cc, bufMaxMb, spanSizeMb int) (arenaSize, span, c int) {
 	if cc == 0 {
 		cc = runtime.GOMAXPROCS(0)
@@ -215,10 +217,10 @@ func popcnt(x uint64) int {
 // a queue (heap) for out-of-order chunks
 type ChunksQueue []*Chunk
 
-func (b ChunksQueue) Len() int           { return len(b) }
-func (b ChunksQueue) Less(i, j int) bool { return b[i].Meta.Start < b[j].Meta.Start }
-func (b ChunksQueue) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
-func (b *ChunksQueue) Push(x any)        { *b = append(*b, x.(*Chunk)) }
+func (b *ChunksQueue) Len() int           { return len(*b) }
+func (b *ChunksQueue) Less(i, j int) bool { return (*b)[i].Meta.Start < (*b)[j].Meta.Start }
+func (b *ChunksQueue) Swap(i, j int)      { (*b)[i], (*b)[j] = (*b)[j], (*b)[i] }
+func (b *ChunksQueue) Push(x any)         { *b = append(*b, x.(*Chunk)) }
 func (b *ChunksQueue) Pop() any {
 	old := *b
 	n := len(old)

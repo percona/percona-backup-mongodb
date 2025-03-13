@@ -3,7 +3,6 @@ package gcs
 import (
 	"container/heap"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"path"
@@ -89,7 +88,7 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
 			bucketHandle, ok := cli.(*gcs.BucketHandle)
 			if !ok {
-				return nil, fmt.Errorf("expected *s3.Client, got %T", cli)
+				return nil, errors.Errorf("expected *s3.Client, got %T", cli)
 			}
 			return g.getChunk(fname, arena, bucketHandle, start, end)
 		},
@@ -172,7 +171,12 @@ func (g *GCS) sourceReader(fname string, arenas []*storage.Arena, cc, downloadCh
 	return r, nil
 }
 
-func (g *GCS) getChunk(fname string, buf *storage.Arena, bucketHandle *gcs.BucketHandle, start, end int64) (io.ReadCloser, error) {
+func (g *GCS) getChunk(
+	fname string,
+	buf *storage.Arena,
+	bucketHandle *gcs.BucketHandle,
+	start, end int64,
+) (io.ReadCloser, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
 
@@ -199,7 +203,8 @@ func (g *GCS) getChunk(fname string, buf *storage.Arena, bucketHandle *gcs.Bucke
 }
 
 func isRangeNotSatisfiable(err error) bool {
-	if herr, ok := err.(*googleapi.Error); ok {
+	var herr *googleapi.Error
+	if errors.As(err, &herr) {
 		if herr.Code == http.StatusRequestedRangeNotSatisfiable {
 			return true
 		}
