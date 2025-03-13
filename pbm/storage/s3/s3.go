@@ -302,8 +302,8 @@ func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
 
 	s.d = &Download{
 		s3:       s,
-		arenas:   []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
-		spanSize: downloadChuckSizeDefault,
+		arenas:   []*storage.Arena{storage.NewArena(storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)},
+		spanSize: storage.DownloadChuckSizeDefault,
 		cc:       1,
 	}
 

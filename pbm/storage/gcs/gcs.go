@@ -130,8 +130,8 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 
 	g.d = &Download{
 		gcs:      g,
-		arenas:   []*arena{newArena(downloadChuckSizeDefault, downloadChuckSizeDefault)},
-		spanSize: downloadChuckSizeDefault,
+		arenas:   []*storage.Arena{storage.NewArena(storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)},
+		spanSize: storage.DownloadChuckSizeDefault,
 		cc:       1,
 	}
 
