@@ -4,7 +4,6 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"io"
 	"net/http"
 	"path"
@@ -14,6 +13,7 @@ import (
 	"google.golang.org/api/googleapi"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type Download struct {
