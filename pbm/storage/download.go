@@ -6,6 +6,9 @@ import (
 	"runtime"
 	"sync/atomic"
 	"time"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
 const (
@@ -218,7 +221,11 @@ func (b *ChunksQueue) Pop() any {
 
 // GetChunkFunc is a provider-specific callback to download a chunk
 // given an Arena and a byte range [start, end].
-type GetChunkFunc func(fname string, arena *Arena, start, end int64) (io.ReadCloser, error)
+type GetChunkFunc func(fname string, arena *Arena, cli interface{}, start, end int64) (io.ReadCloser, error)
+
+// GetSessFunc is an optional callback for reinitializing a session/connection.
+// It returns an interface{} that the provider can interpret as needed.
+type GetSessFunc func() (interface{}, error)
 
 type chunkMeta struct {
 	Start int64
@@ -238,6 +245,8 @@ type PartReader struct {
 	ChunkSize int64
 
 	GetChunk GetChunkFunc
+	GetSess  GetSessFunc
+	L        log.LogEvent
 
 	Buf []byte // preallocated buf for io.Copy
 
@@ -271,16 +280,16 @@ func (pr *PartReader) Run(concurrency int, arenas []*Arena) {
 }
 
 func (pr *PartReader) worker(buf *Arena) {
-	//sess, err := pr.getSess()
-	//if err != nil {
-	//	pr.errc <- errors.Wrap(err, "create session")
-	//	return
-	//}
+	sess, err := pr.GetSess()
+	if err != nil {
+		pr.Errc <- errors.Wrap(err, "create session")
+		return
+	}
 
 	for {
 		select {
 		case ch := <-pr.taskq:
-			r, err := pr.retryChunk(buf, ch.Start, ch.End, downloadRetries)
+			r, err := pr.retryChunk(buf, sess, ch.Start, ch.End, downloadRetries)
 			if err != nil {
 				pr.Errc <- err
 				return
@@ -294,32 +303,55 @@ func (pr *PartReader) worker(buf *Arena) {
 	}
 }
 
-func (pr *PartReader) retryChunk(buf *Arena, start, end int64, retries int) (io.ReadCloser, error) {
+func (pr *PartReader) retryChunk(buf *Arena, sess interface{}, start, end int64, retries int) (io.ReadCloser, error) {
 	var r io.ReadCloser
 	var err error
 
 	for i := 0; i < retries; i++ {
-		r, err = pr.tryChunk(buf, start, end)
+		r, err = pr.tryChunk(buf, sess, start, end)
 		if err == nil {
 			return r, nil
 		}
 
-		//pr.l.Warning("retryChunk got %v, try to reconnect in %v", err, time.Second*time.Duration(i))
+		pr.L.Warning("retryChunk got %v, try to reconnect in %v", err, time.Second*time.Duration(i))
 		time.Sleep(time.Second * time.Duration(i))
-		//s, err = pr.getSess()
-		//if err != nil {
-		//	pr.l.Warning("recreate session err: %v", err)
-		//	continue
-		//}
-		//pr.l.Info("session recreated, resuming download")
+		sess, err = pr.GetSess()
+		if err != nil {
+			pr.L.Warning("recreate session err: %v", err)
+			continue
+		}
+		pr.L.Info("session recreated, resuming download")
 	}
 
-	//return nil, fmt.Errorf("failed to download chunk %d-%d after %d retries: %v", start, end, retries, err)
 	return nil, err
 }
 
-func (pr *PartReader) tryChunk(buf *Arena, start, end int64) (io.ReadCloser, error) {
-	return pr.GetChunk(pr.Fname, buf, start, end)
+func (pr *PartReader) tryChunk(buf *Arena, sess interface{}, start, end int64) (io.ReadCloser, error) {
+	// just quickly retry w/o new session in case of fail.
+	// more sophisticated retry on a caller side.
+	const retry = 2
+	var err error
+
+	for i := 0; i < retry; i++ {
+		var r io.ReadCloser
+		r, err = pr.GetChunk(pr.Fname, buf, sess, start, end)
+
+		if err == nil || errors.Is(err, io.EOF) {
+			return r, nil
+		}
+
+		if errors.Is(err, &GetObjError{}) {
+			return r, err
+		}
+
+		pr.L.Warning("failed to download chunk %d-%d", start, end)
+	}
+
+	return nil, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", start, end, pr.Fsize, retry)
+}
+
+func (pr *PartReader) Reset() {
+	close(pr.close)
 }
 
 func (pr *PartReader) WriteChunk(r *Chunk, to io.Writer) error {
@@ -332,10 +364,6 @@ func (pr *PartReader) WriteChunk(r *Chunk, to io.Writer) error {
 	r.r.Close()
 
 	return err
-}
-
-func (pr *PartReader) Reset() {
-	close(pr.close)
 }
 
 type GetObjError struct {
