@@ -99,7 +99,7 @@ func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *storage.Pa
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
 			s3cli, ok := cli.(*s3.Client)
 			if !ok {
-				return nil, fmt.Errorf("expected *s3.Client, got %T", cli)
+				return nil, errors.Errorf("expected *s3.Client, got %T", cli)
 			}
 			return s.getChunk(fname, arena, s3cli, start, end)
 		},

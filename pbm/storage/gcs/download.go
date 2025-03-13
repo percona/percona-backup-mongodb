@@ -88,7 +88,7 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
 			bucketHandle, ok := cli.(*gcs.BucketHandle)
 			if !ok {
-				return nil, errors.Errorf("expected *s3.Client, got %T", cli)
+				return nil, errors.Errorf("expected *gcs.BucketHandle, got %T", cli)
 			}
 			return g.getChunk(fname, arena, bucketHandle, start, end)
 		},
