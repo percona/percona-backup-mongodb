@@ -40,14 +40,7 @@ func (g *GCS) NewDownload(cc, bufSizeMb, spanSizeMb int) *Download {
 		arenas:   arenas,
 		spanSize: spanSize,
 		cc:       cc,
-
-		stat: storage.DownloadStat{
-			Concurrency: cc,
-			ArenaSize:   arenaSize,
-			SpansNum:    arenaSize / spanSize,
-			SpanSize:    spanSize,
-			BufSize:     arenaSize * cc,
-		},
+		stat:     storage.NewDownloadStat(cc, arenaSize, spanSize),
 	}
 }
 

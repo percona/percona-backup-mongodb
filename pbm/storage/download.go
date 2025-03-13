@@ -68,6 +68,16 @@ type DownloadStat struct {
 	BufSize     int         `bson:"bufSize" json:"bufSize"`
 }
 
+func NewDownloadStat(concurrency, arenaSize, spanSize int) DownloadStat {
+	return DownloadStat{
+		Concurrency: concurrency,
+		ArenaSize:   arenaSize,
+		SpansNum:    arenaSize / spanSize,
+		SpanSize:    spanSize,
+		BufSize:     arenaSize * concurrency,
+	}
+}
+
 func (s DownloadStat) String() string {
 	return fmt.Sprintf("buf %d, arena %d, span %d, spanNum %d, cc %d, %v",
 		s.BufSize, s.ArenaSize, s.SpanSize, s.SpansNum, s.Concurrency, s.Arenas)
