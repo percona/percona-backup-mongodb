@@ -361,7 +361,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		partSize = int64(s.opts.UploadPartSize)
 	}
 	if sizeb > 0 {
-		ps := sizeb / int64(s.opts.MaxUploadParts) * 11 / 10 // add 10% just in case
+		ps := sizeb / int64(s.opts.MaxUploadParts) * 15 / 10 // add 50% just in case
 		if ps > partSize {
 			partSize = ps
 		}
