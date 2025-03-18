@@ -127,6 +127,8 @@ func (r *Restore) configsvrRestoreDatabases(
 	if err != nil {
 		return err
 	}
+	defer rdr.Close()
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return err
@@ -210,6 +212,8 @@ func (r *Restore) configsvrRestoreCollections(
 	if err != nil {
 		return nil, err
 	}
+	defer rdr.Close()
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return nil, err
@@ -274,6 +278,8 @@ func (r *Restore) configsvrRestoreChunks(
 	if err != nil {
 		return err
 	}
+	defer rdr.Close()
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return err
