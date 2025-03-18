@@ -114,9 +114,9 @@ func NewRestore(uri string,
 			"config.collections",
 			"config.chunks",
 		}
-		nsExclude := make([]string, len(ExcludeFromRestore)+len(configColls))
+		nsExclude = make([]string, len(ExcludeFromRestore)+len(configColls))
 		n := copy(nsExclude, ExcludeFromRestore)
-		copy(nsExclude[:n], configColls)
+		copy(nsExclude[n:], configColls)
 	}
 
 	mopts := mongorestore.Options{}
