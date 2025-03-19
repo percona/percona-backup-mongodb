@@ -60,24 +60,6 @@ func (g *GCS) SourceReader(name string) (io.ReadCloser, error) {
 	return g.d.SourceReader(name)
 }
 
-//// requests an object in chunks and retries if download has failed
-//type partReader struct {
-//	fname     string
-//	fsize     int64 // a total size of object (file) to download
-//	written   int64
-//	chunkSize int64
-//
-//	getSess func() (*gcs.BucketHandle, error)
-//	l       log.LogEvent
-//	opts    *Config
-//	buf     []byte // preallocated buf for io.Copy
-//
-//	taskq   chan chunkMeta
-//	resultq chan chunk
-//	errc    chan error
-//	close   chan struct{}
-//}
-
 func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.PartReader {
 	return &storage.PartReader{
 		Fname:     fname,

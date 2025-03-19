@@ -162,17 +162,6 @@ func (g *GCS) Save(name string, data io.Reader, size int64) error {
 	return nil
 }
 
-//func (g *GCS) SourceReader(name string) (io.ReadCloser, error) {
-//	ctx := context.Background()
-//
-//	reader, err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewReader(ctx)
-//	if err != nil {
-//		return nil, errors.Wrap(err, "object not found")
-//	}
-//
-//	return reader, nil
-//}
-
 func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
 	ctx := context.Background()
 
