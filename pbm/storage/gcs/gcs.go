@@ -66,6 +66,8 @@ type GCS struct {
 	opts         *Config
 	bucketHandle *gcs.BucketHandle
 	log          log.LogEvent
+
+	d *Download
 }
 
 func (cfg *Config) Clone() *Config {
@@ -126,6 +128,13 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 
 	g.bucketHandle = bucketHandle
 
+	g.d = &Download{
+		gcs:      g,
+		arenas:   []*storage.Arena{storage.NewArena(storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)},
+		spanSize: storage.DownloadChuckSizeDefault,
+		cc:       1,
+	}
+
 	return g, nil
 }
 
@@ -151,17 +160,6 @@ func (g *GCS) Save(name string, data io.Reader, size int64) error {
 	}
 
 	return nil
-}
-
-func (g *GCS) SourceReader(name string) (io.ReadCloser, error) {
-	ctx := context.Background()
-
-	reader, err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewReader(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "object not found")
-	}
-
-	return reader, nil
 }
 
 func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
