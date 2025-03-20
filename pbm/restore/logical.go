@@ -1408,7 +1408,7 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo, nss []s
 	for _, ns := range nss {
 		// ns can be "*.*" or "admin.pbmRUsers" or "admin.pbmRRoles"
 		db, _ := util.ParseNS(ns)
-		if len(db) == 0 || strings.HasPrefix(db, defs.DB) {
+		if len(db) == 0 || db == defs.DB {
 			continue
 		}
 		dbs = append(dbs, db)

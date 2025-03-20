@@ -39,6 +39,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -1271,17 +1272,25 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	return nil
 }
 
-func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
-	var stat *s3.DownloadStat
+func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
+	var stat *storage.DownloadStat
 	readFn := r.bcpStg.SourceReader
-	if t, ok := r.bcpStg.(*s3.S3); ok {
+
+	switch t := r.bcpStg.(type) {
+	case *s3.S3:
 		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
 		readFn = d.SourceReader
-
 		defer func() {
 			s := d.Stat()
 			stat = &s
-
+			r.log.Debug("download stat: %s", s)
+		}()
+	case *gcs.GCS:
+		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
+		readFn = d.SourceReader
+		defer func() {
+			s := d.Stat()
+			stat = &s
 			r.log.Debug("download stat: %s", s)
 		}()
 	}
