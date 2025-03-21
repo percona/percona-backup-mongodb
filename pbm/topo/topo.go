@@ -107,7 +107,6 @@ func collectTopoCheckErrors(
 
 		hosts := strings.Split(uri, ",")
 		members := make(map[NodeURI][]error, len(hosts))
-		anyAvail := false
 		for _, host := range hosts {
 			a, ok := agents[host]
 			if !ok || a.Arbiter {
@@ -131,16 +130,9 @@ func collectTopoCheckErrors(
 			}
 
 			members[host] = errs
-			if len(errs) == 0 {
-				anyAvail = true
-			}
 		}
 
 		rv.Replsets[rsName] = members
-
-		if !anyAvail {
-			rv.Missed = append(rv.Missed, rsName)
-		}
 	}
 
 	if rv.hasError() {
