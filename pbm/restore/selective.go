@@ -338,7 +338,11 @@ func (r *Restore) configsvrRestoreChunks(
 			models = append(models, mongo.NewInsertOneModel().SetDocument(doc))
 		}
 
-		if len(models) == 0 {
+		if len(models) == 0 && !done {
+			// if it's not done, we just reached maxBulkWriteCount, we need to process more
+			continue
+		} else if len(models) == 0 && done {
+			// it's done and there's nothing to update
 			return nil
 		}
 
