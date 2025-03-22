@@ -109,7 +109,7 @@ func collectTopoCheckErrors(
 		members := make(map[NodeURI][]error, len(hosts))
 		for _, host := range hosts {
 			a, ok := agents[host]
-			if !ok || a.Arbiter || a.Passive {
+			if !ok || a.Arbiter {
 				continue
 			}
 
