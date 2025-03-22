@@ -2,7 +2,6 @@ package topo
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -121,7 +120,6 @@ func ClusterMembers(ctx context.Context, m *mongo.Client) ([]Shard, error) {
 		return nil, errors.Wrap(err, "define cluster state")
 	}
 
-	// sharded cluster topo
 	var shards []Shard
 	if inf.IsMongos() || inf.IsSharded() {
 		members, err := getShardMapImpl(ctx, m)
@@ -137,15 +135,10 @@ func ClusterMembers(ctx context.Context, m *mongo.Client) ([]Shard, error) {
 		return shards, nil
 	}
 
-	// RS topo
-	hosts, err := GetReplsetHosts(ctx, m)
-	if err != nil {
-		return nil, errors.Wrap(err, "get all hosts for RS")
-	}
 	shards = []Shard{{
 		ID:   inf.SetName,
 		RS:   inf.SetName,
-		Host: fmt.Sprintf("%s/%s", inf.SetName, strings.Join(hosts, ",")),
+		Host: inf.SetName + "/" + strings.Join(inf.Hosts, ","),
 	}}
 	return shards, nil
 }
@@ -160,35 +153,9 @@ func getShardMapImpl(ctx context.Context, m *mongo.Client) (map[ReplsetName]Shar
 	// if shard name is not set, mongodb will provide unique name for it
 	// (e.g. the replset name of the shard)
 	// for configsvr, key name is "config"
-	// hosts field is used to discover hidden members, which are not present in map field
-	var shardMap struct {
-		Map   map[string]string
-		Hosts map[string]string
-	}
+	var shardMap struct{ Map map[string]string }
 	if err := res.Decode(&shardMap); err != nil {
 		return nil, errors.Wrap(err, "decode")
-	}
-
-	// Example of the hosts field from command output:
-	// hosts: {
-	//   'rs103:27017': 'rs1',
-	//   'rs101:27017': 'rs1',
-	//   'cfg02:27017': 'config',
-	//   ...
-	// }
-	// hostsByShard will contain even hidden RS members
-	hostsByShard := map[string][]string{}
-	for host, shardID := range shardMap.Hosts {
-		hostsByShard[shardID] = append(hostsByShard[shardID], host)
-	}
-
-	// for PSMDB 6 and below, config srv is not reported within hosts field
-	if len(hostsByShard["config"]) == 0 {
-		cfgHostgs, err := GetReplsetHosts(ctx, m)
-		if err != nil {
-			return nil, errors.Wrap(err, "get all hosts for config RS")
-		}
-		hostsByShard["config"] = cfgHostgs
 	}
 
 	shards := make(map[string]Shard, len(shardMap.Map))
@@ -197,7 +164,7 @@ func getShardMapImpl(ctx context.Context, m *mongo.Client) (map[ReplsetName]Shar
 		shards[rs] = Shard{
 			ID:   id,
 			RS:   rs,
-			Host: fmt.Sprintf("%s/%s", rs, strings.Join(hostsByShard[id], ",")),
+			Host: host,
 		}
 	}
 
