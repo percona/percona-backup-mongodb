@@ -107,7 +107,6 @@ func collectTopoCheckErrors(
 
 		hosts := strings.Split(uri, ",")
 		members := make(map[NodeURI][]error, len(hosts))
-		anyAvail := false
 		for _, host := range hosts {
 			a, ok := agents[host]
 			if !ok || a.Arbiter {
@@ -131,16 +130,9 @@ func collectTopoCheckErrors(
 			}
 
 			members[host] = errs
-			if len(errs) == 0 {
-				anyAvail = true
-			}
 		}
 
 		rv.Replsets[rsName] = members
-
-		if !anyAvail {
-			rv.Missed = append(rv.Missed, rsName)
-		}
 	}
 
 	if rv.hasError() {
@@ -193,21 +185,6 @@ func GetReplsetStatus(ctx context.Context, m *mongo.Client) (*ReplsetStatus, err
 	}
 
 	return status, nil
-}
-
-// GetReplsetHosts returns host names for all RS members.
-// It includes also hidden and passive RS members.
-func GetReplsetHosts(ctx context.Context, m *mongo.Client) ([]string, error) {
-	s, err := GetReplsetStatus(ctx, m)
-	if err != nil {
-		return nil, errors.Wrap(err, "get replset status")
-	}
-
-	hosts := []string{}
-	for _, m := range s.Members {
-		hosts = append(hosts, m.Name)
-	}
-	return hosts, nil
 }
 
 func GetNodeStatus(ctx context.Context, m *mongo.Client, name string) (*NodeStatus, error) {
