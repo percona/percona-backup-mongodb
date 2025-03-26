@@ -242,7 +242,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 }
 
 func (r *PhysRestore) flush(ctx context.Context) error {
-	r.log.Debug("shutdown server")
+	r.log.Debug("shutting down server")
 	rsStat, err := topo.GetReplsetStatus(ctx, r.node)
 	if err != nil {
 		return errors.Wrap(err, "get replset status")
@@ -272,7 +272,7 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 			}
 			break
 		}
-		r.log.Debug("waiting to became secondary")
+		r.log.Debug("waiting for the node to become secondary before shutting it down")
 		time.Sleep(time.Second * 1)
 	}
 
@@ -1401,7 +1401,7 @@ func (r *PhysRestore) replayOplog(
 		&stat.Txn,
 		&mgoV)
 	if err != nil {
-		return errors.Wrap(err, "reply oplog")
+		return errors.Wrap(err, "replay oplog")
 	}
 	if len(partial) > 0 {
 		tops := []db.Oplog{}
