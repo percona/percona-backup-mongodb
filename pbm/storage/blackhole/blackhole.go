@@ -18,7 +18,7 @@ func (*Blackhole) Type() storage.Type {
 	return storage.Blackhole
 }
 
-func (*Blackhole) Save(_ string, data io.Reader, _ int64) error {
+func (*Blackhole) Save(_ string, data io.Reader, _ int64, _ ...storage.Option) error {
 	_, err := io.Copy(io.Discard, data)
 	return err
 }

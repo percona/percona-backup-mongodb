@@ -151,7 +151,7 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 	return nil
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ int64) error {
+func (fs *FS) Save(name string, data io.Reader, _ int64, _ ...storage.Option) error {
 	return writeSync(path.Join(fs.root, name), data)
 }
 

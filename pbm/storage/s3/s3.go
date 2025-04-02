@@ -314,7 +314,13 @@ func (*S3) Type() storage.Type {
 	return storage.S3
 }
 
-func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
+func (s *S3) Save(name string, data io.Reader, sizeb int64, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
 	cc := runtime.NumCPU() / 2
 	if cc == 0 {
 		cc = 1
@@ -367,7 +373,7 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64) error {
 		}
 	}
 
-	if s.log != nil {
+	if s.log != nil && opts.UseLogger {
 		s.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
 			name,
 			sizeb,

@@ -37,7 +37,7 @@ type FileInfo struct {
 
 type Storage interface {
 	Type() Type
-	Save(name string, data io.Reader, size int64) error
+	Save(name string, data io.Reader, size int64, options ...Option) error
 	SourceReader(name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists.
 	FileStat(name string) (FileInfo, error)
@@ -66,6 +66,30 @@ func ParseType(s string) Type {
 		return GCS
 	default:
 		return Undefined
+	}
+}
+
+// Opts represents storage options
+type Opts struct {
+	UseLogger bool
+}
+
+// GetDefaultOpts creates default options.
+func GetDefaultOpts() *Opts {
+	return &Opts{
+		UseLogger: true,
+	}
+}
+
+// Option is function for setting the storage option
+type Option func(*Opts) error
+
+// UseLogger option enables/disables logger when working with storage.
+// Logger is enabled by default.
+func UseLogger(useLogger bool) Option {
+	return func(o *Opts) error {
+		o.UseLogger = useLogger
+		return nil
 	}
 }
 

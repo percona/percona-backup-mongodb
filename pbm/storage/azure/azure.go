@@ -128,7 +128,14 @@ func (*Blob) Type() storage.Type {
 	return storage.Azure
 }
 
-func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
+func (b *Blob) Save(name string, data io.Reader, sizeb int64, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
+
 	bufsz := defaultUploadBuff
 	if sizeb > 0 {
 		ps := int(sizeb / maxBlocks * 11 / 10) // add 10% just in case
@@ -142,7 +149,7 @@ func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
 		cc = 1
 	}
 
-	if b.log != nil {
+	if b.log != nil && opts.UseLogger {
 		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, sizeb)
 	}
 

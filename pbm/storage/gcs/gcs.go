@@ -142,7 +142,7 @@ func (*GCS) Type() storage.Type {
 	return storage.GCS
 }
 
-func (g *GCS) Save(name string, data io.Reader, size int64) error {
+func (g *GCS) Save(name string, data io.Reader, size int64, _ ...storage.Option) error {
 	ctx := context.Background()
 
 	w := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewWriter(ctx)
