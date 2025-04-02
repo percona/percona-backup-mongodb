@@ -128,7 +128,7 @@ func (*Blob) Type() storage.Type {
 	return storage.Azure
 }
 
-func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
+func (b *Blob) Save(name string, data io.Reader, sizeb int64, options ...storage.Option) error {
 	bufsz := defaultUploadBuff
 	if sizeb > 0 {
 		ps := int(sizeb / maxBlocks * 11 / 10) // add 10% just in case
