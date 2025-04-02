@@ -37,7 +37,7 @@ type FileInfo struct {
 
 type Storage interface {
 	Type() Type
-	Save(name string, data io.Reader, size int64, opts ...Option) error
+	Save(name string, data io.Reader, size int64, options ...Option) error
 	SourceReader(name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists.
 	FileStat(name string) (FileInfo, error)

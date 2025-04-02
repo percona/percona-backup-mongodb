@@ -988,6 +988,7 @@ func (r *PhysRestore) Snapshot(
 		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
 		write: func(name string, data io.Reader) error {
+			// Logger should be disabled due to: PBM-1531
 			return r.stg.Save(name, data, -1, storage.UseLogger(false))
 		},
 	})
