@@ -649,7 +649,7 @@ func writeMeta(stg storage.Storage, meta *BackupMeta) error {
 		return errors.Wrap(err, "marshal data")
 	}
 
-	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b), -1)
+	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b))
 	return errors.Wrap(err, "write to store")
 }
 

@@ -37,7 +37,7 @@ type FileInfo struct {
 
 type Storage interface {
 	Type() Type
-	Save(name string, data io.Reader, size int64, options ...Option) error
+	Save(name string, data io.Reader, options ...Option) error
 	SourceReader(name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists.
 	FileStat(name string) (FileInfo, error)
@@ -72,12 +72,14 @@ func ParseType(s string) Type {
 // Opts represents storage options
 type Opts struct {
 	UseLogger bool
+	Size      int64
 }
 
 // GetDefaultOpts creates default options.
 func GetDefaultOpts() *Opts {
 	return &Opts{
 		UseLogger: true,
+		Size:      -1,
 	}
 }
 
@@ -89,6 +91,18 @@ type Option func(*Opts) error
 func UseLogger(useLogger bool) Option {
 	return func(o *Opts) error {
 		o.UseLogger = useLogger
+		return nil
+	}
+}
+
+// Size option sets size of the file for the upload.
+// It's used to calculate params for multi-part upload.
+func Size(size int64) Option {
+	return func(o *Opts) error {
+		if size < 0 && size != -1 {
+			return errors.New("invalid size option value")
+		}
+		o.Size = size
 		return nil
 	}
 }
@@ -229,7 +243,7 @@ func Upload(
 
 	saveDone := make(chan struct{})
 	go func() {
-		rwErr.write = dst.Save(fname, r, sizeb)
+		rwErr.write = dst.Save(fname, r, Size(sizeb))
 		saveDone <- struct{}{}
 	}()
 

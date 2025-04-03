@@ -78,10 +78,10 @@ func Reinitialize(ctx context.Context, stg storage.Storage) error {
 }
 
 func RetryableWrite(stg storage.Storage, name string, data []byte) error {
-	err := stg.Save(name, bytes.NewBuffer(data), int64(len(data)))
+	err := stg.Save(name, bytes.NewBuffer(data), storage.Size(int64(len(data))))
 	if err != nil && stg.Type() == storage.Filesystem {
 		if fs.IsRetryableError(err) {
-			err = stg.Save(name, bytes.NewBuffer(data), int64(len(data)))
+			err = stg.Save(name, bytes.NewBuffer(data), storage.Size(int64(len(data))))
 		}
 	}
 

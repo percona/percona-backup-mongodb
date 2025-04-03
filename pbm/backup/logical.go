@@ -170,7 +170,7 @@ func (b *Backup) doLogical(
 				return errors.Wrap(err, "get storage")
 			}
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
-			return stg.Save(filepath, r, nssSize[ns])
+			return stg.Save(filepath, r, storage.Size(nssSize[ns]))
 		},
 		bcp.Compression,
 		bcp.CompressionLevel)
