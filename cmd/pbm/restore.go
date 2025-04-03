@@ -515,7 +515,7 @@ func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
 	path := fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, o.restore)
 	msg := outMsg{"Command sent. Check `pbm describe-restore ...` for the result."}
 	err = stg.Save(path+"."+string(defs.StatusCopyDone),
-		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())), -1)
+		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())))
 	return msg, err
 }
 

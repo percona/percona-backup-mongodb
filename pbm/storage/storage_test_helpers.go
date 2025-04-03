@@ -19,7 +19,7 @@ func RunStorageTests(t *testing.T, stg Storage, stgType Type) {
 		name := "test.txt"
 		content := "content"
 
-		err := stg.Save(name, strings.NewReader(content), int64(len(content)))
+		err := stg.Save(name, strings.NewReader(content), Size(int64(len(content))))
 		if err != nil {
 			t.Fatalf("Save failed: %s", err)
 		}
@@ -45,7 +45,7 @@ func RunStorageTests(t *testing.T, stg Storage, stgType Type) {
 		}
 
 		for _, f := range filesToSave {
-			if err := stg.Save(f.name, strings.NewReader(f.content), int64(len(f.content))); err != nil {
+			if err := stg.Save(f.name, strings.NewReader(f.content), Size(int64(len(f.content)))); err != nil {
 				t.Fatalf("Save failed: %s", err)
 			}
 		}
@@ -75,7 +75,7 @@ func RunStorageTests(t *testing.T, stg Storage, stgType Type) {
 		name := "delete.txt"
 		content := "content"
 
-		if err := stg.Save(name, strings.NewReader(content), int64(len(content))); err != nil {
+		if err := stg.Save(name, strings.NewReader(content), Size(int64(len(content)))); err != nil {
 			t.Fatalf("Save failed: %s", err)
 		}
 
@@ -99,7 +99,7 @@ func RunStorageTests(t *testing.T, stg Storage, stgType Type) {
 		dst := "copydst.txt"
 		content := "copy content"
 
-		if err := stg.Save(src, strings.NewReader(content), int64(len(content))); err != nil {
+		if err := stg.Save(src, strings.NewReader(content), Size(int64(len(content)))); err != nil {
 			t.Fatalf("Save failed: %s", err)
 		}
 
@@ -121,7 +121,7 @@ func RunStorageTests(t *testing.T, stg Storage, stgType Type) {
 		name := "reader.txt"
 		content := "source reader content"
 
-		if err := stg.Save(name, strings.NewReader(content), int64(len(content))); err != nil {
+		if err := stg.Save(name, strings.NewReader(content), Size(int64(len(content)))); err != nil {
 			t.Fatalf("Save failed: %s", err)
 		}
 

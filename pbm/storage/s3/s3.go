@@ -314,7 +314,7 @@ func (*S3) Type() storage.Type {
 	return storage.S3
 }
 
-func (s *S3) Save(name string, data io.Reader, sizeb int64, options ...storage.Option) error {
+func (s *S3) Save(name string, data io.Reader, options ...storage.Option) error {
 	opts := storage.GetDefaultOpts()
 	for _, opt := range options {
 		if err := opt(opts); err != nil {
@@ -366,8 +366,8 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64, options ...storage.O
 
 		partSize = int64(s.opts.UploadPartSize)
 	}
-	if sizeb > 0 {
-		ps := sizeb / int64(s.opts.MaxUploadParts) * 15 / 10 // add 50% just in case
+	if opts.Size > 0 {
+		ps := opts.Size / int64(s.opts.MaxUploadParts) * 15 / 10 // add 50% just in case
 		if ps > partSize {
 			partSize = ps
 		}
@@ -376,8 +376,8 @@ func (s *S3) Save(name string, data io.Reader, sizeb int64, options ...storage.O
 	if s.log != nil && opts.UseLogger {
 		s.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
 			name,
-			sizeb,
-			storage.PrettySize(sizeb),
+			opts.Size,
+			storage.PrettySize(opts.Size),
 			partSize,
 			storage.PrettySize(partSize))
 	}
