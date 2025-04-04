@@ -75,7 +75,6 @@ func TestList(t *testing.T) {
 				files, err := fs.List(tC.prefix, tC.suffix)
 				if err != nil {
 					t.Errorf("got error while executing list: %v", err)
-
 				}
 
 				if len(files) != len(tC.wantFiles) {
@@ -174,13 +173,14 @@ func setupTestFiles(t *testing.T) string {
 
 func createTestFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("error while creating file %s: %v", path, err)
 	}
 }
+
 func createTestDir(t *testing.T, path string) {
 	t.Helper()
-	if err := os.Mkdir(path, 0755); err != nil {
+	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatalf("error while creating dir %s: %v", path, err)
 	}
 }
