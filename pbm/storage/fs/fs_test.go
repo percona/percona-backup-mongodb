@@ -3,6 +3,7 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +97,44 @@ func TestList(t *testing.T) {
 					}
 				}
 			})
+		}
+	})
+
+	t.Run("list and delete in parallel", func(t *testing.T) {
+		tmpDir := setupTestFiles(t)
+		fs := &FS{root: tmpDir}
+
+		errCh := make(chan error)
+		go func() {
+			for range 10 {
+				_, err := fs.List("", "")
+				if err != nil {
+					errCh <- err
+					break
+				}
+			}
+		}()
+
+		go func() {
+			files, err := fs.List("", "")
+			if err != nil {
+				t.Errorf("try to fetch deletion list: %v", err)
+			}
+			for _, f := range files {
+				if err := os.Remove(filepath.Join(tmpDir, f.Name)); err != nil {
+					t.Errorf("error while deleting: %v", err)
+				}
+			}
+		}()
+
+		wantErr := "getting file info"
+		select {
+		case err := <-errCh:
+			if !strings.Contains(err.Error(), wantErr) {
+				t.Fatalf("want err: %s, got=%v", wantErr, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Log("timed out while waiting for err")
 		}
 	})
 }
