@@ -196,7 +196,10 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 			return errors.Wrap(err, "walking the path")
 		}
 
-		info, _ := entry.Info()
+		info, err := entry.Info()
+		if err != nil {
+			return errors.Wrap(err, "getting file info")
+		}
 		if info.IsDir() {
 			return nil
 		}
