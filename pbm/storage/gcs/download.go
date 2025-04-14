@@ -5,10 +5,8 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"path"
 	"time"
 
-	gcs "cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -68,14 +66,11 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		Buf:       make([]byte, 32*1024),
 		L:         g.log,
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
-			bucketHandle, ok := cli.(*gcs.BucketHandle)
-			if !ok {
-				return nil, errors.Errorf("expected *gcs.BucketHandle, got %T", cli)
-			}
-			return g.getChunk(fname, arena, bucketHandle, start, end)
+			return g.getChunk(fname, arena, start, end)
 		},
 		GetSess: func() (interface{}, error) {
-			return g.bucketHandle, nil
+			return nil, nil
+			//return g.bucketHandle, nil
 		},
 	}
 }
@@ -156,22 +151,27 @@ func (g *GCS) sourceReader(fname string, arenas []*storage.Arena, cc, downloadCh
 func (g *GCS) getChunk(
 	fname string,
 	buf *storage.Arena,
-	bucketHandle *gcs.BucketHandle,
 	start, end int64,
 ) (io.ReadCloser, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
 
 	length := end - start + 1
-	obj := bucketHandle.Object(path.Join(g.opts.Prefix, fname))
-	reader, err := obj.NewRangeReader(ctx, start, length)
-	if err != nil {
-		if errors.Is(err, gcs.ErrObjectNotExist) || (err != nil && isRangeNotSatisfiable(err)) {
-			return nil, io.EOF
-		}
 
-		g.log.Warning("errGetObj Err: %v", err)
-		return nil, storage.GetObjError{Err: err}
+	//obj := bucketHandle.Object(path.Join(g.opts.Prefix, fname))
+	//reader, err := obj.NewRangeReader(ctx, start, length)
+	//if err != nil {
+	//	if errors.Is(err, gcs.ErrObjectNotExist) || (err != nil && isRangeNotSatisfiable(err)) {
+	//		return nil, io.EOF
+	//	}
+	//
+	//	g.log.Warning("errGetObj Err: %v", err)
+	//	return nil, storage.GetObjError{Err: err}
+	//}
+
+	reader, err := g.client.getPartialObject(ctx, fname, start, length)
+	if err != nil {
+		return nil, err
 	}
 
 	ch := buf.GetSpan()
