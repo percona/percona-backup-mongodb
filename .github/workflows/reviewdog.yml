@@ -14,7 +14,6 @@ jobs:
           exclude: |
             */.git/*
             ./.cache/*
-            ./vendor/*
             ./packaging/scripts/*
 
   misspell:
@@ -31,7 +30,6 @@ jobs:
           exclude: |
             */.git/*
             ./.cache/*
-            ./vendor/*
 
   alex:
     name: runner / alex
