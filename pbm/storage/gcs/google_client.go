@@ -24,7 +24,7 @@ type googleClient struct {
 	chunkSize    *int
 }
 
-func (g googleClient) save(name string, data io.Reader) error {
+func (g googleClient) save(name string, data io.Reader, _ ...storage.Option) error {
 	ctx := context.Background()
 	w := g.bucketHandle.Object(path.Join(g.prefix, name)).NewWriter(ctx)
 

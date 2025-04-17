@@ -61,7 +61,7 @@ type ServiceAccountCredentials struct {
 }
 
 type gcsClient interface {
-	save(name string, data io.Reader) error
+	save(name string, data io.Reader, options ...storage.Option) error
 	fileStat(name string) (storage.FileInfo, error)
 	list(prefix, suffix string) ([]storage.FileInfo, error)
 	delete(name string) error
@@ -142,8 +142,8 @@ func (*GCS) Type() storage.Type {
 	return storage.GCS
 }
 
-func (g *GCS) Save(name string, data io.Reader, _ ...storage.Option) error {
-	return g.client.save(name, data)
+func (g *GCS) Save(name string, data io.Reader, options ...storage.Option) error {
+	return g.client.save(name, data, options...)
 }
 
 func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
