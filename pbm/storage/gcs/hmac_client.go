@@ -44,6 +44,24 @@ func newHmacClient(opts *Config) (*hmacClient, error) {
 func (h hmacClient) save(name string, data io.Reader, _ ...storage.Option) error {
 	objectKey := path.Join(h.opts.Prefix, name)
 
+	opts := minio.PutObjectOptions{}
+	if h.opts.ChunkSize != nil && *h.opts.ChunkSize > 0 {
+		opts.PartSize = uint64(*h.opts.ChunkSize)
+	}
+
+	_, err := h.client.PutObject(
+		context.Background(), h.opts.Bucket, objectKey, data, -1, opts,
+	)
+
+	if err != nil {
+		return errors.Wrap(err, "PutObject")
+	}
+	return nil
+}
+
+func (h hmacClient) save_bu(name string, data io.Reader, _ ...storage.Option) error {
+	objectKey := path.Join(h.opts.Prefix, name)
+
 	encodePath := func(bucket, key string) string {
 		segs := strings.Split(key, "/")
 		for i, s := range segs {
