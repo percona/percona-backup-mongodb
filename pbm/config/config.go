@@ -153,6 +153,12 @@ func (c *Config) String() string {
 		if c.Storage.GCS.Credentials.ClientEmail != "" {
 			c.Storage.GCS.Credentials.ClientEmail = "***"
 		}
+		if c.Storage.GCS.Credentials.HMACAccessKey != "" {
+			c.Storage.GCS.Credentials.HMACAccessKey = "***"
+		}
+		if c.Storage.GCS.Credentials.HMACSecret != "" {
+			c.Storage.GCS.Credentials.HMACSecret = "***"
+		}
 	}
 
 	b, err := yaml.Marshal(c)
