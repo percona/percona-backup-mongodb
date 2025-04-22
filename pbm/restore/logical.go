@@ -255,6 +255,61 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
+	if r.nodeInfo.IsConfigSrv() {
+		ts, err := topo.GetClusterTime(ctx, r.leadConn)
+		if err != nil {
+			return errors.Wrap(err, "set config  ts, read cluster time")
+		}
+
+		_, err = r.leadConn.ConfigDatabase().
+			Collection("databases").
+			UpdateMany(
+				ctx,
+				bson.D{{"_id", bson.M{"$ne": "config"}}},
+				bson.D{{"$set", bson.M{"version.timestamp": ts}}},
+			)
+		if err != nil {
+			return errors.Wrap(err, "update config.databases")
+		}
+
+		_, err = r.leadConn.ConfigDatabase().
+			Collection("collections").
+			UpdateMany(
+				ctx,
+				bson.D{{"_id", bson.M{"$ne": "config.system.sessions"}}},
+				bson.D{{"$set", bson.M{"timestamp": ts}}},
+			)
+		if err != nil {
+			return errors.Wrap(err, "update config.collections")
+		}
+
+		sess := struct {
+			UUID primitive.Binary `bson:"uuid"`
+		}{}
+		err = r.leadConn.ConfigDatabase().
+			Collection("collections").
+			FindOne(ctx, bson.D{{"_id", "config.system.sessions"}}).
+			Decode(&sess)
+		if err != nil {
+			r.log.Debug("finding uuid for config.system.sessions", err)
+		}
+
+		_, err = r.leadConn.ConfigDatabase().
+			Collection("chunks").
+			UpdateMany(
+				ctx,
+				bson.D{{"uuid", bson.M{"$ne": sess.UUID}}},
+				bson.D{{
+					"$set", bson.M{
+						"onCurrentShardSince": ts,
+						"history":             bson.A{},
+					},
+				}})
+		if err != nil {
+			return errors.Wrap(err, "update config.chunks")
+		}
+	}
+
 	oplogRanges := []oplogRange{
 		{chunks: chunks, storage: r.bcpStg},
 	}
