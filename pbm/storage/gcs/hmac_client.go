@@ -183,11 +183,11 @@ func (h hmacClient) copy(src, dst string) error {
 	_, err := h.client.CopyObject(ctx,
 		minio.CopyDestOptions{
 			Bucket: h.opts.Bucket,
-			Object: path.Join(h.opts.Prefix, src),
+			Object: path.Join(h.opts.Prefix, dst),
 		},
 		minio.CopySrcOptions{
 			Bucket: h.opts.Bucket,
-			Object: path.Join(h.opts.Prefix, dst),
+			Object: path.Join(h.opts.Prefix, src),
 		},
 	)
 
