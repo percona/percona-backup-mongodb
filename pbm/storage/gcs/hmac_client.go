@@ -1,14 +1,14 @@
 package gcs
 
 import (
+	"context"
 	"io"
 	"path"
 	"strings"
-	"context"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	
+
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
