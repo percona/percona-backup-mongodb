@@ -70,7 +70,7 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		},
 		GetSess: func() (interface{}, error) {
 			return nil, nil
-			//return g.bucketHandle, nil
+			// return g.bucketHandle, nil
 		},
 	}
 }
