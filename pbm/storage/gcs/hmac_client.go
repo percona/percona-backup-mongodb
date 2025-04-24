@@ -4,21 +4,24 @@ import (
 	"context"
 	"io"
 	"path"
+	"runtime"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type hmacClient struct {
 	client *minio.Client
 	opts   *Config
+	log    log.LogEvent
 }
 
-func newHmacClient(opts *Config) (*hmacClient, error) {
+func newHmacClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
 	if opts.Credentials.HMACAccessKey == "" || opts.Credentials.HMACSecret == "" {
 		return nil, errors.New("HMACAccessKey and HMACSecret are required for HMAC GCS credentials")
 	}
@@ -36,19 +39,57 @@ func newHmacClient(opts *Config) (*hmacClient, error) {
 	return &hmacClient{
 		client: minioClient,
 		opts:   opts,
+		log:    l,
 	}, nil
 }
 
-func (h hmacClient) save(name string, data io.Reader, _ ...storage.Option) error {
-	objectKey := path.Join(h.opts.Prefix, name)
+func (h hmacClient) save(name string, data io.Reader, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
 
-	opts := minio.PutObjectOptions{}
+	const (
+		defaultPartSize int64 = 10 << 20 // 10 MiB
+		maxUploadParts        = 10_000   // S3 / GCS XML-API limit
+	)
+
+	partSize := defaultPartSize
+
+	if opts.Size > 0 {
+		ps := opts.Size / maxUploadParts * 15 / 10
+		if ps > partSize {
+			partSize = ps
+		}
+	}
+
 	if h.opts.ChunkSize != nil && *h.opts.ChunkSize > 0 {
-		opts.PartSize = uint64(*h.opts.ChunkSize)
+		if int64(*h.opts.ChunkSize) > partSize {
+			partSize = int64(*h.opts.ChunkSize)
+		}
+	}
+
+	if h.log != nil && opts.UseLogger {
+		h.log.Debug(`uploading %q [size hint: %v (%v); part size: %v (%v)]`,
+			name,
+			opts.Size, storage.PrettySize(opts.Size),
+			partSize, storage.PrettySize(partSize))
+	}
+
+	putOpts := minio.PutObjectOptions{
+		PartSize:   uint64(partSize),
+		NumThreads: uint(max(runtime.NumCPU()/2, 1)),
 	}
 
 	_, err := h.client.PutObject(
-		context.Background(), h.opts.Bucket, objectKey, data, -1, opts,
+		context.Background(),
+		h.opts.Bucket,
+		path.Join(h.opts.Prefix, name),
+		data,
+		-1,
+		putOpts,
 	)
 	if err != nil {
 		return errors.Wrap(err, "PutObject")

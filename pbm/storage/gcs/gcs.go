@@ -115,13 +115,13 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	}
 
 	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
-		hc, err := newHmacClient(g.opts)
+		hc, err := newHmacClient(g.opts, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new hmac client")
 		}
 		g.client = hc
 	} else {
-		gc, err := newGoogleClient(g.opts)
+		gc, err := newGoogleClient(g.opts, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new google client")
 		}

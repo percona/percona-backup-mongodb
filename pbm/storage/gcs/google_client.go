@@ -14,6 +14,7 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -22,14 +23,59 @@ type googleClient struct {
 	bucket       string
 	prefix       string
 	chunkSize    *int
+	log          log.LogEvent
 }
 
-func (g googleClient) save(name string, data io.Reader, _ ...storage.Option) error {
+func (g googleClient) save(name string, data io.Reader, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
+
+	const (
+		defaultChunk int64 = 10 << 20  // 10 MiB
+		maxParts           = 10_000    // S3 limit, mirror for consistency
+		align              = 256 << 10 // 256 KiB – required by GCS
+	)
+	partSize := defaultChunk
+
+	if opts.Size > 0 {
+		ps := opts.Size / maxParts * 15 / 10
+		if ps > partSize {
+			partSize = ps
+		}
+	}
+
+	if g.chunkSize != nil && *g.chunkSize > 0 && int64(*g.chunkSize) > partSize {
+		partSize = int64(*g.chunkSize)
+	}
+
+	if rem := partSize % align; rem != 0 {
+		partSize += align - rem
+	}
+
+	if g.log != nil && opts.UseLogger {
+		g.log.Debug(`uploading %q [size hint: %v (%v); part size: %v (%v)]`,
+			name,
+			opts.Size, storage.PrettySize(opts.Size),
+			partSize, storage.PrettySize(partSize))
+	}
+
 	ctx := context.Background()
 	w := g.bucketHandle.Object(path.Join(g.prefix, name)).NewWriter(ctx)
-
-	if g.chunkSize != nil {
-		w.ChunkSize = *g.chunkSize
+	w.ChunkSize = int(partSize)
+	if g.log != nil && opts.UseLogger {
+		w.ProgressFunc = func(written int64) {
+			if opts.Size > 0 {
+				g.log.Debug("uploaded %v / %v (%.1f%%)",
+					written, opts.Size,
+					float64(written)*100/float64(opts.Size))
+			} else {
+				g.log.Debug("uploaded %v (total unknown)", written)
+			}
+		}
 	}
 
 	if _, err := io.Copy(w, data); err != nil {
@@ -138,13 +184,13 @@ func (g googleClient) getPartialObject(ctx context.Context, name string, start, 
 			return nil, io.EOF
 		}
 
-		// g.log.Warning("errGetObj Err: %v", err)
+		g.log.Warning("errGetObj Err: %v", err)
 		return nil, storage.GetObjError{Err: err}
 	}
 	return reader, nil
 }
 
-func newGoogleClient(opts *Config) (*googleClient, error) {
+func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
 	ctx := context.Background()
 
 	if opts.Credentials.PrivateKey == "" || opts.Credentials.ClientEmail == "" {
@@ -192,5 +238,6 @@ func newGoogleClient(opts *Config) (*googleClient, error) {
 		bucket:       opts.Bucket,
 		prefix:       opts.Prefix,
 		chunkSize:    opts.ChunkSize,
+		log:          l,
 	}, nil
 }
