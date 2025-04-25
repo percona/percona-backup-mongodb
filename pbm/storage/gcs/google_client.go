@@ -20,9 +20,7 @@ import (
 
 type googleClient struct {
 	bucketHandle *storagegcs.BucketHandle
-	bucket       string
-	prefix       string
-	chunkSize    *int
+	opts         *Config
 	log          log.LogEvent
 }
 
@@ -34,23 +32,15 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 		}
 	}
 
-	const (
-		defaultChunk int64 = 10 << 20  // 10 MiB
-		maxParts           = 10_000    // S3 limit, mirror for consistency
-		align              = 256 << 10 // 256 KiB – required by GCS
+	const align int64 = 256 << 10 // 256 KiB (both min size and alignment)
+
+	partSize := storage.ComputePartSize(
+		opts.Size,
+		10<<20, // default: 10 MiB
+		align,
+		10_000,
+		int64(g.opts.ChunkSize),
 	)
-	partSize := defaultChunk
-
-	if opts.Size > 0 {
-		ps := opts.Size / maxParts * 15 / 10
-		if ps > partSize {
-			partSize = ps
-		}
-	}
-
-	if g.chunkSize != nil && *g.chunkSize > 0 && int64(*g.chunkSize) > partSize {
-		partSize = int64(*g.chunkSize)
-	}
 
 	if rem := partSize % align; rem != 0 {
 		partSize += align - rem
@@ -64,7 +54,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 	}
 
 	ctx := context.Background()
-	w := g.bucketHandle.Object(path.Join(g.prefix, name)).NewWriter(ctx)
+	w := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewWriter(ctx)
 	w.ChunkSize = int(partSize)
 	if g.log != nil && opts.UseLogger {
 		w.ProgressFunc = func(written int64) {
@@ -92,7 +82,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 func (g googleClient) fileStat(name string) (storage.FileInfo, error) {
 	ctx := context.Background()
 
-	attrs, err := g.bucketHandle.Object(path.Join(g.prefix, name)).Attrs(ctx)
+	attrs, err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Attrs(ctx)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) {
 			return storage.FileInfo{}, storage.ErrNotExist
@@ -155,7 +145,7 @@ func (g googleClient) list(prefix, suffix string) ([]storage.FileInfo, error) {
 func (g googleClient) delete(name string) error {
 	ctx := context.Background()
 
-	err := g.bucketHandle.Object(path.Join(g.prefix, name)).Delete(ctx)
+	err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Delete(ctx)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) {
 			return storage.ErrNotExist
@@ -169,15 +159,15 @@ func (g googleClient) delete(name string) error {
 func (g googleClient) copy(src, dst string) error {
 	ctx := context.Background()
 
-	srcObj := g.bucketHandle.Object(path.Join(g.prefix, src))
-	dstObj := g.bucketHandle.Object(path.Join(g.prefix, dst))
+	srcObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, src))
+	dstObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, dst))
 
 	_, err := dstObj.CopierFrom(srcObj).Run(ctx)
 	return err
 }
 
 func (g googleClient) getPartialObject(ctx context.Context, name string, start, length int64) (io.ReadCloser, error) {
-	obj := g.bucketHandle.Object(path.Join(g.prefix, name))
+	obj := g.bucketHandle.Object(path.Join(g.opts.Prefix, name))
 	reader, err := obj.NewRangeReader(ctx, start, length)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) || (err != nil && isRangeNotSatisfiable(err)) {
@@ -235,9 +225,7 @@ func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
 
 	return &googleClient{
 		bucketHandle: bh,
-		bucket:       opts.Bucket,
-		prefix:       opts.Prefix,
-		chunkSize:    opts.ChunkSize,
+		opts:         opts,
 		log:          l,
 	}, nil
 }

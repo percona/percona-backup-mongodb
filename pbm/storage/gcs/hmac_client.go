@@ -57,25 +57,13 @@ func (h hmacClient) save(name string, data io.Reader, options ...storage.Option)
 		}
 	}
 
-	const (
-		defaultPartSize int64 = 10 << 20 // 10 MiB
-		maxUploadParts        = 10_000   // S3 / GCS XML-API limit
+	partSize := storage.ComputePartSize(
+		opts.Size,
+		10<<20, // default: 10 MiB
+		5<<20,  // min GCS XML part size
+		10_000,
+		int64(h.opts.ChunkSize),
 	)
-
-	partSize := defaultPartSize
-
-	if opts.Size > 0 {
-		ps := opts.Size / maxUploadParts * 15 / 10
-		if ps > partSize {
-			partSize = ps
-		}
-	}
-
-	if h.opts.ChunkSize != nil && *h.opts.ChunkSize > 0 {
-		if int64(*h.opts.ChunkSize) > partSize {
-			partSize = int64(*h.opts.ChunkSize)
-		}
-	}
 
 	if h.log != nil && opts.UseLogger {
 		h.log.Debug(`uploading %q [size hint: %v (%v); part size: %v (%v)]`,

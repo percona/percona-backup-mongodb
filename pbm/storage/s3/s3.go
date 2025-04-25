@@ -352,26 +352,13 @@ func (s *S3) Save(name string, data io.Reader, options ...storage.Option) error 
 		}
 	}
 
-	// MaxUploadParts is 1e4 so with PartSize 10Mb the max allowed file size
-	// would be ~ 97.6Gb. Hence if the file size is bigger we're enlarging PartSize
-	// so PartSize * MaxUploadParts could fit the file.
-	// If calculated PartSize is smaller than the default we leave the default.
-	// If UploadPartSize option was set we use it instead of the default. Even
-	// with the UploadPartSize set the calculated PartSize woulbe used if it's bigger.
-	partSize := defaultPartSize
-	if s.opts.UploadPartSize > 0 {
-		if s.opts.UploadPartSize < int(manager.MinUploadPartSize) {
-			s.opts.UploadPartSize = int(manager.MinUploadPartSize)
-		}
-
-		partSize = int64(s.opts.UploadPartSize)
-	}
-	if opts.Size > 0 {
-		ps := opts.Size / int64(s.opts.MaxUploadParts) * 15 / 10 // add 50% just in case
-		if ps > partSize {
-			partSize = ps
-		}
-	}
+	partSize := storage.ComputePartSize(
+		opts.Size,
+		defaultPartSize,
+		manager.MinUploadPartSize,
+		int64(s.opts.MaxUploadParts),
+		int64(s.opts.UploadPartSize),
+	)
 
 	if s.log != nil && opts.UseLogger {
 		s.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
