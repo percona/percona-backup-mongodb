@@ -75,7 +75,7 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 			return cli.(gcsClient).getPartialObject(ctx, fname, start, end-start+1)
 		},
 		GetSess: func() (interface{}, error) {
-			return g.client, nil // re-use the already-initialised backend client
+			return g.client, nil // re-use the already-initialized client
 		},
 	}
 }
