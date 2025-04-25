@@ -65,12 +65,17 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		ChunkSize: int64(chunkSize),
 		Buf:       make([]byte, 32*1024),
 		L:         g.log,
+		//GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
+		//	return g.getChunk(fname, arena, start, end)
+		//},
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
-			return g.getChunk(fname, arena, start, end)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			return cli.(gcsClient).getPartialObject(ctx, fname, start, end-start+1)
 		},
 		GetSess: func() (interface{}, error) {
-			return nil, nil
-			// return g.bucketHandle, nil
+			return g.client, nil // re-use the already-initialised backend client
 		},
 	}
 }
@@ -146,42 +151,6 @@ func (g *GCS) sourceReader(fname string, arenas []*storage.Arena, cc, downloadCh
 	}()
 
 	return r, nil
-}
-
-func (g *GCS) getChunk(
-	fname string,
-	buf *storage.Arena,
-	start, end int64,
-) (io.ReadCloser, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
-	defer cancel()
-
-	length := end - start + 1
-
-	//obj := bucketHandle.Object(path.Join(g.opts.Prefix, fname))
-	//reader, err := obj.NewRangeReader(ctx, start, length)
-	//if err != nil {
-	//	if errors.Is(err, gcs.ErrObjectNotExist) || (err != nil && isRangeNotSatisfiable(err)) {
-	//		return nil, io.EOF
-	//	}
-	//
-	//	g.log.Warning("errGetObj Err: %v", err)
-	//	return nil, storage.GetObjError{Err: err}
-	//}
-
-	reader, err := g.client.getPartialObject(ctx, fname, start, length)
-	if err != nil {
-		return nil, err
-	}
-
-	ch := buf.GetSpan()
-	_, err = io.CopyBuffer(ch, reader, buf.CpBuf)
-	if err != nil {
-		ch.Close()
-		return nil, errors.Wrap(err, "copy")
-	}
-	reader.Close()
-	return ch, nil
 }
 
 func isRangeNotSatisfiable(err error) bool {
