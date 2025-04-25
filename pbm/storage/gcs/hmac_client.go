@@ -26,8 +26,14 @@ func newHmacClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
 		return nil, errors.New("HMACAccessKey and HMACSecret are required for HMAC GCS credentials")
 	}
 
-	//minio.DefaultRetryUnit = opts.Retryer.BackoffInitial
-	//minio.DefaultRetryCap = opts.Retryer.BackoffMax
+	if opts.Retryer != nil {
+		if opts.Retryer.BackoffInitial > 0 {
+			minio.DefaultRetryUnit = opts.Retryer.BackoffInitial
+		}
+		if opts.Retryer.BackoffMax > 0 {
+			minio.DefaultRetryCap = opts.Retryer.BackoffMax
+		}
+	}
 
 	minioClient, err := minio.New("storage.googleapis.com", &minio.Options{
 		Creds: credentials.NewStaticV2(opts.Credentials.HMACAccessKey, opts.Credentials.HMACSecret, ""),

@@ -46,6 +46,7 @@ type Retryer struct {
 
 	// BackoffMultiplier is the factor by which the retry period increases.
 	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Multiplier
+	// Ignored for MinIO (only Initial and Max used)
 	BackoffMultiplier float64 `bson:"backoffMultiplier" json:"backoffMultiplier" yaml:"backoffMultiplier"`
 }
 
