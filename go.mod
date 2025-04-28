@@ -1,6 +1,8 @@
 module github.com/percona/percona-backup-mongodb
 
-go 1.22
+go 1.23.0
+
+toolchain go1.23.2
 
 require (
 	cloud.google.com/go/storage v1.38.0
@@ -32,7 +34,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.34.0
 	go.mongodb.org/mongo-driver v1.17.1
 	golang.org/x/mod v0.19.0
-	golang.org/x/sync v0.11.0
+	golang.org/x/sync v0.13.0
 	google.golang.org/api v0.171.0
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -129,13 +131,13 @@ require (
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/exp v0.0.0-20240529005216-23cca8864a10 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/oauth2 v0.18.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/term v0.29.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/term v0.31.0 // indirect
+	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto v0.0.0-20240213162025-012b6fc9bca9 // indirect
