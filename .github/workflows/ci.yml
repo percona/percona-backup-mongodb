@@ -32,7 +32,7 @@ on:
     paths-ignore:
       - "e2e-tests/**"
       - "packaging/**"
-      - "version/**"      
+      - "version/**"
 
 jobs:
   test:
@@ -45,7 +45,7 @@ jobs:
         test: [logical, physical, incremental, external]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || github.ref_name }}
-      GO_VER: ${{ github.event.inputs.go_ver || '1.22-bullseye' }}
+      GO_VER: ${{ github.event.inputs.go_ver || '1.23-bullseye' }}
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
       MAKE_TARGET: 'build-cover'
     steps:
