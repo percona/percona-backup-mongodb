@@ -2,18 +2,11 @@ package gcs
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"path"
 	"reflect"
 	"strings"
 	"time"
-
-	gcs "cloud.google.com/go/storage"
-	"github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -27,14 +20,19 @@ type Config struct {
 
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
-	ChunkSize *int `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	ChunkSize int `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
 type Credentials struct {
+	// JSON credentials (service account)
 	ClientEmail string `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
 	PrivateKey  string `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+
+	// HMAC credentials for XML API (S3 compatibility)
+	HMACAccessKey string `bson:"hmacAccessKey" json:"hmacAccessKey,omitempty" yaml:"hmacAccessKey,omitempty"`
+	HMACSecret    string `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
 }
 
 type Retryer struct {
@@ -48,6 +46,7 @@ type Retryer struct {
 
 	// BackoffMultiplier is the factor by which the retry period increases.
 	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Multiplier
+	// Ignored for MinIO (only Initial and Max used)
 	BackoffMultiplier float64 `bson:"backoffMultiplier" json:"backoffMultiplier" yaml:"backoffMultiplier"`
 }
 
@@ -62,12 +61,21 @@ type ServiceAccountCredentials struct {
 	ClientCertURL       string `json:"client_x509_cert_url"`
 }
 
-type GCS struct {
-	opts         *Config
-	bucketHandle *gcs.BucketHandle
-	log          log.LogEvent
+type gcsClient interface {
+	save(name string, data io.Reader, options ...storage.Option) error
+	fileStat(name string) (storage.FileInfo, error)
+	list(prefix, suffix string) ([]storage.FileInfo, error)
+	delete(name string) error
+	copy(src, dst string) error
+	getPartialObject(ctx context.Context, name string, start, length int64) (io.ReadCloser, error)
+}
 
-	d *Download
+type GCS struct {
+	opts *Config
+	log  log.LogEvent
+
+	client gcsClient
+	d      *Download
 }
 
 func (cfg *Config) Clone() *Config {
@@ -107,26 +115,19 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 		log:  l,
 	}
 
-	cli, err := g.gcsClient()
-	if err != nil {
-		return nil, errors.Wrap(err, "GCS client")
+	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
+		hc, err := newHMACClient(g.opts, g.log)
+		if err != nil {
+			return nil, errors.Wrap(err, "new hmac client")
+		}
+		g.client = hc
+	} else {
+		gc, err := newGoogleClient(g.opts, g.log)
+		if err != nil {
+			return nil, errors.Wrap(err, "new google client")
+		}
+		g.client = gc
 	}
-
-	bucketHandle := cli.Bucket(opts.Bucket)
-
-	if opts.Retryer != nil {
-		bucketHandle = bucketHandle.Retryer(
-			gcs.WithBackoff(gax.Backoff{
-				Initial:    opts.Retryer.BackoffInitial,
-				Max:        opts.Retryer.BackoffMax,
-				Multiplier: opts.Retryer.BackoffMultiplier,
-			}),
-
-			gcs.WithPolicy(gcs.RetryAlways),
-		)
-	}
-
-	g.bucketHandle = bucketHandle
 
 	g.d = &Download{
 		gcs:      g,
@@ -142,145 +143,28 @@ func (*GCS) Type() storage.Type {
 	return storage.GCS
 }
 
-func (g *GCS) Save(name string, data io.Reader, _ ...storage.Option) error {
-	ctx := context.Background()
-
-	w := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewWriter(ctx)
-
-	if g.opts.ChunkSize != nil {
-		w.ChunkSize = *g.opts.ChunkSize
-	}
-
-	if _, err := io.Copy(w, data); err != nil {
-		return errors.Wrap(err, "save data")
-	}
-
-	if err := w.Close(); err != nil {
-		return errors.Wrap(err, "writer close")
-	}
-
-	return nil
+func (g *GCS) Save(name string, data io.Reader, options ...storage.Option) error {
+	return g.client.save(name, data, options...)
 }
 
 func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
-	ctx := context.Background()
-
-	attrs, err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Attrs(ctx)
-	if err != nil {
-		if errors.Is(err, gcs.ErrObjectNotExist) {
-			return storage.FileInfo{}, storage.ErrNotExist
-		}
-
-		return storage.FileInfo{}, errors.Wrap(err, "get properties")
-	}
-
-	inf := storage.FileInfo{
-		Name: attrs.Name,
-		Size: attrs.Size,
-	}
-
-	if inf.Size == 0 {
-		return inf, storage.ErrEmpty
-	}
-
-	return inf, nil
+	return g.client.fileStat(name)
 }
 
 func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	ctx := context.Background()
-
 	prfx := path.Join(g.opts.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
 		prfx += "/"
 	}
 
-	query := &gcs.Query{
-		Prefix: prfx,
-	}
-
-	var files []storage.FileInfo
-	it := g.bucketHandle.Objects(ctx, query)
-	for {
-		attrs, err := it.Next()
-
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-
-		if err != nil {
-			return nil, errors.Wrap(err, "list objects")
-		}
-
-		name := attrs.Name
-		name = strings.TrimPrefix(name, prfx)
-		if len(name) == 0 {
-			continue
-		}
-		if name[0] == '/' {
-			name = name[1:]
-		}
-
-		if suffix != "" && !strings.HasSuffix(name, suffix) {
-			continue
-		}
-
-		files = append(files, storage.FileInfo{
-			Name: name,
-			Size: attrs.Size,
-		})
-	}
-
-	return files, nil
+	return g.client.list(prfx, suffix)
 }
 
 func (g *GCS) Delete(name string) error {
-	ctx := context.Background()
-
-	err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Delete(ctx)
-	if err != nil {
-		if errors.Is(err, gcs.ErrObjectNotExist) {
-			return storage.ErrNotExist
-		}
-		return errors.Wrap(err, "delete object")
-	}
-
-	return nil
+	return g.client.delete(name)
 }
 
 func (g *GCS) Copy(src, dst string) error {
-	ctx := context.Background()
-
-	srcObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, src))
-	dstObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, dst))
-
-	_, err := dstObj.CopierFrom(srcObj).Run(ctx)
-	return err
-}
-
-func (g *GCS) gcsClient() (*gcs.Client, error) {
-	ctx := context.Background()
-
-	if g.opts.Credentials.PrivateKey == "" || g.opts.Credentials.ClientEmail == "" {
-		return nil, errors.New("clientEmail and privateKey are required for GCS credentials")
-	}
-
-	creds, err := json.Marshal(ServiceAccountCredentials{
-		Type:                "service_account",
-		PrivateKey:          g.opts.Credentials.PrivateKey,
-		ClientEmail:         g.opts.Credentials.ClientEmail,
-		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
-		TokenURI:            "https://oauth2.googleapis.com/token",
-		UniverseDomain:      "googleapis.com",
-		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
-		ClientCertURL: fmt.Sprintf(
-			"https://www.googleapis.com/robot/v1/metadata/x509/%s",
-			g.opts.Credentials.ClientEmail,
-		),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal GCS credentials")
-	}
-
-	return gcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+	return g.client.copy(src, dst)
 }
