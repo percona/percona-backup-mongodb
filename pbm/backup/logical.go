@@ -90,7 +90,13 @@ func (b *Backup) doLogical(
 		rsMeta.FirstWriteTS,
 		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
 			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
-			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, -1)
+
+			size, err := getOplogSize(ctx, b.nodeConn)
+			if err != nil {
+				return 0, errors.Wrap(err, "estimate oplog size")
+			}
+
+			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, size)
 		})
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck
@@ -456,6 +462,27 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 
 	err = eg.Wait()
 	return rv, err
+}
+
+func getOplogSize(ctx context.Context, m *mongo.Client) (int64, error) {
+	res := m.Database("local").RunCommand(ctx, bson.D{{"collStats", "oplog.rs"}})
+	if err := res.Err(); err != nil {
+		return 0, errors.Wrapf(err, "collStats local.oplog.rs")
+	}
+
+	var doc struct {
+		StorageSize int64 `bson:"storageSize"`
+		Size        int64 `bson:"size"`
+	}
+
+	if err := res.Decode(&doc); err != nil {
+		return 0, errors.Wrapf(err, "decode local.oplog.rs")
+	}
+
+	if doc.StorageSize > 0 {
+		return doc.StorageSize, nil
+	}
+	return doc.Size, nil
 }
 
 func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
