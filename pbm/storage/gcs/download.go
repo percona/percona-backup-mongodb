@@ -65,9 +65,6 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		ChunkSize: int64(chunkSize),
 		Buf:       make([]byte, 32*1024),
 		L:         g.log,
-		//GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
-		//	return g.getChunk(fname, arena, start, end)
-		//},
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()

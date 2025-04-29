@@ -21,7 +21,7 @@ type hmacClient struct {
 	log    log.LogEvent
 }
 
-func newHmacClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
+func newHMACClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
 	if opts.Credentials.HMACAccessKey == "" || opts.Credentials.HMACSecret == "" {
 		return nil, errors.New("HMACAccessKey and HMACSecret are required for HMAC GCS credentials")
 	}

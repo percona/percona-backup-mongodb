@@ -116,7 +116,7 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	}
 
 	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
-		hc, err := newHmacClient(g.opts, g.log)
+		hc, err := newHMACClient(g.opts, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new hmac client")
 		}

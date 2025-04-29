@@ -24,6 +24,56 @@ type googleClient struct {
 	log          log.LogEvent
 }
 
+func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
+	ctx := context.Background()
+
+	if opts.Credentials.PrivateKey == "" || opts.Credentials.ClientEmail == "" {
+		return nil, errors.New("clientEmail and privateKey are required for GCS credentials")
+	}
+
+	creds, err := json.Marshal(ServiceAccountCredentials{
+		Type:                "service_account",
+		PrivateKey:          opts.Credentials.PrivateKey,
+		ClientEmail:         opts.Credentials.ClientEmail,
+		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
+		TokenURI:            "https://oauth2.googleapis.com/token",
+		UniverseDomain:      "googleapis.com",
+		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
+		ClientCertURL: fmt.Sprintf(
+			"https://www.googleapis.com/robot/v1/metadata/x509/%s",
+			opts.Credentials.ClientEmail,
+		),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal GCS credentials")
+	}
+
+	cli, err := storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+	if err != nil {
+		return nil, errors.Wrap(err, "new GCS client")
+	}
+
+	bh := cli.Bucket(opts.Bucket)
+
+	if opts.Retryer != nil {
+		bh = bh.Retryer(
+			storagegcs.WithBackoff(gax.Backoff{
+				Initial:    opts.Retryer.BackoffInitial,
+				Max:        opts.Retryer.BackoffMax,
+				Multiplier: opts.Retryer.BackoffMultiplier,
+			}),
+
+			storagegcs.WithPolicy(storagegcs.RetryAlways),
+		)
+	}
+
+	return &googleClient{
+		bucketHandle: bh,
+		opts:         opts,
+		log:          l,
+	}, nil
+}
+
 func (g googleClient) save(name string, data io.Reader, options ...storage.Option) error {
 	opts := storage.GetDefaultOpts()
 	for _, opt := range options {
@@ -170,62 +220,11 @@ func (g googleClient) getPartialObject(ctx context.Context, name string, start, 
 	obj := g.bucketHandle.Object(path.Join(g.opts.Prefix, name))
 	reader, err := obj.NewRangeReader(ctx, start, length)
 	if err != nil {
-		if errors.Is(err, storagegcs.ErrObjectNotExist) || (err != nil && isRangeNotSatisfiable(err)) {
+		if errors.Is(err, storagegcs.ErrObjectNotExist) || isRangeNotSatisfiable(err) {
 			return nil, io.EOF
 		}
 
-		g.log.Warning("errGetObj Err: %v", err)
 		return nil, storage.GetObjError{Err: err}
 	}
 	return reader, nil
-}
-
-func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
-	ctx := context.Background()
-
-	if opts.Credentials.PrivateKey == "" || opts.Credentials.ClientEmail == "" {
-		return nil, errors.New("clientEmail and privateKey are required for GCS credentials")
-	}
-
-	creds, err := json.Marshal(ServiceAccountCredentials{
-		Type:                "service_account",
-		PrivateKey:          opts.Credentials.PrivateKey,
-		ClientEmail:         opts.Credentials.ClientEmail,
-		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
-		TokenURI:            "https://oauth2.googleapis.com/token",
-		UniverseDomain:      "googleapis.com",
-		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
-		ClientCertURL: fmt.Sprintf(
-			"https://www.googleapis.com/robot/v1/metadata/x509/%s",
-			opts.Credentials.ClientEmail,
-		),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal GCS credentials")
-	}
-
-	cli, err := storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
-	if err != nil {
-		return nil, errors.Wrap(err, "new GCS client")
-	}
-
-	bh := cli.Bucket(opts.Bucket)
-
-	if opts.Retryer != nil {
-		bh = bh.Retryer(
-			storagegcs.WithBackoff(gax.Backoff{
-				Initial:    opts.Retryer.BackoffInitial,
-				Max:        opts.Retryer.BackoffMax,
-				Multiplier: opts.Retryer.BackoffMultiplier,
-			}),
-
-			storagegcs.WithPolicy(storagegcs.RetryAlways),
-		)
-	}
-
-	return &googleClient{
-		bucketHandle: bh,
-		opts:         opts,
-		log:          l,
-	}, nil
 }
