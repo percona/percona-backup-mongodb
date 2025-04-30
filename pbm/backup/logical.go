@@ -469,9 +469,23 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 }
 
 // getOplogSize estimates the size in bytes of oplog entries between from and till.
-// It counts all non-noop operations and multiplies by a fixed average document size.
-// Assumes avgDocSize = 1024 bytes.
+// It counts all non-noop operations and multiplies by avgObjSize determined from collStats.
 func getOplogSize(ctx context.Context, m *mongo.Client, from, till primitive.Timestamp) (int64, error) {
+	var stats struct {
+		AvgObjSize float64 `bson:"avgObjSize"`
+	}
+	res := m.Database("local").RunCommand(ctx, bson.D{{Key: "collStats", Value: "oplog.rs"}})
+	if err := res.Err(); err != nil {
+		return 0, errors.Wrap(err, "collStats oplog.rs")
+	}
+	if err := res.Decode(&stats); err != nil {
+		return 0, errors.Wrap(err, "decode collStats result")
+	}
+
+	if stats.AvgObjSize == 0 {
+		return 0, errors.New("collStats returned avgObjSize = 0")
+	}
+
 	count, err := m.Database("local").Collection("oplog.rs").CountDocuments(ctx, bson.M{
 		"ts": bson.M{
 			"$gte": from,
@@ -485,8 +499,8 @@ func getOplogSize(ctx context.Context, m *mongo.Client, from, till primitive.Tim
 		return 0, errors.Wrap(err, "count oplog documents")
 	}
 
-	const avgDocSize = 1024
-	return int64(count) * avgDocSize, nil
+	estimatedSize := float64(count) * stats.AvgObjSize
+	return int64(estimatedSize), nil
 }
 
 func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
