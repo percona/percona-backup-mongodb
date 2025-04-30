@@ -91,12 +91,16 @@ func (b *Backup) doLogical(
 		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
 			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
 
-			size, err := getOplogSize(ctx, b.nodeConn)
+			oplogSize, err := getOplogSize(ctx, b.nodeConn, from, till)
 			if err != nil {
 				return 0, errors.Wrap(err, "estimate oplog size")
 			}
 
-			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, size)
+			if bcp.Compression == compress.CompressionTypeNone {
+				oplogSize *= 4
+			}
+
+			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, oplogSize)
 		})
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck
@@ -464,25 +468,25 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 	return rv, err
 }
 
-func getOplogSize(ctx context.Context, m *mongo.Client) (int64, error) {
-	res := m.Database("local").RunCommand(ctx, bson.D{{"collStats", "oplog.rs"}})
-	if err := res.Err(); err != nil {
-		return 0, errors.Wrapf(err, "collStats local.oplog.rs")
+// getOplogSize estimates the size in bytes of oplog entries between from and till.
+// It counts all non-noop operations and multiplies by a fixed average document size.
+// Assumes avgDocSize = 1024 bytes.
+func getOplogSize(ctx context.Context, m *mongo.Client, from, till primitive.Timestamp) (int64, error) {
+	count, err := m.Database("local").Collection("oplog.rs").CountDocuments(ctx, bson.M{
+		"ts": bson.M{
+			"$gte": from,
+			"$lt":  till,
+		},
+		"op": bson.M{
+			"$ne": defs.OperationNoop,
+		},
+	})
+	if err != nil {
+		return 0, errors.Wrap(err, "count oplog documents")
 	}
 
-	var doc struct {
-		StorageSize int64 `bson:"storageSize"`
-		Size        int64 `bson:"size"`
-	}
-
-	if err := res.Decode(&doc); err != nil {
-		return 0, errors.Wrapf(err, "decode local.oplog.rs")
-	}
-
-	if doc.StorageSize > 0 {
-		return doc.StorageSize, nil
-	}
-	return doc.Size, nil
+	const avgDocSize = 1024
+	return int64(count) * avgDocSize, nil
 }
 
 func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
