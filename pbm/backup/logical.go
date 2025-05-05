@@ -97,14 +97,22 @@ func (b *Backup) doLogical(
 				return 0, errors.Wrap(err, "oplog stats unavailable")
 			}
 
-			estimatedSize := int64(bytesPerSecond * float64(till.T-from.T))
-			if bcp.Compression == compress.CompressionTypeNone {
-				estimatedSize *= 4
-			}
+			// Accounts for uncompressed growth, adds headroom, and ensures a
+			// minimum size to avoid small part uploads on cloud backends.
+			estimatedSize := func() int64 {
+				sz := bytesPerSecond * float64(till.T-from.T)
 
-			if estimatedSize < 1<<30 {
-				estimatedSize = int64(float64(estimatedSize) * 1.5)
-			}
+				if bcp.Compression == compress.CompressionTypeNone {
+					sz *= 2
+				}
+
+				sz *= 2
+
+				if sz < 1<<30 { // 1 GiB
+					sz = 1 << 30
+				}
+				return int64(sz)
+			}()
 
 			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, estimatedSize)
 		})
