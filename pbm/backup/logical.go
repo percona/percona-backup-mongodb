@@ -97,14 +97,14 @@ func (b *Backup) doLogical(
 				return 0, errors.Wrap(err, "oplog stats unavailable")
 			}
 
-			durSecs := till.T - from.T
-			estimatedSize := int64(bytesPerSecond * float64(durSecs))
+			estimatedSize := int64(bytesPerSecond * float64(till.T-from.T))
 			if bcp.Compression == compress.CompressionTypeNone {
 				estimatedSize *= 4
 			}
 
-			l.Debug("oplog slice %s‑%s: rate %.0f B/s, dur %d s, hint %s",
-				from, till, bytesPerSecond, durSecs, storage.PrettySize(estimatedSize))
+			if estimatedSize < 1<<30 {
+				estimatedSize = int64(float64(estimatedSize) * 1.5)
+			}
 
 			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, estimatedSize)
 		})
