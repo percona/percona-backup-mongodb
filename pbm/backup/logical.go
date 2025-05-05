@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
@@ -83,6 +84,11 @@ func (b *Backup) doLogical(
 		}
 	}
 
+	bytesPerSecond, err := getOplogBytesPerSecond(ctx, b.nodeConn)
+	if err != nil {
+		return errors.Wrap(err, "oplog stats unavailable")
+	}
+
 	stopOplogSlicer := startOplogSlicer(ctx,
 		b.nodeConn,
 		b.leadConn.MongoOptions().WriteConcern,
@@ -91,16 +97,12 @@ func (b *Backup) doLogical(
 		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
 			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
 
-			oplogSize, err := getOplogSize(ctx, b.nodeConn, from, till)
-			if err != nil {
-				return 0, errors.Wrap(err, "estimate oplog size")
-			}
-
+			estimatedSize := int64(bytesPerSecond * float64(till.T-from.T))
 			if bcp.Compression == compress.CompressionTypeNone {
-				oplogSize *= 4
+				estimatedSize *= 4
 			}
 
-			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, oplogSize)
+			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, estimatedSize)
 		})
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck
@@ -468,39 +470,56 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 	return rv, err
 }
 
-// getOplogSize estimates the size in bytes of oplog entries between from and till.
-// It counts all non-noop operations and multiplies by avgObjSize determined from collStats.
-func getOplogSize(ctx context.Context, m *mongo.Client, from, till primitive.Timestamp) (int64, error) {
-	var stats struct {
-		AvgObjSize float64 `bson:"avgObjSize"`
+// getOplogBytesPerSecond returns the average number of bytes written to the
+// replica‑set oplog each second. It fetches the total size of the
+// `local.oplog.rs` collection, reads the timestamps of the oldest and newest
+// entries, and divides the size by the seconds between those timestamps.
+func getOplogBytesPerSecond(ctx context.Context, m *mongo.Client) (float64, error) {
+	coll := m.Database("local").Collection("oplog.rs")
+
+	var stat struct {
+		Size int64 `bson:"size"`
 	}
-	res := m.Database("local").RunCommand(ctx, bson.D{{Key: "collStats", Value: "oplog.rs"}})
-	if err := res.Err(); err != nil {
-		return 0, errors.Wrap(err, "collStats oplog.rs")
+	cmd := bson.D{{Key: "collStats", Value: "oplog.rs"}}
+	res := m.Database("local").RunCommand(ctx, cmd)
+	if res.Err() != nil {
+		return 0, errors.Wrap(res.Err(), "collStats local.oplog.rs")
 	}
-	if err := res.Decode(&stats); err != nil {
-		return 0, errors.Wrap(err, "decode collStats result")
+	if err := res.Decode(&stat); err != nil {
+		return 0, errors.Wrap(err, "decode collStats")
 	}
 
-	if stats.AvgObjSize == 0 {
-		return 0, errors.New("collStats returned avgObjSize = 0")
-	}
-
-	count, err := m.Database("local").Collection("oplog.rs").CountDocuments(ctx, bson.M{
-		"ts": bson.M{
-			"$gte": from,
-			"$lt":  till,
-		},
-		"op": bson.M{
-			"$ne": defs.OperationNoop,
-		},
-	})
+	oldestTS, err := oplogTimestamp(ctx, coll, 1)
 	if err != nil {
-		return 0, errors.Wrap(err, "count oplog documents")
+		return 0, err
+	}
+	newestTS, err := oplogTimestamp(ctx, coll, -1)
+	if err != nil {
+		return 0, err
 	}
 
-	estimatedSize := float64(count) * stats.AvgObjSize
-	return int64(estimatedSize), nil
+	duration := int64(newestTS.T - oldestTS.T)
+	if duration <= 0 {
+		return 0, errors.New("invalid oplog window duration")
+	}
+
+	return float64(stat.Size) / float64(duration), nil
+}
+
+// oplogTimestamp returns the timestamp of the first (sort=1) or last (sort=-1) document in the oplog.
+func oplogTimestamp(ctx context.Context, coll *mongo.Collection, sort int) (primitive.Timestamp, error) {
+	var doc bson.M
+	err := coll.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "ts", Value: sort}})).Decode(&doc)
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "query oplog timestamp")
+	}
+
+	ts, ok := doc["ts"].(primitive.Timestamp)
+	if !ok {
+		return primitive.Timestamp{}, errors.New("missing or invalid 'ts' field")
+	}
+
+	return ts, nil
 }
 
 func (b *Backup) checkForTimeseries(ctx context.Context, nss []string) error {
