@@ -84,11 +84,6 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	bytesPerSecond, err := getOplogBytesPerSecond(ctx, b.nodeConn)
-	if err != nil {
-		return errors.Wrap(err, "oplog stats unavailable")
-	}
-
 	stopOplogSlicer := startOplogSlicer(ctx,
 		b.nodeConn,
 		b.leadConn.MongoOptions().WriteConcern,
@@ -97,11 +92,19 @@ func (b *Backup) doLogical(
 		func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error) {
 			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
 
-			estimatedSize := int64(bytesPerSecond * float64(till.T-from.T))
-			estimatedSize *= 2 // allow 2× growth during slice
+			bytesPerSecond, err := getOplogBytesPerSecond(ctx, b.nodeConn)
+			if err != nil {
+				return 0, errors.Wrap(err, "oplog stats unavailable")
+			}
+
+			durSecs := till.T - from.T
+			estimatedSize := int64(bytesPerSecond * float64(durSecs))
 			if bcp.Compression == compress.CompressionTypeNone {
 				estimatedSize *= 4
 			}
+
+			l.Debug("oplog slice %s‑%s: rate %.0f B/s, dur %d s, hint %s",
+				from, till, bytesPerSecond, durSecs, storage.PrettySize(estimatedSize))
 
 			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, estimatedSize)
 		})
