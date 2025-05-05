@@ -98,6 +98,7 @@ func (b *Backup) doLogical(
 			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
 
 			estimatedSize := int64(bytesPerSecond * float64(till.T-from.T))
+			estimatedSize *= 2 // allow 2× growth during slice
 			if bcp.Compression == compress.CompressionTypeNone {
 				estimatedSize *= 4
 			}
