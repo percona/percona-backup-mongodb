@@ -97,24 +97,17 @@ func (b *Backup) doLogical(
 				return 0, errors.Wrap(err, "oplog stats unavailable")
 			}
 
-			// Accounts for uncompressed growth, adds headroom, and ensures a
-			// minimum size to avoid small part uploads on cloud backends.
-			estimatedSize := func() int64 {
-				sz := bytesPerSecond * float64(till.T-from.T)
+			// Estimate size with headroom and enforce minimum part size for cloud uploads.
+			estimatedSize := bytesPerSecond * float64(till.T-from.T)
+			if bcp.Compression == compress.CompressionTypeNone {
+				estimatedSize *= 2
+			}
+			estimatedSize *= 2
+			if estimatedSize < 1<<30 { // 1 GiB
+				estimatedSize = 1 << 30
+			}
 
-				if bcp.Compression == compress.CompressionTypeNone {
-					sz *= 2
-				}
-
-				sz *= 2
-
-				if sz < 1<<30 { // 1 GiB
-					sz = 1 << 30
-				}
-				return int64(sz)
-			}()
-
-			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, estimatedSize)
+			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, int64(estimatedSize))
 		})
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck
@@ -521,7 +514,7 @@ func getOplogBytesPerSecond(ctx context.Context, m *mongo.Client) (float64, erro
 // oplogTimestamp returns the timestamp of the first (sort=1) or last (sort=-1) document in the oplog.
 func oplogTimestamp(ctx context.Context, coll *mongo.Collection, sort int) (primitive.Timestamp, error) {
 	var doc bson.M
-	err := coll.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "ts", Value: sort}})).Decode(&doc)
+	err := coll.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "$natural", Value: sort}})).Decode(&doc)
 	if err != nil {
 		return primitive.Timestamp{}, errors.Wrap(err, "query oplog timestamp")
 	}
