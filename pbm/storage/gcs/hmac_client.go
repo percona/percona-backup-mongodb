@@ -204,6 +204,14 @@ func (h hmacClient) getPartialObject(name string, buf *storage.Arena, start, len
 
 		return nil, storage.GetObjError{Err: err}
 	}
+	defer object.Close()
 
-	return object, nil
+	ch := buf.GetSpan()
+	_, err = io.CopyBuffer(ch, object, buf.CpBuf)
+	if err != nil {
+		ch.Close()
+		return nil, errors.Wrap(err, "copy")
+	}
+
+	return ch, nil
 }
