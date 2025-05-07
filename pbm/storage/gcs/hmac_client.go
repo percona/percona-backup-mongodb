@@ -6,6 +6,7 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -181,7 +182,10 @@ func (h hmacClient) copy(src, dst string) error {
 	return err
 }
 
-func (h hmacClient) getPartialObject(ctx context.Context, name string, start, length int64) (io.ReadCloser, error) {
+func (h hmacClient) getPartialObject(name string, buf *storage.Arena, start, length int64) (io.ReadCloser, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
+	defer cancel()
+
 	objectName := path.Join(h.opts.Prefix, name)
 
 	opts := minio.GetObjectOptions{}

@@ -2,12 +2,9 @@ package gcs
 
 import (
 	"container/heap"
-	"context"
+	"google.golang.org/api/googleapi"
 	"io"
 	"net/http"
-	"time"
-
-	"google.golang.org/api/googleapi"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -66,10 +63,7 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		Buf:       make([]byte, 32*1024),
 		L:         g.log,
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-
-			return cli.(gcsClient).getPartialObject(ctx, fname, start, end-start+1)
+			return cli.(gcsClient).getPartialObject(fname, arena, start, end-start+1)
 		},
 		GetSess: func() (interface{}, error) {
 			return g.client, nil // re-use the already-initialized client
