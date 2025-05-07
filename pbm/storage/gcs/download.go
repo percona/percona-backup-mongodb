@@ -5,9 +5,10 @@ import (
 	"io"
 	"net/http"
 
+	"google.golang.org/api/googleapi"
+
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"google.golang.org/api/googleapi"
 )
 
 type Download struct {
