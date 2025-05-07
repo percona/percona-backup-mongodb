@@ -240,7 +240,9 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
+	err = r.toState(ctx, defs.StatusCleanupCluster, &defs.WaitActionStart)
+
+	err = r.toState(ctx, defs.StatusRunning, nil)
 	if err != nil {
 		return err
 	}

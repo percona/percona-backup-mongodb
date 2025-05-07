@@ -97,15 +97,16 @@ const (
 	// for phys restore, to indicate shards have been stopped
 	StatusDown Status = "down"
 
-	StatusStarting   Status = "starting"
-	StatusRunning    Status = "running"
-	StatusDumpDone   Status = "dumpDone"
-	StatusCopyReady  Status = "copyReady"
-	StatusCopyDone   Status = "copyDone"
-	StatusPartlyDone Status = "partlyDone"
-	StatusDone       Status = "done"
-	StatusCancelled  Status = "canceled"
-	StatusError      Status = "error"
+	StatusStarting       Status = "starting"
+	StatusCleanupCluster Status = "cleanupCluster"
+	StatusRunning        Status = "running"
+	StatusDumpDone       Status = "dumpDone"
+	StatusCopyReady      Status = "copyReady"
+	StatusCopyDone       Status = "copyDone"
+	StatusPartlyDone     Status = "partlyDone"
+	StatusDone           Status = "done"
+	StatusCancelled      Status = "canceled"
+	StatusError          Status = "error"
 
 	// status to communicate last op timestamp if it's not set
 	// during external restore
