@@ -2,12 +2,12 @@ package gcs
 
 import (
 	"container/heap"
-	"google.golang.org/api/googleapi"
 	"io"
 	"net/http"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"google.golang.org/api/googleapi"
 )
 
 type Download struct {
