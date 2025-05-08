@@ -1,7 +1,6 @@
 package gcs
 
 import (
-	"context"
 	"io"
 	"path"
 	"reflect"
@@ -67,7 +66,7 @@ type gcsClient interface {
 	list(prefix, suffix string) ([]storage.FileInfo, error)
 	delete(name string) error
 	copy(src, dst string) error
-	getPartialObject(ctx context.Context, name string, start, length int64) (io.ReadCloser, error)
+	getPartialObject(name string, buf *storage.Arena, start, length int64) (io.ReadCloser, error)
 }
 
 type GCS struct {

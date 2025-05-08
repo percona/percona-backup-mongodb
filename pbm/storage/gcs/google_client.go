@@ -7,6 +7,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"time"
 
 	storagegcs "cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
@@ -216,7 +217,10 @@ func (g googleClient) copy(src, dst string) error {
 	return err
 }
 
-func (g googleClient) getPartialObject(ctx context.Context, name string, start, length int64) (io.ReadCloser, error) {
+func (g googleClient) getPartialObject(name string, buf *storage.Arena, start, length int64) (io.ReadCloser, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
+	defer cancel()
+
 	obj := g.bucketHandle.Object(path.Join(g.opts.Prefix, name))
 	reader, err := obj.NewRangeReader(ctx, start, length)
 	if err != nil {
@@ -226,5 +230,13 @@ func (g googleClient) getPartialObject(ctx context.Context, name string, start, 
 
 		return nil, storage.GetObjError{Err: err}
 	}
-	return reader, nil
+
+	ch := buf.GetSpan()
+	_, err = io.CopyBuffer(ch, reader, buf.CpBuf)
+	if err != nil {
+		ch.Close()
+		return nil, errors.Wrap(err, "copy")
+	}
+	reader.Close()
+	return ch, nil
 }
