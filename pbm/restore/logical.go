@@ -249,13 +249,15 @@ func (r *Restore) Snapshot(
 	}
 
 	err = r.toState(ctx, defs.StatusCleanupCluster, &defs.WaitActionStart)
+	if err != nil {
+		return err
+	}
 
 	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
 		err = r.dropShardedDBs(ctx, bcp)
 		if err != nil {
 			return err
 		}
-
 	}
 
 	err = r.toState(ctx, defs.StatusRunning, nil)
@@ -431,7 +433,19 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
+	err = r.toState(ctx, defs.StatusCleanupCluster, &defs.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
+	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
+		err = r.dropShardedDBs(ctx, bcp)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = r.toState(ctx, defs.StatusRunning, nil)
 	if err != nil {
 		return err
 	}
