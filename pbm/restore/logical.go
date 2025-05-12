@@ -909,7 +909,7 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 // getDBsFromBackup returns all databases present in backup metadata file
 // for each replicaset.
 func (r *Restore) getDBsFromBackup(bcp *backup.BackupMeta) ([]string, error) {
-	rsName := util.MakeRSMapFunc(r.rsMap)(r.brief.SetName)
+	rsName := util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName)
 	filepath := path.Join(bcp.Name, rsName, archive.MetaFile)
 	rdr, err := r.bcpStg.SourceReader(filepath)
 	if err != nil {
