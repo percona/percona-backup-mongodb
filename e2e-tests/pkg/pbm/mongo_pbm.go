@@ -71,7 +71,7 @@ func (m *MongoPBM) StoreResync(ctx context.Context) error {
 		return errors.Wrap(err, "get config")
 	}
 
-	return resync.Resync(ctx, m.conn, &cfg.Storage, "")
+	return resync.Resync(ctx, m.conn, &cfg.Storage, "", false)
 }
 
 func (m *MongoPBM) Conn() connect.Client {
