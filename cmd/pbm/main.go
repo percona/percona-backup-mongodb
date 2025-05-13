@@ -376,7 +376,9 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 	}
 
 	configCmd.Flags().BoolVar(&cfg.rsync, "force-resync", false, "Resync backup list with the current store")
-	configCmd.Flags().BoolVar(&cfg.skipRestores, "skip-restores", false, "Skip physical restore metadata during force-resync")
+	configCmd.Flags().BoolVar(
+		&cfg.skipRestores, "skip-restores", false, "Skip physical restore metadata during force-resync",
+	)
 	configCmd.Flags().BoolVar(&cfg.list, "list", false, "List current settings")
 	configCmd.Flags().StringVar(&cfg.file, "file", "", "Upload config from YAML file")
 	configCmd.Flags().StringToStringVar(&cfg.set, "set", nil, "Set the option value <key.name=value>")
