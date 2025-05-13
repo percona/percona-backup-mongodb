@@ -18,13 +18,14 @@ import (
 )
 
 type configOpts struct {
-	rsync    bool
-	wait     bool
-	waitTime time.Duration
-	list     bool
-	file     string
-	set      map[string]string
-	key      string
+	rsync        bool
+	skipRestores bool
+	wait         bool
+	waitTime     time.Duration
+	list         bool
+	file         string
+	set          map[string]string
+	key          string
 }
 
 type confKV struct {
