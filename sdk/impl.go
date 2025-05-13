@@ -262,8 +262,12 @@ func (c *Client) GetRestoreByOpID(ctx context.Context, opid string) (*RestoreMet
 	return restore.GetRestoreMetaByOPID(ctx, c.conn, opid)
 }
 
-func (c *Client) SyncFromStorage(ctx context.Context) (CommandID, error) {
-	opid, err := ctrl.SendResync(ctx, c.conn)
+func (c *Client) SyncFromStorage(ctx context.Context, skipRestores bool) (CommandID, error) {
+	var opts *ctrl.ResyncCmd
+	if skipRestores {
+		opts = &ctrl.ResyncCmd{SkipRestores: true}
+	}
+	opid, err := ctrl.SendResync(ctx, c.conn, opts)
 	return CommandID(opid.String()), err
 }
 
@@ -272,12 +276,12 @@ func (c *Client) SyncFromExternalStorage(ctx context.Context, name string) (Comm
 		return NoOpID, errors.New("name is not provided")
 	}
 
-	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, name)
+	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{Name: name})
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) SyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
-	opid, err := ctrl.SendSyncMetaFrom(ctx, c.conn, "")
+	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{All: true})
 	return CommandID(opid.String()), err
 }
 
@@ -286,12 +290,12 @@ func (c *Client) ClearSyncFromExternalStorage(ctx context.Context, name string) 
 		return NoOpID, errors.New("name is not provided")
 	}
 
-	opid, err := ctrl.SendClearMetaFrom(ctx, c.conn, name)
+	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{Name: name, Clear: true})
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
-	opid, err := ctrl.SendClearMetaFrom(ctx, c.conn, "")
+	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{All: true, Clear: true})
 	return CommandID(opid.String()), err
 }
 
