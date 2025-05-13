@@ -26,7 +26,13 @@ import (
 //
 // It checks for read and write permissions, drops all meta from the database
 // and populate it again by reading meta from the storage.
-func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf, node string) error {
+func Resync(
+	ctx context.Context,
+	conn connect.Client,
+	cfg *config.StorageConf,
+	node string,
+	skipRestores bool,
+) error {
 	l := log.LogEventFromContext(ctx)
 
 	stg, err := util.StorageFromConfig(cfg, node, l)
@@ -62,7 +68,7 @@ func Resync(ctx context.Context, conn connect.Client, cfg *config.StorageConf, n
 		l.Error("failed sync oplog range: %v", err)
 	}
 
-	err = resyncPhysicalRestores(ctx, conn, stg)
+	err = resyncPhysicalRestores(ctx, conn, stg, skipRestores)
 	if err != nil {
 		l.Error("failed sync physical restore metadata: %v", err)
 	}
@@ -244,6 +250,7 @@ func resyncPhysicalRestores(
 	ctx context.Context,
 	conn connect.Client,
 	stg storage.Storage,
+	skipRestores bool,
 ) error {
 	_, err := conn.RestoresCollection().DeleteMany(ctx, bson.D{})
 	if err != nil {
@@ -262,7 +269,7 @@ func resyncPhysicalRestores(
 		return nil
 	}
 
-	restoreMeta, err := getAllRestoreMetaFromStorage(ctx, stg)
+	restoreMeta, err := getAllRestoreMetaFromStorage(ctx, stg, skipRestores)
 	if err != nil {
 		return errors.Wrap(err, "get all restore meta from storage")
 	}
@@ -315,6 +322,7 @@ func getAllBackupMetaFromStorage(
 func getAllRestoreMetaFromStorage(
 	ctx context.Context,
 	stg storage.Storage,
+	skipRestores bool,
 ) ([]*restore.RestoreMeta, error) {
 	l := log.LogEventFromContext(ctx)
 
@@ -323,8 +331,23 @@ func getAllRestoreMetaFromStorage(
 		return nil, errors.Wrap(err, "get physical restores list from the storage")
 	}
 
-	rv := make([]*restore.RestoreMeta, 0, len(restoreMeta))
-	for _, file := range restoreMeta {
+	var targets []storage.FileInfo
+
+	if skipRestores && len(restoreMeta) > 0 {
+		l.Debug("only processing last restore")
+		latest := restoreMeta[0]
+		for _, f := range restoreMeta[1:] {
+			if f.Name > latest.Name {
+				latest = f
+			}
+		}
+		targets = []storage.FileInfo{latest}
+	} else {
+		targets = restoreMeta
+	}
+
+	rv := make([]*restore.RestoreMeta, 0, len(targets))
+	for _, file := range targets {
 		filename := strings.TrimSuffix(file.Name, ".json")
 		meta, err := restore.GetPhysRestoreMeta(filename, stg, l)
 		if err != nil {
