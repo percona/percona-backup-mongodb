@@ -17,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -57,11 +58,11 @@ type Restore struct {
 	//
 	// Only the restore leader would have this info.
 	shards []topo.Shard
-	// rsMap is mapping between old and new replset names. used for data restore.
-	// empty if all replset names are the same
+	// rsMap is mapping between old and new replset names, used for data restore.
+	// It's empty if all replset names are the same.
 	rsMap map[string]string
-	// sMap is mapping between old and new shard names. used for router config update.
-	// empty if all shard names are the same
+	// sMap is mapping between old and new shard names, used for router config update.
+	// It's empty if all shard names are the same.
 	sMap map[string]string
 
 	log  log.LogEvent
@@ -74,6 +75,13 @@ type oplogRange struct {
 	chunks []oplog.OplogChunk
 
 	storage storage.Storage
+}
+
+// configDatabasesDoc represents document in config.databases collection
+type configDatabasesDoc struct {
+	ID      string `bson:"_id"`
+	Primary string `bson:"primary"`
+	Version bson.D `bson:"version"`
 }
 
 // PBM restore from temp collections (pbmRUsers/pbmRRoles)should be used
@@ -240,7 +248,20 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
+	err = r.toState(ctx, defs.StatusCleanupCluster, &defs.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
+	// drop sharded dbs on sharded cluster, on each shard (not CSRS), only for full restore
+	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() && !util.IsSelective(nss) {
+		err = r.dropShardedDBs(ctx, bcp)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = r.toState(ctx, defs.StatusRunning, nil)
 	if err != nil {
 		return err
 	}
@@ -413,7 +434,20 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.toState(ctx, defs.StatusRunning, &defs.WaitActionStart)
+	err = r.toState(ctx, defs.StatusCleanupCluster, &defs.WaitActionStart)
+	if err != nil {
+		return err
+	}
+
+	// drop sharded dbs on sharded cluster, on each shard (not CSRS), only for full restore
+	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() && !util.IsSelective(nss) {
+		err = r.dropShardedDBs(ctx, bcp)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = r.toState(ctx, defs.StatusRunning, nil)
 	if err != nil {
 		return err
 	}
@@ -826,6 +860,78 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Duration) error {
 	r.log.Info("moving to state %s", status)
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
+}
+
+// dropShardedDBs drop all sharded databases present in the backup.
+// Backup is specified with bcp parameter.
+// For each sharded database present in the backup _shardsvrDropDatabase command
+// is used to drop the database from the config srv and all shards.
+func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) error {
+	dbsInBcp, err := r.getDBsFromBackup(bcp)
+	if err != nil {
+		return errors.Wrap(err, "get dbs from backup")
+	}
+
+	// make cluster-wide drop for each db from the backup
+	for _, db := range dbsInBcp {
+		var configDBDoc configDatabasesDoc
+		err := r.leadConn.ConfigDatabase().
+			Collection("databases").
+			FindOne(ctx, bson.D{{"_id", db}}).
+			Decode(&configDBDoc)
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				continue
+			}
+			return errors.Wrapf(err, "get config.databases for %q", db)
+		}
+
+		if configDBDoc.Primary != r.nodeInfo.SetName {
+			// this shard is not primary shard for this db, so ignore it
+			continue
+		}
+
+		cmd := bson.D{
+			{"_shardsvrDropDatabase", 1},
+			{"databaseVersion", configDBDoc.Version},
+			{"writeConcern", writeconcern.Majority()},
+		}
+		res := r.nodeConn.Database(db).RunCommand(ctx, cmd)
+		if err := res.Err(); err != nil {
+			return errors.Wrapf(err, "_shardsvrDropDatabase for %q", db)
+		}
+		r.log.Debug("drop %q", db)
+	}
+
+	return nil
+}
+
+// getDBsFromBackup returns all databases present in backup metadata file
+// for each replicaset.
+func (r *Restore) getDBsFromBackup(bcp *backup.BackupMeta) ([]string, error) {
+	rsName := util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName)
+	filepath := path.Join(bcp.Name, rsName, archive.MetaFile)
+	rdr, err := r.bcpStg.SourceReader(filepath)
+	if err != nil {
+		return nil, errors.Wrap(err, "read metadata file")
+	}
+	defer rdr.Close()
+
+	meta, err := archive.ReadMetadata(rdr)
+	if err != nil {
+		return nil, errors.Wrap(err, "get metadata")
+	}
+
+	uniqueDbs := map[string]bool{}
+	for _, ns := range meta.Namespaces {
+		uniqueDbs[ns.Database] = true
+	}
+	dbs := []string{}
+	for db := range uniqueDbs {
+		dbs = append(dbs, db)
+	}
+
+	return dbs, nil
 }
 
 func (r *Restore) RunSnapshot(
