@@ -109,6 +109,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 		runTest("Distributed Transactions PITR",
 			t.DistributedTrxPITR)
 
+		runTest("Cleaning up sharded database for full restore",
+			t.CleanupFullRestore)
+
 		// disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
 		// tsTo := primitive.Timestamp{1644410656, 8}
 
