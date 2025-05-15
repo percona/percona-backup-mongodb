@@ -18,13 +18,14 @@ import (
 )
 
 type configOpts struct {
-	rsync    bool
-	wait     bool
-	waitTime time.Duration
-	list     bool
-	file     string
-	set      map[string]string
-	key      string
+	rsync        bool
+	skipRestores bool
+	wait         bool
+	waitTime     time.Duration
+	list         bool
+	file         string
+	set          map[string]string
+	key          string
 }
 
 type confKV struct {
@@ -76,7 +77,7 @@ func runConfig(
 			}
 		}
 		if rsnc {
-			if _, err := pbm.SyncFromStorage(ctx); err != nil {
+			if _, err := pbm.SyncFromStorage(ctx, false); err != nil {
 				return nil, errors.Wrap(err, "resync")
 			}
 		}
@@ -91,7 +92,7 @@ func runConfig(
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil
 	case c.rsync:
-		cid, err := pbm.SyncFromStorage(ctx)
+		cid, err := pbm.SyncFromStorage(ctx, c.skipRestores)
 		if err != nil {
 			return nil, errors.Wrap(err, "resync")
 		}
@@ -143,7 +144,7 @@ func runConfig(
 
 		// resync storage only if Storage options have changed
 		if !reflect.DeepEqual(newCfg.Storage, oldCfg.Storage) {
-			if _, err := pbm.SyncFromStorage(ctx); err != nil {
+			if _, err := pbm.SyncFromStorage(ctx, false); err != nil {
 				return nil, errors.Wrap(err, "resync")
 			}
 		}
