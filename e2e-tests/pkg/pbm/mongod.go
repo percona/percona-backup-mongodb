@@ -257,7 +257,7 @@ func (m *Mongo) GetCounters() ([]Counter, error) {
 
 func (m *Mongo) GetNodeInfo() (*topo.NodeInfo, error) {
 	inf := &topo.NodeInfo{}
-	err := m.cn.Database("test").RunCommand(m.ctx, bson.M{"isMaster": 1}).Decode(inf)
+	err := m.cn.Database("test").RunCommand(m.ctx, bson.M{"hello": 1}).Decode(inf)
 	if err != nil {
 		return nil, errors.Wrap(err, "run mongo command")
 	}
