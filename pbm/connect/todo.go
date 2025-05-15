@@ -17,7 +17,7 @@ type nodeInfo struct {
 	Me                string `bson:"me"`
 	SetName           string `bson:"setName,omitempty"`
 	Primary           string `bson:"primary,omitempty"`
-	IsPrimary         bool   `bson:"ismaster"`
+	IsPrimary         bool   `bson:"isWritablePrimary"`
 	ConfigSvr         int    `bson:"configsvr,omitempty"`
 	ConfigServerState *struct {
 		OpTime *struct {
@@ -59,9 +59,9 @@ type mongodOpts struct {
 }
 
 func getNodeInfo(ctx context.Context, m *mongo.Client) (*nodeInfo, error) {
-	res := m.Database(defs.DB).RunCommand(ctx, bson.D{{"isMaster", 1}})
+	res := m.Database(defs.DB).RunCommand(ctx, bson.D{{"hello", 1}})
 	if err := res.Err(); err != nil {
-		return nil, errors.Wrap(err, "cmd: isMaster")
+		return nil, errors.Wrap(err, "cmd: hello")
 	}
 
 	n := &nodeInfo{}

@@ -81,7 +81,7 @@ type NodeInfo struct {
 	SetName                      string               `bson:"setName,omitempty"`
 	Primary                      string               `bson:"primary,omitempty"`
 	SetVersion                   int32                `bson:"setVersion,omitempty"`
-	IsPrimary                    bool                 `bson:"ismaster"`
+	IsPrimary                    bool                 `bson:"isWritablePrimary"`
 	Secondary                    bool                 `bson:"secondary,omitempty"`
 	Hidden                       bool                 `bson:"hidden,omitempty"`
 	Passive                      bool                 `bson:"passive,omitempty"`
@@ -238,9 +238,9 @@ func GetNodeInfoExt(ctx context.Context, m *mongo.Client) (*NodeInfo, error) {
 }
 
 func GetNodeInfo(ctx context.Context, m *mongo.Client) (*NodeInfo, error) {
-	res := m.Database(defs.DB).RunCommand(ctx, bson.D{{"isMaster", 1}})
+	res := m.Database(defs.DB).RunCommand(ctx, bson.D{{"hello", 1}})
 	if err := res.Err(); err != nil {
-		return nil, errors.Wrap(err, "cmd: isMaster")
+		return nil, errors.Wrap(err, "cmd: hello")
 	}
 
 	n := &NodeInfo{}
