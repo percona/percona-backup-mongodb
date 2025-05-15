@@ -55,8 +55,9 @@ const (
 
 	defaultPort = 27017
 
-	tryConnCount   = 5
-	tryConnTimeout = 5 * time.Minute
+	tryConnCount      = 5
+	tryConnTimeout    = 5 * time.Minute
+	mongodLockTimeout = 30 * time.Minute
 
 	internalMongodLog = "pbm.restore.log"
 )
@@ -456,14 +457,22 @@ func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	for range tk.C {
-		f, err := os.Stat(path.Join(dbpath, mongofslock))
-		if err != nil {
-			return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
-		}
+	to := time.After(mongodLockTimeout)
 
-		if f.Size() == 0 {
-			return nil
+	for {
+		select {
+		case <-tk.C:
+			f, err := os.Stat(path.Join(dbpath, mongofslock))
+			if err != nil {
+				return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
+			}
+
+			if f.Size() == 0 {
+				return nil
+			}
+
+		case <-to:
+			return errors.Errorf("timeout during waiting for lock file %s", path.Join(dbpath, mongofslock))
 		}
 	}
 
