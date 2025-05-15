@@ -368,6 +368,10 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 		Use:   "config [key]",
 		Short: "Set, change or list the config",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if cfg.skipRestores && !cfg.rsync {
+				return nil, errors.New("--skip-restores cannot be used without --force-resync")
+			}
+
 			if len(args) == 1 {
 				cfg.key = args[0]
 			}
