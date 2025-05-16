@@ -455,6 +455,8 @@ func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 	return err
 }
 
+// waitMgoShutdown waits until mongod releases mongod.lock file within dbpath dir.
+// In case of timeout or unexpected error it'll return error.
 func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
@@ -477,9 +479,10 @@ func waitMgoShutdown(dbpath string) error {
 			return errors.Errorf("timeout during waiting for lock file %s", path.Join(dbpath, mongofslock))
 		}
 	}
-
 }
 
+// waitMgoFreePort waits for port p to be free.
+// It case of timeout it'll return error.
 func waitMgoFreePort(p int) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
