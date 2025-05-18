@@ -2604,7 +2604,7 @@ func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
 		return errors.Wrap(err, "read file names")
 	}
 	for _, n := range names {
-		if n == internalMongodLog || slices.Contains(toIgnore, n) {
+		if isInternalMongoLog(n) || slices.Contains(toIgnore, n) {
 			continue
 		}
 		err = os.RemoveAll(filepath.Join(dir, n))
@@ -2614,6 +2614,12 @@ func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
 		l.Debug("remove %s", filepath.Join(dir, n))
 	}
 	return nil
+}
+
+// isInternalMongoLog checks whether the file with the name f
+// is internal mongo log file
+func isInternalMongoLog(f string) bool {
+	return strings.HasPrefix(f, internalMongodLog)
 }
 
 func majmin(v string) string {
