@@ -220,16 +220,12 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
 		}
 	}
-	// clean-up internal mongod log only if there is no error
+
+	// if there is no error clean-up internal restore files, internal log file(s) should stay
 	if noerr {
-		r.log.Debug("rm tmp logs")
-		err := os.Remove(path.Join(r.dbpath, internalMongodLog))
-		if err != nil {
-			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
-		}
 		extMeta := filepath.Join(r.dbpath,
 			fmt.Sprintf(defs.ExternalRsMetaFile, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
-		err = os.Remove(extMeta)
+		err := os.Remove(extMeta)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
