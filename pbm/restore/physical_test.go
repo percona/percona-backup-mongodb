@@ -246,6 +246,25 @@ func TestRemoveAll(t *testing.T) {
 	})
 }
 
+func TestRemoveInternalMongoLogs(t *testing.T) {
+	tmpDir := setupTestFiles(t)
+
+	err := removeInternalMongoLogs(tmpDir, log.DiscardEvent)
+	if err != nil {
+		t.Fatalf("got error when removing internal mongod logs, err=%v", err)
+	}
+
+	files := readDir(t, tmpDir)
+	if len(files) != 6 {
+		t.Fatalf("only mongod log files should be removed, expected 6 files, got=%d files", len(files))
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f, internalMongodLog) {
+			t.Fatalf("internal mongod log file is not deleted: %s", f)
+		}
+	}
+}
+
 func readDir(t *testing.T, dir string) []string {
 	t.Helper()
 

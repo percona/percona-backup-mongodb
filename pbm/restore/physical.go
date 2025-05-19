@@ -374,6 +374,10 @@ func (r *PhysRestore) migrateDBDirToFallbackDir() error {
 	if err != nil {
 		return errors.Wrap(err, "remove fallback db path")
 	}
+	err = removeInternalMongoLogs(dbpath, r.log)
+	if err != nil {
+		return errors.Wrap(err, "remove internal mongod log(s)")
+	}
 
 	r.log.Debug("create %s", fallbackPath)
 	info, err := os.Stat(dbpath)
@@ -2588,6 +2592,8 @@ func moveAll(fromDir, toDir string, toIgnore []string, l log.LogEvent) error {
 	return nil
 }
 
+// removeAll removes all files and directories from specified dir.
+// It ignores files selected with filesSkipRules parameter.
 func removeAll(dir string, l log.LogEvent, fileSkipRules ...fileSkipRule) error {
 	d, err := os.Open(dir)
 	if err != nil {
@@ -2609,6 +2615,33 @@ func removeAll(dir string, l log.LogEvent, fileSkipRules ...fileSkipRule) error 
 		}
 		l.Debug("remove %s", filepath.Join(dir, n))
 	}
+	return nil
+}
+
+// removeInternalMongoLogs removes internal mongod logs from directory.
+// It'll remove everything that starts with 'pbm.restore.log'
+func removeInternalMongoLogs(dir string, l log.LogEvent) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return errors.Wrap(err, "open dir")
+	}
+	defer d.Close()
+
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return errors.Wrap(err, "read file names")
+	}
+	for _, n := range names {
+		if isInternalMongoLog(n) {
+			err = os.RemoveAll(filepath.Join(dir, n))
+			if err != nil {
+				return errors.Wrapf(err, "remove '%s", n)
+			}
+
+			l.Debug("remove %s", filepath.Join(dir, n))
+		}
+	}
+
 	return nil
 }
 
