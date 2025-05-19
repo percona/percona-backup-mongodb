@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -180,4 +181,144 @@ func TestWaitMgoFreePort(t *testing.T) {
 			t.Logf("finish %d round, with duration %s", i+1, time.Since(start))
 		}
 	})
+}
+
+func TestRemoveAll(t *testing.T) {
+	t.Run("removes all files in dir", func(t *testing.T) {
+		tmpDir := setupTestFiles(t)
+
+		err := removeAll(tmpDir, log.DiscardEvent)
+		if err != nil {
+			t.Fatalf("got error when removing all files, err=%v", err)
+		}
+
+		files := readDir(t, tmpDir)
+		if len(files) != 0 {
+			t.Fatalf("dir should be empty, got=%d files", len(files))
+		}
+	})
+
+	t.Run("skiping internal mongod log files", func(t *testing.T) {
+		tmpDir := setupTestFiles(t)
+
+		err := removeAll(tmpDir, log.DiscardEvent, getInternlLogFileSkipRule())
+		if err != nil {
+			t.Fatalf("got error when removing all files, err=%v", err)
+		}
+
+		files := readDir(t, tmpDir)
+		if len(files) != 3 {
+			t.Fatalf("expected to have 3 log files, got=%d files, names=%s", len(files), files)
+		}
+	})
+
+	t.Run("skiping fallback dir", func(t *testing.T) {
+		tmpDir := setupTestFiles(t)
+
+		err := removeAll(tmpDir, log.DiscardEvent, getFallbackSyncFileSkipRule())
+		if err != nil {
+			t.Fatalf("got error when removing all files, err=%v", err)
+		}
+
+		files := readDir(t, tmpDir)
+		if len(files) != 1 || files[0] != fallbackDir {
+			t.Fatalf("expected to have fallback dir, got=%d files/dirs, names=%s", len(files), files)
+		}
+
+		files = readDir(t, path.Join(tmpDir, fallbackDir))
+		if len(files) != 1 || files[0] != "file.fallback" {
+			t.Fatalf("expected to have 1 file within fallback dir, got=%d files/dirs, names=%s", len(files), files)
+		}
+	})
+
+	t.Run("skiping all pbm related", func(t *testing.T) {
+		tmpDir := setupTestFiles(t)
+
+		err := removeAll(tmpDir, log.DiscardEvent, getFallbackSyncFileSkipRule(), getInternlLogFileSkipRule())
+		if err != nil {
+			t.Fatalf("got error when removing all files, err=%v", err)
+		}
+
+		files := readDir(t, tmpDir)
+		if len(files) != 4 {
+			t.Fatalf("expected to have fallback dir and mongod log file, got=%d files/dirs, names=%s", len(files), files)
+		}
+	})
+}
+
+func readDir(t *testing.T, dir string) []string {
+	t.Helper()
+
+	d, err := os.Open(dir)
+	if err != nil {
+		t.Fatalf("failing opening dir, err=%v", err)
+	}
+	defer d.Close()
+
+	files, err := d.Readdirnames(-1)
+	if err != nil {
+		t.Fatalf("failing reading dir, err=%v", err)
+	}
+
+	return files
+}
+
+func setupTestFiles(t *testing.T) string {
+	tmpDir, err := os.MkdirTemp("", "phys-test-*")
+	if err != nil {
+		t.Fatalf("error while creating setup files: %v", err)
+	}
+
+	t.Cleanup(func() {
+		os.RemoveAll(tmpDir)
+	})
+
+	// tmpDir/
+	//   - file1.txt
+	//   - file2.log
+	//   - file3.txt.tmp
+	//   - subdir/
+	//     - file4.txt
+	//     - file5.log
+	//     - file6.txt.tmp
+	//   - empty/
+	//   - pbm.restore.log
+	//   - pbm.restore.log.2025-05-15T14-33-34
+	//   - pbm.restore.log.2025-05-15T14-37-34
+	//   - .fallbacksync/
+	//     - file.fs.txt
+	createTestFile(t, filepath.Join(tmpDir, "file1.txt"), "content1")
+	createTestFile(t, filepath.Join(tmpDir, "file2.log"), "content2")
+	createTestFile(t, filepath.Join(tmpDir, "file3.txt.tmp"), "content3")
+
+	createTestDir(t, filepath.Join(tmpDir, "subdir"))
+	createTestFile(t, filepath.Join(tmpDir, "subdir", "file4.txt"), "content4")
+	createTestFile(t, filepath.Join(tmpDir, "subdir", "file5.log"), "content5")
+	createTestFile(t, filepath.Join(tmpDir, "subdir", "file6.txt.tmp"), "content6")
+
+	createTestDir(t, filepath.Join(tmpDir, "empty"))
+
+	// files & dirs with additional semantic:
+	createTestFile(t, filepath.Join(tmpDir, "pbm.restore.log"), "log-content-1")
+	createTestFile(t, filepath.Join(tmpDir, "pbm.restore.log.2025-05-15T14-33-34"), "log-content-2")
+	createTestFile(t, filepath.Join(tmpDir, "pbm.restore.log.2025-05-15T14-37-34"), "log-content-3")
+
+	createTestDir(t, filepath.Join(tmpDir, fallbackDir))
+	createTestFile(t, filepath.Join(tmpDir, fallbackDir, "file.fallback"), "content")
+
+	return tmpDir
+}
+
+func createTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("error while creating file %s: %v", path, err)
+	}
+}
+
+func createTestDir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatalf("error while creating dir %s: %v", path, err)
+	}
 }
