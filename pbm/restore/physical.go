@@ -55,11 +55,10 @@ const (
 
 	defaultPort = 27017
 
-	tryConnCount       = 5
-	tryConnTimeout     = 5 * time.Minute
-	mongodLockTimeout  = 30 * time.Minute
-	mongodPortTimeout  = 5 * time.Minute
-	mongodPortPollTick = 5 * time.Second
+	tryConnCount      = 5
+	tryConnTimeout    = 5 * time.Minute
+	mongodLockTimeout = 30 * time.Minute
+	mongodPortTimeout = 5 * time.Minute
 
 	internalMongodLog = "pbm.restore.log"
 )
