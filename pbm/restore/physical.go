@@ -248,7 +248,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		}
 	} else if cleanup { // clean-up dbpath on err if needed (cluster is done or partlyDone)
 		r.log.Debug("clean-up dbpath")
-		err := removeAll(r.dbpath, r.log, getInternlLogFileSkipRule())
+		err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
 		if err != nil {
 			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 		}
@@ -402,7 +402,7 @@ func (r *PhysRestore) migrateDBDirToFallbackDir() error {
 // moves all content from fallback path.
 func (r *PhysRestore) migrateFromFallbackDirToDBDir() error {
 	r.log.Debug("clean-up dbpath")
-	err := removeAll(r.dbpath, r.log, getFallbackSyncFileSkipRule(), getInternlLogFileSkipRule())
+	err := removeAll(r.dbpath, r.log, getFallbackSyncFileSkipRule(), getInternalLogFileSkipRule())
 	if err != nil {
 		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 		return errors.Wrap(err, "remove all from dbpath")
@@ -2665,7 +2665,7 @@ func isFileToSkip(f string, skipRules ...fileSkipRule) bool {
 	return false
 }
 
-func getInternlLogFileSkipRule() fileSkipRule {
+func getInternalLogFileSkipRule() fileSkipRule {
 	return func(f string) bool {
 		return isInternalMongoLog(f)
 	}

@@ -198,10 +198,10 @@ func TestRemoveAll(t *testing.T) {
 		}
 	})
 
-	t.Run("skiping internal mongod log files", func(t *testing.T) {
+	t.Run("skipping internal mongod log files", func(t *testing.T) {
 		tmpDir := setupTestFiles(t)
 
-		err := removeAll(tmpDir, log.DiscardEvent, getInternlLogFileSkipRule())
+		err := removeAll(tmpDir, log.DiscardEvent, getInternalLogFileSkipRule())
 		if err != nil {
 			t.Fatalf("got error when removing all files, err=%v", err)
 		}
@@ -212,7 +212,7 @@ func TestRemoveAll(t *testing.T) {
 		}
 	})
 
-	t.Run("skiping fallback dir", func(t *testing.T) {
+	t.Run("skipping fallback dir", func(t *testing.T) {
 		tmpDir := setupTestFiles(t)
 
 		err := removeAll(tmpDir, log.DiscardEvent, getFallbackSyncFileSkipRule())
@@ -231,10 +231,10 @@ func TestRemoveAll(t *testing.T) {
 		}
 	})
 
-	t.Run("skiping all pbm related", func(t *testing.T) {
+	t.Run("skipping all pbm related", func(t *testing.T) {
 		tmpDir := setupTestFiles(t)
 
-		err := removeAll(tmpDir, log.DiscardEvent, getFallbackSyncFileSkipRule(), getInternlLogFileSkipRule())
+		err := removeAll(tmpDir, log.DiscardEvent, getFallbackSyncFileSkipRule(), getInternalLogFileSkipRule())
 		if err != nil {
 			t.Fatalf("got error when removing all files, err=%v", err)
 		}
