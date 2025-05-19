@@ -248,7 +248,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		}
 	} else if cleanup { // clean-up dbpath on err if needed (cluster is done or partlyDone)
 		r.log.Debug("clean-up dbpath")
-		err := removeAll(r.dbpath, nil, r.log)
+		err := removeAll(r.dbpath, r.log, getInternlLogFileSkipRule())
 		if err != nil {
 			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 		}
@@ -398,7 +398,7 @@ func (r *PhysRestore) migrateDBDirToFallbackDir() error {
 // moves all content from fallback path.
 func (r *PhysRestore) migrateFromFallbackDirToDBDir() error {
 	r.log.Debug("clean-up dbpath")
-	err := removeAll(r.dbpath, []string{fallbackDir}, r.log)
+	err := removeAll(r.dbpath, r.log, getFallbackSyncFileSkipRule(), getInternlLogFileSkipRule())
 	if err != nil {
 		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 		return errors.Wrap(err, "remove all from dbpath")
@@ -2588,7 +2588,7 @@ func moveAll(fromDir, toDir string, toIgnore []string, l log.LogEvent) error {
 	return nil
 }
 
-func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
+func removeAll(dir string, l log.LogEvent, fileSkipRules ...fileSkipRule) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return errors.Wrap(err, "open dir")
@@ -2600,7 +2600,7 @@ func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
 		return errors.Wrap(err, "read file names")
 	}
 	for _, n := range names {
-		if isInternalMongoLog(n) || slices.Contains(toIgnore, n) {
+		if isFileToSkip(n, fileSkipRules...) {
 			continue
 		}
 		err = os.RemoveAll(filepath.Join(dir, n))
@@ -2616,6 +2616,32 @@ func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
 // is internal mongo log file
 func isInternalMongoLog(f string) bool {
 	return strings.HasPrefix(f, internalMongodLog)
+}
+
+type fileSkipRule func(string) bool
+
+// isFileToSkip for the given file name f and the given set of skip rules: skipRules,
+// function returns true if at least one rule is satisfied. In case when all rules
+// are false it returns false, which means that file shouldn't be skipped.
+func isFileToSkip(f string, skipRules ...fileSkipRule) bool {
+	for _, rule := range skipRules {
+		if rule(f) {
+			return true
+		}
+	}
+	return false
+}
+
+func getInternlLogFileSkipRule() fileSkipRule {
+	return func(f string) bool {
+		return isInternalMongoLog(f)
+	}
+}
+
+func getFallbackSyncFileSkipRule() fileSkipRule {
+	return func(f string) bool {
+		return f == fallbackDir
+	}
 }
 
 func majmin(v string) string {
