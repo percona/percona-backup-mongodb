@@ -2,10 +2,12 @@ package restore
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
@@ -136,6 +138,46 @@ func TestMoveAll(t *testing.T) {
 
 		if !strings.Contains(err.Error(), "move test") {
 			t.Errorf("want:'move test', got:%v", err)
+		}
+	})
+}
+
+func TestWaitMgoFreePort(t *testing.T) {
+	t.Run("wait for the port a bit", func(t *testing.T) {
+		ln, err := net.Listen("tcp", ":0")
+		if err != nil {
+			t.Fatalf("failed to bind port: %v", err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+
+		portUsed := 5 * time.Second
+		go func() {
+			time.Sleep(portUsed)
+			ln.Close()
+		}()
+
+		start := time.Now()
+		err = waitMgoFreePort(port)
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Fatalf("error while waiting for the free port: %v", err)
+		}
+		if duration < portUsed-time.Second ||
+			duration > portUsed+time.Second {
+			t.Fatalf("wrong duration time, want~=%v, got=%v", portUsed, duration)
+		}
+	})
+
+	t.Run("sequential check", func(t *testing.T) {
+		var err error
+		for i := range 10 {
+			start := time.Now()
+			err = waitMgoFreePort(8088)
+			if err != nil {
+				t.Fatalf("free port err: %v", err)
+			}
+			t.Logf("finish %d round, with duration %s", i+1, time.Since(start))
 		}
 	})
 }

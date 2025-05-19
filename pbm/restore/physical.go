@@ -55,8 +55,10 @@ const (
 
 	defaultPort = 27017
 
-	tryConnCount   = 5
-	tryConnTimeout = 5 * time.Minute
+	tryConnCount      = 5
+	tryConnTimeout    = 5 * time.Minute
+	mongodLockTimeout = 30 * time.Minute
+	mongodPortTimeout = 5 * time.Minute
 
 	internalMongodLog = "pbm.restore.log"
 )
@@ -452,22 +454,53 @@ func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 	return err
 }
 
+// waitMgoShutdown waits until mongod releases mongod.lock file within dbpath dir.
+// In case of timeout or unexpected error it'll return error.
 func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	for range tk.C {
-		f, err := os.Stat(path.Join(dbpath, mongofslock))
-		if err != nil {
-			return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
-		}
+	to := time.After(mongodLockTimeout)
 
-		if f.Size() == 0 {
-			return nil
+	for {
+		select {
+		case <-tk.C:
+			f, err := os.Stat(path.Join(dbpath, mongofslock))
+			if err != nil {
+				return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
+			}
+
+			if f.Size() == 0 {
+				return nil
+			}
+
+		case <-to:
+			return errors.Errorf("timeout during waiting for lock file %s", path.Join(dbpath, mongofslock))
 		}
 	}
+}
 
-	return nil
+// waitMgoFreePort waits for port p to be free.
+// It case of timeout it'll return error.
+func waitMgoFreePort(p int) error {
+	tk := time.NewTicker(time.Second)
+	defer tk.Stop()
+
+	to := time.After(mongodPortTimeout)
+
+	for {
+		select {
+		case <-tk.C:
+			ln, err := net.Listen("tcp", ":"+strconv.Itoa(p))
+			if err == nil {
+				ln.Close()
+				return nil
+			}
+
+		case <-to:
+			return errors.Errorf("timeout during waiting for mongod free port %d", p)
+		}
+	}
 }
 
 // waitToBecomePrimary pause execution until RS member becomes primary node.
@@ -1450,11 +1483,11 @@ func (r *PhysRestore) prepareData() error {
 }
 
 func (r *PhysRestore) shutdown(c *mongo.Client) error {
-	err := shutdownImpl(c, r.dbpath, false)
+	err := shutdownImpl(c, r.dbpath, false, r.tmpPort)
 	if err != nil {
 		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
 			r.log.Warning("try force shutdown. reason: %v", err)
-			err = shutdownImpl(c, r.dbpath, true)
+			err = shutdownImpl(c, r.dbpath, true, r.tmpPort)
 			return errors.Wrap(err, "force shutdown mongo")
 		}
 
@@ -1464,7 +1497,7 @@ func (r *PhysRestore) shutdown(c *mongo.Client) error {
 	return nil
 }
 
-func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
+func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 	res := c.Database("admin").RunCommand(context.TODO(),
 		bson.D{{"shutdown", 1}, {"force", force}})
 	err := res.Err()
@@ -1474,7 +1507,11 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
 
 	err = waitMgoShutdown(dbpath)
 	if err != nil {
-		return errors.Wrap(err, "wait")
+		return errors.Wrap(err, "wait mongod shutdown")
+	}
+	err = waitMgoFreePort(port)
+	if err != nil {
+		return errors.Wrap(err, "wait mongod free port")
 	}
 
 	return nil
