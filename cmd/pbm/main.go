@@ -368,8 +368,8 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 		Use:   "config [key]",
 		Short: "Set, change or list the config",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			if cfg.skipRestores && !cfg.rsync {
-				return nil, errors.New("--skip-restores cannot be used without --force-resync")
+			if cfg.includeRestores && !cfg.rsync {
+				return nil, errors.New("--include-restores cannot be used without --force-resync")
 			}
 
 			if len(args) == 1 {
@@ -381,7 +381,7 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 
 	configCmd.Flags().BoolVar(&cfg.rsync, "force-resync", false, "Resync backup list with the current store")
 	configCmd.Flags().BoolVar(
-		&cfg.skipRestores, "skip-restores", false, "Skip physical restore metadata during force-resync",
+		&cfg.includeRestores, "include-restores", false, "Include physical restore metadata during force-resync",
 	)
 	configCmd.Flags().BoolVar(&cfg.list, "list", false, "List current settings")
 	configCmd.Flags().StringVar(&cfg.file, "file", "", "Upload config from YAML file")
