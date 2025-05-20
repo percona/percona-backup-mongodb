@@ -331,19 +331,16 @@ func getAllRestoreMetaFromStorage(
 		return nil, errors.Wrap(err, "get physical restores list from the storage")
 	}
 
-	var targets []storage.FileInfo
-
-	if skipRestores && len(restoreMeta) > 0 {
+	targets := restoreMeta
+	if !includeRestores && len(restoreMeta) > 0 {
 		l.Debug("only processing last restore")
 		latest := restoreMeta[0]
-		for _, f := range restoreMeta[1:] {
+		for _, f := range restoreMeta {
 			if f.Name > latest.Name {
 				latest = f
 			}
 		}
 		targets = []storage.FileInfo{latest}
-	} else {
-		targets = restoreMeta
 	}
 
 	rv := make([]*restore.RestoreMeta, 0, len(targets))
