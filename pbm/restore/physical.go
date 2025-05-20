@@ -220,16 +220,12 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
 		}
 	}
-	// clean-up internal mongod log only if there is no error
+
+	// if there is no error clean-up internal restore files, internal log file(s) should stay
 	if noerr {
-		r.log.Debug("rm tmp logs")
-		err := os.Remove(path.Join(r.dbpath, internalMongodLog))
-		if err != nil {
-			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
-		}
 		extMeta := filepath.Join(r.dbpath,
 			fmt.Sprintf(defs.ExternalRsMetaFile, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
-		err = os.Remove(extMeta)
+		err := os.Remove(extMeta)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
@@ -252,7 +248,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		}
 	} else if cleanup { // clean-up dbpath on err if needed (cluster is done or partlyDone)
 		r.log.Debug("clean-up dbpath")
-		err := removeAll(r.dbpath, nil, r.log)
+		err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
 		if err != nil {
 			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 		}
@@ -378,6 +374,10 @@ func (r *PhysRestore) migrateDBDirToFallbackDir() error {
 	if err != nil {
 		return errors.Wrap(err, "remove fallback db path")
 	}
+	err = removeInternalMongoLogs(dbpath, r.log)
+	if err != nil {
+		return errors.Wrap(err, "remove internal mongod log(s)")
+	}
 
 	r.log.Debug("create %s", fallbackPath)
 	info, err := os.Stat(dbpath)
@@ -402,7 +402,7 @@ func (r *PhysRestore) migrateDBDirToFallbackDir() error {
 // moves all content from fallback path.
 func (r *PhysRestore) migrateFromFallbackDirToDBDir() error {
 	r.log.Debug("clean-up dbpath")
-	err := removeAll(r.dbpath, []string{fallbackDir}, r.log)
+	err := removeAll(r.dbpath, r.log, getFallbackSyncFileSkipRule(), getInternalLogFileSkipRule())
 	if err != nil {
 		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 		return errors.Wrap(err, "remove all from dbpath")
@@ -2592,7 +2592,9 @@ func moveAll(fromDir, toDir string, toIgnore []string, l log.LogEvent) error {
 	return nil
 }
 
-func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
+// removeAll removes all files and directories from specified dir.
+// It ignores files selected with filesSkipRules parameter.
+func removeAll(dir string, l log.LogEvent, fileSkipRules ...fileSkipRule) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return errors.Wrap(err, "open dir")
@@ -2604,7 +2606,7 @@ func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
 		return errors.Wrap(err, "read file names")
 	}
 	for _, n := range names {
-		if n == internalMongodLog || slices.Contains(toIgnore, n) {
+		if isFileToSkip(n, fileSkipRules...) {
 			continue
 		}
 		err = os.RemoveAll(filepath.Join(dir, n))
@@ -2614,6 +2616,65 @@ func removeAll(dir string, toIgnore []string, l log.LogEvent) error {
 		l.Debug("remove %s", filepath.Join(dir, n))
 	}
 	return nil
+}
+
+// removeInternalMongoLogs removes internal mongod logs from directory.
+// It'll remove everything that starts with 'pbm.restore.log'
+func removeInternalMongoLogs(dir string, l log.LogEvent) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return errors.Wrap(err, "open dir")
+	}
+	defer d.Close()
+
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return errors.Wrap(err, "read file names")
+	}
+	for _, n := range names {
+		if isInternalMongoLog(n) {
+			err = os.RemoveAll(filepath.Join(dir, n))
+			if err != nil {
+				return errors.Wrapf(err, "remove '%s", n)
+			}
+
+			l.Debug("remove %s", filepath.Join(dir, n))
+		}
+	}
+
+	return nil
+}
+
+// isInternalMongoLog checks whether the file with the name f
+// is internal mongo log file
+func isInternalMongoLog(f string) bool {
+	return strings.HasPrefix(f, internalMongodLog)
+}
+
+type fileSkipRule func(string) bool
+
+// isFileToSkip for the given file name f and the given set of skip rules: skipRules,
+// function returns true if at least one rule is satisfied. In case when all rules
+// are false it returns false, which means that file shouldn't be skipped.
+func isFileToSkip(f string, skipRules ...fileSkipRule) bool {
+	for _, rule := range skipRules {
+		if rule(f) {
+			return true
+		}
+	}
+	return false
+}
+
+func getInternalLogFileSkipRule() fileSkipRule {
+	return func(f string) bool {
+		return isInternalMongoLog(f)
+	}
+}
+
+func getFallbackSyncFileSkipRule() fileSkipRule {
+	return func(f string) bool {
+		return f == fallbackDir
+	}
 }
 
 func majmin(v string) string {
