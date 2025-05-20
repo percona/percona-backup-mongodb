@@ -86,7 +86,7 @@ func startOplogSlicer(
 				}
 
 				l.Error("failed to upload oplog: %v", err)
-				return
+				continue
 			}
 
 			logm := fmt.Sprintf("created chunk %s - %s",
