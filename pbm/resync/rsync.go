@@ -31,7 +31,7 @@ func Resync(
 	conn connect.Client,
 	cfg *config.StorageConf,
 	node string,
-	skipRestores bool,
+	includeRestores bool,
 ) error {
 	l := log.LogEventFromContext(ctx)
 
@@ -68,7 +68,7 @@ func Resync(
 		l.Error("failed sync oplog range: %v", err)
 	}
 
-	err = resyncPhysicalRestores(ctx, conn, stg, skipRestores)
+	err = resyncPhysicalRestores(ctx, conn, stg, includeRestores)
 	if err != nil {
 		l.Error("failed sync physical restore metadata: %v", err)
 	}
@@ -250,7 +250,7 @@ func resyncPhysicalRestores(
 	ctx context.Context,
 	conn connect.Client,
 	stg storage.Storage,
-	skipRestores bool,
+	includeRestores bool,
 ) error {
 	_, err := conn.RestoresCollection().DeleteMany(ctx, bson.D{})
 	if err != nil {
@@ -269,7 +269,7 @@ func resyncPhysicalRestores(
 		return nil
 	}
 
-	restoreMeta, err := getAllRestoreMetaFromStorage(ctx, stg, skipRestores)
+	restoreMeta, err := getAllRestoreMetaFromStorage(ctx, stg, includeRestores)
 	if err != nil {
 		return errors.Wrap(err, "get all restore meta from storage")
 	}
@@ -322,7 +322,7 @@ func getAllBackupMetaFromStorage(
 func getAllRestoreMetaFromStorage(
 	ctx context.Context,
 	stg storage.Storage,
-	skipRestores bool,
+	includeRestores bool,
 ) ([]*restore.RestoreMeta, error) {
 	l := log.LogEventFromContext(ctx)
 
@@ -331,19 +331,16 @@ func getAllRestoreMetaFromStorage(
 		return nil, errors.Wrap(err, "get physical restores list from the storage")
 	}
 
-	var targets []storage.FileInfo
-
-	if skipRestores && len(restoreMeta) > 0 {
+	targets := restoreMeta
+	if !includeRestores && len(restoreMeta) > 0 {
 		l.Debug("only processing last restore")
 		latest := restoreMeta[0]
-		for _, f := range restoreMeta[1:] {
+		for _, f := range restoreMeta {
 			if f.Name > latest.Name {
 				latest = f
 			}
 		}
 		targets = []storage.FileInfo{latest}
-	} else {
-		targets = restoreMeta
 	}
 
 	rv := make([]*restore.RestoreMeta, 0, len(targets))

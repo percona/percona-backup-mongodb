@@ -262,10 +262,10 @@ func (c *Client) GetRestoreByOpID(ctx context.Context, opid string) (*RestoreMet
 	return restore.GetRestoreMetaByOPID(ctx, c.conn, opid)
 }
 
-func (c *Client) SyncFromStorage(ctx context.Context, skipRestores bool) (CommandID, error) {
+func (c *Client) SyncFromStorage(ctx context.Context, includeRestores bool) (CommandID, error) {
 	var opts *ctrl.ResyncCmd
-	if skipRestores {
-		opts = &ctrl.ResyncCmd{SkipRestores: true}
+	if includeRestores {
+		opts = &ctrl.ResyncCmd{IncludeRestores: true}
 	}
 	opid, err := ctrl.SendResync(ctx, c.conn, opts)
 	return CommandID(opid.String()), err

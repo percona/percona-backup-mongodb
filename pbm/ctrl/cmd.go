@@ -121,10 +121,10 @@ type ProfileCmd struct {
 }
 
 type ResyncCmd struct {
-	Name         string `bson:"name,omitempty"`
-	All          bool   `bson:"all,omitempty"`
-	Clear        bool   `bson:"clear,omitempty"`
-	SkipRestores bool   `bson:"skipRestores,omitempty"`
+	Name            string `bson:"name,omitempty"`
+	All             bool   `bson:"all,omitempty"`
+	Clear           bool   `bson:"clear,omitempty"`
+	IncludeRestores bool   `bson:"includeRestores,omitempty"`
 }
 
 type BackupCmd struct {
