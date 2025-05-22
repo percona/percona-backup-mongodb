@@ -2525,20 +2525,7 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
-func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error) {
-	var nerr nodeError
-	if errors.As(e, &nerr) {
-		e = nerr
-		meta.Replsets = []RestoreReplset{{
-			Name:   nerr.node,
-			Status: defs.StatusError,
-			Error:  nerr.msg,
-		}}
-	} else if len(meta.Replsets) > 0 {
-		meta.Replsets[0].Status = defs.StatusError
-		meta.Replsets[0].Error = e.Error()
-	}
-
+func (r *PhysRestore) MarkFailed(e error) {
 	err := util.RetryableWrite(r.stg,
 		r.syncPathNode+"."+string(defs.StatusError), errStatus(e))
 	if err != nil {
