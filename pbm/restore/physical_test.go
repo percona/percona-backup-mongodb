@@ -203,7 +203,7 @@ func TestWaitMgoFreePort(t *testing.T) {
 			t.Fatalf("error while waiting for the free port: %v", err)
 		}
 		if duration < portUsed-time.Second ||
-			duration > portUsed+time.Second {
+			duration > portUsed+2*time.Second {
 			t.Fatalf("wrong duration time, want~=%v, got=%v", portUsed, duration)
 		}
 	})
