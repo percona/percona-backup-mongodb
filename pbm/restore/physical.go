@@ -854,6 +854,20 @@ const (
 )
 
 func (n nodeStatus) is(s nodeStatus) bool { return n&s != 0 }
+// isForCleanup returns true when internal node state if so
+// any sort of clean-up: full cleanup or fallbacksync.
+// Status indicates that content of db path contains state
+// which is not correct, and therefore it needs to be
+// discarded.
+func (n nodeStatus) isForCleanup() bool {
+	return n&restoreStared != 0 && n&restoreDone == 0
+}
+
+// isFailed returns true when internal node state didn't reach
+// done state, no matter whether it was started or not.
+func (n nodeStatus) isFailed() bool {
+	return n&restoreDone == 0
+}
 
 // log buffer that will dump content to the storage on restore
 // finish (whether it's successful or not). It also dumps content
