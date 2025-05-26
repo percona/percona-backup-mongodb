@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
@@ -2500,6 +2501,15 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 
 	setName := mapRevRS(r.nodeInfo.SetName)
+
+	if r.fallback && r.bcp.RS(setName) != nil {
+		err = r.checkDiskSpace(r.bcp.RS(setName).Size)
+		if err != nil {
+			return errors.Wrap(err, "not enough disk space for fallback strategy, "+
+				"consider using --fallback-enabled=false")
+		}
+	}
+
 	var ok bool
 	for _, v := range r.bcp.Replsets {
 		if v.Name == setName {
@@ -2545,6 +2555,25 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 	}
 
 	return v, nil
+}
+
+// checkDiskSpace compares available disk space on the node with the backup size.
+// It returns error in case when backup size is larger than free space on the disk.
+// It also includes min disk space requirement of 10GiB.
+func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(r.dbpath, &stat)
+	if err != nil {
+		return errors.Wrap(err, "get statfs")
+	}
+
+	free := int64(stat.Bavail) * int64(stat.Bsize)
+	tenGiB := 10 * (1 << 30)
+	if bcpSize+int64(tenGiB) >= free {
+		return errors.Errorf("not enough disk space, free=%d, backup size=%d", free, bcpSize)
+	}
+
+	return nil
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
