@@ -526,9 +526,14 @@ func (b *Backup) uploadPhysical(
 	}
 	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
 
-	err = IncBackupSize(ctx, b.leadConn, bcp.Name, size+flSize)
+	totalSize := size + flSize
+	err = IncBackupSize(ctx, b.leadConn, bcp.Name, totalSize)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
+	}
+	err = SetBackupSizeForRS(ctx, b.leadConn, bcp.Name, rsMeta.Name, totalSize)
+	if err != nil {
+		return errors.Wrap(err, "set RS backup size")
 	}
 
 	return nil

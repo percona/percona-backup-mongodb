@@ -340,6 +340,8 @@ type bcpReplDesc struct {
 	Status             defs.Status         `json:"status" yaml:"status"`
 	Node               string              `json:"node" yaml:"node"`
 	Files              []backup.File       `json:"files,omitempty" yaml:"-"`
+	Size               int64               `json:"size" yaml:"-"`
+	HSize              string              `json:"size_h" yaml:"size_h"`
 	LastWriteTS        int64               `json:"last_write_ts" yaml:"-"`
 	LastTransitionTS   int64               `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string              `json:"last_write_time" yaml:"last_write_time"`
@@ -442,6 +444,8 @@ func describeBackup(
 			IsConfigSvr:        r.IsConfigSvr,
 			IsConfigShard:      r.IsConfigShard,
 			Status:             r.Status,
+			Size:               r.Size,
+			HSize:              byteCountIEC(r.Size),
 			LastWriteTS:        int64(r.LastWriteTS.T),
 			LastTransitionTS:   r.LastTransitionTS,
 			LastWriteTime:      time.Unix(int64(r.LastWriteTS.T), 0).UTC().Format(time.RFC3339),
