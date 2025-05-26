@@ -18,14 +18,14 @@ import (
 )
 
 type configOpts struct {
-	rsync        bool
-	skipRestores bool
-	wait         bool
-	waitTime     time.Duration
-	list         bool
-	file         string
-	set          map[string]string
-	key          string
+	rsync           bool
+	includeRestores bool
+	wait            bool
+	waitTime        time.Duration
+	list            bool
+	file            string
+	set             map[string]string
+	key             string
 }
 
 type confKV struct {
@@ -92,7 +92,7 @@ func runConfig(
 		}
 		return confKV{c.key, fmt.Sprint(k)}, nil
 	case c.rsync:
-		cid, err := pbm.SyncFromStorage(ctx, c.skipRestores)
+		cid, err := pbm.SyncFromStorage(ctx, c.includeRestores)
 		if err != nil {
 			return nil, errors.Wrap(err, "resync")
 		}
