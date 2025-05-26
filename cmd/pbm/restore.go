@@ -39,20 +39,21 @@ var (
 )
 
 type restoreOpts struct {
-	bcp           string
-	pitr          string
-	pitrBase      string
-	wait          bool
-	waitTime      time.Duration
-	extern        bool
-	ns            string
-	nsFrom        string
-	nsTo          string
-	usersAndRoles bool
-	rsMap         string
-	conf          string
-	ts            string
-	fallback      bool
+	bcp             string
+	pitr            string
+	pitrBase        string
+	wait            bool
+	waitTime        time.Duration
+	extern          bool
+	ns              string
+	nsFrom          string
+	nsTo            string
+	usersAndRoles   bool
+	rsMap           string
+	conf            string
+	ts              string
+	fallback        bool
+	allowPartlyDone bool
 
 	numParallelColls    int32
 	numInsertionWorkers int32

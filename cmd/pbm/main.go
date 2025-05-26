@@ -812,6 +812,11 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		&restoreOptions.fallback, "fallback-enabled", true,
 		"Disables fallback sync feature when doing physical restore. Enabled by default.",
 	)
+	restoreCmd.Flags().BoolVar(
+		&restoreOptions.allowPartlyDone, "allow-partly-done", true,
+		"Allows parly done state of the cluster after physical restore. "+
+			"If disabled, fallback will be applied when cluster is partly-done. Enabled by default.",
+	)
 
 	restoreCmd.Flags().StringVar(&restoreOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, restoreCmd.Flags().Lookup(RSMappingFlag))
