@@ -52,6 +52,7 @@ type restoreOpts struct {
 	rsMap         string
 	conf          string
 	ts            string
+	fallback      bool
 
 	numParallelColls    int32
 	numInsertionWorkers int32

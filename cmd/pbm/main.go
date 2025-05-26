@@ -808,6 +808,10 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		&restoreOptions.ts, "ts", "",
 		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!",
 	)
+	restoreCmd.Flags().BoolVar(
+		&restoreOptions.fallback, "fallback-enabled", true,
+		"Disables fallback sync feature when doing physical restore. Enabled by default.",
+	)
 
 	restoreCmd.Flags().StringVar(&restoreOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, restoreCmd.Flags().Lookup(RSMappingFlag))
