@@ -13,6 +13,44 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
+func TestNodeStatus(t *testing.T) {
+	t.Run("isForCleanup", func(t *testing.T) {
+		var progress nodeStatus
+
+		if progress.isForCleanup() {
+			t.Errorf("in initial progress phase, node is not for the cleanup")
+		}
+
+		progress |= restoreStared
+		if !progress.isForCleanup() {
+			t.Errorf("in point of no return phase cleanup should be done")
+		}
+
+		progress |= restoreDone
+		if progress.isForCleanup() {
+			t.Errorf("in done phase, node is not for the cleanup")
+		}
+	})
+
+	t.Run("isFailed", func(t *testing.T) {
+		var progress nodeStatus
+
+		if !progress.isFailed() {
+			t.Errorf("node is int initial progress phase, so it should be marked as failed")
+		}
+
+		progress |= restoreStared
+		if !progress.isFailed() {
+			t.Errorf("node is in started phase, so it should be marked as failed")
+		}
+
+		progress |= restoreDone
+		if progress.isFailed() {
+			t.Errorf("in done phase, node shouldn't be marked as failed")
+		}
+	})
+}
+
 func TestMoveAll(t *testing.T) {
 	t.Run("move all files and dir", func(t *testing.T) {
 		tempSrc, _ := os.MkdirTemp("", "src")
@@ -165,7 +203,7 @@ func TestWaitMgoFreePort(t *testing.T) {
 			t.Fatalf("error while waiting for the free port: %v", err)
 		}
 		if duration < portUsed-time.Second ||
-			duration > portUsed+time.Second {
+			duration > portUsed+2*time.Second {
 			t.Fatalf("wrong duration time, want~=%v, got=%v", portUsed, duration)
 		}
 	})

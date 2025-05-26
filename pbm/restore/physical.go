@@ -210,8 +210,9 @@ func peekTmpPort(current int) (int, error) {
 	return -1, errors.Errorf("can't find unused port in range [%d, %d]", current, current+rng)
 }
 
-// Close releases object resources.
-// Should be run to avoid leaks.
+// close cleans up all temp restore files.
+// Based on error status it does cleanup of the node's db path or it
+// applies fallback sync recovery strategy.
 func (r *PhysRestore) close(noerr, cleanup bool) {
 	if r.tmpConf != nil {
 		r.log.Debug("rm tmp conf")
@@ -221,7 +222,8 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		}
 	}
 
-	// if there is no error clean-up internal restore files, internal log file(s) should stay
+	// if there is no error, clean-up internal restore files
+	// internal log file(s) should stay in any case
 	if noerr {
 		extMeta := filepath.Join(r.dbpath,
 			fmt.Sprintf(defs.ExternalRsMetaFile, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
@@ -240,24 +242,24 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 	if err != nil {
 		r.log.Warning("waiting for cluster status during cleanup: %v", err)
 	}
-	if cStatus == defs.StatusError {
+	if cStatus == defs.StatusError && cleanup {
 		r.log.Warning("apply db data from %s", fallbackDir)
 		err := r.migrateFromFallbackDirToDBDir()
 		if err != nil {
 			r.log.Error("migrate from fallback dir: %v", err)
 		}
-	} else if cleanup { // clean-up dbpath on err if needed (cluster is done or partlyDone)
+	} else if (cStatus == defs.StatusDone || cStatus == defs.StatusPartlyDone) && cleanup {
 		r.log.Debug("clean-up dbpath")
 		err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
 		if err != nil {
 			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
 		}
-	} else { // free space by just deleting fallback dir in any other case
-		r.log.Debug("remove fallback dir")
-		err := r.removeFallback()
-		if err != nil {
-			r.log.Error("flush fallback: %v", err)
-		}
+	}
+
+	// free space by just deleting fallback dir in any other case
+	err = r.removeFallback()
+	if err != nil {
+		r.log.Error("flush fallback: %v", err)
 	}
 
 	if r.stopHB != nil {
@@ -440,6 +442,7 @@ func (r *PhysRestore) moveToFallback() error {
 
 // removeFallback removes fallback dir
 func (r *PhysRestore) removeFallback() error {
+	r.log.Debug("remove fallback dir")
 	dbpath := filepath.Clean(r.dbpath)
 	fallbackPath := filepath.Join(dbpath, fallbackDir)
 	err := os.RemoveAll(fallbackPath)
@@ -853,7 +856,20 @@ const (
 	restoreDone
 )
 
-func (n nodeStatus) is(s nodeStatus) bool { return n&s != 0 }
+// isForCleanup returns true when internal node state if so
+// any sort of clean-up: full cleanup or fallbacksync.
+// Status indicates that content of db path contains state
+// which is not correct, and therefore it needs to be
+// discarded.
+func (n nodeStatus) isForCleanup() bool {
+	return n&restoreStared != 0 && n&restoreDone == 0
+}
+
+// isFailed returns true when internal node state didn't reach
+// done state, no matter whether it was started or not.
+func (n nodeStatus) isFailed() bool {
+	return n&restoreDone == 0
+}
 
 // log buffer that will dump content to the storage on restore
 // finish (whether it's successful or not). It also dumps content
@@ -958,11 +974,12 @@ func (r *PhysRestore) Snapshot(
 	defer func() {
 		// set failed status of node on error, but
 		// don't mark node as failed after the local restore succeed
-		if err != nil && !progress.is(restoreDone) && !errors.Is(err, ErrNoDataForShard) {
-			r.MarkFailed(meta, err)
+		restoreFailed := progress.isFailed()
+		if err != nil && !errors.Is(err, ErrNoDataForShard) && restoreFailed {
+			r.MarkFailed(err)
 		}
 
-		r.close(err == nil, progress.is(restoreStared) && !progress.is(restoreDone))
+		r.close(err == nil, progress.isForCleanup())
 	}()
 
 	err = r.init(ctx, cmd.Name, opid, l)
@@ -2525,20 +2542,7 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
-func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error) {
-	var nerr nodeError
-	if errors.As(e, &nerr) {
-		e = nerr
-		meta.Replsets = []RestoreReplset{{
-			Name:   nerr.node,
-			Status: defs.StatusError,
-			Error:  nerr.msg,
-		}}
-	} else if len(meta.Replsets) > 0 {
-		meta.Replsets[0].Status = defs.StatusError
-		meta.Replsets[0].Error = e.Error()
-	}
-
+func (r *PhysRestore) MarkFailed(e error) {
 	err := util.RetryableWrite(r.stg,
 		r.syncPathNode+"."+string(defs.StatusError), errStatus(e))
 	if err != nil {
