@@ -114,7 +114,9 @@ type PhysRestore struct {
 
 	log log.LogEvent
 
-	rsMap map[string]string
+	rsMap           map[string]string
+	fallback        bool
+	allowPartlyDone bool
 }
 
 func NewPhysical(
@@ -123,6 +125,8 @@ func NewPhysical(
 	node *mongo.Client,
 	inf *topo.NodeInfo,
 	rsMap map[string]string,
+	fallback bool,
+	allowPartlyDone bool,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
@@ -178,16 +182,18 @@ func NewPhysical(
 	}
 
 	return &PhysRestore{
-		leadConn: leadConn,
-		node:     node,
-		dbpath:   p,
-		rsConf:   rcf,
-		shards:   shards,
-		cfgConn:  csvr,
-		nodeInfo: inf,
-		tmpPort:  tmpPort,
-		secOpts:  opts.Security,
-		rsMap:    rsMap,
+		leadConn:        leadConn,
+		node:            node,
+		dbpath:          p,
+		rsConf:          rcf,
+		shards:          shards,
+		cfgConn:         csvr,
+		nodeInfo:        inf,
+		tmpPort:         tmpPort,
+		secOpts:         opts.Security,
+		rsMap:           rsMap,
+		fallback:        fallback,
+		allowPartlyDone: allowPartlyDone,
 	}, nil
 }
 

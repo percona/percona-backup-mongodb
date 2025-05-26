@@ -417,6 +417,8 @@ func doRestore(
 			UsersAndRoles:       o.usersAndRoles,
 			RSMap:               rsMapping,
 			External:            o.extern,
+			Fallback:            o.fallback,
+			AllowPartlyDone:     o.allowPartlyDone,
 		},
 	}
 	if o.pitr != "" {
