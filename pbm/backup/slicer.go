@@ -55,17 +55,17 @@ func startOplogSlicer(
 				return
 			}
 
-			majority, err := topo.IsWriteMajorityRequested(ctx, m, writeConcern)
-			if err != nil {
-				l.Error("failed to inspect requested majority: %v", err)
+			majority, e := topo.IsWriteMajorityRequested(ctx, m, writeConcern)
+			if e != nil {
+				l.Error("failed to inspect requested majority: %v", e)
 			}
-			currOpTime, err := topo.GetLastWrite(ctx, m, majority)
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
+			currOpTime, e := topo.GetLastWrite(ctx, m, majority)
+			if e != nil {
+				if errors.Is(e, context.Canceled) {
 					return
 				}
 
-				l.Error("failed to get last write: %v", err)
+				l.Error("failed to get last write: %v", e)
 				continue
 			}
 			if !currOpTime.After(startOpTime) {
