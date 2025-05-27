@@ -249,29 +249,70 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 	if err != nil {
 		r.log.Warning("waiting for cluster status during cleanup: %v", err)
 	}
-	if cStatus == defs.StatusError && cleanup {
-		r.log.Warning("apply db data from %s", fallbackDir)
-		err := r.migrateFromFallbackDirToDBDir()
-		if err != nil {
-			r.log.Error("migrate from fallback dir: %v", err)
-		}
-	} else if (cStatus == defs.StatusDone || cStatus == defs.StatusPartlyDone) && cleanup {
-		r.log.Debug("clean-up dbpath")
-		err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
-		if err != nil {
-			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
-		}
+	if cleanup {
+		r.resolveCleanupStrategy(cStatus)()
 	}
 
-	// free space by just deleting fallback dir in any other case
-	err = r.removeFallback()
-	if err != nil {
-		r.log.Error("flush fallback: %v", err)
+	if r.fallback {
+		// free space by just deleting fallback dir in any other case
+		err = r.removeFallback()
+		if err != nil {
+			r.log.Error("flush fallback: %v", err)
+		}
 	}
 
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
+}
+
+// doFullCleanup is node's cleanup strategy for deleting the whole dbpath.
+func (r *PhysRestore) doFullCleanup() {
+	r.log.Debug("clean-up dbpath")
+	err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
+	if err != nil {
+		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+	}
+}
+
+// doFallbackCleanup is node's cleanup strategy for recovering dbpath
+// from fallbacksync dir.
+func (r *PhysRestore) doFallbackCleanup() {
+	r.log.Warning("apply db data from %s", fallbackDir)
+	err := r.migrateFromFallbackDirToDBDir()
+	if err != nil {
+		r.log.Error("migrate from fallback dir: %v", err)
+	}
+}
+
+// resolveCleanupStrategy is helper which returns cleanup strategy based on
+// config parameters and cluster status.
+func (r *PhysRestore) resolveCleanupStrategy(clusterStatus defs.Status) func() {
+	if !r.fallback {
+		// fallback strategy is disabled
+		return r.doFullCleanup
+	}
+
+	// fallback strategy is enabled
+	switch clusterStatus {
+	case defs.StatusError:
+		// restore failed, fallback recovery will be applied
+		return r.doFallbackCleanup
+	case defs.StatusPartlyDone:
+		if r.allowPartlyDone {
+			// cluster is partly-done with new restore, and this node will be cleaned
+			return r.doFullCleanup
+		} else {
+			// cluster is partly-done, but anyway fallback recovery will be applied
+			return r.doFallbackCleanup
+		}
+	case defs.StatusDone:
+		// this shouldn't happen, because at least this node failed
+		// anyway, we'll cleanup this node
+		return r.doFullCleanup
+	}
+
+	return r.doFullCleanup
 }
 
 // waitClusterStatus blocks until cluster status file is set on one of final statuses.
@@ -364,9 +405,14 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		}
 	}
 
-	err = r.migrateDBDirToFallbackDir()
-	if err != nil {
-		return errors.Wrapf(err, "move files to fallback path")
+	if r.fallback {
+		err = r.migrateDBDirToFallbackDir()
+		if err != nil {
+			return errors.Wrapf(err, "move files to fallback path")
+		}
+	} else {
+		// fallback strategy is disabled, just wipe-up everything in dbpath
+		err = removeAll(r.dbpath, r.log)
 	}
 
 	return nil

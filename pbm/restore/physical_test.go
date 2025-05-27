@@ -6,10 +6,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
 
@@ -219,6 +221,136 @@ func TestWaitMgoFreePort(t *testing.T) {
 			t.Logf("finish %d round, with duration %s", i+1, time.Since(start))
 		}
 	})
+}
+
+func TestResolveCleanupStrategy(t *testing.T) {
+	cmpStrategy := func(fn any) uintptr {
+		return reflect.ValueOf(fn).Pointer()
+	}
+	type strategyDesc string
+	const (
+		fallbackStrategy    strategyDesc = "fallback"
+		fullCleanupStrategy strategyDesc = "fullCleanup"
+	)
+
+	testCases := []struct {
+		desc            string
+		fallback        bool
+		allowPartlyDone bool
+		clusterStatus   defs.Status
+		wantStrategy    strategyDesc
+	}{
+		// fallback enabled
+		{
+			desc:            "fallback: enabled, allow-partly-done: enabled, status: error",
+			fallback:        true,
+			allowPartlyDone: true,
+			clusterStatus:   defs.StatusError,
+			wantStrategy:    fallbackStrategy,
+		},
+		{
+			desc:            "fallback: enabled, allow-partly-done: enabled, status: partly-done",
+			fallback:        true,
+			allowPartlyDone: true,
+			clusterStatus:   defs.StatusPartlyDone,
+			wantStrategy:    fullCleanupStrategy,
+		},
+		{
+			desc:            "fallback: enabled, allow-partly-done: enabled, status: done",
+			fallback:        true,
+			allowPartlyDone: true,
+			clusterStatus:   defs.StatusDone,
+			wantStrategy:    fullCleanupStrategy,
+		},
+
+		{
+			desc:            "fallback: enabled, allow-partly-done: disabled, status: error",
+			fallback:        true,
+			allowPartlyDone: false,
+			clusterStatus:   defs.StatusError,
+			wantStrategy:    fallbackStrategy,
+		},
+		{
+			desc:            "fallback: enabled, allow-partly-done: disabled, status: partly-done",
+			fallback:        true,
+			allowPartlyDone: false,
+			clusterStatus:   defs.StatusPartlyDone,
+			wantStrategy:    fallbackStrategy,
+		},
+		{
+			desc:            "fallback: enabled, allow-partly-done: disabled, status: done",
+			fallback:        true,
+			allowPartlyDone: false,
+			clusterStatus:   defs.StatusDone,
+			wantStrategy:    fullCleanupStrategy,
+		},
+
+		// fallback disabled
+		{
+			desc:            "fallback: disabled, allow-partly-done: enabled, status: error",
+			fallback:        false,
+			allowPartlyDone: true,
+			clusterStatus:   defs.StatusError,
+			wantStrategy:    fullCleanupStrategy,
+		},
+		{
+			desc:            "fallback: disabled, allow-partly-done: enabled, status: partly-done",
+			fallback:        false,
+			allowPartlyDone: true,
+			clusterStatus:   defs.StatusPartlyDone,
+			wantStrategy:    fullCleanupStrategy,
+		},
+		{
+			desc:            "fallback: disabled, allow-partly-done: enabled, status: done",
+			fallback:        false,
+			allowPartlyDone: true,
+			clusterStatus:   defs.StatusDone,
+			wantStrategy:    fullCleanupStrategy,
+		},
+
+		{
+			desc:            "fallback: disabled, allow-partly-done: disabled, status: error",
+			fallback:        false,
+			allowPartlyDone: false,
+			clusterStatus:   defs.StatusError,
+			wantStrategy:    fullCleanupStrategy,
+		},
+		{
+			desc:            "fallback: disabled, allow-partly-done: disabled, status: partly-done",
+			fallback:        false,
+			allowPartlyDone: false,
+			clusterStatus:   defs.StatusPartlyDone,
+			wantStrategy:    fullCleanupStrategy,
+		},
+		{
+			desc:            "fallback: disabled, allow-partly-done: disabled, status: done",
+			fallback:        false,
+			allowPartlyDone: false,
+			clusterStatus:   defs.StatusDone,
+			wantStrategy:    fullCleanupStrategy,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			r := &PhysRestore{
+				fallback:        tC.fallback,
+				allowPartlyDone: tC.allowPartlyDone,
+				log:             log.DiscardLogger.NewDefaultEvent(),
+			}
+			strategy := r.resolveCleanupStrategy(tC.clusterStatus)
+			if tC.wantStrategy == fullCleanupStrategy {
+				if cmpStrategy(strategy) != cmpStrategy(r.doFullCleanup) {
+					t.Fatalf("want=%s", fullCleanupStrategy)
+
+				}
+			} else if tC.wantStrategy == fallbackStrategy {
+				if cmpStrategy(strategy) != cmpStrategy(r.doFallbackCleanup) {
+					t.Fatalf("want=%s", fallbackStrategy)
+				}
+			}
+		})
+	}
 }
 
 func TestRemoveAll(t *testing.T) {
