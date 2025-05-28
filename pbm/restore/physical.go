@@ -2548,11 +2548,12 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 
 	setName := mapRevRS(r.nodeInfo.SetName)
 
+	r.log.Debug("restore opts: --fallback-enabled: %t; --allow-partly-done: %t",
+		r.fallback, r.allowPartlyDone)
 	if r.fallback && r.bcp.RS(setName) != nil {
 		err = r.checkDiskSpace(r.bcp.RS(setName).Size)
 		if err != nil {
-			return errors.Wrap(err, "not enough disk space for fallback strategy, "+
-				"consider using --fallback-enabled=false")
+			return errors.Wrap(err, "check disk space")
 		}
 	}
 
@@ -2607,6 +2608,11 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 // It returns error in case when backup size is larger than free space on the disk.
 // It also includes min disk space requirement of 10GiB.
 func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
+	if bcpSize == 0 {
+		return errors.New("unable to apply fallback strategy for unknown backup size, " +
+			"consider using --fallback-enabled=false")
+	}
+
 	var stat syscall.Statfs_t
 	err := syscall.Statfs(r.dbpath, &stat)
 	if err != nil {
@@ -2615,8 +2621,13 @@ func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
 
 	free := int64(stat.Bavail) * int64(stat.Bsize)
 	tenGiB := 10 * (1 << 30)
-	if bcpSize+int64(tenGiB) >= free {
-		return errors.Errorf("not enough disk space, free=%d, backup size=%d", free, bcpSize)
+	totalReqSize := bcpSize + int64(tenGiB)
+	r.log.Debug("free space on disk: %s; backup size: %s; total requested free size: %s",
+		storage.PrettySize(free), storage.PrettySize(bcpSize), storage.PrettySize(totalReqSize))
+
+	if totalReqSize >= free {
+		return errors.New("not enough disk space for fallback strategy, " +
+			"consider using --fallback-enabled=false")
 	}
 
 	return nil

@@ -810,12 +810,12 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	)
 	restoreCmd.Flags().BoolVar(
 		&restoreOptions.fallback, "fallback-enabled", true,
-		"Disables fallback sync feature when doing physical restore. Enabled by default.",
+		"Enables/disables fallback strategy when doing physical restore.",
 	)
 	restoreCmd.Flags().BoolVar(
 		&restoreOptions.allowPartlyDone, "allow-partly-done", true,
 		"Allows parly done state of the cluster after physical restore. "+
-			"If disabled, fallback will be applied when cluster is partly-done. Enabled by default.",
+			"If disabled, fallback will be applied when cluster is partly-done.",
 	)
 
 	restoreCmd.Flags().StringVar(&restoreOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
