@@ -376,7 +376,6 @@ func TestResolveCleanupStrategy(t *testing.T) {
 			if tC.wantStrategy == fullCleanupStrategy {
 				if cmpStrategy(strategy) != cmpStrategy(r.doFullCleanup) {
 					t.Fatalf("want=%s", fullCleanupStrategy)
-
 				}
 			} else if tC.wantStrategy == fallbackStrategy {
 				if cmpStrategy(strategy) != cmpStrategy(r.doFallbackCleanup) {

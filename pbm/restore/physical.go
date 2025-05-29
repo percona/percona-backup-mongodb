@@ -296,7 +296,7 @@ func (r *PhysRestore) resolveCleanupStrategy(
 	clusterStatus defs.Status,
 	progress nodeStatus,
 ) func() {
-	if progress.isDbPathUntouched() {
+	if progress.isDBPathUntouched() {
 		return r.skipCleanup
 	}
 
@@ -431,6 +431,9 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 	} else {
 		// fallback strategy is disabled, just wipe-up everything in dbpath
 		err = removeAll(r.dbpath, r.log)
+		if err != nil {
+			return errors.Wrapf(err, "remove db path")
+		}
 	}
 
 	return nil
@@ -936,9 +939,9 @@ func (n nodeStatus) isForCleanup() bool {
 	return n&restoreStared != 0 && n&restoreDone == 0
 }
 
-// isDbPathUntouched returns true when restore progress
+// isDBPathUntouched returns true when restore progress
 // didn't do any data changes within db path.
-func (n nodeStatus) isDbPathUntouched() bool {
+func (n nodeStatus) isDBPathUntouched() bool {
 	return n&restoreStared == 0
 }
 
