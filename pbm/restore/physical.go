@@ -218,9 +218,9 @@ func peekTmpPort(current int) (int, error) {
 }
 
 // close cleans up all temp restore files.
-// Based on error status it does cleanup of the node's db path or it
+// Based on cluster status it does cleanup of the node's db path or it
 // applies fallback sync recovery strategy.
-func (r *PhysRestore) close(noerr, cleanup bool) {
+func (r *PhysRestore) close(noerr bool, progress nodeStatus) {
 	if r.tmpConf != nil {
 		r.log.Debug("rm tmp conf")
 		err := os.Remove(r.tmpConf.Name())
@@ -249,9 +249,10 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 	if err != nil {
 		r.log.Warning("waiting for cluster status during cleanup: %v", err)
 	}
-	if cleanup {
-		r.resolveCleanupStrategy(cStatus)()
-	}
+
+	// resolve and exec cleanup
+	cleanup := r.resolveCleanupStrategy(cStatus, progress)
+	cleanup()
 
 	if r.fallback {
 		// free space by just deleting fallback dir in any other case
@@ -268,7 +269,7 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 
 // doFullCleanup is node's cleanup strategy for deleting the whole dbpath.
 func (r *PhysRestore) doFullCleanup() {
-	r.log.Debug("clean-up dbpath")
+	r.log.Warning("apply full cleanup strategy")
 	err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
 	if err != nil {
 		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
@@ -278,41 +279,58 @@ func (r *PhysRestore) doFullCleanup() {
 // doFallbackCleanup is node's cleanup strategy for recovering dbpath
 // from fallbacksync dir.
 func (r *PhysRestore) doFallbackCleanup() {
-	r.log.Warning("apply db data from %s", fallbackDir)
+	r.log.Warning("apply fallback cleanup strategy: using db data from %s", fallbackDir)
 	err := r.migrateFromFallbackDirToDBDir()
 	if err != nil {
 		r.log.Error("migrate from fallback dir: %v", err)
 	}
 }
 
-// resolveCleanupStrategy is helper which returns cleanup strategy based on
-// config parameters and cluster status.
-func (r *PhysRestore) resolveCleanupStrategy(clusterStatus defs.Status) func() {
-	if !r.fallback {
-		// fallback strategy is disabled
-		return r.doFullCleanup
+func (r *PhysRestore) skipCleanup() {
+	r.log.Debug("no cleanup strategy to apply")
+}
+
+// resolveCleanupStrategy returns cleanup strategy based on config parameters, cluster status
+// and node progress.
+func (r *PhysRestore) resolveCleanupStrategy(
+	clusterStatus defs.Status,
+	progress nodeStatus,
+) func() {
+	if progress.isDbPathUntouched() {
+		return r.skipCleanup
 	}
 
-	// fallback strategy is enabled
+	// dbpath has been changed
 	switch clusterStatus {
+
 	case defs.StatusError:
-		// restore failed, fallback recovery will be applied
-		return r.doFallbackCleanup
+		if r.fallback {
+			return r.doFallbackCleanup
+		} else { // fallback is disabled
+			if progress.isForCleanup() {
+				return r.doFullCleanup
+			} else {
+				// node is in status done in this case
+				return r.skipCleanup
+			}
+		}
+
 	case defs.StatusPartlyDone:
-		if r.allowPartlyDone {
-			// cluster is partly-done with new restore, and this node will be cleaned
-			return r.doFullCleanup
-		} else {
-			// cluster is partly-done, but anyway fallback recovery will be applied
+		if r.allowPartlyDone || !r.fallback {
+			if progress.isForCleanup() {
+				return r.doFullCleanup
+			} else {
+				return r.skipCleanup
+			}
+		} else { // partly-done state is not allowed and fallback is enabled
 			return r.doFallbackCleanup
 		}
+
 	case defs.StatusDone:
-		// this shouldn't happen, because at least this node failed
-		// anyway, we'll cleanup this node
-		return r.doFullCleanup
+		return r.skipCleanup
 	}
 
-	return r.doFullCleanup
+	return r.skipCleanup
 }
 
 // waitClusterStatus blocks until cluster status file is set on one of final statuses.
@@ -918,6 +936,12 @@ func (n nodeStatus) isForCleanup() bool {
 	return n&restoreStared != 0 && n&restoreDone == 0
 }
 
+// isDbPathUntouched returns true when restore progress
+// didn't do any data changes within db path.
+func (n nodeStatus) isDbPathUntouched() bool {
+	return n&restoreStared == 0
+}
+
 // isFailed returns true when internal node state didn't reach
 // done state, no matter whether it was started or not.
 func (n nodeStatus) isFailed() bool {
@@ -1032,7 +1056,7 @@ func (r *PhysRestore) Snapshot(
 			r.MarkFailed(err)
 		}
 
-		r.close(err == nil, progress.isForCleanup())
+		r.close(err == nil, progress)
 	}()
 
 	err = r.init(ctx, cmd.Name, opid, l)
