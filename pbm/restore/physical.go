@@ -1052,10 +1052,7 @@ func (r *PhysRestore) Snapshot(
 
 	var progress nodeStatus
 	defer func() {
-		// set failed status of node on error, but
-		// don't mark node as failed after the local restore succeed
-		restoreFailed := progress.isFailed()
-		if err != nil && !errors.Is(err, ErrNoDataForShard) && restoreFailed {
+		if err != nil && !errors.Is(err, ErrNoDataForShard) {
 			r.MarkFailed(err)
 		}
 
@@ -2662,6 +2659,8 @@ func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
 
 // MarkFailed sets the restore and rs state as failed with the given message
 func (r *PhysRestore) MarkFailed(e error) {
+	r.log.Error("mark error during restore: %v", e)
+
 	err := util.RetryableWrite(r.stg,
 		r.syncPathNode+"."+string(defs.StatusError), errStatus(e))
 	if err != nil {
