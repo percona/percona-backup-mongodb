@@ -35,13 +35,15 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 	cmd := make(chan Cmd)
 	errc := make(chan error)
 
+	const window = 8
+	seen := make(map[OPID]bool, window)
+	order := make([]OPID, 0, window)
+
 	go func() {
 		defer close(cmd)
 		defer close(errc)
 
 		ts := time.Now().UTC().Unix()
-		var lastTS int64
-		var lastCmd Command
 		for {
 			select {
 			case <-ctx.Done():
@@ -68,10 +70,6 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 					continue
 				}
 
-				if c.Cmd == lastCmd && c.TS == lastTS {
-					continue
-				}
-
 				opid, ok := cur.Current.Lookup("_id").ObjectIDOK()
 				if !ok {
 					errc <- errors.New("unable to get operation ID")
@@ -80,8 +78,19 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 
 				c.OPID = OPID(opid)
 
-				lastCmd = c.Cmd
-				lastTS = c.TS
+				if seen[c.OPID] {
+					continue
+				}
+
+				seen[c.OPID] = true
+				order = append(order, c.OPID)
+
+				if len(order) > window {
+					old := order[0]
+					order = order[1:]
+					delete(seen, old)
+				}
+
 				cmd <- c
 				ts = time.Now().UTC().Unix()
 			}
