@@ -2633,8 +2633,11 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 // It also includes min disk space requirement of 10GiB.
 func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
 	if bcpSize == 0 {
-		return errors.New("unable to apply fallback strategy for unknown backup size, " +
-			"consider using --fallback-enabled=false")
+		r.log.Warning("this backup is incompatible with the fallback strategy, " +
+			"fallback will be disabled")
+
+		r.disableFallbackForOldBackup()
+		return nil
 	}
 
 	var stat syscall.Statfs_t
@@ -2655,6 +2658,13 @@ func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
 	}
 
 	return nil
+}
+
+// disableFallbackForOldBackup set fallback option to false due to backup incompatibility
+func (r *PhysRestore) disableFallbackForOldBackup() {
+	r.fallback = false
+	r.log.Debug("restore opts: --fallback-enabled: %t; --allow-partly-done: %t",
+		r.fallback, r.allowPartlyDone)
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
