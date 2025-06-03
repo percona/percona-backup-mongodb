@@ -1134,7 +1134,7 @@ func (r *PhysRestore) Snapshot(
 	// the cmd stream anymore and will flood logs with errors on that.
 	l.Info("send to stopAgent chan")
 	if stopAgentC != nil {
-		stopAgentC <- struct{}{}
+		close(stopAgentC)
 	}
 	// anget will be stopped only after we exit this func
 	// so stop heartbeats not to spam logs while the restore is running
