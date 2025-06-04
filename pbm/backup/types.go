@@ -44,6 +44,7 @@ type BackupMeta struct {
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
 	Store            Storage                  `bson:"store" json:"store"`
 	Size             int64                    `bson:"size" json:"size"`
+	SizeUncompressed int64                    `bson:"size_uncompressed" json:"size_uncompressed"`
 	MongoVersion     string                   `bson:"mongodb_version" json:"mongodb_version"`
 	FCV              string                   `bson:"fcv" json:"fcv"`
 	StartTS          int64                    `bson:"start_ts" json:"start_ts"`
@@ -118,6 +119,7 @@ type BackupReplset struct {
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	Status           defs.Status         `bson:"status" json:"status"`
 	Size             int64               `bson:"size" json:"size"`
+	SizeUncompressed int64               `bson:"size_uncompressed" json:"size_uncompressed"`
 	IsConfigSvr      *bool               `bson:"iscs,omitempty" json:"iscs,omitempty"`
 	IsConfigShard    *bool               `bson:"configshard,omitempty" json:"configshard,omitempty"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`

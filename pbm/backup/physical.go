@@ -515,8 +515,10 @@ func (b *Backup) uploadPhysical(
 	filelist = append(filelist, ju...)
 
 	size := int64(0)
+	sizeUncompressed := int64(0)
 	for _, f := range filelist {
 		size += f.StgSize
+		sizeUncompressed += f.Size
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
@@ -527,11 +529,25 @@ func (b *Backup) uploadPhysical(
 	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
 
 	totalSize := size + flSize
-	err = IncBackupSize(ctx, b.leadConn, bcp.Name, totalSize)
+	totalUncompressed := sizeUncompressed + flSize
+	err = IncBackupSize(
+		ctx,
+		b.leadConn,
+		bcp.Name,
+		totalSize,
+		&totalUncompressed,
+	)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
 	}
-	err = SetBackupSizeForRS(ctx, b.leadConn, bcp.Name, rsMeta.Name, totalSize)
+	err = SetBackupSizeForRS(
+		ctx,
+		b.leadConn,
+		bcp.Name,
+		rsMeta.Name,
+		totalSize,
+		totalUncompressed,
+	)
 	if err != nil {
 		return errors.Wrap(err, "set RS backup size")
 	}

@@ -236,7 +236,7 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	err = IncBackupSize(ctx, b.leadConn, bcp.Name, snapshotSize+oplogSize)
+	err = IncBackupSize(ctx, b.leadConn, bcp.Name, snapshotSize+oplogSize, nil)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
 	}

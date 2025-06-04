@@ -329,7 +329,9 @@ type bcpDesc struct {
 	PBMVersion         string          `json:"pbm_version" yaml:"pbm_version"`
 	Status             defs.Status     `json:"status" yaml:"status"`
 	Size               int64           `json:"size" yaml:"-"`
+	SizeUncompressed   int64           `json:"size_uncompressed" yaml:"-"`
 	HSize              string          `json:"size_h" yaml:"size_h"`
+	HSizeUncompressed  string          `json:"size_uncompressed_h" yaml:"size_uncompressed_h"`
 	StorageName        string          `json:"storage_name,omitempty" yaml:"storage_name,omitempty"`
 	Err                *string         `json:"error,omitempty" yaml:"error,omitempty"`
 	Replsets           []bcpReplDesc   `json:"replsets" yaml:"replsets"`
@@ -341,7 +343,9 @@ type bcpReplDesc struct {
 	Node               string              `json:"node" yaml:"node"`
 	Files              []backup.File       `json:"files,omitempty" yaml:"-"`
 	Size               int64               `json:"size" yaml:"-"`
+	SizeUncompressed   int64               `json:"size_uncompressed" yaml:"-"`
 	HSize              string              `json:"size_h,omitempty" yaml:"size_h,omitempty"`
+	HSizeUncompressed  string              `json:"size_uncompressed_h" yaml:"size_uncompressed_h"`
 	LastWriteTS        int64               `json:"last_write_ts" yaml:"-"`
 	LastTransitionTS   int64               `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string              `json:"last_write_time" yaml:"last_write_time"`
@@ -419,7 +423,12 @@ func describeBackup(
 		Status:             bcp.Status,
 		Size:               bcp.Size,
 		HSize:              byteCountIEC(bcp.Size),
+		SizeUncompressed:   bcp.SizeUncompressed,
+		HSizeUncompressed:  byteCountIEC(bcp.SizeUncompressed),
 		StorageName:        bcp.Store.Name,
+	}
+	if bcp.SizeUncompressed > 0 {
+		rv.HSizeUncompressed = byteCountIEC(bcp.SizeUncompressed)
 	}
 	if bcp.Err != "" {
 		rv.Err = &bcp.Err
@@ -445,6 +454,7 @@ func describeBackup(
 			IsConfigShard:      r.IsConfigShard,
 			Status:             r.Status,
 			Size:               r.Size,
+			SizeUncompressed:   r.SizeUncompressed,
 			LastWriteTS:        int64(r.LastWriteTS.T),
 			LastTransitionTS:   r.LastTransitionTS,
 			LastWriteTime:      time.Unix(int64(r.LastWriteTS.T), 0).UTC().Format(time.RFC3339),
@@ -462,6 +472,9 @@ func describeBackup(
 		}
 		if r.Size > 0 {
 			rv.Replsets[i].HSize = byteCountIEC(r.Size)
+		}
+		if r.SizeUncompressed > 0 {
+			rv.Replsets[i].HSizeUncompressed = byteCountIEC(r.SizeUncompressed)
 		}
 
 		if !b.coll || bcp.Type != defs.LogicalBackup {

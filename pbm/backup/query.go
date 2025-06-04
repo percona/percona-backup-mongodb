@@ -220,10 +220,27 @@ func ChangeRSState(conn connect.Client, bcpName, rsName string, s defs.Status, m
 }
 
 // IncBackupSize increments total backup size.
-func IncBackupSize(ctx context.Context, conn connect.Client, bcpName string, size int64) error {
+func IncBackupSize(
+	ctx context.Context,
+	conn connect.Client,
+	bcpName string,
+	size int64,
+	sizeUncompressed *int64,
+) error {
+	update := bson.D{
+		{"$inc", bson.M{"size": size}},
+	}
+	if sizeUncompressed != nil {
+		update = append(
+			update,
+			bson.E{"$inc", bson.M{"size_uncompressed": sizeUncompressed}},
+		)
+	}
+
 	_, err := conn.BcpCollection().UpdateOne(ctx,
 		bson.D{{"name", bcpName}},
-		bson.D{{"$inc", bson.M{"size": size}}})
+		update,
+	)
 
 	return err
 }
@@ -235,12 +252,16 @@ func SetBackupSizeForRS(
 	bcpName,
 	rsName string,
 	size int64,
+	sizeUncompressed int64,
 ) error {
 	_, err := conn.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
-		bson.D{{"$set", bson.M{"replsets.$.size": size}}})
-
+		bson.D{
+			{"$set", bson.M{"replsets.$.size": size}},
+			{"$set", bson.M{"replsets.$.size_uncompressed": sizeUncompressed}},
+		},
+	)
 	return err
 }
 
