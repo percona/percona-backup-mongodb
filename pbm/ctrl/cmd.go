@@ -157,8 +157,8 @@ type RestoreCmd struct {
 	NamespaceTo     string            `bson:"nsTo,omitempty"`
 	UsersAndRoles   bool              `bson:"usersAndRoles,omitempty"`
 	RSMap           map[string]string `bson:"rsMap,omitempty"`
-	Fallback        bool              `bson:"fallbackEnabled"`
-	AllowPartlyDone bool              `bson:"allowPartlyDone"`
+	Fallback        *bool             `bson:"fallbackEnabled"`
+	AllowPartlyDone *bool             `bson:"allowPartlyDone"`
 
 	NumParallelColls    *int32 `bson:"numParallelColls,omitempty"`
 	NumInsertionWorkers *int32 `bson:"numInsertionWorkers,omitempty"`

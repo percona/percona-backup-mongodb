@@ -52,8 +52,8 @@ type restoreOpts struct {
 	rsMap           string
 	conf            string
 	ts              string
-	fallback        bool
-	allowPartlyDone bool
+	fallback        *bool
+	allowPartlyDone *bool
 
 	numParallelColls    int32
 	numInsertionWorkers int32

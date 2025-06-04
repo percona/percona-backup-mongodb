@@ -370,6 +370,9 @@ type RestoreConf struct {
 	// physical restore. Will try $PATH/mongod if not set.
 	MongodLocation    string            `bson:"mongodLocation" json:"mongodLocation,omitempty" yaml:"mongodLocation,omitempty"`
 	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
+
+	FallbackEnabled *bool `bson:"fallbackEnabled,omitempty" json:"fallbackEnabled,omitempty" yaml:"fallbackEnabled,omitempty"`
+	AllowPartlyDone *bool `bson:"allowPartlyDone,omitempty" json:"allowPartlyDone,omitempty" yaml:"allowPartlyDone,omitempty"`
 }
 
 func (cfg *RestoreConf) Clone() *RestoreConf {
@@ -386,6 +389,22 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 	}
 
 	return &rv
+}
+
+// GetFallbackEnabled gets config's or default value for fallbackEnabled
+func (cfg *RestoreConf) GetFallbackEnabled() bool {
+	if cfg != nil && cfg.FallbackEnabled != nil {
+		return *cfg.FallbackEnabled
+	}
+	return true
+}
+
+// GetAllowPartlyDone gets config's or default value for allowPartlyDone
+func (cfg *RestoreConf) GetAllowPartlyDone() bool {
+	if cfg != nil && cfg.AllowPartlyDone != nil {
+		return *cfg.AllowPartlyDone
+	}
+	return true
 }
 
 //nolint:lll
