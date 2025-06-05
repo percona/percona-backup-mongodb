@@ -141,6 +141,9 @@ func runRestore(
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
+	if err := validateFallbackOpts(o); err != nil {
+		return nil, err
+	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
 	if err != nil {
@@ -813,6 +816,15 @@ func validateNSFromNSTo(o *restoreOpts) error {
 		return ErrCloningWithWildCards
 	}
 
+	return nil
+}
+
+func validateFallbackOpts(o *restoreOpts) error {
+	if o.fallback != nil && !*o.fallback &&
+		o.allowPartlyDone != nil && !*o.allowPartlyDone {
+		return errors.New("It's not possible to disable both --allow-partly-done " +
+			"and --fallback-enabled at the same time.")
+	}
 	return nil
 }
 

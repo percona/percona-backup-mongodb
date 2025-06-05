@@ -822,6 +822,7 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	restoreCmd.Flags().Bool(
 		"allow-partly-done", false,
 		"Allows parly done state of the cluster after physical restore. "+
+			"If enabled (default), partly-done status for RS will be treated as successful restore."+
 			"If disabled, fallback will be applied when cluster is partly-done.",
 	)
 

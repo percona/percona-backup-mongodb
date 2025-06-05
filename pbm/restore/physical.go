@@ -2567,6 +2567,9 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 			return errors.Wrap(err, "check disk space")
 		}
 	}
+	if !r.fallback && !r.allowPartlyDone {
+		return errors.New("fallbackEnabled and allowPartlyDone cannot be disabled at the same time")
+	}
 
 	s, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
 	if err != nil {
