@@ -2657,13 +2657,15 @@ func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
 		return errors.Wrap(err, "get statfs")
 	}
 
-	free := int64(stat.Bavail) * int64(stat.Bsize)
-	tenGiB := 10 * (1 << 30)
-	totalReqSize := bcpSize + int64(tenGiB)
-	r.log.Debug("free space on disk: %s; backup size: %s; total requested free size: %s",
-		storage.PrettySize(free), storage.PrettySize(bcpSize), storage.PrettySize(totalReqSize))
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	used := total - free
+	availDiskWatermark := uint64(0.85 * float64(total))
+	avail := max(availDiskWatermark-used, 0)
+	r.log.Debug("free space on disk: %s; available for pbm usage: %s; backup size: %s;",
+		storage.PrettySize(int64(free)), storage.PrettySize(int64(avail)), storage.PrettySize(bcpSize))
 
-	if totalReqSize >= free {
+	if uint64(bcpSize) >= avail {
 		return errors.New("not enough disk space for fallback strategy, " +
 			"consider using --fallback-enabled=false")
 	}
