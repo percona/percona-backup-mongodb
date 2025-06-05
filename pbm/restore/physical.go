@@ -93,6 +93,7 @@ type PhysRestore struct {
 	bcpStg    storage.Storage
 	bcp       *backup.BackupMeta
 	files     []files
+	bcpSizeRS int64 // total uncompressed size of the backup for RS (including all increments)
 	restoreTS primitive.Timestamp
 
 	confOpts *config.RestoreConf
@@ -2341,6 +2342,9 @@ const bcpDir = "__dir__"
 //
 // The restore should be done in reverse order. Applying files (diffs)
 // starting from the base and moving forward in time up to the target backup.
+//
+// Additionally total uncompressed backup size for RS is callculated
+// in this method.
 func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 	bcp := r.bcp
 
@@ -2372,6 +2376,8 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		targetFiles[f.Name] = false
 	}
 
+	r.bcpSizeRS = rs.SizeUncompressed
+
 	for {
 		data := files{
 			BcpName: bcp.Name,
@@ -2397,6 +2403,10 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		r.files = append(r.files, data)
 
 		if bcp.SrcBackup == "" {
+			// if base backup doesn't have size, we cannot calculate total size
+			if rs.SizeUncompressed == 0 {
+				r.bcpSizeRS = 0 // zero is used as the flag
+			}
 			break
 		}
 
@@ -2407,6 +2417,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 			return errors.Wrapf(err, "get source backup")
 		}
 		rs = getRS(bcp, setName)
+		r.bcpSizeRS += rs.SizeUncompressed
 
 		if version.HasFilelistFile(bcp.PBMVersion) {
 			filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
@@ -2548,6 +2559,15 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get data for restore")
 	}
 
+	r.log.Debug("restore opts: fallbackEnabled: %t; allowPartlyDone: %t",
+		r.fallback, r.allowPartlyDone)
+	if r.fallback {
+		err = r.checkDiskSpace(r.bcpSizeRS)
+		if err != nil {
+			return errors.Wrap(err, "check disk space")
+		}
+	}
+
 	s, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
@@ -2571,15 +2591,6 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 
 	setName := mapRevRS(r.nodeInfo.SetName)
-
-	r.log.Debug("restore opts: --fallback-enabled: %t; --allow-partly-done: %t",
-		r.fallback, r.allowPartlyDone)
-	if r.fallback && r.bcp.RS(setName) != nil {
-		err = r.checkDiskSpace(r.bcp.RS(setName).Size)
-		if err != nil {
-			return errors.Wrap(err, "check disk space")
-		}
-	}
 
 	var ok bool
 	for _, v := range r.bcp.Replsets {
@@ -2663,7 +2674,7 @@ func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
 // disableFallbackForOldBackup set fallback option to false due to backup incompatibility
 func (r *PhysRestore) disableFallbackForOldBackup() {
 	r.fallback = false
-	r.log.Debug("restore opts: --fallback-enabled: %t; --allow-partly-done: %t",
+	r.log.Debug("restore opts: fallbackEnabled: %t; allowPartlyDone: %t",
 		r.fallback, r.allowPartlyDone)
 }
 
