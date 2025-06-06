@@ -39,8 +39,7 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 		defer close(cmd)
 		defer close(errc)
 
-		ts := time.Now().UTC().Unix()
-		var lastTS int64
+		lastTS := time.Now().UTC().Unix()
 		var lastCmd Command
 		for {
 			select {
@@ -53,7 +52,7 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 			}
 			cur, err := m.CmdStreamCollection().Find(
 				ctx,
-				bson.M{"ts": bson.M{"$gte": ts}},
+				bson.M{"ts": bson.M{"$gt": lastTS}},
 			)
 			if err != nil {
 				errc <- errors.Wrap(err, "watch the cmd stream")
@@ -83,7 +82,6 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 				lastCmd = c.Cmd
 				lastTS = c.TS
 				cmd <- c
-				ts = time.Now().UTC().Unix()
 			}
 			if err := cur.Err(); err != nil {
 				errc <- CursorClosedError{err}
