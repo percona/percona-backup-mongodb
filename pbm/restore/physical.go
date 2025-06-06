@@ -221,7 +221,9 @@ func peekTmpPort(current int) (int, error) {
 // close cleans up all temp restore files.
 // Based on cluster status it does cleanup of the node's db path or it
 // applies fallback sync recovery strategy.
-func (r *PhysRestore) close(noerr bool, progress nodeStatus) {
+//
+//nolint:nonamedreturns
+func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 	if r.tmpConf != nil {
 		r.log.Debug("rm tmp conf")
 		err := os.Remove(r.tmpConf.Name())
@@ -251,44 +253,64 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) {
 		r.log.Warning("waiting for cluster status during cleanup: %v", err)
 	}
 
+	defer func() {
+		if r.fallback {
+			// free space by just deleting fallback dir
+			err := r.removeFallback()
+			if err != nil {
+				r.log.Error("flush fallback: %v", err)
+			}
+		}
+
+		if r.stopHB != nil {
+			close(r.stopHB)
+		}
+	}()
+
 	// resolve and exec cleanup
 	cleanup := r.resolveCleanupStrategy(cStatus, progress)
-	cleanup()
-
-	if r.fallback {
-		// free space by just deleting fallback dir in any other case
-		err = r.removeFallback()
-		if err != nil {
-			r.log.Error("flush fallback: %v", err)
-		}
+	err = cleanup()
+	if err != nil {
+		return errors.Wrap(err, "exec cleanup strategy")
 	}
 
-	if r.stopHB != nil {
-		close(r.stopHB)
-	}
+	return nil
 }
 
 // doFullCleanup is node's cleanup strategy for deleting the whole dbpath.
-func (r *PhysRestore) doFullCleanup() {
+func (r *PhysRestore) doFullCleanup() error {
 	r.log.Warning("apply full cleanup strategy")
 	err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
 	if err != nil {
-		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
 	}
+	return nil
 }
 
 // doFallbackCleanup is node's cleanup strategy for recovering dbpath
 // from fallbacksync dir.
-func (r *PhysRestore) doFallbackCleanup() {
+// Mark cluster with fallback error.
+func (r *PhysRestore) doFallbackCleanup() error {
 	r.log.Warning("apply fallback cleanup strategy: using db data from %s", fallbackDir)
 	err := r.migrateFromFallbackDirToDBDir()
 	if err != nil {
-		r.log.Error("migrate from fallback dir: %v", err)
+		return errors.Wrap(err, "migrate from fallback dir")
 	}
+
+	if r.nodeInfo.IsClusterLeader() {
+		err = r.MarkAsFallback()
+		if err != nil {
+			return errors.Wrap(err, "mark meta as fallback")
+		}
+	}
+
+	// cleanup went file, bug follback represents error in case of restore
+	return errors.New("fallback applyed")
 }
 
-func (r *PhysRestore) skipCleanup() {
+func (r *PhysRestore) skipCleanup() error {
 	r.log.Debug("no cleanup strategy to apply")
+	return nil
 }
 
 // resolveCleanupStrategy returns cleanup strategy based on config parameters, cluster status
@@ -296,7 +318,7 @@ func (r *PhysRestore) skipCleanup() {
 func (r *PhysRestore) resolveCleanupStrategy(
 	clusterStatus defs.Status,
 	progress nodeStatus,
-) func() {
+) func() error {
 	if progress.isDBPathUntouched() {
 		return r.skipCleanup
 	}
@@ -1057,7 +1079,11 @@ func (r *PhysRestore) Snapshot(
 			r.MarkFailed(err)
 		}
 
-		r.close(err == nil, progress)
+		noerr := err == nil
+		err = r.close(noerr, progress)
+		if err != nil {
+			err = errors.Wrap(err, "snapshot close")
+		}
 	}()
 
 	err = r.init(ctx, cmd.Name, opid, l)
@@ -2713,6 +2739,46 @@ func (r *PhysRestore) MarkFailed(e error) {
 			r.log.Error("MarkFailed: write cluster error state `%v`: %v", e, serr)
 		}
 	}
+}
+
+func (r *PhysRestore) MarkAsFallback() error {
+	r.log.Debug("set fallback error on cluster level")
+	err := util.RetryableWrite(r.stg,
+		r.syncPathCluster+"."+string(defs.StatusError), errStatus(errors.New("fallback is applied")))
+	if err != nil {
+		r.log.Error("write cluster error state for fallback: %v", err)
+		// lets try to create restore meta
+	}
+
+	mf := filepath.Join(defs.PhysRestoresDir, r.name) + ".json"
+	_, err = r.stg.FileStat(mf)
+	if err != nil {
+		return errors.Errorf("file stat %s: %v", mf, err)
+	}
+
+	var meta *RestoreMeta
+	src, err := r.stg.SourceReader(mf)
+	if err != nil {
+		return errors.Errorf("get file %s: %v", mf, err)
+	}
+	err = json.NewDecoder(src).Decode(&meta)
+	if err != nil {
+		return errors.Wrap(err, "decode meta")
+	}
+
+	meta.Status = defs.StatusError
+	meta.Error = "fallback strategy is applied"
+
+	buf, err := json.MarshalIndent(meta, "", "\t")
+	if err != nil {
+		return errors.Wrapf(err, "encode restore meta")
+	}
+	err = util.RetryableWrite(r.stg, mf, buf)
+	if err != nil {
+		return errors.Wrap(err, "write restore meta")
+	}
+
+	return nil
 }
 
 // moveAll moves fromDir content (files and dirs) to toDir content.
