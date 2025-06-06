@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
@@ -148,6 +149,7 @@ func newPbmApp() *pbmApp {
 	app.rootCmd.AddCommand(app.buildRestoreFinishCmd())
 	app.rootCmd.AddCommand(app.buildStatusCmd())
 	app.rootCmd.AddCommand(app.buildVersionCmd())
+	app.rootCmd.AddCommand(util.CompletionCommand())
 
 	return app
 }
@@ -155,7 +157,7 @@ func newPbmApp() *pbmApp {
 func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	app.pbmOutF = outFormat(viper.GetString("out"))
 
-	if cmd.Name() == "help" || cmd.Name() == "version" {
+	if cmd.Name() == "help" || cmd.Name() == "version" || util.IsCompletionCommand(cmd.Name()) {
 		return nil
 	}
 

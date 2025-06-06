@@ -158,6 +158,7 @@ func main() {
 	versionCmd.Flags().StringVar(&versionFormat, "format", "", "Output format <json or \"\">")
 
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(util.CompletionCommand())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
