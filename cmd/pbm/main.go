@@ -1099,17 +1099,18 @@ func tsUTC(ts int64) string {
 }
 
 type snapshotStat struct {
-	Name       string          `json:"name"`
-	Namespaces []string        `json:"nss,omitempty"`
-	Size       int64           `json:"size,omitempty"`
-	Status     defs.Status     `json:"status"`
-	Err        error           `json:"-"`
-	ErrString  string          `json:"error,omitempty"`
-	RestoreTS  int64           `json:"restoreTo"`
-	PBMVersion string          `json:"pbmVersion"`
-	Type       defs.BackupType `json:"type"`
-	SrcBackup  string          `json:"src"`
-	StoreName  string          `json:"storage,omitempty"`
+	Name        string           `json:"name"`
+	Namespaces  []string         `json:"nss,omitempty"`
+	Size        int64            `json:"size,omitempty"`
+	Status      defs.Status      `json:"status"`
+	PrintStatus defs.PrintStatus `json:"printStatus"`
+	Err         error            `json:"-"`
+	ErrString   string           `json:"error,omitempty"`
+	RestoreTS   int64            `json:"restoreTo"`
+	PBMVersion  string           `json:"pbmVersion"`
+	Type        defs.BackupType  `json:"type"`
+	SrcBackup   string           `json:"src"`
+	StoreName   string           `json:"storage,omitempty"`
 }
 
 type pitrRange struct {
