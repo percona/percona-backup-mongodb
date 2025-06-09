@@ -129,9 +129,9 @@ func (s Status) IsRunning() bool {
 type PrintStatus string
 
 const (
-	StatusSuccess PrintStatus = "success"
-	StatusFailed  PrintStatus = "failed"
-	StatusOngoing PrintStatus = "ongoing"
+	statusSuccess PrintStatus = "success"
+	statusFailed  PrintStatus = "failed"
+	statusOngoing PrintStatus = "ongoing"
 )
 
 var ErrIncompatible = errors.New("incompatible")
@@ -144,20 +144,20 @@ func (s Status) PrintStatus(errs ...error) PrintStatus {
 
 	switch s {
 	case StatusDone:
-		return StatusSuccess
+		return statusSuccess
 
 	case StatusCancelled:
-		return StatusFailed
+		return statusFailed
 
 	case StatusError:
 		// "incompatible" is treated as success
 		if err != nil && errors.Is(err, ErrIncompatible) {
-			return StatusSuccess
+			return statusSuccess
 		}
-		return StatusFailed
+		return statusFailed
 
 	default:
-		return StatusOngoing
+		return statusOngoing
 	}
 }
 
