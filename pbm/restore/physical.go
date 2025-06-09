@@ -284,12 +284,14 @@ func (r *PhysRestore) doFullCleanup() error {
 	if err != nil {
 		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
 	}
-	return nil
+
+	// cleanup went file, bug full cleanup represents error in case of restore
+	return errors.New("full cleanup applyed")
 }
 
 // doFallbackCleanup is node's cleanup strategy for recovering dbpath
 // from fallbacksync dir.
-// Mark cluster with fallback error.
+// It marks cluster with fallback error.
 func (r *PhysRestore) doFallbackCleanup() error {
 	r.log.Warning("apply fallback cleanup strategy: using db data from %s", fallbackDir)
 	err := r.migrateFromFallbackDirToDBDir()
@@ -300,11 +302,11 @@ func (r *PhysRestore) doFallbackCleanup() error {
 	if r.nodeInfo.IsClusterLeader() {
 		err = r.MarkAsFallback()
 		if err != nil {
-			return errors.Wrap(err, "mark meta as fallback")
+			r.log.Warning("mark meta as fallback: %v", err)
 		}
 	}
 
-	// cleanup went file, bug follback represents error in case of restore
+	// cleanup went file, bug fallback represents error in case of restore
 	return errors.New("fallback applyed")
 }
 
@@ -1299,6 +1301,14 @@ func (r *PhysRestore) Snapshot(
 
 	stat, err := r.toState(defs.StatusDone)
 	if err != nil {
+		if r.nodeInfo.IsLeader() {
+			// before returning try to create meta
+			r.log.Info("writing restore meta")
+			merr := r.dumpMeta(meta, stat, "")
+			if merr != nil {
+				r.log.Warning("writing restore meta to storage: %v", merr)
+			}
+		}
 		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
 	}
 
