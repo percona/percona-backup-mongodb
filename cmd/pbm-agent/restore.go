@@ -180,8 +180,25 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			lck = nil
 		}
 
+		fallbackOpt := cfg.Restore.GetFallbackEnabled()
+		if r.Fallback != nil {
+			fallbackOpt = *r.Fallback
+		}
+		allowPartlyDoneOpt := cfg.Restore.GetAllowPartlyDone()
+		if r.AllowPartlyDone != nil {
+			allowPartlyDoneOpt = *r.AllowPartlyDone
+		}
+
 		var rstr *restore.PhysRestore
-		rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, r.RSMap)
+		rstr, err = restore.NewPhysical(
+			ctx,
+			a.leadConn,
+			a.nodeConn,
+			nodeInfo,
+			r.RSMap,
+			fallbackOpt,
+			allowPartlyDoneOpt,
+		)
 		if err != nil {
 			l.Error("init physical backup: %v", err)
 			return

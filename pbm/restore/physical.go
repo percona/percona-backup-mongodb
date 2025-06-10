@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
@@ -92,6 +93,7 @@ type PhysRestore struct {
 	bcpStg    storage.Storage
 	bcp       *backup.BackupMeta
 	files     []files
+	bcpSizeRS int64 // total uncompressed size of the backup for RS (including all increments)
 	restoreTS primitive.Timestamp
 
 	confOpts *config.RestoreConf
@@ -114,7 +116,9 @@ type PhysRestore struct {
 
 	log log.LogEvent
 
-	rsMap map[string]string
+	rsMap           map[string]string
+	fallback        bool
+	allowPartlyDone bool
 }
 
 func NewPhysical(
@@ -123,6 +127,8 @@ func NewPhysical(
 	node *mongo.Client,
 	inf *topo.NodeInfo,
 	rsMap map[string]string,
+	fallback bool,
+	allowPartlyDone bool,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
@@ -178,16 +184,18 @@ func NewPhysical(
 	}
 
 	return &PhysRestore{
-		leadConn: leadConn,
-		node:     node,
-		dbpath:   p,
-		rsConf:   rcf,
-		shards:   shards,
-		cfgConn:  csvr,
-		nodeInfo: inf,
-		tmpPort:  tmpPort,
-		secOpts:  opts.Security,
-		rsMap:    rsMap,
+		leadConn:        leadConn,
+		node:            node,
+		dbpath:          p,
+		rsConf:          rcf,
+		shards:          shards,
+		cfgConn:         csvr,
+		nodeInfo:        inf,
+		tmpPort:         tmpPort,
+		secOpts:         opts.Security,
+		rsMap:           rsMap,
+		fallback:        fallback,
+		allowPartlyDone: allowPartlyDone,
 	}, nil
 }
 
@@ -211,9 +219,11 @@ func peekTmpPort(current int) (int, error) {
 }
 
 // close cleans up all temp restore files.
-// Based on error status it does cleanup of the node's db path or it
+// Based on cluster status it does cleanup of the node's db path or it
 // applies fallback sync recovery strategy.
-func (r *PhysRestore) close(noerr, cleanup bool) {
+//
+//nolint:nonamedreturns
+func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 	if r.tmpConf != nil {
 		r.log.Debug("rm tmp conf")
 		err := os.Remove(r.tmpConf.Name())
@@ -242,29 +252,110 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 	if err != nil {
 		r.log.Warning("waiting for cluster status during cleanup: %v", err)
 	}
-	if cStatus == defs.StatusError && cleanup {
-		r.log.Warning("apply db data from %s", fallbackDir)
-		err := r.migrateFromFallbackDirToDBDir()
-		if err != nil {
-			r.log.Error("migrate from fallback dir: %v", err)
-		}
-	} else if (cStatus == defs.StatusDone || cStatus == defs.StatusPartlyDone) && cleanup {
-		r.log.Debug("clean-up dbpath")
-		err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
-		if err != nil {
-			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
-		}
-	}
 
-	// free space by just deleting fallback dir in any other case
-	err = r.removeFallback()
+	defer func() {
+		if r.fallback {
+			// free space by just deleting fallback dir
+			err := r.removeFallback()
+			if err != nil {
+				r.log.Error("flush fallback: %v", err)
+			}
+		}
+
+		if r.stopHB != nil {
+			close(r.stopHB)
+		}
+	}()
+
+	// resolve and exec cleanup
+	cleanup := r.resolveCleanupStrategy(cStatus, progress)
+	err = cleanup()
 	if err != nil {
-		r.log.Error("flush fallback: %v", err)
+		return errors.Wrap(err, "exec cleanup strategy")
 	}
 
-	if r.stopHB != nil {
-		close(r.stopHB)
+	return nil
+}
+
+// doFullCleanup is node's cleanup strategy for deleting the whole dbpath.
+func (r *PhysRestore) doFullCleanup() error {
+	r.log.Warning("apply full cleanup strategy")
+	err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
+	if err != nil {
+		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
 	}
+
+	// cleanup went file, bug full cleanup represents error in case of restore
+	return errors.New("full cleanup applyed")
+}
+
+// doFallbackCleanup is node's cleanup strategy for recovering dbpath
+// from fallbacksync dir.
+// It marks cluster with fallback error.
+func (r *PhysRestore) doFallbackCleanup() error {
+	r.log.Warning("apply fallback cleanup strategy: using db data from %s", fallbackDir)
+	err := r.migrateFromFallbackDirToDBDir()
+	if err != nil {
+		return errors.Wrap(err, "migrate from fallback dir")
+	}
+
+	if r.nodeInfo.IsClusterLeader() {
+		err = r.MarkAsFallback()
+		if err != nil {
+			r.log.Warning("mark meta as fallback: %v", err)
+		}
+	}
+
+	// cleanup went file, bug fallback represents error in case of restore
+	return errors.New("fallback applyed")
+}
+
+func (r *PhysRestore) skipCleanup() error {
+	r.log.Debug("no cleanup strategy to apply")
+	return nil
+}
+
+// resolveCleanupStrategy returns cleanup strategy based on config parameters, cluster status
+// and node progress.
+func (r *PhysRestore) resolveCleanupStrategy(
+	clusterStatus defs.Status,
+	progress nodeStatus,
+) func() error {
+	if progress.isDBPathUntouched() {
+		return r.skipCleanup
+	}
+
+	// dbpath has been changed
+	switch clusterStatus {
+
+	case defs.StatusError:
+		if r.fallback {
+			return r.doFallbackCleanup
+		} else { // fallback is disabled
+			if progress.isForCleanup() {
+				return r.doFullCleanup
+			} else {
+				// node is in status done in this case
+				return r.skipCleanup
+			}
+		}
+
+	case defs.StatusPartlyDone:
+		if r.allowPartlyDone || !r.fallback {
+			if progress.isForCleanup() {
+				return r.doFullCleanup
+			} else {
+				return r.skipCleanup
+			}
+		} else { // partly-done state is not allowed and fallback is enabled
+			return r.doFallbackCleanup
+		}
+
+	case defs.StatusDone:
+		return r.skipCleanup
+	}
+
+	return r.skipCleanup
 }
 
 // waitClusterStatus blocks until cluster status file is set on one of final statuses.
@@ -357,9 +448,17 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		}
 	}
 
-	err = r.migrateDBDirToFallbackDir()
-	if err != nil {
-		return errors.Wrapf(err, "move files to fallback path")
+	if r.fallback {
+		err = r.migrateDBDirToFallbackDir()
+		if err != nil {
+			return errors.Wrapf(err, "move files to fallback path")
+		}
+	} else {
+		// fallback strategy is disabled, just wipe-up everything in dbpath
+		err = removeAll(r.dbpath, r.log)
+		if err != nil {
+			return errors.Wrapf(err, "remove db path")
+		}
 	}
 
 	return nil
@@ -865,6 +964,12 @@ func (n nodeStatus) isForCleanup() bool {
 	return n&restoreStared != 0 && n&restoreDone == 0
 }
 
+// isDBPathUntouched returns true when restore progress
+// didn't do any data changes within db path.
+func (n nodeStatus) isDBPathUntouched() bool {
+	return n&restoreStared == 0
+}
+
 // isFailed returns true when internal node state didn't reach
 // done state, no matter whether it was started or not.
 func (n nodeStatus) isFailed() bool {
@@ -972,14 +1077,15 @@ func (r *PhysRestore) Snapshot(
 
 	var progress nodeStatus
 	defer func() {
-		// set failed status of node on error, but
-		// don't mark node as failed after the local restore succeed
-		restoreFailed := progress.isFailed()
-		if err != nil && !errors.Is(err, ErrNoDataForShard) && restoreFailed {
+		if err != nil && !errors.Is(err, ErrNoDataForShard) {
 			r.MarkFailed(err)
 		}
 
-		r.close(err == nil, progress.isForCleanup())
+		noerr := err == nil
+		err = r.close(noerr, progress)
+		if err != nil {
+			err = errors.Wrap(err, "snapshot close")
+		}
 	}()
 
 	err = r.init(ctx, cmd.Name, opid, l)
@@ -1195,6 +1301,14 @@ func (r *PhysRestore) Snapshot(
 
 	stat, err := r.toState(defs.StatusDone)
 	if err != nil {
+		if r.nodeInfo.IsLeader() {
+			// before returning try to create meta
+			r.log.Info("writing restore meta")
+			merr := r.dumpMeta(meta, stat, "")
+			if merr != nil {
+				r.log.Warning("writing restore meta to storage: %v", merr)
+			}
+		}
 		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
 	}
 
@@ -2264,6 +2378,9 @@ const bcpDir = "__dir__"
 //
 // The restore should be done in reverse order. Applying files (diffs)
 // starting from the base and moving forward in time up to the target backup.
+//
+// Additionally total uncompressed backup size for RS is callculated
+// in this method.
 func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 	bcp := r.bcp
 
@@ -2295,6 +2412,8 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		targetFiles[f.Name] = false
 	}
 
+	r.bcpSizeRS = rs.SizeUncompressed
+
 	for {
 		data := files{
 			BcpName: bcp.Name,
@@ -2320,6 +2439,10 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		r.files = append(r.files, data)
 
 		if bcp.SrcBackup == "" {
+			// if base backup doesn't have size, we cannot calculate total size
+			if rs.SizeUncompressed == 0 {
+				r.bcpSizeRS = 0 // zero is used as the flag
+			}
 			break
 		}
 
@@ -2330,6 +2453,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 			return errors.Wrapf(err, "get source backup")
 		}
 		rs = getRS(bcp, setName)
+		r.bcpSizeRS += rs.SizeUncompressed
 
 		if version.HasFilelistFile(bcp.PBMVersion) {
 			filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
@@ -2471,6 +2595,18 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get data for restore")
 	}
 
+	r.log.Debug("restore opts: fallbackEnabled: %t; allowPartlyDone: %t",
+		r.fallback, r.allowPartlyDone)
+	if r.fallback {
+		err = r.checkDiskSpace(r.bcpSizeRS)
+		if err != nil {
+			return errors.Wrap(err, "check disk space")
+		}
+	}
+	if !r.fallback && !r.allowPartlyDone {
+		return errors.New("fallbackEnabled and allowPartlyDone cannot be disabled at the same time")
+	}
+
 	s, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
@@ -2494,6 +2630,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 
 	setName := mapRevRS(r.nodeInfo.SetName)
+
 	var ok bool
 	for _, v := range r.bcp.Replsets {
 		if v.Name == setName {
@@ -2541,8 +2678,52 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 	return v, nil
 }
 
+// checkDiskSpace compares available disk space on the node with the backup size.
+// It returns error in case when backup size is larger than free space on the disk.
+// It also includes min disk space requirement of 10GiB.
+func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
+	if bcpSize == 0 {
+		r.log.Warning("this backup is incompatible with the fallback strategy, " +
+			"fallback will be disabled")
+
+		r.disableFallbackForOldBackup()
+		return nil
+	}
+
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(r.dbpath, &stat)
+	if err != nil {
+		return errors.Wrap(err, "get statfs")
+	}
+
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	used := total - free
+	availDiskWatermark := uint64(0.85 * float64(total))
+	avail := max(availDiskWatermark-used, 0)
+	r.log.Debug("disk total: %s; used: %s; free space on disk: %s; available for pbm usage: %s; backup size: %s;",
+		storage.PrettySize(int64(total)), storage.PrettySize(int64(used)), storage.PrettySize(int64(free)),
+		storage.PrettySize(int64(avail)), storage.PrettySize(bcpSize))
+
+	if uint64(bcpSize) >= avail {
+		return errors.New("not enough disk space for fallback strategy, " +
+			"consider using --fallback-enabled=false")
+	}
+
+	return nil
+}
+
+// disableFallbackForOldBackup set fallback option to false due to backup incompatibility
+func (r *PhysRestore) disableFallbackForOldBackup() {
+	r.fallback = false
+	r.log.Debug("restore opts: fallbackEnabled: %t; allowPartlyDone: %t",
+		r.fallback, r.allowPartlyDone)
+}
+
 // MarkFailed sets the restore and rs state as failed with the given message
 func (r *PhysRestore) MarkFailed(e error) {
+	r.log.Error("mark error during restore: %v", e)
+
 	err := util.RetryableWrite(r.stg,
 		r.syncPathNode+"."+string(defs.StatusError), errStatus(e))
 	if err != nil {
@@ -2568,6 +2749,46 @@ func (r *PhysRestore) MarkFailed(e error) {
 			r.log.Error("MarkFailed: write cluster error state `%v`: %v", e, serr)
 		}
 	}
+}
+
+func (r *PhysRestore) MarkAsFallback() error {
+	r.log.Debug("set fallback error on cluster level")
+	err := util.RetryableWrite(r.stg,
+		r.syncPathCluster+"."+string(defs.StatusError), errStatus(errors.New("fallback is applied")))
+	if err != nil {
+		r.log.Error("write cluster error state for fallback: %v", err)
+		// lets try to create restore meta
+	}
+
+	mf := filepath.Join(defs.PhysRestoresDir, r.name) + ".json"
+	_, err = r.stg.FileStat(mf)
+	if err != nil {
+		return errors.Errorf("file stat %s: %v", mf, err)
+	}
+
+	var meta *RestoreMeta
+	src, err := r.stg.SourceReader(mf)
+	if err != nil {
+		return errors.Errorf("get file %s: %v", mf, err)
+	}
+	err = json.NewDecoder(src).Decode(&meta)
+	if err != nil {
+		return errors.Wrap(err, "decode meta")
+	}
+
+	meta.Status = defs.StatusError
+	meta.Error = "fallback strategy is applied"
+
+	buf, err := json.MarshalIndent(meta, "", "\t")
+	if err != nil {
+		return errors.Wrapf(err, "encode restore meta")
+	}
+	err = util.RetryableWrite(r.stg, mf, buf)
+	if err != nil {
+		return errors.Wrap(err, "write restore meta")
+	}
+
+	return nil
 }
 
 // moveAll moves fromDir content (files and dirs) to toDir content.
