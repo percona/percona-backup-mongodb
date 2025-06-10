@@ -396,7 +396,7 @@ func (cfg *RestoreConf) GetFallbackEnabled() bool {
 	if cfg != nil && cfg.FallbackEnabled != nil {
 		return *cfg.FallbackEnabled
 	}
-	return true
+	return false
 }
 
 // GetAllowPartlyDone gets config's or default value for allowPartlyDone
