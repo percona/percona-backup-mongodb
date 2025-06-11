@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 const (
@@ -123,6 +124,41 @@ func (s Status) IsRunning() bool {
 	}
 
 	return true
+}
+
+type PrintStatus string
+
+const (
+	statusSuccess PrintStatus = "success"
+	statusFailed  PrintStatus = "failed"
+	statusOngoing PrintStatus = "ongoing"
+)
+
+var ErrIncompatible = errors.New("incompatible")
+
+func (s Status) PrintStatus(errs ...error) PrintStatus {
+	var err error
+	if len(errs) > 0 {
+		err = errs[0]
+	}
+
+	switch s {
+	case StatusDone:
+		return statusSuccess
+
+	case StatusCancelled:
+		return statusFailed
+
+	case StatusError:
+		// "incompatible" is treated as success
+		if err != nil && errors.Is(err, ErrIncompatible) {
+			return statusSuccess
+		}
+		return statusFailed
+
+	default:
+		return statusOngoing
+	}
 }
 
 type Operation string
