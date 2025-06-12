@@ -35,15 +35,13 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 	cmd := make(chan Cmd)
 	errc := make(chan error)
 
-	const window = 8
-	seen := make(map[OPID]bool, window)
-	order := make([]OPID, 0, window)
-
 	go func() {
 		defer close(cmd)
 		defer close(errc)
 
 		ts := time.Now().UTC().Unix()
+		var lastTS int64
+		cmdBuckets := make(map[int64][]Cmd)
 		for {
 			select {
 			case <-ctx.Done():
@@ -70,6 +68,10 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 					continue
 				}
 
+				if checkDuplicateCmd(cmdBuckets, c) {
+					continue
+				}
+
 				opid, ok := cur.Current.Lookup("_id").ObjectIDOK()
 				if !ok {
 					errc <- errors.New("unable to get operation ID")
@@ -78,19 +80,8 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 
 				c.OPID = OPID(opid)
 
-				if seen[c.OPID] {
-					continue
-				}
-
-				seen[c.OPID] = true
-				order = append(order, c.OPID)
-
-				if len(order) > window {
-					old := order[0]
-					order = order[1:]
-					delete(seen, old)
-				}
-
+				cmdBuckets[c.TS] = append(cmdBuckets[c.TS], c)
+				lastTS = c.TS
 				cmd <- c
 				ts = time.Now().UTC().Unix()
 			}
@@ -99,10 +90,39 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 				cur.Close(ctx)
 				return
 			}
+
+			cleanupOldCmdBuckets(cmdBuckets, lastTS)
+
 			cur.Close(ctx)
 			time.Sleep(time.Second * 1)
 		}
 	}()
 
 	return cmd, errc
+}
+
+func checkDuplicateCmd(cmdBuckets map[int64][]Cmd, c Cmd) bool {
+	// checkDuplicateCmd returns true if the command already exists in the bucket for its timestamp.
+	cmds, ok := cmdBuckets[c.TS]
+
+	if !ok {
+		return false
+	}
+
+	for _, cmd := range cmds {
+		if cmd.Cmd == c.Cmd && cmd.TS == c.TS {
+			return true
+		}
+	}
+
+	return false
+}
+
+// cleanupOldCmdBuckets deletes buckets older than the lastTS.
+func cleanupOldCmdBuckets(cmdBuckets map[int64][]Cmd, lastTS int64) {
+	for ts := range cmdBuckets {
+		if ts < lastTS {
+			delete(cmdBuckets, ts)
+		}
+	}
 }
