@@ -101,8 +101,8 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 	return cmd, errc
 }
 
+// checkDuplicateCmd returns true if the command already exists in the bucket for its timestamp.
 func checkDuplicateCmd(cmdBuckets map[int64][]Cmd, c Cmd) bool {
-	// checkDuplicateCmd returns true if the command already exists in the bucket for its timestamp.
 	cmds, ok := cmdBuckets[c.TS]
 
 	if !ok {
