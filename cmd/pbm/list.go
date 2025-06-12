@@ -314,14 +314,15 @@ func getSnapshotList(
 		}
 
 		s = append(s, snapshotStat{
-			Name:       b.Name,
-			Namespaces: b.Namespaces,
-			Status:     b.Status,
-			RestoreTS:  int64(b.LastWriteTS.T),
-			PBMVersion: b.PBMVersion,
-			Type:       b.Type,
-			SrcBackup:  b.SrcBackup,
-			StoreName:  b.Store.Name,
+			Name:        b.Name,
+			Namespaces:  b.Namespaces,
+			Status:      b.Status,
+			PrintStatus: b.Status.PrintStatus(),
+			RestoreTS:   int64(b.LastWriteTS.T),
+			PBMVersion:  b.PBMVersion,
+			Type:        b.Type,
+			SrcBackup:   b.SrcBackup,
+			StoreName:   b.Store.Name,
 		})
 	}
 
