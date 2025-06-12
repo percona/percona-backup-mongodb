@@ -8,7 +8,6 @@ linters:
     - nilerr
     - nilnil
     - lll
-    - typecheck
     - gochecknoinits
     - nonamedreturns
   disable:
