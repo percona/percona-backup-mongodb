@@ -752,6 +752,14 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 			if len(args) == 1 {
 				restoreOptions.bcp = args[0]
 			}
+			if cmd.Flags().Changed("fallback-enabled") {
+				val, _ := cmd.Flags().GetBool("fallback-enabled")
+				restoreOptions.fallback = &val
+			}
+			if cmd.Flags().Changed("allow-partly-done") {
+				val, _ := cmd.Flags().GetBool("allow-partly-done")
+				restoreOptions.allowPartlyDone = &val
+			}
 			return runRestore(app.ctx, app.conn, app.pbm, &restoreOptions, app.node, app.pbmOutF)
 		}),
 	}
@@ -807,6 +815,15 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	restoreCmd.Flags().StringVar(
 		&restoreOptions.ts, "ts", "",
 		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!",
+	)
+	restoreCmd.Flags().Bool(
+		"fallback-enabled", false, "Enables/disables fallback strategy when doing physical restore.",
+	)
+	restoreCmd.Flags().Bool(
+		"allow-partly-done", false,
+		"Allows parly done state of the cluster after physical restore. "+
+			"If enabled (default), partly-done status for RS will be treated as successful restore."+
+			"If disabled, fallback will be applied when cluster is partly-done.",
 	)
 
 	restoreCmd.Flags().StringVar(&restoreOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
@@ -1099,17 +1116,18 @@ func tsUTC(ts int64) string {
 }
 
 type snapshotStat struct {
-	Name       string          `json:"name"`
-	Namespaces []string        `json:"nss,omitempty"`
-	Size       int64           `json:"size,omitempty"`
-	Status     defs.Status     `json:"status"`
-	Err        error           `json:"-"`
-	ErrString  string          `json:"error,omitempty"`
-	RestoreTS  int64           `json:"restoreTo"`
-	PBMVersion string          `json:"pbmVersion"`
-	Type       defs.BackupType `json:"type"`
-	SrcBackup  string          `json:"src"`
-	StoreName  string          `json:"storage,omitempty"`
+	Name        string           `json:"name"`
+	Namespaces  []string         `json:"nss,omitempty"`
+	Size        int64            `json:"size,omitempty"`
+	Status      defs.Status      `json:"status"`
+	PrintStatus defs.PrintStatus `json:"printStatus"`
+	Err         error            `json:"-"`
+	ErrString   string           `json:"error,omitempty"`
+	RestoreTS   int64            `json:"restoreTo"`
+	PBMVersion  string           `json:"pbmVersion"`
+	Type        defs.BackupType  `json:"type"`
+	SrcBackup   string           `json:"src"`
+	StoreName   string           `json:"storage,omitempty"`
 }
 
 type pitrRange struct {

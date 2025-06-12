@@ -198,6 +198,10 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 
 		info, err := entry.Info()
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// file was removed in the meantime, and that's fine
+				return nil
+			}
 			return errors.Wrap(err, "getting file info")
 		}
 		if info.IsDir() {

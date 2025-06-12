@@ -470,35 +470,22 @@ func (s storageStat) String() string {
 		return a.RestoreTS > b.RestoreTS
 	})
 
-	const (
-		statusSuccess = "success"
-		statusFailed  = "failed"
-		statusOngoing = "ongoing"
-	)
-
-	var printStatus string
-
 	for i := range s.Snapshot {
 		ss := &s.Snapshot[i]
 		var status string
 		switch ss.Status {
 		case defs.StatusDone:
 			status = fmt.Sprintf("[restore_to_time: %s]", fmtTS(ss.RestoreTS))
-			printStatus = statusSuccess
 		case defs.StatusCancelled:
 			status = fmt.Sprintf("[!canceled: %s]", fmtTS(ss.RestoreTS))
-			printStatus = statusFailed
 		case defs.StatusError:
 			if errors.Is(ss.Err, errIncompatible) {
 				status = fmt.Sprintf("[incompatible: %s] [%s]", ss.Err.Error(), fmtTS(ss.RestoreTS))
-				printStatus = statusSuccess
 			} else {
 				status = fmt.Sprintf("[ERROR: %s] [%s]", ss.Err.Error(), fmtTS(ss.RestoreTS))
-				printStatus = statusFailed
 			}
 		default:
 			status = fmt.Sprintf("[running: %s / %s]", ss.Status, fmtTS(ss.RestoreTS))
-			printStatus = statusOngoing
 		}
 
 		t := string(ss.Type)
@@ -510,7 +497,7 @@ func (s storageStat) String() string {
 		if ss.StoreName != "" {
 			t += ", *"
 		}
-		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, printStatus, status)
+		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, ss.PrintStatus, status)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
@@ -612,6 +599,7 @@ func getStorageStat(
 			snpsht.Err = err
 			snpsht.ErrString = err.Error()
 		}
+		snpsht.PrintStatus = snpsht.Status.PrintStatus(snpsht.Err)
 
 		switch bcp.Status {
 		case defs.StatusError:
@@ -629,6 +617,7 @@ func getStorageStat(
 				snpsht.Err = errors.New(errStr)
 				snpsht.ErrString = errStr
 				snpsht.Status = defs.StatusError
+				snpsht.PrintStatus = defs.StatusError.PrintStatus()
 			}
 		}
 
@@ -638,6 +627,7 @@ func getStorageStat(
 			snpsht.Err = err
 			snpsht.ErrString = err.Error()
 			snpsht.Status = defs.StatusError
+			snpsht.PrintStatus = defs.StatusError.PrintStatus()
 		}
 
 		s.Snapshot = append(s.Snapshot, snpsht)
