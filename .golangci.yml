@@ -1,33 +1,66 @@
+version: "2"
 linters:
-  presets:
-    - bugs
-    - error
-    - unused
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - durationcheck
+    - err113
+    - errchkjson
     - errname
-    - predeclared
-    - stylecheck
-    # - ireturn
-    # - gomnd
-    - misspell
-    - nilerr
-    - nilnil
-    - lll
-    # - gocritic
-    - typecheck
-    # - goconst
+    - errorlint
+    - gocheckcompilerdirectives
     - gochecknoinits
-    # - forbidigo
+    - gochecksumtype
+    - gosmopolitan
+    - lll
+    - loggercheck
+    - makezero
+    - misspell
+    - musttag
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
     - nonamedreturns
+    - predeclared
+    - protogetter
+    - reassign
+    - recvcheck
+    - rowserrcheck
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - testifylint
+    - unparam
+    - zerologlint
   disable:
     - contextcheck
     - exhaustive
     - gosec
     - wrapcheck
-
-linters-settings:
-  govet:
-    disable:
-      - composites
-  misspell:
-    locale: "US"
+  settings:
+    govet:
+      disable:
+        - composites
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -57,7 +57,6 @@ jobs:
         with:
           reporter: github-pr-review
           level: error
-          golangci_lint_version: v1.64.8
 
   gofmt:
     name: runner / gofmt
