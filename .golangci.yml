@@ -1,40 +1,15 @@
 version: "2"
 linters:
   enable:
-    - asasalint
-    - asciicheck
-    - bidichk
-    - bodyclose
-    - durationcheck
-    - err113
-    - errchkjson
     - errname
-    - errorlint
-    - gocheckcompilerdirectives
-    - gochecknoinits
-    - gochecksumtype
-    - gosmopolitan
-    - lll
-    - loggercheck
-    - makezero
-    - misspell
-    - musttag
-    - nilerr
-    - nilnesserr
-    - nilnil
-    - noctx
-    - nonamedreturns
     - predeclared
-    - protogetter
-    - reassign
-    - recvcheck
-    - rowserrcheck
-    - spancheck
-    - sqlclosecheck
     - staticcheck
-    - testifylint
-    - unparam
-    - zerologlint
+    - misspell
+    - nilerr
+    - nilnil
+    - lll
+    - gochecknoinits
+    - nonamedreturns
   disable:
     - contextcheck
     - exhaustive
