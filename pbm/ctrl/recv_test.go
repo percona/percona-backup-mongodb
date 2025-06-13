@@ -91,7 +91,99 @@ func TestListenCmdFiltersDuplicate(t *testing.T) {
 	}
 
 	if len(got) != 2 || got[0].Cmd != "restore" || got[1].Cmd != "backup" {
-		t.Errorf("duplicate leaked through: %v", got)
+		t.Errorf("unexpected sequence: %v", got)
+	}
+}
+
+func TestListenCmdThreeCommandsSameSecond(t *testing.T) {
+	ctx := context.Background()
+	coll := connClient.CmdStreamCollection()
+	_ = coll.Drop(ctx)
+
+	ts := time.Now().UTC().Unix()
+
+	restoreDoc := bson.D{
+		{"_id", primitive.NewObjectID()},
+		{"cmd", "restore"},
+		{"ts", ts},
+	}
+	backupDoc := bson.D{
+		{"_id", primitive.NewObjectID()},
+		{"cmd", "backup"},
+		{"ts", ts},
+	}
+	testDoc := bson.D{
+		{"_id", primitive.NewObjectID()},
+		{"cmd", "backup"},
+		{"ts", ts},
+	}
+
+	if _, err := coll.InsertOne(ctx, restoreDoc); err != nil {
+		t.Fatalf("insert restore: %v", err)
+	}
+	if _, err := coll.InsertOne(ctx, backupDoc); err != nil {
+		t.Fatalf("insert backup: %v", err)
+	}
+	if _, err := coll.InsertOne(ctx, testDoc); err != nil {
+		t.Fatalf("insert backup: %v", err)
+	}
+
+	cmdC, errC := ListenCmd(ctx, connClient, make(chan struct{}))
+
+	var got []Cmd
+	for len(got) < 2 {
+		select {
+		case cmd := <-cmdC:
+			got = append(got, cmd)
+		case err := <-errC:
+			t.Fatalf("listener error: %v", err)
+		}
+	}
+
+	if len(got) != 2 {
+		t.Errorf("expected %d commands, got %d: %v", 2, len(got), got)
+	}
+}
+
+func TestListenCmdMultipleBatchesAcrossSeconds(t *testing.T) {
+	ctx := context.Background()
+	coll := connClient.CmdStreamCollection()
+	_ = coll.Drop(ctx)
+
+	baseTS := time.Now().UTC().Unix()
+
+	batches := [][]string{
+		{"resync_a", "backup_a", "restore_a"}, // T1
+		{"backup_b", "restore_b"},             // T2
+		{"resync_c", "backup_c", "restore_c"}, // T3
+	}
+
+	expectedTotal := 0
+	for i, batch := range batches {
+		ts := baseTS + int64(i)
+		for _, c := range batch {
+			doc := bson.D{{"_id", primitive.NewObjectID()}, {"cmd", c}, {"ts", ts}}
+			if _, err := coll.InsertOne(ctx, doc); err != nil {
+				t.Fatalf("insert %s: %v", c, err)
+			}
+			expectedTotal++
+		}
+	}
+
+	cmdC, errC := ListenCmd(ctx, connClient, make(chan struct{}))
+
+	var got []Cmd
+	for len(got) < expectedTotal {
+		select {
+		case cmd := <-cmdC:
+			got = append(got, cmd)
+		case err := <-errC:
+			t.Fatalf("listener error: %v", err)
+		}
+	}
+
+	if len(got) != expectedTotal {
+		t.Errorf("expected %d commands, got %d: %v", expectedTotal, len(got), got)
 	}
 }
 
