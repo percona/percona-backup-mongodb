@@ -70,9 +70,14 @@ func TestListenCmd(t *testing.T) {
 		{"backup", baseTS},
 		{"backup", baseTS},
 
-		{"resync", baseTS + 2}, {"backup", baseTS + 2}, {"restore", baseTS + 2},
-		{"backup", baseTS + 3}, {"restore", baseTS + 3},
-		{"resync", baseTS + 4}, {"backup", baseTS + 4}, {"restore", baseTS + 4},
+		{"resync", baseTS + 2},
+		{"backup", baseTS + 2},
+		{"restore", baseTS + 2},
+		{"backup", baseTS + 3},
+		{"restore", baseTS + 3},
+		{"resync", baseTS + 4},
+		{"backup", baseTS + 4},
+		{"restore", baseTS + 4},
 	}
 
 	for _, f := range testdata {
