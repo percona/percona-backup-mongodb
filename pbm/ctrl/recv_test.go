@@ -2,6 +2,7 @@ package ctrl
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"testing"
@@ -52,138 +53,80 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestListenCmdFiltersDuplicate(t *testing.T) {
-	ctx := context.Background()
-	coll := connClient.CmdStreamCollection()
-	_ = coll.Drop(ctx)
-
-	restoreTS := time.Now().UTC().Unix()
-	backupTS := restoreTS + 1
-
-	restoreDoc := bson.D{
-		{"_id", primitive.NewObjectID()},
-		{"cmd", "restore"},
-		{"ts", restoreTS},
-	}
-	backupDoc := bson.D{
-		{"_id", primitive.NewObjectID()},
-		{"cmd", "backup"},
-		{"ts", backupTS},
-	}
-
-	if _, err := coll.InsertOne(ctx, restoreDoc); err != nil {
-		t.Fatalf("insert restore: %v", err)
-	}
-	if _, err := coll.InsertOne(ctx, backupDoc); err != nil {
-		t.Fatalf("insert backup: %v", err)
-	}
-
-	cmdC, errC := ListenCmd(ctx, connClient, make(chan struct{}))
-
-	var got []Cmd
-	for len(got) < 2 { // want only restore + backup
-		select {
-		case cmd := <-cmdC:
-			got = append(got, cmd)
-		case err := <-errC:
-			t.Fatalf("listener error: %v", err)
-		}
-	}
-
-	if len(got) != 2 || got[0].Cmd != "restore" || got[1].Cmd != "backup" {
-		t.Errorf("unexpected sequence: %v", got)
-	}
-}
-
-func TestListenCmdThreeCommandsSameSecond(t *testing.T) {
-	ctx := context.Background()
-	coll := connClient.CmdStreamCollection()
-	_ = coll.Drop(ctx)
-
-	ts := time.Now().UTC().Unix()
-
-	restoreDoc := bson.D{
-		{"_id", primitive.NewObjectID()},
-		{"cmd", "restore"},
-		{"ts", ts},
-	}
-	backupDoc := bson.D{
-		{"_id", primitive.NewObjectID()},
-		{"cmd", "backup"},
-		{"ts", ts},
-	}
-	testDoc := bson.D{
-		{"_id", primitive.NewObjectID()},
-		{"cmd", "backup"},
-		{"ts", ts},
-	}
-
-	if _, err := coll.InsertOne(ctx, restoreDoc); err != nil {
-		t.Fatalf("insert restore: %v", err)
-	}
-	if _, err := coll.InsertOne(ctx, backupDoc); err != nil {
-		t.Fatalf("insert backup: %v", err)
-	}
-	if _, err := coll.InsertOne(ctx, testDoc); err != nil {
-		t.Fatalf("insert backup: %v", err)
-	}
-
-	cmdC, errC := ListenCmd(ctx, connClient, make(chan struct{}))
-
-	var got []Cmd
-	for len(got) < 2 {
-		select {
-		case cmd := <-cmdC:
-			got = append(got, cmd)
-		case err := <-errC:
-			t.Fatalf("listener error: %v", err)
-		}
-	}
-
-	if len(got) != 2 {
-		t.Errorf("expected %d commands, got %d: %v", 2, len(got), got)
-	}
-}
-
-func TestListenCmdMultipleBatchesAcrossSeconds(t *testing.T) {
+func TestListenCmd(t *testing.T) {
 	ctx := context.Background()
 	coll := connClient.CmdStreamCollection()
 	_ = coll.Drop(ctx)
 
 	baseTS := time.Now().UTC().Unix()
 
-	batches := [][]string{
-		{"resync_a", "backup_a", "restore_a"}, // T1
-		{"backup_b", "restore_b"},             // T2
-		{"resync_c", "backup_c", "restore_c"}, // T3
+	testdata := []struct {
+		cmd string
+		ts  int64
+	}{
+		{"restore", baseTS},
+		{"backup", baseTS + 1},
+
+		{"backup", baseTS},
+		{"backup", baseTS},
+
+		{"resync", baseTS + 2}, {"backup", baseTS + 2}, {"restore", baseTS + 2},
+		{"backup", baseTS + 3}, {"restore", baseTS + 3},
+		{"resync", baseTS + 4}, {"backup", baseTS + 4}, {"restore", baseTS + 4},
 	}
 
-	expectedTotal := 0
-	for i, batch := range batches {
-		ts := baseTS + int64(i)
-		for _, c := range batch {
-			doc := bson.D{{"_id", primitive.NewObjectID()}, {"cmd", c}, {"ts", ts}}
-			if _, err := coll.InsertOne(ctx, doc); err != nil {
-				t.Fatalf("insert %s: %v", c, err)
-			}
-			expectedTotal++
+	for _, f := range testdata {
+		doc := bson.D{{"_id", primitive.NewObjectID()}, {"cmd", f.cmd}, {"ts", f.ts}}
+		if _, err := coll.InsertOne(ctx, doc); err != nil {
+			t.Fatalf("insert %s@%d: %v", f.cmd, f.ts, err)
 		}
+	}
+
+	// Build the expectation set: one entry per ts, cmd.
+	want := make(map[string]struct{})
+	for _, f := range testdata {
+		key := fmt.Sprintf("%d/%s", f.ts, f.cmd)
+		want[key] = struct{}{}
 	}
 
 	cmdC, errC := ListenCmd(ctx, connClient, make(chan struct{}))
 
-	var got []Cmd
-	for len(got) < expectedTotal {
-		select {
-		case cmd := <-cmdC:
-			got = append(got, cmd)
-		case err := <-errC:
-			t.Fatalf("listener error: %v", err)
+	idle := 3 * time.Second
+	timer := time.NewTimer(idle)
+
+	got := make(map[string]struct{})
+	func() {
+		for {
+			select {
+			case cmd := <-cmdC:
+				key := fmt.Sprintf("%d/%s", cmd.TS, string(cmd.Cmd))
+				got[key] = struct{}{}
+				if !timer.Stop() {
+					<-timer.C
+				}
+				timer.Reset(idle)
+			case err := <-errC:
+				t.Fatalf("listener error: %v", err)
+			case <-timer.C:
+				return
+			}
+		}
+	}()
+
+	if len(got) != len(want) {
+		t.Errorf("expected %d unique commands, got %d", len(want), len(got))
+	}
+
+	for key := range want {
+		if _, ok := got[key]; !ok {
+			t.Errorf("missing expected command: %s", key)
 		}
 	}
 
-	if len(got) != expectedTotal {
-		t.Errorf("expected %d commands, got %d: %v", expectedTotal, len(got), got)
+	for key := range got {
+		if _, ok := want[key]; !ok {
+			t.Errorf("unexpected extra command: %s", key)
+		}
 	}
 }
 
