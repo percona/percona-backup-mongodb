@@ -108,6 +108,22 @@ func (cfg *Config) Equal(other *Config) bool {
 	return true
 }
 
+// IsSameStorage identifies the same instance of the GCS storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Bucket != other.Bucket {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+
+	return true
+}
+
 func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	g := &GCS{
 		opts: opts,
