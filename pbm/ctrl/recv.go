@@ -41,7 +41,7 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 
 		ts := time.Now().UTC().Unix()
 		var lastTS int64
-		var lastCmd Command
+		cmdBuckets := make(map[int64][]Cmd)
 		for {
 			select {
 			case <-ctx.Done():
@@ -68,7 +68,7 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 					continue
 				}
 
-				if c.Cmd == lastCmd && c.TS == lastTS {
+				if checkDuplicateCmd(cmdBuckets, c) {
 					continue
 				}
 
@@ -80,7 +80,7 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 
 				c.OPID = OPID(opid)
 
-				lastCmd = c.Cmd
+				cmdBuckets[c.TS] = append(cmdBuckets[c.TS], c)
 				lastTS = c.TS
 				cmd <- c
 				ts = time.Now().UTC().Unix()
@@ -90,10 +90,39 @@ func ListenCmd(ctx context.Context, m connect.Client, cl <-chan struct{}) (<-cha
 				cur.Close(ctx)
 				return
 			}
+
+			cleanupOldCmdBuckets(cmdBuckets, lastTS)
+
 			cur.Close(ctx)
 			time.Sleep(time.Second * 1)
 		}
 	}()
 
 	return cmd, errc
+}
+
+// checkDuplicateCmd returns true if the command already exists in the bucket for its timestamp.
+func checkDuplicateCmd(cmdBuckets map[int64][]Cmd, c Cmd) bool {
+	cmds, ok := cmdBuckets[c.TS]
+
+	if !ok {
+		return false
+	}
+
+	for _, cmd := range cmds {
+		if cmd.Cmd == c.Cmd && cmd.TS == c.TS {
+			return true
+		}
+	}
+
+	return false
+}
+
+// cleanupOldCmdBuckets deletes buckets older than the lastTS.
+func cleanupOldCmdBuckets(cmdBuckets map[int64][]Cmd, lastTS int64) {
+	for ts := range cmdBuckets {
+		if ts < lastTS {
+			delete(cmdBuckets, ts)
+		}
+	}
 }
