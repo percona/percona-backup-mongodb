@@ -77,7 +77,7 @@ func TestListenCmd(t *testing.T) {
 			{"backup", 1},
 			{"restore", 1},
 			{"resync", 2},
-			{"backup", 3},
+			{"backup", 2},
 			{"restore", 2},
 		},
 	}
