@@ -56,81 +56,101 @@ func TestMain(m *testing.M) {
 func TestListenCmd(t *testing.T) {
 	ctx := context.Background()
 	coll := connClient.CmdStreamCollection()
-	_ = coll.Drop(ctx)
 
-	baseTS := time.Now().UTC().Unix()
-
-	testdata := []struct {
-		cmd string
-		ts  int64
+	testdata := [][]struct {
+		cmd    string
+		offset int
 	}{
-		{"restore", baseTS},
-		{"backup", baseTS + 1},
+		{
+			{"restore", 0},
+			{"backup", 1},
+		},
 
-		{"backup", baseTS},
-		{"backup", baseTS},
-
-		{"resync", baseTS + 2},
-		{"backup", baseTS + 2},
-		{"restore", baseTS + 2},
-		{"backup", baseTS + 3},
-		{"restore", baseTS + 3},
-		{"resync", baseTS + 4},
-		{"backup", baseTS + 4},
-		{"restore", baseTS + 4},
+		{
+			{"backup", 0},
+			{"backup", 0},
+		},
+		{
+			{"resync", 0},
+			{"backup", 0},
+			{"restore", 0},
+			{"backup", 1},
+			{"restore", 1},
+			{"resync", 2},
+			{"backup", 3},
+			{"restore", 2},
+		},
 	}
 
-	for _, f := range testdata {
-		doc := bson.D{{"_id", primitive.NewObjectID()}, {"cmd", f.cmd}, {"ts", f.ts}}
-		if _, err := coll.InsertOne(ctx, doc); err != nil {
-			t.Fatalf("insert %s@%d: %v", f.cmd, f.ts, err)
+	for index, entries := range testdata {
+		_ = coll.Drop(ctx)
+
+		stopCh := make(chan struct{})
+		cmdC, errC := ListenCmd(ctx, connClient, stopCh)
+
+		partTS := time.Now().UTC().Unix()
+
+		var commands []struct {
+			cmd string
+			ts  int64
 		}
-	}
+		for _, t := range entries {
+			commands = append(commands, struct {
+				cmd string
+				ts  int64
+			}{t.cmd, partTS + int64(t.offset)})
+		}
 
-	// Build the expectation set: one entry per ts, cmd.
-	want := make(map[string]struct{})
-	for _, f := range testdata {
-		key := fmt.Sprintf("%d/%s", f.ts, f.cmd)
-		want[key] = struct{}{}
-	}
-
-	cmdC, errC := ListenCmd(ctx, connClient, make(chan struct{}))
-
-	idle := 3 * time.Second
-	timer := time.NewTimer(idle)
-
-	got := make(map[string]struct{})
-	func() {
-		for {
-			select {
-			case cmd := <-cmdC:
-				key := fmt.Sprintf("%d/%s", cmd.TS, string(cmd.Cmd))
-				got[key] = struct{}{}
-				if !timer.Stop() {
-					<-timer.C
-				}
-				timer.Reset(idle)
-			case err := <-errC:
-				t.Fatalf("listener error: %v", err)
-			case <-timer.C:
-				return
+		for _, e := range commands {
+			doc := bson.D{{"_id", primitive.NewObjectID()}, {"cmd", e.cmd}, {"ts", e.ts}}
+			if _, err := coll.InsertOne(ctx, doc); err != nil {
+				t.Fatalf("insert %s@%d: %v", e.cmd, e.ts, err)
 			}
 		}
-	}()
 
-	if len(got) != len(want) {
-		t.Errorf("expected %d unique commands, got %d", len(want), len(got))
-	}
-
-	for key := range want {
-		if _, ok := got[key]; !ok {
-			t.Errorf("missing expected command: %s", key)
+		want := make(map[string]struct{})
+		for _, e := range commands {
+			want[fmt.Sprintf("%d/%s", e.ts, e.cmd)] = struct{}{}
 		}
-	}
 
-	for key := range got {
-		if _, ok := want[key]; !ok {
-			t.Errorf("unexpected extra command: %s", key)
+		idle := 3 * time.Second
+		timer := time.NewTimer(idle)
+		got := make(map[string]struct{})
+
+		func() {
+			for {
+				select {
+				case cmd := <-cmdC:
+					key := fmt.Sprintf("%d/%s", cmd.TS, string(cmd.Cmd))
+					got[key] = struct{}{}
+					if !timer.Stop() {
+						<-timer.C
+					}
+					timer.Reset(idle)
+				case err := <-errC:
+					t.Fatalf("listener error: %v", err)
+				case <-timer.C:
+					return
+				}
+			}
+		}()
+
+		close(stopCh)
+
+		if len(got) != len(want) {
+			t.Errorf("part %d: expected %d unique commands, got %d", index+1, len(want), len(got))
+		}
+
+		for key := range want {
+			if _, ok := got[key]; !ok {
+				t.Errorf("part %d: missing expected command: %s", index+1, key)
+			}
+		}
+
+		for key := range got {
+			if _, ok := want[key]; !ok {
+				t.Errorf("part %d: unexpected extra command: %s", index+1, key)
+			}
 		}
 	}
 }
