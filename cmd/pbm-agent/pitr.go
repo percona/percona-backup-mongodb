@@ -160,7 +160,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.Stor
 			return errors.Wrap(err, "get backup metadata")
 		}
 
-		if bcp.Type == defs.LogicalBackup && bcp.Store.Equal(stgCfg) {
+		if bcp.Type == defs.LogicalBackup && bcp.Store.IsSameStorage(stgCfg) {
 			return lock.ConcurrentOpError{l.LockHeader}
 		}
 	}

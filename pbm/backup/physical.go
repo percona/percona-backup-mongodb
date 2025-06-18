@@ -232,7 +232,7 @@ func (b *Backup) doPhysical(
 				}
 			}
 
-			if !b.config.Storage.Equal(&src.Store.StorageConf) {
+			if !b.config.Storage.IsSameStorage(&src.Store.StorageConf) {
 				return errors.New("cannot use the configured storage: " +
 					"source backup is stored on a different storage")
 			}

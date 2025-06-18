@@ -274,6 +274,32 @@ func (s *StorageConf) Equal(other *StorageConf) bool {
 	return false
 }
 
+// IsSameStorage returns true if specified config params describes
+// the same instance of the storage.
+// It ignores storage properties, and just compare parts that specifies
+// the storage instance.
+func (s *StorageConf) IsSameStorage(other *StorageConf) bool {
+	if s.Type != other.Type {
+		return false
+	}
+
+	switch s.Type {
+	case storage.S3:
+		return s.S3.IsSameStorage(other.S3)
+	case storage.Azure:
+		return s.Azure.IsSameStorage(other.Azure)
+	case storage.GCS:
+		return s.GCS.IsSameStorage(other.GCS)
+	case storage.Filesystem:
+		// FS is the same if it's equal
+		return s.Filesystem.Equal(other.Filesystem)
+	case storage.Blackhole:
+		return true
+	}
+
+	return false
+}
+
 func (s *StorageConf) Cast() error {
 	switch s.Type {
 	case storage.Filesystem:

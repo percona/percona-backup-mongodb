@@ -79,6 +79,24 @@ func (cfg *Config) Equal(other *Config) bool {
 	return true
 }
 
+// IsSameStorage identifies the same instance of the Azure storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Account != other.Account {
+		return false
+	}
+	if cfg.Container != other.Container {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	return true
+}
+
 // resolveEndpointURL returns endpoint url based on provided
 // EndpointURL or associated EndpointURLMap configuration fields.
 // If specified EndpointURLMap overrides EndpointURL field.
