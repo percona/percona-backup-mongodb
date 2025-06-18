@@ -144,8 +144,24 @@ func runConfig(
 
 		// resync storage only if Storage options have changed
 		if !reflect.DeepEqual(newCfg.Storage, oldCfg.Storage) {
-			if _, err := pbm.SyncFromStorage(ctx, false); err != nil {
+			cid, err := pbm.SyncFromStorage(ctx, false)
+			if err != nil {
 				return nil, errors.Wrap(err, "resync")
+			}
+
+			if c.wait {
+				if c.waitTime > time.Second {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, c.waitTime)
+					defer cancel()
+				}
+
+				if err := sdk.WaitForResync(ctx, pbm, cid); err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						err = errWaitTimeout
+					}
+					return nil, errors.Wrapf(err, "waiting for resync [opid %q]", cid)
+				}
 			}
 		}
 
