@@ -1,4 +1,4 @@
-.PHONY: build-pbm build-agent build install install-pbm install-agent test
+.PHONY: build-pbm build-agent build install install-pbm install-agent test completion completion-bash completion-zsh
 
 GOOS?=$(shell go env GOOS)
 GOMOD?=on
@@ -129,3 +129,28 @@ install-agent-cover:
 	$(ENVS) go install -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-agent
 install-stest-cover:
 	$(ENVS) go install -cover -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) ./cmd/pbm-speed-test
+
+# COMPLETION SCRIPTS
+completion: completion-bash completion-zsh
+
+completion-dir-bash:
+	mkdir -p ./bin/completions/bash
+
+completion-dir-zsh:
+	mkdir -p ./bin/completions/zsh
+
+completion-bash: completion-dir-bash completion-bash-pbm completion-bash-agent completion-bash-stest
+completion-bash-pbm:
+	./bin/pbm completion bash > ./bin/completions/bash/pbm
+completion-bash-agent:
+	./bin/pbm-agent completion bash > ./bin/completions/bash/pbm-agent
+completion-bash-stest:
+	./bin/pbm-speed-test completion bash > ./bin/completions/bash/pbm-speed-test
+
+completion-zsh: completion-dir-zsh completion-zsh-pbm completion-zsh-agent completion-zsh-stest
+completion-zsh-pbm:
+	./bin/pbm completion zsh > ./bin/completions/zsh/_pbm
+completion-zsh-agent:
+	./bin/pbm-agent completion zsh > ./bin/completions/zsh/_pbm-agent
+completion-zsh-stest:
+	./bin/pbm-speed-test completion zsh > ./bin/completions/zsh/_pbm-speed-test
