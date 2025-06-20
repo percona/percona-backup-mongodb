@@ -155,8 +155,7 @@ func runBackup(
 	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
-
-	err = waitForBcpStatus(startCtx, conn, pbm, ctx, b.name, showProgress)
+	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
 	if err != nil {
 		return nil, err
 	}
