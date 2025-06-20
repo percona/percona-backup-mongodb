@@ -819,12 +819,12 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!",
 	)
 	restoreCmd.Flags().Bool(
-		"fallback-enabled", false, "Enables/disables fallback strategy when doing physical restore.",
+		"fallback-enabled", false, "Enables/disables fallback strategy when performing a physical restore.",
 	)
 	restoreCmd.Flags().Bool(
 		"allow-partly-done", false,
-		"Allows parly done state of the cluster after physical restore. "+
-			"If enabled (default), partly-done status for RS will be treated as successful restore."+
+		"Allows partly done state of the cluster after physical restore. "+
+			"If enabled (default), partly-done status for RS will be treated as successful restore. "+
 			"If disabled, fallback will be applied when cluster is partly-done.",
 	)
 
