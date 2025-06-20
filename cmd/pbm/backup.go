@@ -264,14 +264,7 @@ func waitBackup(
 	}
 }
 
-func waitForBcpStatus(
-	ctx context.Context,
-	conn connect.Client,
-	pbm *sdk.Client,
-	bcpCtx context.Context,
-	bcpName string,
-	showProgress bool,
-) error {
+func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
@@ -288,10 +281,6 @@ func waitForBcpStatus(
 				continue
 			}
 			if err != nil {
-				if opErr := checkForAnotherOperation(bcpCtx, pbm); opErr != nil {
-					return opErr
-				}
-
 				return errors.Wrap(err, "get backup metadata")
 			}
 			switch bmeta.Status {
