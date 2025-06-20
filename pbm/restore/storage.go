@@ -268,10 +268,11 @@ func parsePhysRestoreCond(stg storage.Storage, fname, restoreName string) (*Cond
 		return &cond, nil
 	}
 
-	cond.Timestamp, err = strconv.ParseInt(string(b), 10, 0)
-	if err != nil {
-		return nil, errors.Wrapf(err, "read ts from %s", fname)
+	if len(b) != 0 {
+		cond.Timestamp, err = strconv.ParseInt(string(b), 10, 0)
+		if err != nil {
+			return nil, errors.Wrapf(err, "read ts from %s", fname)
+		}
 	}
-
 	return &cond, nil
 }
