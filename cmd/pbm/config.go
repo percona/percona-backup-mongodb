@@ -77,8 +77,15 @@ func runConfig(
 			}
 		}
 		if rsnc {
-			if _, err := pbm.SyncFromStorage(ctx, false); err != nil {
+			cid, err := pbm.SyncFromStorage(ctx, false)
+			if err != nil {
 				return nil, errors.Wrap(err, "resync")
+			}
+
+			if c.wait {
+				if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
+					return nil, err
+				}
 			}
 		}
 		return o, nil
