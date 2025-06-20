@@ -149,7 +149,7 @@ func handleAddConfigProfile(
 		}
 
 		if opts.wait {
-			if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, opts.waitTime); err != nil {
+			if err := waitForResyncWithTimeout(ctx, pbm, cid, opts.waitTime); err != nil {
 				return nil, err
 			}
 		}
@@ -240,7 +240,7 @@ func handleSyncConfigProfile(
 	}
 
 	if opts.wait {
-		if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, opts.waitTime); err != nil {
+		if err := waitForResyncWithTimeout(ctx, pbm, cid, opts.waitTime); err != nil {
 			return nil, err
 		}
 	}

@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -26,7 +25,6 @@ type (
 
 var (
 	ErrMissedClusterTime       = errors.New("missed cluster time")
-	ErrWaitTimeout             = errors.New("Operation is in progress. Check pbm status and logs")
 	ErrInvalidDeleteBackupType = backup.ErrInvalidDeleteBackupType
 )
 
@@ -93,23 +91,6 @@ func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 			return err
 		}
 	}
-}
-
-func WaitForResyncWithTimeout(ctx context.Context, c *Client, cid CommandID, timeout time.Duration) error {
-	if timeout > time.Second {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-
-	if err := WaitForResync(ctx, c, cid); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			err = ErrWaitTimeout
-		}
-
-		return errors.Wrapf(err, "waiting for resync [opid %q]", cid)
-	}
-	return nil
 }
 
 func FindCommandIDByName(ctx context.Context, c *Client, name string) (CommandID, error) {

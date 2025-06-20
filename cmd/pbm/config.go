@@ -83,7 +83,7 @@ func runConfig(
 			}
 
 			if c.wait {
-				if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
+				if err := waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
 					return nil, err
 				}
 			}
@@ -108,7 +108,7 @@ func runConfig(
 			return outMsg{"Storage resync started"}, nil
 		}
 
-		if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
+		if err := waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
 			return nil, err
 		}
 
@@ -146,7 +146,7 @@ func runConfig(
 			}
 
 			if c.wait {
-				if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
+				if err := waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
 					return nil, err
 				}
 			}
