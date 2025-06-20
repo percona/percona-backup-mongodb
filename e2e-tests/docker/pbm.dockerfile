@@ -9,7 +9,7 @@ WORKDIR /build
 RUN mkdir -p /data/db
 
 COPY --from=mongo_image /bin/mongod /bin/
-RUN dnf install epel-release && dnf update && dnf install make gcc krb5-devel iproute-tc libfaketime
+RUN dnf install epel-release && dnf update && dnf install make gcc krb5-devel iproute-tc libfaketime bash-completion
 
 RUN arch=$(arch | sed s/aarch64/arm64/ | sed s/x86_64/amd64/) && \
 curl -sL -o /tmp/golang.tar.gz https://go.dev/dl/go1.23.2.linux-${arch}.tar.gz && \
@@ -21,3 +21,5 @@ FROM base-build
 COPY . .
 
 RUN make build-tests && cp /build/bin/* /bin/
+RUN pbm completion bash > /etc/bash_completion.d/pbm
+RUN useradd -u 1001 user
