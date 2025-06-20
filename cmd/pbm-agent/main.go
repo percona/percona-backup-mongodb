@@ -17,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -25,6 +26,7 @@ const mongoConnFlag = "mongodb-uri"
 func main() {
 	rootCmd := rootCommand()
 	rootCmd.AddCommand(versionCommand())
+	rootCmd.AddCommand(util.CompletionCommand())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
