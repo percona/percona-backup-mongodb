@@ -15,7 +15,7 @@ import (
 type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
-	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
+	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
 
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer

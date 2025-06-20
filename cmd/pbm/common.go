@@ -44,6 +44,23 @@ func checkForAnotherOperation(ctx context.Context, pbm *sdk.Client) error {
 	return nil
 }
 
+func waitForResyncWithTimeout(ctx context.Context, pbm *sdk.Client, cid sdk.CommandID, timeout time.Duration) error {
+	if timeout > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	if err := sdk.WaitForResync(ctx, pbm, cid); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errWaitTimeout
+		}
+
+		return errors.Wrapf(err, "waiting for resync [opid %q]", cid)
+	}
+	return nil
+}
+
 type concurrentOpError struct{ sdk.OpLock }
 
 func (e *concurrentOpError) Error() string {
