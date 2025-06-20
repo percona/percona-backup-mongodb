@@ -149,19 +149,8 @@ func handleAddConfigProfile(
 		}
 
 		if opts.wait {
-			if opts.waitTime > time.Second {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, opts.waitTime)
-				defer cancel()
-			}
-
-			err = sdk.WaitForResync(ctx, pbm, cid)
-			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					err = errWaitTimeout
-				}
-
-				return nil, errors.Wrap(err, "wait")
+			if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, opts.waitTime); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -251,19 +240,8 @@ func handleSyncConfigProfile(
 	}
 
 	if opts.wait {
-		if opts.waitTime > time.Second {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, opts.waitTime)
-			defer cancel()
-		}
-
-		err = sdk.WaitForResync(ctx, pbm, cid)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				err = errWaitTimeout
-			}
-
-			return nil, errors.Wrap(err, "wait")
+		if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, opts.waitTime); err != nil {
+			return nil, err
 		}
 	}
 

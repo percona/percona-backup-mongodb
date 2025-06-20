@@ -101,19 +101,8 @@ func runConfig(
 			return outMsg{"Storage resync started"}, nil
 		}
 
-		if c.waitTime > time.Second {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, c.waitTime)
-			defer cancel()
-		}
-
-		err = sdk.WaitForResync(ctx, pbm, cid)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				err = errWaitTimeout
-			}
-
-			return nil, errors.Wrapf(err, "waiting for resync [opid %q]", cid)
+		if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
+			return nil, err
 		}
 
 		return outMsg{"Storage resync finished"}, nil
@@ -150,17 +139,8 @@ func runConfig(
 			}
 
 			if c.wait {
-				if c.waitTime > time.Second {
-					var cancel context.CancelFunc
-					ctx, cancel = context.WithTimeout(ctx, c.waitTime)
-					defer cancel()
-				}
-
-				if err := sdk.WaitForResync(ctx, pbm, cid); err != nil {
-					if errors.Is(err, context.DeadlineExceeded) {
-						err = errWaitTimeout
-					}
-					return nil, errors.Wrapf(err, "waiting for resync [opid %q]", cid)
+				if err := sdk.WaitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
+					return nil, err
 				}
 			}
 		}
