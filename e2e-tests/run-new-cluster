@@ -21,7 +21,7 @@ desc 'Add test data'
 mongo_run 'for (var i = 1; i <= 50000; i++) db.getSiblingDB("test").testts.insert( { x : Date.now(), y: i } )' "rs1"
 
 desc 'Configure PBM'
-pbm_run config --file=/etc/pbm/minio.yaml
+pbm_run config --file=/etc/pbm/minio.yaml --wait
 sleep 6
 wait_noop
 pbm_run status
@@ -31,13 +31,13 @@ desc 'Backup'
 pbm_run backup
 wait_backup
 wait_noop
-pbm_run config --set pitr.enabled=true
+pbm_run config --set pitr.enabled=true --wait
 sleep 6
 mongo_run 'db.getSiblingDB("admin").createRole({ "role": "testRolePITR","privileges": [{ "resource": { "anyResource": true },"actions": [ "anyAction" ]}],"roles": []});' "rs1"
 mongo_run 'db.getSiblingDB("admin").createUser({user: "testUserPITR",pwd: "test1234","roles" : [{ "db" : "admin", "role" : "testRolePITR" }]});' "rs1"
 date
 sleep 30
-pbm_run config --set pitr.enabled=false
+pbm_run config --set pitr.enabled=false --wait
 wait_noop
 pbm_run logs -t 10
 PITR_Time=$(pbm_run status -s backups | grep -o " \- [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9]\{2\}\:[0-9]\{2\}\:[0-9]\{2\}" | sed "s/ - //" | head -n 1)
@@ -62,7 +62,7 @@ mongo_run 'db.getSiblingDB("admin").createRole({ "role": "testRole2","privileges
 mongo_run 'db.getSiblingDB("admin").createUser({user: "testUser2",pwd: "test1234","roles" : [{ "db" : "admin", "role" : "testRole2" }]});' "rs1"
 
 desc 'Configure PBM'
-pbm_run config --file=/etc/pbm/minio.yaml
+pbm_run config --file=/etc/pbm/minio.yaml --wait
 pbm_run status
 sleep 6
 wait_noop

@@ -41,12 +41,12 @@ func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
 }
 
 func (c *Ctl) PITRon() error {
-	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=true")
+	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=true", "--wait")
 	if err != nil {
 		return errors.Wrap(err, "config set pitr.enabled=true")
 	}
 
-	_, err = c.RunCmd("pbm", "config", "--set", "pitr.oplogSpanMin=1")
+	_, err = c.RunCmd("pbm", "config", "--set", "pitr.oplogSpanMin=1", "--wait")
 	if err != nil {
 		return errors.Wrap(err, "config set pitr.oplogSpanMin=1")
 	}
@@ -56,7 +56,7 @@ func (c *Ctl) PITRon() error {
 }
 
 func (c *Ctl) PITRoff() error {
-	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=false")
+	out, err := c.RunCmd("pbm", "config", "--set", "pitr.enabled=false", "--wait")
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (c *Ctl) PITRoff() error {
 }
 
 func (c *Ctl) ApplyConfig(file string) error {
-	out, err := c.RunCmd("pbm", "config", "--file", file)
+	out, err := c.RunCmd("pbm", "config", "--file", file, "--wait")
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,7 @@ func (c *Ctl) ApplyConfig(file string) error {
 }
 
 func (c *Ctl) Resync() error {
-	out, err := c.RunCmd("pbm", "config", "--force-resync")
+	out, err := c.RunCmd("pbm", "config", "--force-resync", "--wait")
 	if err != nil {
 		return err
 	}
