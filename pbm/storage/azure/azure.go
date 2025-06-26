@@ -79,6 +79,24 @@ func (cfg *Config) Equal(other *Config) bool {
 	return true
 }
 
+// IsSameStorage identifies the same instance of the Azure storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Account != other.Account {
+		return false
+	}
+	if cfg.Container != other.Container {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	return true
+}
+
 // resolveEndpointURL returns endpoint url based on provided
 // EndpointURL or associated EndpointURLMap configuration fields.
 // If specified EndpointURLMap overrides EndpointURL field.
@@ -128,10 +146,17 @@ func (*Blob) Type() storage.Type {
 	return storage.Azure
 }
 
-func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
+func (b *Blob) Save(name string, data io.Reader, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
+
 	bufsz := defaultUploadBuff
-	if sizeb > 0 {
-		ps := int(sizeb / maxBlocks * 11 / 10) // add 10% just in case
+	if opts.Size > 0 {
+		ps := int(opts.Size / maxBlocks * 11 / 10) // add 10% just in case
 		if ps > bufsz {
 			bufsz = ps
 		}
@@ -142,8 +167,8 @@ func (b *Blob) Save(name string, data io.Reader, sizeb int64) error {
 		cc = 1
 	}
 
-	if b.log != nil {
-		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, sizeb)
+	if b.log != nil && opts.UseLogger {
+		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, opts.Size)
 	}
 
 	_, err := b.c.UploadStream(context.TODO(),

@@ -7,15 +7,18 @@ import (
 	"fmt"
 	"io"
 	slog "log"
+	"maps"
 	"math/rand"
 	"net"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
@@ -37,6 +40,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -46,13 +50,18 @@ import (
 const (
 	defaultRSdbpath   = "/data/db"
 	defaultCSRSdbpath = "/data/configdb"
+	fallbackDir       = ".fallbacksync"
 
 	mongofslock = "mongod.lock"
 
 	defaultPort = 27017
 
-	tryConnCount   = 5
-	tryConnTimeout = 5 * time.Minute
+	tryConnCount      = 5
+	tryConnTimeout    = 5 * time.Minute
+	mongodLockTimeout = 30 * time.Minute
+	mongodPortTimeout = 5 * time.Minute
+
+	internalMongodLog = "pbm.restore.log"
 )
 
 type files struct {
@@ -84,6 +93,7 @@ type PhysRestore struct {
 	bcpStg    storage.Storage
 	bcp       *backup.BackupMeta
 	files     []files
+	bcpSizeRS int64 // total uncompressed size of the backup for RS (including all increments)
 	restoreTS primitive.Timestamp
 
 	confOpts *config.RestoreConf
@@ -106,7 +116,9 @@ type PhysRestore struct {
 
 	log log.LogEvent
 
-	rsMap map[string]string
+	rsMap           map[string]string
+	fallback        bool
+	allowPartlyDone bool
 }
 
 func NewPhysical(
@@ -115,6 +127,8 @@ func NewPhysical(
 	node *mongo.Client,
 	inf *topo.NodeInfo,
 	rsMap map[string]string,
+	fallback bool,
+	allowPartlyDone bool,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
@@ -170,16 +184,18 @@ func NewPhysical(
 	}
 
 	return &PhysRestore{
-		leadConn: leadConn,
-		node:     node,
-		dbpath:   p,
-		rsConf:   rcf,
-		shards:   shards,
-		cfgConn:  csvr,
-		nodeInfo: inf,
-		tmpPort:  tmpPort,
-		secOpts:  opts.Security,
-		rsMap:    rsMap,
+		leadConn:        leadConn,
+		node:            node,
+		dbpath:          p,
+		rsConf:          rcf,
+		shards:          shards,
+		cfgConn:         csvr,
+		nodeInfo:        inf,
+		tmpPort:         tmpPort,
+		secOpts:         opts.Security,
+		rsMap:           rsMap,
+		fallback:        fallback,
+		allowPartlyDone: allowPartlyDone,
 	}, nil
 }
 
@@ -202,9 +218,12 @@ func peekTmpPort(current int) (int, error) {
 	return -1, errors.Errorf("can't find unused port in range [%d, %d]", current, current+rng)
 }
 
-// Close releases object resources.
-// Should be run to avoid leaks.
-func (r *PhysRestore) close(noerr, cleanup bool) {
+// close cleans up all temp restore files.
+// Based on cluster status it does cleanup of the node's db path or it
+// applies fallback sync recovery strategy.
+//
+//nolint:nonamedreturns
+func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 	if r.tmpConf != nil {
 		r.log.Debug("rm tmp conf")
 		err := os.Remove(r.tmpConf.Name())
@@ -212,16 +231,13 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
 		}
 	}
-	// clean-up internal mongod log only if there is no error
+
+	// if there is no error, clean-up internal restore files
+	// internal log file(s) should stay in any case
 	if noerr {
-		r.log.Debug("rm tmp logs")
-		err := os.Remove(path.Join(r.dbpath, internalMongodLog))
-		if err != nil {
-			r.log.Warning("remove tmp mongod logs %s: %v", path.Join(r.dbpath, internalMongodLog), err)
-		}
 		extMeta := filepath.Join(r.dbpath,
 			fmt.Sprintf(defs.ExternalRsMetaFile, util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)))
-		err = os.Remove(extMeta)
+		err := os.Remove(extMeta)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove external rs meta <%s>: %v", extMeta, err)
 		}
@@ -229,20 +245,163 @@ func (r *PhysRestore) close(noerr, cleanup bool) {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			r.log.Warning("remove file <%s>: %v", backup.FilelistName, err)
 		}
-	} else if cleanup { // clean-up dbpath on err if needed
-		r.log.Debug("clean-up dbpath")
-		err := removeAll(r.dbpath, r.log)
+	}
+
+	r.log.Debug("wait for cluster status")
+	cStatus, err := r.waitClusterStatus()
+	if err != nil {
+		r.log.Warning("waiting for cluster status during cleanup: %v", err)
+	}
+
+	defer func() {
+		if r.fallback {
+			// free space by just deleting fallback dir
+			err := r.removeFallback()
+			if err != nil {
+				r.log.Error("flush fallback: %v", err)
+			}
+		}
+
+		if r.stopHB != nil {
+			close(r.stopHB)
+		}
+	}()
+
+	// resolve and exec cleanup
+	cleanup := r.resolveCleanupStrategy(cStatus, progress)
+	err = cleanup()
+	if err != nil {
+		return errors.Wrap(err, "exec cleanup strategy")
+	}
+
+	return nil
+}
+
+// doFullCleanup is node's cleanup strategy for deleting the whole dbpath.
+func (r *PhysRestore) doFullCleanup() error {
+	r.log.Warning("apply full cleanup strategy")
+	err := removeAll(r.dbpath, r.log, getInternalLogFileSkipRule())
+	if err != nil {
+		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+	}
+
+	// cleanup went file, bug full cleanup represents error in case of restore
+	return errors.New("full cleanup applyed")
+}
+
+// doFallbackCleanup is node's cleanup strategy for recovering dbpath
+// from fallbacksync dir.
+// It marks cluster with fallback error.
+func (r *PhysRestore) doFallbackCleanup() error {
+	r.log.Warning("apply fallback cleanup strategy: using db data from %s", fallbackDir)
+	err := r.migrateFromFallbackDirToDBDir()
+	if err != nil {
+		return errors.Wrap(err, "migrate from fallback dir")
+	}
+
+	if r.nodeInfo.IsClusterLeader() {
+		err = r.MarkAsFallback()
 		if err != nil {
-			r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+			r.log.Warning("mark meta as fallback: %v", err)
 		}
 	}
-	if r.stopHB != nil {
-		close(r.stopHB)
+
+	// cleanup went file, bug fallback represents error in case of restore
+	return errors.New("fallback applyed")
+}
+
+func (r *PhysRestore) skipCleanup() error {
+	r.log.Debug("no cleanup strategy to apply")
+	return nil
+}
+
+// resolveCleanupStrategy returns cleanup strategy based on config parameters, cluster status
+// and node progress.
+func (r *PhysRestore) resolveCleanupStrategy(
+	clusterStatus defs.Status,
+	progress nodeStatus,
+) func() error {
+	if progress.isDBPathUntouched() {
+		return r.skipCleanup
 	}
+
+	// dbpath has been changed
+	switch clusterStatus {
+
+	case defs.StatusError:
+		if r.fallback {
+			return r.doFallbackCleanup
+		} else { // fallback is disabled
+			if progress.isForCleanup() {
+				return r.doFullCleanup
+			} else {
+				// node is in status done in this case
+				return r.skipCleanup
+			}
+		}
+
+	case defs.StatusPartlyDone:
+		if r.allowPartlyDone || !r.fallback {
+			if progress.isForCleanup() {
+				return r.doFullCleanup
+			} else {
+				return r.skipCleanup
+			}
+		} else { // partly-done state is not allowed and fallback is enabled
+			return r.doFallbackCleanup
+		}
+
+	case defs.StatusDone:
+		return r.skipCleanup
+	}
+
+	return r.skipCleanup
+}
+
+// waitClusterStatus blocks until cluster status file is set on one of final statuses.
+// It also checks HB to see if cluster is stucked.
+func (r *PhysRestore) waitClusterStatus() (defs.Status, error) {
+	errF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusError)
+	doneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusDone)
+	partlyDoneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusPartlyDone)
+	hbF := fmt.Sprintf("%s.%s", r.syncPathCluster, syncHbSuffix)
+
+	tk := time.NewTicker(time.Second * 5)
+	defer tk.Stop()
+
+	for range tk.C {
+		_, err := r.stg.FileStat(errF)
+		if err == nil {
+			return defs.StatusError, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", errF)
+		}
+
+		_, err = r.stg.FileStat(doneF)
+		if err == nil {
+			return defs.StatusDone, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", errF)
+		}
+
+		_, err = r.stg.FileStat(partlyDoneF)
+		if err == nil {
+			return defs.StatusPartlyDone, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", errF)
+		}
+
+		err = r.checkHB(hbF)
+		if err != nil {
+			return defs.StatusError, errors.Wrap(err, "check hb for cluster")
+		}
+
+	}
+	return defs.StatusError, errors.New("wait cluster status")
 }
 
 func (r *PhysRestore) flush(ctx context.Context) error {
-	r.log.Debug("shutdown server")
+	r.log.Debug("shutting down server")
 	rsStat, err := topo.GetReplsetStatus(ctx, r.node)
 	if err != nil {
 		return errors.Wrap(err, "get replset status")
@@ -272,7 +431,7 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 			}
 			break
 		}
-		r.log.Debug("waiting to became secondary")
+		r.log.Debug("waiting to become secondary before shutting it down")
 		time.Sleep(time.Second * 1)
 	}
 
@@ -289,13 +448,104 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		}
 	}
 
-	r.log.Debug("remove old data")
-	err = removeAll(r.dbpath, r.log)
-	if err != nil {
-		return errors.Wrapf(err, "flush dbpath %s", r.dbpath)
+	if r.fallback {
+		err = r.migrateDBDirToFallbackDir()
+		if err != nil {
+			return errors.Wrapf(err, "move files to fallback path")
+		}
+	} else {
+		// fallback strategy is disabled, just wipe-up everything in dbpath
+		err = removeAll(r.dbpath, r.log)
+		if err != nil {
+			return errors.Wrapf(err, "remove db path")
+		}
 	}
 
 	return nil
+}
+
+// migrateDBDirToFallbackDir moves content of dbPath dir into fallback dir.
+// It also removes old fallback dir, and creates new with the same perms.
+func (r *PhysRestore) migrateDBDirToFallbackDir() error {
+	dbpath := filepath.Clean(r.dbpath)
+	fallbackPath := filepath.Join(dbpath, fallbackDir)
+	r.log.Debug("dbpath: %s, fallbackPath: %s", dbpath, fallbackPath)
+
+	err := os.RemoveAll(fallbackPath)
+	if err != nil {
+		return errors.Wrap(err, "remove fallback db path")
+	}
+	err = removeInternalMongoLogs(dbpath, r.log)
+	if err != nil {
+		return errors.Wrap(err, "remove internal mongod log(s)")
+	}
+
+	r.log.Debug("create %s", fallbackPath)
+	info, err := os.Stat(dbpath)
+	if err != nil {
+		return errors.Wrap(err, "stat")
+	}
+	err = os.MkdirAll(fallbackPath, info.Mode())
+	if err != nil {
+		return errors.Wrapf(err, "creating dir %s", fallbackPath)
+	}
+
+	r.log.Info("move data files from %s to %s", r.dbpath, fallbackDir)
+	err = r.moveToFallback()
+	if err != nil {
+		return errors.Wrapf(err, "fail to move to %s", fallbackPath)
+	}
+
+	return nil
+}
+
+// migrateFromFallbackDirToDBDir wipe up dbpath dir and
+// moves all content from fallback path.
+func (r *PhysRestore) migrateFromFallbackDirToDBDir() error {
+	r.log.Debug("clean-up dbpath")
+	err := removeAll(r.dbpath, r.log, getFallbackSyncFileSkipRule(), getInternalLogFileSkipRule())
+	if err != nil {
+		r.log.Error("flush dbpath %s: %v", r.dbpath, err)
+		return errors.Wrap(err, "remove all from dbpath")
+	}
+
+	r.log.Info("move data files from %s to %s", fallbackDir, r.dbpath)
+	err = r.moveFromFallback()
+	if err != nil {
+		r.log.Error("moving from %s: %v", fallbackDir, err)
+		return errors.Wrapf(err, "move from %s", fallbackDir)
+	}
+
+	return nil
+}
+
+// moveFromFallback moves all files/dirs from fallback dir to dbpath dir.
+func (r *PhysRestore) moveFromFallback() error {
+	return moveAll(
+		path.Join(r.dbpath, fallbackDir),
+		r.dbpath,
+		nil,
+		r.log,
+	)
+}
+
+// moveToFallback moves all files/dirs except fallback dir from dbpath to fallback dir
+func (r *PhysRestore) moveToFallback() error {
+	return moveAll(
+		r.dbpath,
+		path.Join(r.dbpath, fallbackDir),
+		[]string{fallbackDir},
+		r.log,
+	)
+}
+
+// removeFallback removes fallback dir
+func (r *PhysRestore) removeFallback() error {
+	r.log.Debug("remove fallback dir")
+	dbpath := filepath.Clean(r.dbpath)
+	fallbackPath := filepath.Join(dbpath, fallbackDir)
+	err := os.RemoveAll(fallbackPath)
+	return errors.Wrap(err, "remove fallback db path")
 }
 
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
@@ -306,22 +556,53 @@ func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 	return err
 }
 
+// waitMgoShutdown waits until mongod releases mongod.lock file within dbpath dir.
+// In case of timeout or unexpected error it'll return error.
 func waitMgoShutdown(dbpath string) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	for range tk.C {
-		f, err := os.Stat(path.Join(dbpath, mongofslock))
-		if err != nil {
-			return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
-		}
+	to := time.After(mongodLockTimeout)
 
-		if f.Size() == 0 {
-			return nil
+	for {
+		select {
+		case <-tk.C:
+			f, err := os.Stat(path.Join(dbpath, mongofslock))
+			if err != nil {
+				return errors.Wrapf(err, "check for lock file %s", path.Join(dbpath, mongofslock))
+			}
+
+			if f.Size() == 0 {
+				return nil
+			}
+
+		case <-to:
+			return errors.Errorf("timeout during waiting for lock file %s", path.Join(dbpath, mongofslock))
 		}
 	}
+}
 
-	return nil
+// waitMgoFreePort waits for port p to be free.
+// It case of timeout it'll return error.
+func waitMgoFreePort(p int) error {
+	tk := time.NewTicker(time.Second)
+	defer tk.Stop()
+
+	to := time.After(mongodPortTimeout)
+
+	for {
+		select {
+		case <-tk.C:
+			ln, err := net.Listen("tcp", ":"+strconv.Itoa(p))
+			if err == nil {
+				ln.Close()
+				return nil
+			}
+
+		case <-to:
+			return errors.Errorf("timeout during waiting for mongod free port %d", p)
+		}
+	}
 }
 
 // waitToBecomePrimary pause execution until RS member becomes primary node.
@@ -441,7 +722,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 
 	if r.nodeInfo.IsPrimary || status == defs.StatusDone {
 		r.log.Info("waiting for `%s` status in rs %v", status, r.syncPathPeers)
-		cstat, err := r.waitFiles(status, copyMap(r.syncPathPeers), false)
+		cstat, err := r.waitFiles(status, maps.Clone(r.syncPathPeers), false)
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "wait for nodes in rs")
 		}
@@ -454,7 +735,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 
 	if r.nodeInfo.IsClusterLeader() || status == defs.StatusDone {
 		r.log.Info("waiting for shards %v", r.syncPathShards)
-		cstat, err := r.waitFiles(status, copyMap(r.syncPathShards), true)
+		cstat, err := r.waitFiles(status, maps.Clone(r.syncPathShards), true)
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "wait for shards")
 		}
@@ -525,13 +806,37 @@ func (n nodeError) Error() string {
 	return fmt.Sprintf("%s failed: %s", n.node, n.msg)
 }
 
-func copyMap[K comparable, V any](m map[K]V) map[K]V {
-	cp := make(map[K]V)
-	for k, v := range m {
-		cp[k] = v
+// checkForRSLevelErr checks if all nodes have an error,
+// and in that case true is returned.
+// If any node doesn't have error, false is returned.
+func (r *PhysRestore) checkForRSLevelErr() bool {
+	for f := range r.syncPathPeers {
+		errFile := f + "." + string(defs.StatusError)
+		_, err := r.stg.FileStat(errFile)
+		if errors.Is(err, storage.ErrNotExist) {
+			return false
+		}
+		if err != nil {
+			r.log.Error("error while checking file %s: %v", errFile, err)
+		}
+		// error file is found
 	}
+	return true
+}
 
-	return cp
+// checkForClusterLevelErr checks if any RS (shard) has an error.
+// It returns true if at least one RS has error, otherwise false.
+func (r *PhysRestore) checkForClusterLevelErr() bool {
+	for f := range r.syncPathShards {
+		errFile := f + "." + string(defs.StatusError)
+		_, err := r.stg.FileStat(errFile)
+		if err == nil {
+			return true
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while checking file %s: %v", errFile, err)
+		}
+	}
+	return false
 }
 
 func (r *PhysRestore) waitFiles(
@@ -650,7 +955,26 @@ const (
 	restoreDone
 )
 
-func (n nodeStatus) is(s nodeStatus) bool { return n&s != 0 }
+// isForCleanup returns true when internal node state if so
+// any sort of clean-up: full cleanup or fallbacksync.
+// Status indicates that content of db path contains state
+// which is not correct, and therefore it needs to be
+// discarded.
+func (n nodeStatus) isForCleanup() bool {
+	return n&restoreStared != 0 && n&restoreDone == 0
+}
+
+// isDBPathUntouched returns true when restore progress
+// didn't do any data changes within db path.
+func (n nodeStatus) isDBPathUntouched() bool {
+	return n&restoreStared == 0
+}
+
+// isFailed returns true when internal node state didn't reach
+// done state, no matter whether it was started or not.
+func (n nodeStatus) isFailed() bool {
+	return n&restoreDone == 0
+}
 
 // log buffer that will dump content to the storage on restore
 // finish (whether it's successful or not). It also dumps content
@@ -753,13 +1077,15 @@ func (r *PhysRestore) Snapshot(
 
 	var progress nodeStatus
 	defer func() {
-		// set failed status of node on error, but
-		// don't mark node as failed after the local restore succeed
-		if err != nil && !progress.is(restoreDone) && !errors.Is(err, ErrNoDataForShard) {
-			r.MarkFailed(meta, err, !progress.is(restoreStared))
+		if err != nil && !errors.Is(err, ErrNoDataForShard) {
+			r.MarkFailed(err)
 		}
 
-		r.close(err == nil, progress.is(restoreStared) && !progress.is(restoreDone))
+		noerr := err == nil
+		err = r.close(noerr, progress)
+		if err != nil {
+			err = errors.Wrap(err, "snapshot close")
+		}
 	}()
 
 	err = r.init(ctx, cmd.Name, opid, l)
@@ -817,7 +1143,10 @@ func (r *PhysRestore) Snapshot(
 		buf:   &bytes.Buffer{},
 		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
-		write: func(name string, data io.Reader) error { return r.stg.Save(name, data, -1) },
+		write: func(name string, data io.Reader) error {
+			// Logger should be disabled due to: PBM-1531
+			return r.stg.Save(name, data, storage.UseLogger(false))
+		},
 	})
 	logger.PauseMgo()
 
@@ -831,7 +1160,7 @@ func (r *PhysRestore) Snapshot(
 	// the cmd stream anymore and will flood logs with errors on that.
 	l.Info("send to stopAgent chan")
 	if stopAgentC != nil {
-		stopAgentC <- struct{}{}
+		close(stopAgentC)
 	}
 	// anget will be stopped only after we exit this func
 	// so stop heartbeats not to spam logs while the restore is running
@@ -972,6 +1301,14 @@ func (r *PhysRestore) Snapshot(
 
 	stat, err := r.toState(defs.StatusDone)
 	if err != nil {
+		if r.nodeInfo.IsLeader() {
+			// before returning try to create meta
+			r.log.Info("writing restore meta")
+			merr := r.dumpMeta(meta, stat, "")
+			if merr != nil {
+				r.log.Warning("writing restore meta to storage: %v", merr)
+			}
+		}
 		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
 	}
 
@@ -1102,17 +1439,25 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	return nil
 }
 
-func (r *PhysRestore) copyFiles() (*s3.DownloadStat, error) {
-	var stat *s3.DownloadStat
+func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
+	var stat *storage.DownloadStat
 	readFn := r.bcpStg.SourceReader
-	if t, ok := r.bcpStg.(*s3.S3); ok {
+
+	switch t := r.bcpStg.(type) {
+	case *s3.S3:
 		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
 		readFn = d.SourceReader
-
 		defer func() {
 			s := d.Stat()
 			stat = &s
-
+			r.log.Debug("download stat: %s", s)
+		}()
+	case *gcs.GCS:
+		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
+		readFn = d.SourceReader
+		defer func() {
+			s := d.Stat()
+			stat = &s
 			r.log.Debug("download stat: %s", s)
 		}()
 	}
@@ -1269,11 +1614,11 @@ func (r *PhysRestore) prepareData() error {
 }
 
 func (r *PhysRestore) shutdown(c *mongo.Client) error {
-	err := shutdownImpl(c, r.dbpath, false)
+	err := shutdownImpl(c, r.dbpath, false, r.tmpPort)
 	if err != nil {
 		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
 			r.log.Warning("try force shutdown. reason: %v", err)
-			err = shutdownImpl(c, r.dbpath, true)
+			err = shutdownImpl(c, r.dbpath, true, r.tmpPort)
 			return errors.Wrap(err, "force shutdown mongo")
 		}
 
@@ -1283,7 +1628,7 @@ func (r *PhysRestore) shutdown(c *mongo.Client) error {
 	return nil
 }
 
-func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
+func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 	res := c.Database("admin").RunCommand(context.TODO(),
 		bson.D{{"shutdown", 1}, {"force", force}})
 	err := res.Err()
@@ -1293,7 +1638,11 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool) error {
 
 	err = waitMgoShutdown(dbpath)
 	if err != nil {
-		return errors.Wrap(err, "wait")
+		return errors.Wrap(err, "wait mongod shutdown")
+	}
+	err = waitMgoFreePort(port)
+	if err != nil {
+		return errors.Wrap(err, "wait mongod free port")
 	}
 
 	return nil
@@ -1401,7 +1750,7 @@ func (r *PhysRestore) replayOplog(
 		&stat.Txn,
 		&mgoV)
 	if err != nil {
-		return errors.Wrap(err, "reply oplog")
+		return errors.Wrap(err, "replay oplog")
 	}
 	if len(partial) > 0 {
 		tops := []db.Oplog{}
@@ -1650,7 +1999,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 	}
 
 	if r.nodeInfo.IsClusterLeader() {
-		_, err := r.waitFiles(defs.StatusExtTS, copyMap(r.syncPathShards), true)
+		_, err := r.waitFiles(defs.StatusExtTS, maps.Clone(r.syncPathShards), true)
 		if err != nil {
 			return ts, errors.Wrap(err, "wait for shards timestamp")
 		}
@@ -1699,7 +2048,7 @@ func (r *PhysRestore) setcommittedTxn(_ context.Context, txn []phys.RestoreTxn) 
 }
 
 func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]primitive.Timestamp, error) {
-	shards := copyMap(r.syncPathShards)
+	shards := maps.Clone(r.syncPathShards)
 	txn := make(map[string]primitive.Timestamp)
 	for len(shards) > 0 {
 		for f := range shards {
@@ -1786,8 +2135,6 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 
 	return nil, errors.Errorf("failed to  connect after %d tries: %v", tryConnCount, err)
 }
-
-const internalMongodLog = "pbm.restore.log"
 
 func (r *PhysRestore) startMongo(opts ...string) error {
 	if r.tmpConf != nil {
@@ -2031,6 +2378,9 @@ const bcpDir = "__dir__"
 //
 // The restore should be done in reverse order. Applying files (diffs)
 // starting from the base and moving forward in time up to the target backup.
+//
+// Additionally total uncompressed backup size for RS is callculated
+// in this method.
 func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 	bcp := r.bcp
 
@@ -2062,6 +2412,8 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		targetFiles[f.Name] = false
 	}
 
+	r.bcpSizeRS = rs.SizeUncompressed
+
 	for {
 		data := files{
 			BcpName: bcp.Name,
@@ -2087,6 +2439,10 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		r.files = append(r.files, data)
 
 		if bcp.SrcBackup == "" {
+			// if base backup doesn't have size, we cannot calculate total size
+			if rs.SizeUncompressed == 0 {
+				r.bcpSizeRS = 0 // zero is used as the flag
+			}
 			break
 		}
 
@@ -2097,6 +2453,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 			return errors.Wrapf(err, "get source backup")
 		}
 		rs = getRS(bcp, setName)
+		r.bcpSizeRS += rs.SizeUncompressed
 
 		if version.HasFilelistFile(bcp.PBMVersion) {
 			filelistPath := path.Join(bcp.Name, setName, backup.FilelistName)
@@ -2238,6 +2595,18 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get data for restore")
 	}
 
+	r.log.Debug("restore opts: fallbackEnabled: %t; allowPartlyDone: %t",
+		r.fallback, r.allowPartlyDone)
+	if r.fallback {
+		err = r.checkDiskSpace(r.bcpSizeRS)
+		if err != nil {
+			return errors.Wrap(err, "check disk space")
+		}
+	}
+	if !r.fallback && !r.allowPartlyDone {
+		return errors.New("fallbackEnabled and allowPartlyDone cannot be disabled at the same time")
+	}
+
 	s, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
@@ -2261,6 +2630,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 	}
 
 	setName := mapRevRS(r.nodeInfo.SetName)
+
 	var ok bool
 	for _, v := range r.bcp.Replsets {
 		if v.Name == setName {
@@ -2308,20 +2678,51 @@ func (r *PhysRestore) checkMongod(needVersion string) (version string, err error
 	return v, nil
 }
 
-// MarkFailed sets the restore and rs state as failed with the given message
-func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
-	var nerr nodeError
-	if errors.As(e, &nerr) {
-		e = nerr
-		meta.Replsets = []RestoreReplset{{
-			Name:   nerr.node,
-			Status: defs.StatusError,
-			Error:  nerr.msg,
-		}}
-	} else if len(meta.Replsets) > 0 {
-		meta.Replsets[0].Status = defs.StatusError
-		meta.Replsets[0].Error = e.Error()
+// checkDiskSpace compares available disk space on the node with the backup size.
+// It returns error in case when backup size is larger than free space on the disk.
+// It also includes min disk space requirement of 10GiB.
+func (r *PhysRestore) checkDiskSpace(bcpSize int64) error {
+	if bcpSize == 0 {
+		r.log.Warning("this backup is incompatible with the fallback strategy, " +
+			"fallback will be disabled")
+
+		r.disableFallbackForOldBackup()
+		return nil
 	}
+
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(r.dbpath, &stat)
+	if err != nil {
+		return errors.Wrap(err, "get statfs")
+	}
+
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	used := total - free
+	availDiskWatermark := uint64(0.85 * float64(total))
+	avail := max(availDiskWatermark-used, 0)
+	r.log.Debug("disk total: %s; used: %s; free space on disk: %s; available for pbm usage: %s; backup size: %s;",
+		storage.PrettySize(int64(total)), storage.PrettySize(int64(used)), storage.PrettySize(int64(free)),
+		storage.PrettySize(int64(avail)), storage.PrettySize(bcpSize))
+
+	if uint64(bcpSize) >= avail {
+		return errors.New("not enough disk space for fallback strategy, " +
+			"consider using --fallback-enabled=false")
+	}
+
+	return nil
+}
+
+// disableFallbackForOldBackup set fallback option to false due to backup incompatibility
+func (r *PhysRestore) disableFallbackForOldBackup() {
+	r.fallback = false
+	r.log.Debug("restore opts: fallbackEnabled: %t; allowPartlyDone: %t",
+		r.fallback, r.allowPartlyDone)
+}
+
+// MarkFailed sets the restore and rs state as failed with the given message
+func (r *PhysRestore) MarkFailed(e error) {
+	r.log.Error("mark error during restore: %v", e)
 
 	err := util.RetryableWrite(r.stg,
 		r.syncPathNode+"."+string(defs.StatusError), errStatus(e))
@@ -2332,14 +2733,16 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
 	// At some point, every node will try to set an rs and cluster state
 	// (in `toState` method).
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
-	if r.nodeInfo.IsPrimary && markCluster {
+	if r.checkForRSLevelErr() {
+		r.log.Debug("set error on rs level")
 		serr := util.RetryableWrite(r.stg,
 			r.syncPathRS+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
 			r.log.Error("MarkFailed: write replset error state `%v`: %v", e, serr)
 		}
 	}
-	if r.nodeInfo.IsClusterLeader() && markCluster {
+	if r.nodeInfo.IsLeader() && r.checkForClusterLevelErr() {
+		r.log.Debug("set error on cluster level")
 		serr := util.RetryableWrite(r.stg,
 			r.syncPathCluster+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
@@ -2348,7 +2751,75 @@ func (r *PhysRestore) MarkFailed(meta *RestoreMeta, e error, markCluster bool) {
 	}
 }
 
-func removeAll(dir string, l log.LogEvent) error {
+func (r *PhysRestore) MarkAsFallback() error {
+	r.log.Debug("set fallback error on cluster level")
+	err := util.RetryableWrite(r.stg,
+		r.syncPathCluster+"."+string(defs.StatusError), errStatus(errors.New("fallback is applied")))
+	if err != nil {
+		r.log.Error("write cluster error state for fallback: %v", err)
+		// lets try to create restore meta
+	}
+
+	mf := filepath.Join(defs.PhysRestoresDir, r.name) + ".json"
+	_, err = r.stg.FileStat(mf)
+	if err != nil {
+		return errors.Errorf("file stat %s: %v", mf, err)
+	}
+
+	var meta *RestoreMeta
+	src, err := r.stg.SourceReader(mf)
+	if err != nil {
+		return errors.Errorf("get file %s: %v", mf, err)
+	}
+	err = json.NewDecoder(src).Decode(&meta)
+	if err != nil {
+		return errors.Wrap(err, "decode meta")
+	}
+
+	meta.Status = defs.StatusError
+	meta.Error = "fallback strategy is applied"
+
+	buf, err := json.MarshalIndent(meta, "", "\t")
+	if err != nil {
+		return errors.Wrapf(err, "encode restore meta")
+	}
+	err = util.RetryableWrite(r.stg, mf, buf)
+	if err != nil {
+		return errors.Wrap(err, "write restore meta")
+	}
+
+	return nil
+}
+
+// moveAll moves fromDir content (files and dirs) to toDir content.
+// It ignores all files/dirs specified within toIgnore slice.
+func moveAll(fromDir, toDir string, toIgnore []string, l log.LogEvent) error {
+	d, err := os.Open(fromDir)
+	if err != nil {
+		return errors.Wrap(err, "open dir")
+	}
+	defer d.Close()
+
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return errors.Wrap(err, "read file names")
+	}
+	for _, n := range names {
+		if slices.Contains(toIgnore, n) {
+			continue
+		}
+		err = os.Rename(filepath.Join(fromDir, n), filepath.Join(toDir, n))
+		if err != nil {
+			return errors.Wrapf(err, "move %s", n)
+		}
+		l.Debug("move to %s dir: %s", toDir, n)
+	}
+	return nil
+}
+
+// removeAll removes all files and directories from specified dir.
+// It ignores files selected with filesSkipRules parameter.
+func removeAll(dir string, l log.LogEvent, fileSkipRules ...fileSkipRule) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return errors.Wrap(err, "open dir")
@@ -2360,7 +2831,7 @@ func removeAll(dir string, l log.LogEvent) error {
 		return errors.Wrap(err, "read file names")
 	}
 	for _, n := range names {
-		if n == internalMongodLog {
+		if isFileToSkip(n, fileSkipRules...) {
 			continue
 		}
 		err = os.RemoveAll(filepath.Join(dir, n))
@@ -2370,6 +2841,65 @@ func removeAll(dir string, l log.LogEvent) error {
 		l.Debug("remove %s", filepath.Join(dir, n))
 	}
 	return nil
+}
+
+// removeInternalMongoLogs removes internal mongod logs from directory.
+// It'll remove everything that starts with 'pbm.restore.log'
+func removeInternalMongoLogs(dir string, l log.LogEvent) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return errors.Wrap(err, "open dir")
+	}
+	defer d.Close()
+
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return errors.Wrap(err, "read file names")
+	}
+	for _, n := range names {
+		if isInternalMongoLog(n) {
+			err = os.RemoveAll(filepath.Join(dir, n))
+			if err != nil {
+				return errors.Wrapf(err, "remove '%s", n)
+			}
+
+			l.Debug("remove %s", filepath.Join(dir, n))
+		}
+	}
+
+	return nil
+}
+
+// isInternalMongoLog checks whether the file with the name f
+// is internal mongo log file
+func isInternalMongoLog(f string) bool {
+	return strings.HasPrefix(f, internalMongodLog)
+}
+
+type fileSkipRule func(string) bool
+
+// isFileToSkip for the given file name f and the given set of skip rules: skipRules,
+// function returns true if at least one rule is satisfied. In case when all rules
+// are false it returns false, which means that file shouldn't be skipped.
+func isFileToSkip(f string, skipRules ...fileSkipRule) bool {
+	for _, rule := range skipRules {
+		if rule(f) {
+			return true
+		}
+	}
+	return false
+}
+
+func getInternalLogFileSkipRule() fileSkipRule {
+	return func(f string) bool {
+		return isInternalMongoLog(f)
+	}
+}
+
+func getFallbackSyncFileSkipRule() fileSkipRule {
+	return func(f string) bool {
+		return f == fallbackDir
+	}
 }
 
 func majmin(v string) string {

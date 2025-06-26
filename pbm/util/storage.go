@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
@@ -32,6 +33,8 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 		return fs.New(cfg.Filesystem)
 	case storage.Blackhole:
 		return blackhole.New(), nil
+	case storage.GCS:
+		return gcs.New(cfg.GCS, node, l)
 	case storage.Undefined:
 		return nil, ErrStorageUndefined
 	default:
@@ -75,10 +78,10 @@ func Reinitialize(ctx context.Context, stg storage.Storage) error {
 }
 
 func RetryableWrite(stg storage.Storage, name string, data []byte) error {
-	err := stg.Save(name, bytes.NewBuffer(data), int64(len(data)))
+	err := stg.Save(name, bytes.NewBuffer(data), storage.Size(int64(len(data))))
 	if err != nil && stg.Type() == storage.Filesystem {
 		if fs.IsRetryableError(err) {
-			err = stg.Save(name, bytes.NewBuffer(data), int64(len(data)))
+			err = stg.Save(name, bytes.NewBuffer(data), storage.Size(int64(len(data))))
 		}
 	}
 

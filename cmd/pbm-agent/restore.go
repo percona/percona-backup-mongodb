@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"time"
 
@@ -179,8 +180,25 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			lck = nil
 		}
 
+		fallbackOpt := cfg.Restore.GetFallbackEnabled()
+		if r.Fallback != nil {
+			fallbackOpt = *r.Fallback
+		}
+		allowPartlyDoneOpt := cfg.Restore.GetAllowPartlyDone()
+		if r.AllowPartlyDone != nil {
+			allowPartlyDoneOpt = *r.AllowPartlyDone
+		}
+
 		var rstr *restore.PhysRestore
-		rstr, err = restore.NewPhysical(ctx, a.leadConn, a.nodeConn, nodeInfo, r.RSMap)
+		rstr, err = restore.NewPhysical(
+			ctx,
+			a.leadConn,
+			a.nodeConn,
+			nodeInfo,
+			r.RSMap,
+			fallbackOpt,
+			allowPartlyDoneOpt,
+		)
 		if err != nil {
 			l.Error("init physical backup: %v", err)
 			return
@@ -238,7 +256,9 @@ func addRestoreMetaWithError(
 	errStr string,
 	args ...any,
 ) error {
-	l.Error(errStr, args...)
+	errMsg := fmt.Sprintf(errStr, args...)
+
+	l.Error(errMsg)
 
 	meta := &restore.RestoreMeta{
 		Type:     defs.LogicalBackup,
@@ -248,7 +268,7 @@ func addRestoreMetaWithError(
 		PITR:     int64(cmd.OplogTS.T),
 		StartTS:  time.Now().UTC().Unix(),
 		Status:   defs.StatusError,
-		Error:    errStr,
+		Error:    errMsg,
 		Replsets: []restore.RestoreReplset{},
 	}
 	err := restore.SetRestoreMetaIfNotExists(ctx, conn, meta)
@@ -260,7 +280,7 @@ func addRestoreMetaWithError(
 		Name:       setName,
 		StartTS:    time.Now().UTC().Unix(),
 		Status:     defs.StatusError,
-		Error:      errStr,
+		Error:      errMsg,
 		Conditions: restore.Conditions{},
 	}
 	err = restore.AddRestoreRSMeta(ctx, conn, cmd.Name, rs)

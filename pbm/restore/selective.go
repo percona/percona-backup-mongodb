@@ -127,6 +127,8 @@ func (r *Restore) configsvrRestoreDatabases(
 	if err != nil {
 		return err
 	}
+	defer rdr.Close()
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return err
@@ -210,6 +212,8 @@ func (r *Restore) configsvrRestoreCollections(
 	if err != nil {
 		return nil, err
 	}
+	defer rdr.Close()
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return nil, err
@@ -274,6 +278,8 @@ func (r *Restore) configsvrRestoreChunks(
 	if err != nil {
 		return err
 	}
+	defer rdr.Close()
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return err
@@ -332,7 +338,11 @@ func (r *Restore) configsvrRestoreChunks(
 			models = append(models, mongo.NewInsertOneModel().SetDocument(doc))
 		}
 
-		if len(models) == 0 {
+		if len(models) == 0 && !done {
+			// if it's not done, we just reached maxBulkWriteCount, we need to process more
+			continue
+		} else if len(models) == 0 && done {
+			// it's done and there's nothing to update
 			return nil
 		}
 

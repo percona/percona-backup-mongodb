@@ -51,7 +51,7 @@ func GenerateV1FromV2(ctx context.Context, stg storage.Storage, bcp, rs string) 
 	}
 
 	metaV1Filename := fmt.Sprintf("%s/%s/%s", bcp, rs, MetaFile)
-	err = stg.Save(metaV1Filename, bytes.NewReader(data), int64(len(data)))
+	err = stg.Save(metaV1Filename, bytes.NewReader(data), storage.Size(int64(len(data))))
 	if err != nil {
 		return errors.Wrapf(err, "save %q", metaV1Filename)
 	}

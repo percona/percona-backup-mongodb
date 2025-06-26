@@ -26,6 +26,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 	}{
 		{"AWS", "/etc/pbm/aws.yaml"},
 		{"GCS", "/etc/pbm/gcs.yaml"},
+		{"GCS_HMAC", "/etc/pbm/gcs_hmac.yaml"},
 		{"Azure", "/etc/pbm/azure.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
 	}
@@ -107,6 +108,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 
 		runTest("Distributed Transactions PITR",
 			t.DistributedTrxPITR)
+
+		runTest("Cleaning up sharded database for full restore",
+			t.CleanupFullRestore)
 
 		// disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
 		// tsTo := primitive.Timestamp{1644410656, 8}

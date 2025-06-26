@@ -232,7 +232,7 @@ func (b *Backup) doPhysical(
 				}
 			}
 
-			if !b.config.Storage.Equal(&src.Store.StorageConf) {
+			if !b.config.Storage.IsSameStorage(&src.Store.StorageConf) {
 				return errors.New("cannot use the configured storage: " +
 					"source backup is stored on a different storage")
 			}
@@ -515,8 +515,10 @@ func (b *Backup) uploadPhysical(
 	filelist = append(filelist, ju...)
 
 	size := int64(0)
+	sizeUncompressed := int64(0)
 	for _, f := range filelist {
 		size += f.StgSize
+		sizeUncompressed += f.Size
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
@@ -526,9 +528,28 @@ func (b *Backup) uploadPhysical(
 	}
 	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
 
-	err = IncBackupSize(ctx, b.leadConn, bcp.Name, size+flSize)
+	totalSize := size + flSize
+	totalUncompressed := sizeUncompressed + flSize
+	err = IncBackupSize(
+		ctx,
+		b.leadConn,
+		bcp.Name,
+		totalSize,
+		&totalUncompressed,
+	)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
+	}
+	err = SetBackupSizeForRS(
+		ctx,
+		b.leadConn,
+		bcp.Name,
+		rsMeta.Name,
+		totalSize,
+		totalUncompressed,
+	)
+	if err != nil {
+		return errors.Wrap(err, "set RS backup size")
 	}
 
 	return nil

@@ -11,7 +11,7 @@ import (
 
 const (
 	pbmLostAgentsErr = "some of pbm-agents were lost during the backup"
-	pbmLostShardErr  = "convergeCluster: lost shard"
+	pbmLostShardErr  = "lost shard"
 )
 
 // RestartAgents restarts agents during backup.

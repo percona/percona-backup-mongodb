@@ -5,6 +5,7 @@ import (
 	"maps"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -110,6 +111,13 @@ func (a *Agent) PITR(ctx context.Context) {
 	l.Printf("starting PITR routine")
 
 	for {
+		select {
+		case <-a.closeCMD:
+			l.Debug(string(ctrl.CmdPITR), "", "", primitive.Timestamp{}, "stopping main loop")
+			return
+		default:
+		}
+
 		err := a.pitr(ctx)
 		if err != nil {
 			// we need epoch just to log pitr err with an extra context
@@ -152,7 +160,7 @@ func canSlicingNow(ctx context.Context, conn connect.Client, stgCfg *config.Stor
 			return errors.Wrap(err, "get backup metadata")
 		}
 
-		if bcp.Type == defs.LogicalBackup && bcp.Store.Equal(stgCfg) {
+		if bcp.Type == defs.LogicalBackup && bcp.Store.IsSameStorage(stgCfg) {
 			return lock.ConcurrentOpError{l.LockHeader}
 		}
 	}

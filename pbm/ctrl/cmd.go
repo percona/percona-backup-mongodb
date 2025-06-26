@@ -121,9 +121,10 @@ type ProfileCmd struct {
 }
 
 type ResyncCmd struct {
-	Name  string `bson:"name,omitempty"`
-	All   bool   `bson:"all,omitempty"`
-	Clear bool   `bson:"clear,omitempty"`
+	Name            string `bson:"name,omitempty"`
+	All             bool   `bson:"all,omitempty"`
+	Clear           bool   `bson:"clear,omitempty"`
+	IncludeRestores bool   `bson:"includeRestores,omitempty"`
 }
 
 type BackupCmd struct {
@@ -149,13 +150,15 @@ func (b BackupCmd) String() string {
 }
 
 type RestoreCmd struct {
-	Name          string            `bson:"name"`
-	BackupName    string            `bson:"backupName"`
-	Namespaces    []string          `bson:"nss,omitempty"`
-	NamespaceFrom string            `bson:"nsFrom,omitempty"`
-	NamespaceTo   string            `bson:"nsTo,omitempty"`
-	UsersAndRoles bool              `bson:"usersAndRoles,omitempty"`
-	RSMap         map[string]string `bson:"rsMap,omitempty"`
+	Name            string            `bson:"name"`
+	BackupName      string            `bson:"backupName"`
+	Namespaces      []string          `bson:"nss,omitempty"`
+	NamespaceFrom   string            `bson:"nsFrom,omitempty"`
+	NamespaceTo     string            `bson:"nsTo,omitempty"`
+	UsersAndRoles   bool              `bson:"usersAndRoles,omitempty"`
+	RSMap           map[string]string `bson:"rsMap,omitempty"`
+	Fallback        *bool             `bson:"fallbackEnabled"`
+	AllowPartlyDone *bool             `bson:"allowPartlyDone"`
 
 	NumParallelColls    *int32 `bson:"numParallelColls,omitempty"`
 	NumInsertionWorkers *int32 `bson:"numInsertionWorkers,omitempty"`

@@ -8,15 +8,15 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 type RestoreStat struct {
 	RS map[string]map[string]RestoreRSMetrics `bson:"rs,omitempty" json:"rs,omitempty"`
 }
 type RestoreRSMetrics struct {
-	DistTxn  DistTxnStat     `bson:"txn,omitempty" json:"txn,omitempty"`
-	Download s3.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
+	DistTxn  DistTxnStat          `bson:"txn,omitempty" json:"txn,omitempty"`
+	Download storage.DownloadStat `bson:"download,omitempty" json:"download,omitempty"`
 }
 
 type DistTxnStat struct {
@@ -35,8 +35,8 @@ type DistTxnStat struct {
 }
 
 type RestoreShardStat struct {
-	Txn DistTxnStat      `json:"txn"`
-	D   *s3.DownloadStat `json:"d"`
+	Txn DistTxnStat           `json:"txn"`
+	D   *storage.DownloadStat `json:"d"`
 }
 
 type TxnState string

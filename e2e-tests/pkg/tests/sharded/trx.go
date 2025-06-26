@@ -47,22 +47,22 @@ func (c *Cluster) DistributedTransactions(bcp Backuper, col string) {
 
 	c.setupTrxCollection(ctx, col)
 
-	c.moveChunk(ctx, col, 0, "rs1")
-	c.moveChunk(ctx, col, 30, "rs1")
-	c.moveChunk(ctx, col, 89, "rs1")
-	c.moveChunk(ctx, col, 99, "rs1")
-	c.moveChunk(ctx, col, 110, "rs1")
-	c.moveChunk(ctx, col, 130, "rs1")
-	c.moveChunk(ctx, col, 131, "rs1")
-	c.moveChunk(ctx, col, 630, "rsx")
-	c.moveChunk(ctx, col, 530, "rsx")
-	c.moveChunk(ctx, col, 631, "rsx")
-	c.moveChunk(ctx, col, 730, "rsx")
-	c.moveChunk(ctx, col, 3000, "rsx")
-	c.moveChunk(ctx, col, 3001, "rsx")
-	c.moveChunk(ctx, col, 180, "rsx")
-	c.moveChunk(ctx, col, 199, "rsx")
-	c.moveChunk(ctx, col, 2001, "rsx")
+	c.moveChunk(ctx, trxdb, col, 0, "rs1")
+	c.moveChunk(ctx, trxdb, col, 30, "rs1")
+	c.moveChunk(ctx, trxdb, col, 89, "rs1")
+	c.moveChunk(ctx, trxdb, col, 99, "rs1")
+	c.moveChunk(ctx, trxdb, col, 110, "rs1")
+	c.moveChunk(ctx, trxdb, col, 130, "rs1")
+	c.moveChunk(ctx, trxdb, col, 131, "rs1")
+	c.moveChunk(ctx, trxdb, col, 630, "rsx")
+	c.moveChunk(ctx, trxdb, col, 530, "rsx")
+	c.moveChunk(ctx, trxdb, col, 631, "rsx")
+	c.moveChunk(ctx, trxdb, col, 730, "rsx")
+	c.moveChunk(ctx, trxdb, col, 3000, "rsx")
+	c.moveChunk(ctx, trxdb, col, 3001, "rsx")
+	c.moveChunk(ctx, trxdb, col, 180, "rsx")
+	c.moveChunk(ctx, trxdb, col, 199, "rsx")
+	c.moveChunk(ctx, trxdb, col, 2001, "rsx")
 
 	_, err = conn.Database(trxdb).Collection(col).DeleteMany(ctx, bson.M{})
 	if err != nil {
@@ -319,21 +319,6 @@ func (c *Cluster) setupTrxCollection(ctx context.Context, col string) {
 	).Err()
 	if err != nil {
 		log.Fatalf("ERROR: updateZoneKeyRange %s.%s./R2: %v", trxdb, col, err)
-	}
-}
-
-func (c *Cluster) moveChunk(ctx context.Context, col string, idx int, to string) {
-	log.Println("move chunk", idx, "to", to)
-	err := c.mongos.Conn().Database("admin").RunCommand(
-		ctx,
-		bson.D{
-			{"moveChunk", trxdb + "." + col},
-			{"find", bson.M{"idx": idx}},
-			{"to", to},
-		},
-	).Err()
-	if err != nil {
-		log.Printf("ERROR: moveChunk %s.%s/idx:2000: %v", trxdb, col, err)
 	}
 }
 

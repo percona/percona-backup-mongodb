@@ -39,19 +39,21 @@ var (
 )
 
 type restoreOpts struct {
-	bcp           string
-	pitr          string
-	pitrBase      string
-	wait          bool
-	waitTime      time.Duration
-	extern        bool
-	ns            string
-	nsFrom        string
-	nsTo          string
-	usersAndRoles bool
-	rsMap         string
-	conf          string
-	ts            string
+	bcp             string
+	pitr            string
+	pitrBase        string
+	wait            bool
+	waitTime        time.Duration
+	extern          bool
+	ns              string
+	nsFrom          string
+	nsTo            string
+	usersAndRoles   bool
+	rsMap           string
+	conf            string
+	ts              string
+	fallback        *bool
+	allowPartlyDone *bool
 
 	numParallelColls    int32
 	numInsertionWorkers int32
@@ -138,6 +140,9 @@ func runRestore(
 	}
 	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
+	}
+	if err := validateFallbackOpts(o); err != nil {
+		return nil, err
 	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
@@ -415,6 +420,8 @@ func doRestore(
 			UsersAndRoles:       o.usersAndRoles,
 			RSMap:               rsMapping,
 			External:            o.extern,
+			Fallback:            o.fallback,
+			AllowPartlyDone:     o.allowPartlyDone,
 		},
 	}
 	if o.pitr != "" {
@@ -515,7 +522,7 @@ func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
 	path := fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, o.restore)
 	msg := outMsg{"Command sent. Check `pbm describe-restore ...` for the result."}
 	err = stg.Save(path+"."+string(defs.StatusCopyDone),
-		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())), -1)
+		strings.NewReader(fmt.Sprintf("%d", time.Now().Unix())))
 	return msg, err
 }
 
@@ -809,6 +816,15 @@ func validateNSFromNSTo(o *restoreOpts) error {
 		return ErrCloningWithWildCards
 	}
 
+	return nil
+}
+
+func validateFallbackOpts(o *restoreOpts) error {
+	if o.fallback != nil && !*o.fallback &&
+		o.allowPartlyDone != nil && !*o.allowPartlyDone {
+		return errors.New("It's not possible to disable both --allow-partly-done " +
+			"and --fallback-enabled at the same time.")
+	}
 	return nil
 }
 

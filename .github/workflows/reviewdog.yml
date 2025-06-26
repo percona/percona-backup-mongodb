@@ -51,13 +51,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.22"
+          go-version: "1.23"
       - name: golangci-lint
         uses: reviewdog/action-golangci-lint@v2
         with:
           reporter: github-pr-review
           level: error
-          golangci_lint_version: v1.64.8
 
   gofmt:
     name: runner / gofmt
@@ -66,7 +65,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.22"
+          go-version: "1.23"
       - run: go install golang.org/x/tools/cmd/goimports@latest
       - run: go install mvdan.cc/gofumpt@latest
       - run: goimports -w -local "github.com/percona" $(find . -not -path "*/vendor/*" -name "*.go")
@@ -82,7 +81,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: "1.22"
+          go-version: "1.23"
       - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
       - run: shfmt -f . | grep -v 'vendor' | xargs shfmt -w -s
       - name: suggester / shfmt

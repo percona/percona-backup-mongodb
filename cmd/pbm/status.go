@@ -497,7 +497,7 @@ func (s storageStat) String() string {
 		if ss.StoreName != "" {
 			t += ", *"
 		}
-		ret += fmt.Sprintf("    %s %s <%s> %s\n", ss.Name, storage.PrettySize(ss.Size), t, status)
+		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, ss.PrintStatus, status)
 	}
 
 	if len(s.PITR.Ranges) == 0 {
@@ -599,6 +599,7 @@ func getStorageStat(
 			snpsht.Err = err
 			snpsht.ErrString = err.Error()
 		}
+		snpsht.PrintStatus = snpsht.Status.PrintStatus(snpsht.Err)
 
 		switch bcp.Status {
 		case defs.StatusError:
@@ -616,6 +617,7 @@ func getStorageStat(
 				snpsht.Err = errors.New(errStr)
 				snpsht.ErrString = errStr
 				snpsht.Status = defs.StatusError
+				snpsht.PrintStatus = defs.StatusError.PrintStatus()
 			}
 		}
 
@@ -625,6 +627,7 @@ func getStorageStat(
 			snpsht.Err = err
 			snpsht.ErrString = err.Error()
 			snpsht.Status = defs.StatusError
+			snpsht.PrintStatus = defs.StatusError.PrintStatus()
 		}
 
 		s.Snapshot = append(s.Snapshot, snpsht)

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 const (
@@ -97,15 +98,16 @@ const (
 	// for phys restore, to indicate shards have been stopped
 	StatusDown Status = "down"
 
-	StatusStarting   Status = "starting"
-	StatusRunning    Status = "running"
-	StatusDumpDone   Status = "dumpDone"
-	StatusCopyReady  Status = "copyReady"
-	StatusCopyDone   Status = "copyDone"
-	StatusPartlyDone Status = "partlyDone"
-	StatusDone       Status = "done"
-	StatusCancelled  Status = "canceled"
-	StatusError      Status = "error"
+	StatusStarting       Status = "starting"
+	StatusCleanupCluster Status = "cleanupCluster"
+	StatusRunning        Status = "running"
+	StatusDumpDone       Status = "dumpDone"
+	StatusCopyReady      Status = "copyReady"
+	StatusCopyDone       Status = "copyDone"
+	StatusPartlyDone     Status = "partlyDone"
+	StatusDone           Status = "done"
+	StatusCancelled      Status = "canceled"
+	StatusError          Status = "error"
 
 	// status to communicate last op timestamp if it's not set
 	// during external restore
@@ -122,6 +124,41 @@ func (s Status) IsRunning() bool {
 	}
 
 	return true
+}
+
+type PrintStatus string
+
+const (
+	statusSuccess PrintStatus = "success"
+	statusFailed  PrintStatus = "failed"
+	statusOngoing PrintStatus = "ongoing"
+)
+
+var ErrIncompatible = errors.New("incompatible")
+
+func (s Status) PrintStatus(errs ...error) PrintStatus {
+	var err error
+	if len(errs) > 0 {
+		err = errs[0]
+	}
+
+	switch s {
+	case StatusDone:
+		return statusSuccess
+
+	case StatusCancelled:
+		return statusFailed
+
+	case StatusError:
+		// "incompatible" is treated as success
+		if err != nil && errors.Is(err, ErrIncompatible) {
+			return statusSuccess
+		}
+		return statusFailed
+
+	default:
+		return statusOngoing
+	}
 }
 
 type Operation string

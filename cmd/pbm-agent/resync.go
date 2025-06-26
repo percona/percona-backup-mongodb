@@ -71,7 +71,7 @@ func (a *Agent) Resync(ctx context.Context, cmd *ctrl.ResyncCmd, opid ctrl.OPID,
 	} else if cmd.Name != "" {
 		err = a.handleSyncProfile(ctx, cmd.Name, cmd.Clear)
 	} else {
-		err = a.handleSyncMainStorage(ctx)
+		err = a.handleSyncMainStorage(ctx, cmd.IncludeRestores)
 	}
 	if err != nil {
 		l.Error(err.Error())
@@ -134,13 +134,13 @@ func (a *Agent) helpSyncProfileBackups(ctx context.Context, profile *config.Conf
 	return errors.Wrapf(err, "sync backup list for %q", profile.Name)
 }
 
-func (a *Agent) handleSyncMainStorage(ctx context.Context) error {
+func (a *Agent) handleSyncMainStorage(ctx context.Context, includeRestores bool) error {
 	cfg, err := config.GetConfig(ctx, a.leadConn)
 	if err != nil {
 		return errors.Wrap(err, "get config")
 	}
 
-	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me)
+	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, includeRestores)
 	if err != nil {
 		return errors.Wrap(err, "resync")
 	}

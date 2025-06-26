@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
@@ -148,6 +149,7 @@ func newPbmApp() *pbmApp {
 	app.rootCmd.AddCommand(app.buildRestoreFinishCmd())
 	app.rootCmd.AddCommand(app.buildStatusCmd())
 	app.rootCmd.AddCommand(app.buildVersionCmd())
+	app.rootCmd.AddCommand(util.CompletionCommand())
 
 	return app
 }
@@ -155,7 +157,7 @@ func newPbmApp() *pbmApp {
 func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	app.pbmOutF = outFormat(viper.GetString("out"))
 
-	if cmd.Name() == "help" || cmd.Name() == "version" {
+	if cmd.Name() == "help" || cmd.Name() == "version" || util.IsCompletionCommand(cmd.Name()) {
 		return nil
 	}
 
@@ -368,6 +370,10 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 		Use:   "config [key]",
 		Short: "Set, change or list the config",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if cfg.includeRestores && !cfg.rsync {
+				return nil, errors.New("--include-restores cannot be used without --force-resync")
+			}
+
 			if len(args) == 1 {
 				cfg.key = args[0]
 			}
@@ -376,6 +382,9 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 	}
 
 	configCmd.Flags().BoolVar(&cfg.rsync, "force-resync", false, "Resync backup list with the current store")
+	configCmd.Flags().BoolVar(
+		&cfg.includeRestores, "include-restores", false, "Include physical restore metadata during force-resync",
+	)
 	configCmd.Flags().BoolVar(&cfg.list, "list", false, "List current settings")
 	configCmd.Flags().StringVar(&cfg.file, "file", "", "Upload config from YAML file")
 	configCmd.Flags().StringToStringVar(&cfg.set, "set", nil, "Set the option value <key.name=value>")
@@ -478,7 +487,7 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Sync backup list from configuration profile",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
 			if len(args) == 1 {
-				removeConfigProfileOpts.name = args[0]
+				syncConfigProfileOpts.name = args[0]
 			}
 			return handleSyncConfigProfile(app.ctx, app.pbm, syncConfigProfileOpts)
 		}),
@@ -745,6 +754,14 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 			if len(args) == 1 {
 				restoreOptions.bcp = args[0]
 			}
+			if cmd.Flags().Changed("fallback-enabled") {
+				val, _ := cmd.Flags().GetBool("fallback-enabled")
+				restoreOptions.fallback = &val
+			}
+			if cmd.Flags().Changed("allow-partly-done") {
+				val, _ := cmd.Flags().GetBool("allow-partly-done")
+				restoreOptions.allowPartlyDone = &val
+			}
 			return runRestore(app.ctx, app.conn, app.pbm, &restoreOptions, app.node, app.pbmOutF)
 		}),
 	}
@@ -800,6 +817,15 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	restoreCmd.Flags().StringVar(
 		&restoreOptions.ts, "ts", "",
 		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!",
+	)
+	restoreCmd.Flags().Bool(
+		"fallback-enabled", false, "Enables/disables fallback strategy when performing a physical restore.",
+	)
+	restoreCmd.Flags().Bool(
+		"allow-partly-done", false,
+		"Allows partly done state of the cluster after physical restore. "+
+			"If enabled (default), partly-done status for a RS will be treated as a successful restore. "+
+			"If disabled, fallback will be applied when the cluster is partly-done.",
 	)
 
 	restoreCmd.Flags().StringVar(&restoreOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
@@ -1092,17 +1118,18 @@ func tsUTC(ts int64) string {
 }
 
 type snapshotStat struct {
-	Name       string          `json:"name"`
-	Namespaces []string        `json:"nss,omitempty"`
-	Size       int64           `json:"size,omitempty"`
-	Status     defs.Status     `json:"status"`
-	Err        error           `json:"-"`
-	ErrString  string          `json:"error,omitempty"`
-	RestoreTS  int64           `json:"restoreTo"`
-	PBMVersion string          `json:"pbmVersion"`
-	Type       defs.BackupType `json:"type"`
-	SrcBackup  string          `json:"src"`
-	StoreName  string          `json:"storage,omitempty"`
+	Name        string           `json:"name"`
+	Namespaces  []string         `json:"nss,omitempty"`
+	Size        int64            `json:"size,omitempty"`
+	Status      defs.Status      `json:"status"`
+	PrintStatus defs.PrintStatus `json:"printStatus"`
+	Err         error            `json:"-"`
+	ErrString   string           `json:"error,omitempty"`
+	RestoreTS   int64            `json:"restoreTo"`
+	PBMVersion  string           `json:"pbmVersion"`
+	Type        defs.BackupType  `json:"type"`
+	SrcBackup   string           `json:"src"`
+	StoreName   string           `json:"storage,omitempty"`
 }
 
 type pitrRange struct {
@@ -1115,8 +1142,11 @@ func (pr pitrRange) String() string {
 	return fmt.Sprintf("{ %s }", pr.Range)
 }
 
+// fmtTS converts timestamp to Zulu time string representation,
+// and removes Z identificator: 2025-02-05T11:04:59
 func fmtTS(ts int64) string {
-	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
+	t := time.Unix(ts, 0).UTC().Format(time.RFC3339)
+	return strings.TrimSuffix(t, "Z")
 }
 
 type outMsg struct {

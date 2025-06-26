@@ -151,7 +151,7 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 	return nil
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ int64) error {
+func (fs *FS) Save(name string, data io.Reader, _ ...storage.Option) error {
 	return writeSync(path.Join(fs.root, name), data)
 }
 
@@ -196,7 +196,14 @@ func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 			return errors.Wrap(err, "walking the path")
 		}
 
-		info, _ := entry.Info()
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// file was removed in the meantime, and that's fine
+				return nil
+			}
+			return errors.Wrap(err, "getting file info")
+		}
 		if info.IsDir() {
 			return nil
 		}

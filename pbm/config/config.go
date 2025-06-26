@@ -25,6 +25,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -145,6 +146,20 @@ func (c *Config) String() string {
 			c.Storage.Azure.Credentials.Key = "***"
 		}
 	}
+	if c.Storage.GCS != nil {
+		if c.Storage.GCS.Credentials.PrivateKey != "" {
+			c.Storage.GCS.Credentials.PrivateKey = "***"
+		}
+		if c.Storage.GCS.Credentials.ClientEmail != "" {
+			c.Storage.GCS.Credentials.ClientEmail = "***"
+		}
+		if c.Storage.GCS.Credentials.HMACAccessKey != "" {
+			c.Storage.GCS.Credentials.HMACAccessKey = "***"
+		}
+		if c.Storage.GCS.Credentials.HMACSecret != "" {
+			c.Storage.GCS.Credentials.HMACSecret = "***"
+		}
+	}
 
 	b, err := yaml.Marshal(c)
 	if err != nil {
@@ -209,6 +224,7 @@ func (cfg *PITRConf) Clone() *PITRConf {
 type StorageConf struct {
 	Type       storage.Type  `bson:"type" json:"type" yaml:"type"`
 	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	GCS        *gcs.Config   `bson:"gcs,omitempty" json:"gcs,omitempty" yaml:"gcs,omitempty"`
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 }
@@ -229,6 +245,8 @@ func (s *StorageConf) Clone() *StorageConf {
 		rv.S3 = s.S3.Clone()
 	case storage.Azure:
 		rv.Azure = s.Azure.Clone()
+	case storage.GCS:
+		rv.GCS = s.GCS.Clone()
 	case storage.Blackhole: // no config
 	}
 
@@ -245,7 +263,35 @@ func (s *StorageConf) Equal(other *StorageConf) bool {
 		return s.S3.Equal(other.S3)
 	case storage.Azure:
 		return s.Azure.Equal(other.Azure)
+	case storage.GCS:
+		return s.GCS.Equal(other.GCS)
 	case storage.Filesystem:
+		return s.Filesystem.Equal(other.Filesystem)
+	case storage.Blackhole:
+		return true
+	}
+
+	return false
+}
+
+// IsSameStorage returns true if specified config params describes
+// the same instance of the storage.
+// It ignores storage properties, and just compare parts that specifies
+// the storage instance.
+func (s *StorageConf) IsSameStorage(other *StorageConf) bool {
+	if s.Type != other.Type {
+		return false
+	}
+
+	switch s.Type {
+	case storage.S3:
+		return s.S3.IsSameStorage(other.S3)
+	case storage.Azure:
+		return s.Azure.IsSameStorage(other.Azure)
+	case storage.GCS:
+		return s.GCS.IsSameStorage(other.GCS)
+	case storage.Filesystem:
+		// FS is the same if it's equal
 		return s.Filesystem.Equal(other.Filesystem)
 	case storage.Blackhole:
 		return true
@@ -260,6 +306,8 @@ func (s *StorageConf) Cast() error {
 		return s.Filesystem.Cast()
 	case storage.S3:
 		return s.S3.Cast()
+	case storage.GCS:
+		return nil
 	case storage.Azure: // noop
 		return nil
 	case storage.Blackhole: // noop
@@ -275,6 +323,8 @@ func (s *StorageConf) Typ() string {
 		return "S3"
 	case storage.Azure:
 		return "Azure"
+	case storage.GCS:
+		return "GCS"
 	case storage.Filesystem:
 		return "FS"
 	case storage.Blackhole:
@@ -291,10 +341,14 @@ func (s *StorageConf) Path() string {
 	switch s.Type {
 	case storage.S3:
 		path = s.S3.EndpointURL
-		if !strings.Contains(path, "://") {
-			path = "s3://" + path
+		if path == "" {
+			path = "s3://" + s.S3.Bucket
+		} else {
+			if !strings.Contains(path, "://") {
+				path = "s3://" + path
+			}
+			path += "/" + s.S3.Bucket
 		}
-		path += "/" + s.S3.Bucket
 		if s.S3.Prefix != "" {
 			path += "/" + s.S3.Prefix
 		}
@@ -306,6 +360,11 @@ func (s *StorageConf) Path() string {
 		path = epURL + "/" + s.Azure.Container
 		if s.Azure.Prefix != "" {
 			path += "/" + s.Azure.Prefix
+		}
+	case storage.GCS:
+		path = "gs://" + s.GCS.Bucket
+		if s.GCS.Prefix != "" {
+			path += "/" + s.GCS.Prefix
 		}
 	case storage.Filesystem:
 		path = s.Filesystem.Path
@@ -337,6 +396,9 @@ type RestoreConf struct {
 	// physical restore. Will try $PATH/mongod if not set.
 	MongodLocation    string            `bson:"mongodLocation" json:"mongodLocation,omitempty" yaml:"mongodLocation,omitempty"`
 	MongodLocationMap map[string]string `bson:"mongodLocationMap" json:"mongodLocationMap,omitempty" yaml:"mongodLocationMap,omitempty"`
+
+	FallbackEnabled *bool `bson:"fallbackEnabled,omitempty" json:"fallbackEnabled,omitempty" yaml:"fallbackEnabled,omitempty"`
+	AllowPartlyDone *bool `bson:"allowPartlyDone,omitempty" json:"allowPartlyDone,omitempty" yaml:"allowPartlyDone,omitempty"`
 }
 
 func (cfg *RestoreConf) Clone() *RestoreConf {
@@ -353,6 +415,22 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 	}
 
 	return &rv
+}
+
+// GetFallbackEnabled gets config's or default value for fallbackEnabled
+func (cfg *RestoreConf) GetFallbackEnabled() bool {
+	if cfg != nil && cfg.FallbackEnabled != nil {
+		return *cfg.FallbackEnabled
+	}
+	return false
+}
+
+// GetAllowPartlyDone gets config's or default value for allowPartlyDone
+func (cfg *RestoreConf) GetAllowPartlyDone() bool {
+	if cfg != nil && cfg.AllowPartlyDone != nil {
+		return *cfg.AllowPartlyDone
+	}
+	return true
 }
 
 //nolint:lll

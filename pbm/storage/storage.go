@@ -27,6 +27,7 @@ const (
 	Azure      Type = "azure"
 	Filesystem Type = "filesystem"
 	Blackhole  Type = "blackhole"
+	GCS        Type = "gcs"
 )
 
 type FileInfo struct {
@@ -36,7 +37,7 @@ type FileInfo struct {
 
 type Storage interface {
 	Type() Type
-	Save(name string, data io.Reader, size int64) error
+	Save(name string, data io.Reader, options ...Option) error
 	SourceReader(name string) (io.ReadCloser, error)
 	// FileStat returns file info. It returns error if file is empty or not exists.
 	FileStat(name string) (FileInfo, error)
@@ -61,8 +62,48 @@ func ParseType(s string) Type {
 		return Filesystem
 	case string(Blackhole):
 		return Blackhole
+	case string(GCS):
+		return GCS
 	default:
 		return Undefined
+	}
+}
+
+// Opts represents storage options
+type Opts struct {
+	UseLogger bool
+	Size      int64
+}
+
+// GetDefaultOpts creates default options.
+func GetDefaultOpts() *Opts {
+	return &Opts{
+		UseLogger: true,
+		Size:      -1,
+	}
+}
+
+// Option is function for setting the storage option
+type Option func(*Opts) error
+
+// UseLogger option enables/disables logger when working with storage.
+// Logger is enabled by default.
+func UseLogger(useLogger bool) Option {
+	return func(o *Opts) error {
+		o.UseLogger = useLogger
+		return nil
+	}
+}
+
+// Size option sets size of the file for the upload.
+// It's used to calculate params for multi-part upload.
+func Size(size int64) Option {
+	return func(o *Opts) error {
+		if size < 0 && size != -1 {
+			return errors.New("invalid size option value")
+		}
+		o.Size = size
+		return nil
 	}
 }
 
@@ -202,7 +243,7 @@ func Upload(
 
 	saveDone := make(chan struct{})
 	go func() {
-		rwErr.write = dst.Save(fname, r, sizeb)
+		rwErr.write = dst.Save(fname, r, Size(sizeb))
 		saveDone <- struct{}{}
 	}()
 
@@ -227,6 +268,48 @@ func Upload(
 	}
 
 	return n, nil
+}
+
+// ComputePartSize calculates the optimal chunk size for uploading a large file,
+// depending on the expected total size and backend constraints.
+//
+// It's intended for backends that support multipart or resumable uploads:
+//   - AWS S3 (multipart upload with part count limits)
+//   - GCS XML API (via MinIO, with HMAC credentials)
+//   - GCS JSON API (resumable upload, used for Writer.ChunkSize tuning)
+//
+// Behavior:
+//   - Starts with a backend-specific `defaultChunk` (e.g., 10 MiB).
+//   - If a user-provided size is specified, it overrides the default (but not below minSize).
+//   - If fileSize is known, computes a chunk size large enough to keep the
+//     total number of chunks below maxParts (typically 10,000).
+//   - The chunk size is scaled by a 1.5x safety factor to ensure a margin.
+//
+// This function ensures that uploads stay within service limits.
+// For example, AWS S3 and GCS XML APIs have a hard cap of 10,000 parts, so:
+//   - With a 10 MiB part size, the max supported file size is ~97.6 GiB.
+//   - Larger files must use larger part sizes to stay under the limit.
+//
+// For resumable APIs like GCS JSON, there is no hard part-count limit,
+// but this function still helps determine an efficient flush interval.
+func ComputePartSize(fileSize, defaultSize, minSize, maxParts, userSize int64) int64 {
+	partSize := defaultSize
+
+	if userSize > 0 {
+		partSize = userSize
+		if partSize < minSize {
+			partSize = minSize
+		}
+	}
+
+	if fileSize > 0 {
+		ps := fileSize / maxParts * 15 / 10 // 50% headroom
+		if ps > partSize {
+			partSize = ps
+		}
+	}
+
+	return partSize
 }
 
 func PrettySize(size int64) string {
