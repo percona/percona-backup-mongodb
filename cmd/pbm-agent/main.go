@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
@@ -16,12 +17,14 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/kinit"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 const mongoConnFlag = "mongodb-uri"
+const kerberosRenewInterval = 4 * time.Hour
 
 func main() {
 	rootCmd := rootCommand()
@@ -123,6 +126,18 @@ func setRootFlags(rootCmd *cobra.Command) {
 	_ = viper.BindPFlag("log.level", rootCmd.Flags().Lookup("log-level"))
 	_ = viper.BindEnv("log.level", "LOG_LEVEL")
 	viper.SetDefault("log.level", log.D)
+
+	rootCmd.Flags().String("kerberos-keytab", "",
+		"Path to Kerberos keytab (if empty uses host keytab)")
+	_ = viper.BindPFlag("kerberos.keytab",
+		rootCmd.Flags().Lookup("kerberos-keytab"))
+	_ = viper.BindEnv("kerberos.keytab", "PBM_KERBEROS_KEYTAB")
+
+	rootCmd.Flags().Duration("kerberos-renew-interval", 0,
+		"How often to renew Kerberos ticket (if 0 renewal is disabled)")
+	_ = viper.BindPFlag("kerberos.renew_interval",
+		rootCmd.Flags().Lookup("kerberos-renew-interval"))
+	_ = viper.BindEnv("kerberos.renew_interval", "PBM_KERBEROS_RENEW_INTERVAL")
 }
 
 func versionCommand() *cobra.Command {
@@ -243,5 +258,24 @@ func runAgent(
 	}
 	go agent.HbStatus(ctx)
 
+	setupKerberosRenewal(ctx, mongoURI, logger)
+
 	return errors.Wrap(agent.Start(ctx), "listen the commands stream")
+}
+
+func setupKerberosRenewal(ctx context.Context, mongoURI string, l log.Logger) {
+	interval := viper.GetDuration("kerberos.renew_interval")
+	if interval <= 0 { // 0 or negative means disabled
+		return
+	}
+
+	keytab := viper.GetString("kerberos.keytab")
+
+	rm, err := kinit.New(mongoURI, keytab, interval)
+	if err != nil {
+		l.Printf("Kerberos renewal skipped: %s", err)
+		return
+	}
+
+	rm.Start(ctx)
 }
