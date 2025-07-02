@@ -133,9 +133,9 @@ func setRootFlags(rootCmd *cobra.Command) {
 
 	rootCmd.Flags().Duration("kerberos-renew-interval", 0,
 		"How often to renew Kerberos ticket (if 0 renewal is disabled)")
-	_ = viper.BindPFlag("kerberos.renew_interval",
+	_ = viper.BindPFlag("kerberos.renew-interval",
 		rootCmd.Flags().Lookup("kerberos-renew-interval"))
-	_ = viper.BindEnv("kerberos.renew_interval", "PBM_KERBEROS_RENEW_INTERVAL")
+	_ = viper.BindEnv("kerberos.renew-interval", "PBM_KERBEROS_RENEW_INTERVAL")
 }
 
 func versionCommand() *cobra.Command {
