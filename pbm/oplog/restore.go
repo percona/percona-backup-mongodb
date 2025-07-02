@@ -334,6 +334,9 @@ func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) erro
 	return nil
 }
 
+// isOpAllowed inspects whether op is allowed from config database point of view.
+// It allows/disallows only specific collections for config database.
+// It disallows balancer settings that would cause the balancer to work during PITR.
 func isOpAllowed(oe *Record) bool {
 	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
 	if !ok {

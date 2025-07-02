@@ -141,6 +141,85 @@ func TestIsOpForCloning(t *testing.T) {
 	}
 }
 
+func TestIsOpAllowed(t *testing.T) {
+	testCases := []struct {
+		desc      string
+		entry     *db.Oplog
+		opAllowed bool
+	}{
+		{
+			desc:      "any other than config",
+			entry:     createInsertOp(t, "db1.c1"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.chunks",
+			entry:     createInsertOp(t, "config.chunks"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.collections",
+			entry:     createInsertOp(t, "config.collections"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.databases",
+			entry:     createInsertOp(t, "config.databases"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.shards",
+			entry:     createInsertOp(t, "config.shards"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.tags",
+			entry:     createUpdateOp(t, "config.tags"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.version",
+			entry:     createDeleteOp(t, "config.version"),
+			opAllowed: true,
+		},
+		{
+			desc:      "dissalowed config collection",
+			entry:     createInsertOp(t, "config.mongos"),
+			opAllowed: false,
+		},
+		{
+			desc:      "wrong config.settings doc will not break",
+			entry:     createDeleteOp(t, "config.settings"),
+			opAllowed: true,
+		},
+		{
+			desc:      "settings doc for balancer",
+			entry:     configSettingsBalancerEntry(),
+			opAllowed: false,
+		},
+		{
+			desc:      "settings doc for automerge",
+			entry:     configSettingsAutomergeEntry(),
+			opAllowed: false,
+		},
+		{
+			desc:      "allowed settings doc",
+			entry:     configSettingsAnyOtherEntry(),
+			opAllowed: true,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			res := isOpAllowed(tC.entry)
+			if res != tC.opAllowed {
+				t.Errorf("%s: for entry: %+v isOpAllowed is: %t, but it should be opposite",
+					tC.desc, tC.entry, tC.opAllowed)
+			}
+		})
+	}
+}
+
 func TestApply(t *testing.T) {
 	t.Run("collection restore", func(t *testing.T) {
 		testCases := []struct {
@@ -637,4 +716,30 @@ func replaceNsWithinOpEntry(t *testing.T, jsonEntry, ns string) *db.Oplog {
 		oe.Namespace = ns
 	}
 	return &oe
+}
+
+func configSettingsBalancerEntry() *db.Oplog {
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.settings",
+		Object:    bson.D{{"_id", "balancer"}, {"mode", "off"}, {"stopped", true}},
+		Query:     bson.D{{"_id", "balancer"}},
+	}
+}
+
+func configSettingsAutomergeEntry() *db.Oplog {
+	return &db.Oplog{
+		Operation: "u",
+		Namespace: "config.settings",
+		Query:     bson.D{{"_id", "automerge"}},
+	}
+}
+
+func configSettingsAnyOtherEntry() *db.Oplog {
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.settings",
+		Object:    bson.D{{"_id", "chunksize"}, {"value", 128}},
+		Query:     bson.D{{"_id", "chunksize"}},
+	}
 }
