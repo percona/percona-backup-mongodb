@@ -262,7 +262,7 @@ func runAgent(
 }
 
 func setupKerberosRenewal(ctx context.Context, mongoURI string, l log.Logger) {
-	interval := viper.GetDuration("kerberos.renew_interval")
+	interval := viper.GetDuration("kerberos.renew-interval")
 	if interval <= 0 { // 0 or negative means disabled
 		return
 	}
