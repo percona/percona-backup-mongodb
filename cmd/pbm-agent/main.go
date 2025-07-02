@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/fsnotify/fsnotify"
 	mtLog "github.com/mongodb/mongo-tools/common/log"
@@ -24,7 +23,6 @@ import (
 )
 
 const mongoConnFlag = "mongodb-uri"
-const kerberosRenewInterval = 4 * time.Hour
 
 func main() {
 	rootCmd := rootCommand()
