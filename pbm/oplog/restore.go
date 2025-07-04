@@ -100,6 +100,24 @@ var dontPreserveUUID = []string{
 	"*.system.views",     // timeseries
 }
 
+// ConfigCollToKeep defines a list of collections in the `config`
+// database that PBM will apply oplog events.
+var configCollToKeep = []string{
+	"chunks",
+	"collections",
+	"databases",
+	"shards",
+	"tags",
+	"version",
+}
+
+const settingsColl = "settings"
+
+var settingsToSkip = []string{
+	"balancer",
+	"automerge",
+}
+
 var ErrNoCloningNamespace = errors.New("cloning namespace desn't exist")
 
 // cloneNS has all data related to cloning namespace within oplog
@@ -316,14 +334,21 @@ func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) erro
 	return nil
 }
 
+// isOpAllowed inspects whether op is allowed from config database point of view.
+// It allows/disallows only specific collections for config database.
+// It disallows balancer settings that would cause the balancer to work during PITR.
 func isOpAllowed(oe *Record) bool {
 	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
 	if !ok {
 		return true // OK: not a "config" database. allow any ops
 	}
 
-	if slices.Contains(dumprestore.ConfigCollectionsToKeep, coll) {
+	if slices.Contains(configCollToKeep, coll) {
 		return true // OK: create/update/delete a doc
+	}
+
+	if coll == settingsColl {
+		return isConfigSettingAllowed(oe)
 	}
 
 	if coll != "$cmd" || len(oe.Object) == 0 {
@@ -340,6 +365,20 @@ func isOpAllowed(oe *Record) bool {
 	}
 
 	return false
+}
+
+// isConfigSettingAllowed filter out entries from config.settings collection
+func isConfigSettingAllowed(oe *Record) bool {
+	for _, e := range oe.Query {
+		if e.Key != "_id" {
+			continue
+		}
+		setting, _ := e.Value.(string)
+		if slices.Contains(settingsToSkip, setting) {
+			return false
+		}
+	}
+	return true // allow setting from config.settings
 }
 
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
@@ -412,6 +451,8 @@ func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
 	return false
 }
 
+// isOpExcluded check if collection is excluded.
+// Mostly refers PBM's control collections, but also some config and admin ones.
 func (o *OplogRestore) isOpExcluded(oe *Record) bool {
 	if o.excludeNS == nil {
 		return false
