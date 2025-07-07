@@ -155,7 +155,6 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		err = s.copyReplsetOplog(ctx, rs)
 		if err != nil {
 			s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
-			return nil
 		}
 	}
 	s.lastTS = rs.LastWriteTS
