@@ -174,8 +174,11 @@ install_deps() {
 
     if [ "x$OS" = "xrpm" ]; then
         yum clean all
+        if [ "x$RHEL" = "x10" ]; then
+            yum -y install oracle-epel-release-el10
+        fi
         INSTALL_LIST="epel-release git wget"
-        if [ "x$RHEL" = "x2023" ]; then
+        if [ "x$RHEL" = "x2023" -o "x$RHEL" = "x10" ]; then
             INSTALL_LIST="git wget"
         fi
         yum -y install ${INSTALL_LIST}
