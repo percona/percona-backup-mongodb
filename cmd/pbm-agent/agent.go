@@ -26,6 +26,7 @@ import (
 
 type Agent struct {
 	leadConn connect.Client
+	ccrsConn connect.Client
 	nodeConn *mongo.Client
 	bcp      *currentBackup
 	pitrjob  *currentPitr
@@ -47,6 +48,7 @@ type Agent struct {
 func newAgent(
 	ctx context.Context,
 	leadConn connect.Client,
+	ccrsConn connect.Client,
 	uri string,
 	numParallelColls int,
 ) (*Agent, error) {
@@ -67,6 +69,7 @@ func newAgent(
 
 	a := &Agent{
 		leadConn: leadConn,
+		ccrsConn: ccrsConn,
 		closeCMD: make(chan struct{}),
 		nodeConn: nodeConn,
 		brief: topo.NodeBrief{
@@ -154,8 +157,9 @@ func (a *Agent) Start(ctx context.Context) error {
 	logger.Printf("conn level ReadConcern: %v; WriteConcern: %v",
 		a.leadConn.MongoOptions().ReadConcern.Level,
 		a.leadConn.MongoOptions().WriteConcern.W)
+	// todo: also log for ccrsConn?
 
-	c, cerr := ctrl.ListenCmd(ctx, a.leadConn, a.closeCMD)
+	c, cerr := ctrl.ListenCmd(ctx, a.ccrsConn, a.closeCMD)
 
 	logger.Printf("listening for the commands")
 
@@ -169,7 +173,7 @@ func (a *Agent) Start(ctx context.Context) error {
 
 			logger.Printf("got command %s, opid: %s", cmd, cmd.OPID)
 
-			ep, err := config.GetEpoch(ctx, a.leadConn)
+			ep, err := config.GetEpoch(ctx, a.ccrsConn)
 			if err != nil {
 				logger.Error(string(cmd.Cmd), "", cmd.OPID.String(), ep.TS(), "get epoch: %v", err)
 				continue
@@ -210,7 +214,7 @@ func (a *Agent) Start(ctx context.Context) error {
 				return errors.Wrap(err, "stop listening")
 			}
 
-			ep, _ := config.GetEpoch(ctx, a.leadConn)
+			ep, _ := config.GetEpoch(ctx, a.ccrsConn)
 			logger.Error("", "", "", ep.TS(), "listening commands: %v", err)
 		}
 	}
@@ -284,14 +288,14 @@ func (a *Agent) HbStatus(ctx context.Context) {
 	}
 
 	updateAgentStat(ctx, a, l, true, &hb)
-	err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
+	err = topo.SetAgentStatus(ctx, a.ccrsConn, &hb)
 	if err != nil {
 		l.Error("set status: %v", err)
 	}
 
 	defer func() {
 		l.Debug("deleting agent status")
-		err := topo.RemoveAgentStatus(context.Background(), a.leadConn, hb)
+		err := topo.RemoveAgentStatus(context.Background(), a.ccrsConn, hb)
 		if err != nil {
 			logger := logger.NewEvent("agentCheckup", "", "", primitive.Timestamp{})
 			logger.Error("remove agent heartbeat: %v", err)
@@ -326,13 +330,13 @@ func (a *Agent) HbStatus(ctx context.Context) {
 
 			if now.Sub(storageCheckTime) >= storageCheckInterval {
 				updateAgentStat(ctx, a, l, true, &hb)
-				err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
+				err = topo.SetAgentStatus(ctx, a.ccrsConn, &hb)
 				if err == nil {
 					storageCheckTime = now
 				}
 			} else {
 				updateAgentStat(ctx, a, l, false, &hb)
-				err = topo.SetAgentStatus(ctx, a.leadConn, &hb)
+				err = topo.SetAgentStatus(ctx, a.ccrsConn, &hb)
 			}
 			if err != nil {
 				l.Error("set status: %v", err)
@@ -410,7 +414,7 @@ func (a *Agent) warnIfParallelAgentDetected(
 	l log.LogEvent,
 	lastHeartbeat primitive.Timestamp,
 ) {
-	s, err := topo.GetAgentStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
+	s, err := topo.GetAgentStatus(ctx, a.ccrsConn, a.brief.SetName, a.brief.Me)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return
@@ -456,7 +460,7 @@ func (a *Agent) storStatus(
 		return topo.SubsysStatus{OK: true}
 	}
 
-	stg, err := util.GetStorage(ctx, a.leadConn, a.brief.Me, log)
+	stg, err := util.GetStorage(ctx, a.ccrsConn, a.brief.Me, log)
 	if err != nil {
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}

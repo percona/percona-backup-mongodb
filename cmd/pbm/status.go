@@ -68,14 +68,19 @@ type statusSect struct {
 	Name     string
 	longName string
 	Obj      fmt.Stringer
-	f        func(ctx context.Context, conn connect.Client) (fmt.Stringer, error)
+	f        func(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (fmt.Stringer, error)
 }
 
 func (f statusSect) String() string {
 	return fmt.Sprintf("%s\n%s\n", sprinth(f.longName), f.Obj)
 }
 
-func (o statusOut) set(ctx context.Context, conn connect.Client, sfilter map[string]bool) error {
+func (o statusOut) set(
+	ctx context.Context,
+	conn connect.Client,
+	ccrsConn connect.Client,
+	sfilter map[string]bool,
+) error {
 	for _, se := range o.data {
 		if sfilter != nil && !sfilter[se.Name] {
 			se.Obj = nil
@@ -83,7 +88,7 @@ func (o statusOut) set(ctx context.Context, conn connect.Client, sfilter map[str
 		}
 
 		var err error
-		se.Obj, err = se.f(ctx, conn)
+		se.Obj, err = se.f(ctx, conn, ccrsConn)
 		if err != nil {
 			return errors.Wrapf(err, "get status of %s", se.Name)
 		}
@@ -95,6 +100,7 @@ func (o statusOut) set(ctx context.Context, conn connect.Client, sfilter map[str
 func status(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	pbm *sdk.Client,
 	curi string,
 	opts statusOptions,
@@ -109,21 +115,21 @@ func status(
 		data: []*statusSect{
 			{
 				"cluster", "Cluster", nil,
-				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
+				func(ctx context.Context, _ connect.Client, _ connect.Client) (fmt.Stringer, error) {
 					return clusterStatus(ctx, pbm, cli.RSConfGetter(curi), opts.priority)
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
 			{
 				"running", "Currently running", nil,
-				func(ctx context.Context, _ connect.Client) (fmt.Stringer, error) {
+				func(ctx context.Context, _ connect.Client, _ connect.Client) (fmt.Stringer, error) {
 					return getCurrOps(ctx, pbm)
 				},
 			},
 			{
 				"backups", "Backups", nil,
-				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, pbm, rsMap)
+				func(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (fmt.Stringer, error) {
+					return getStorageStat(ctx, conn, ccrsConn, pbm, rsMap)
 				},
 			},
 		},
@@ -138,7 +144,7 @@ func status(
 		}
 	}
 
-	err = out.set(ctx, conn, sfilter)
+	err = out.set(ctx, conn, ccrsConn, sfilter)
 
 	return out, err
 }
@@ -281,33 +287,33 @@ func (p pitrStat) String() string {
 	return s
 }
 
-func getPitrStatus(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
+func getPitrStatus(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (fmt.Stringer, error) {
 	var p pitrStat
 	var err error
-	p.InConf, _, err = config.IsPITREnabled(ctx, conn)
+	p.InConf, _, err = config.IsPITREnabled(ctx, ccrsConn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR config status")
 	}
 
-	p.Running, err = oplog.IsOplogSlicing(ctx, conn)
+	p.Running, err = oplog.IsOplogSlicing(ctx, conn, ccrsConn)
 	if err != nil {
 		return p, errors.Wrap(err, "unable check PITR running status")
 	}
 
 	if p.InConf && p.Running {
-		p.RunningNodes, err = oplog.GetAgentsWithACK(ctx, conn)
+		p.RunningNodes, err = oplog.GetAgentsWithACK(ctx, ccrsConn)
 		if err != nil && !errors.Is(err, errors.ErrNotFound) {
 			return p, errors.Wrap(err, "unable to fetch PITR running nodes")
 		}
 	}
 
-	p.Err, err = getPitrErr(ctx, conn)
+	p.Err, err = getPitrErr(ctx, conn, ccrsConn)
 
 	return p, errors.Wrap(err, "check for errors")
 }
 
-func getPitrErr(ctx context.Context, conn connect.Client) (string, error) {
-	epch, err := config.GetEpoch(ctx, conn)
+func getPitrErr(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (string, error) {
+	epch, err := config.GetEpoch(ctx, ccrsConn)
 	if err != nil {
 		return "", errors.Wrap(err, "get current epoch")
 	}
@@ -321,7 +327,7 @@ func getPitrErr(ctx context.Context, conn connect.Client) (string, error) {
 LOOP:
 	for _, s := range shards {
 		l, err := log.LogGetExactSeverity(ctx,
-			conn,
+			ccrsConn,
 			&log.LogRequest{
 				LogKeys: log.LogKeys{
 					Severity: log.Error,
@@ -341,7 +347,7 @@ LOOP:
 
 		// check if some node in the RS had successfully restarted slicing
 		nl, err := log.LogGetExactSeverity(ctx,
-			conn,
+			ccrsConn,
 			&log.LogRequest{
 				LogKeys: log.LogKeys{
 					Severity: log.Debug,
@@ -529,12 +535,13 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	pbm *sdk.Client,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
 
-	cfg, err := config.GetConfig(ctx, conn)
+	cfg, err := config.GetConfig(ctx, ccrsConn)
 	if err != nil {
 		return s, errors.Wrap(err, "get config")
 	}
@@ -633,7 +640,7 @@ func getStorageStat(
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
+	s.PITR, err = getPITRranges(ctx, conn, ccrsConn, bcps, rsMap)
 	if err != nil {
 		return s, errors.Wrap(err, "get PITR chunks")
 	}
@@ -644,6 +651,7 @@ func getStorageStat(
 func getPITRranges(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	bcps []backup.BackupMeta,
 	rsMap map[string]string,
 ) (*pitrRanges, error) {
@@ -661,7 +669,7 @@ func getPITRranges(
 	var size int64
 	var rstlines [][]oplog.Timeline
 	for _, s := range shards {
-		tlns, err := oplog.PITRGetValidTimelines(ctx, conn, mapRevRS(s.RS), now)
+		tlns, err := oplog.PITRGetValidTimelines(ctx, ccrsConn, mapRevRS(s.RS), now)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get PITR timelines for %s replset: %s", s.RS, err)
 		}

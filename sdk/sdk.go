@@ -132,8 +132,13 @@ func (l *OpLock) Err() error {
 	return l.err
 }
 
-func NewClient(ctx context.Context, uri string) (*Client, error) {
+func NewClient(ctx context.Context, uri, ccrsURI string) (*Client, error) {
 	conn, err := connect.Connect(ctx, uri, "sdk")
+	if err != nil {
+		return nil, err
+	}
+
+	ccrsConn, err := connect.Connect(ctx, ccrsURI, "sdk-ccrs")
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +148,7 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 		return nil, errors.Wrap(err, "get node info")
 	}
 
-	return &Client{conn: conn, node: inf.Me}, nil
+	return &Client{conn: conn, ccrsConn: ccrsConn, node: inf.Me}, nil
 }
 
 func CommandLogCursor(ctx context.Context, c *Client, cid CommandID) (*log.Cursor, error) {

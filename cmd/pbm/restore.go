@@ -118,6 +118,7 @@ func (r externRestoreRet) String() string {
 func runRestore(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	pbm *sdk.Client,
 	o *restoreOpts,
 	node string,
@@ -164,7 +165,7 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
+	m, err := doRestore(ctx, conn, ccrsConn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
@@ -383,6 +384,7 @@ func nsIsTaken(
 func doRestore(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	o *restoreOpts,
 	numParallelColls *int32,
 	numInsertionWorkers *int32,
@@ -393,7 +395,7 @@ func doRestore(
 	node string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
-	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
+	bcp, bcpType, err := checkBackup(ctx, ccrsConn, o, nss, nsFrom, nsTo)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +455,7 @@ func doRestore(
 		}
 	}
 
-	err = sendCmd(ctx, conn, cmd)
+	err = sendCmd(ctx, ccrsConn, cmd)
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}
@@ -491,10 +493,10 @@ func doRestore(
 		fn = restore.GetRestoreMeta
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
-		ep, _ := config.GetEpoch(ctx, conn)
+		ep, _ := config.GetEpoch(ctx, ccrsConn)
 		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
 
-		stg, err := util.GetStorage(ctx, conn, node, l)
+		stg, err := util.GetStorage(ctx, ccrsConn, node, l)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -510,7 +512,7 @@ func doRestore(
 	}
 	defer cancel()
 
-	return waitForRestoreStatus(startCtx, conn, name, fn)
+	return waitForRestoreStatus(startCtx, ccrsConn, name, fn)
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {

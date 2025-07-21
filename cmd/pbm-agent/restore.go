@@ -50,7 +50,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	var lck *lock.Lock
 	if nodeInfo.IsPrimary {
 		epts := ep.TS()
-		lck = lock.NewLock(a.leadConn, lock.LockHeader{
+		lck = lock.NewLock(a.ccrsConn, lock.LockHeader{
 			Type:    ctrl.CmdRestore,
 			Replset: nodeInfo.SetName,
 			Node:    nodeInfo.Me,
@@ -79,7 +79,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			}
 		}()
 
-		err = config.SetConfigVar(ctx, a.leadConn, "pitr.enabled", "false")
+		err = config.SetConfigVar(ctx, a.ccrsConn, "pitr.enabled", "false")
 		if err != nil {
 			l.Error("disable oplog slicer: %v", err)
 		} else {
@@ -122,9 +122,9 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		l.Info("backup: %s", r.BackupName)
 
 		// XXX: why is backup searched on storage?
-		bcp, err = restore.LookupBackupMeta(ctx, a.leadConn, r.BackupName, a.brief.Me)
+		bcp, err = restore.LookupBackupMeta(ctx, a.ccrsConn, r.BackupName, a.brief.Me)
 		if err != nil {
-			err1 := addRestoreMetaWithError(ctx, a.leadConn, l, opid, r, nodeInfo.SetName,
+			err1 := addRestoreMetaWithError(ctx, a.ccrsConn, l, opid, r, nodeInfo.SetName,
 				"define base backup: %v", err)
 			if err1 != nil {
 				l.Error("failed to save meta: %v", err1)
@@ -133,7 +133,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		}
 
 		if !r.OplogTS.IsZero() && bcp.LastWriteTS.Compare(r.OplogTS) >= 0 {
-			err1 := addRestoreMetaWithError(ctx, a.leadConn, l, opid, r, nodeInfo.SetName,
+			err1 := addRestoreMetaWithError(ctx, a.ccrsConn, l, opid, r, nodeInfo.SetName,
 				"snapshot's last write is later than the target time. "+
 					"Try to set an earlier snapshot. Or leave the snapshot empty "+
 					"so PBM will choose one.")
@@ -146,7 +146,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		r.BackupName = bcp.Name
 	}
 
-	cfg, err := config.GetConfig(ctx, a.leadConn)
+	cfg, err := config.GetConfig(ctx, a.ccrsConn)
 	if err != nil {
 		l.Error("get PBM configuration: %v", err)
 		return
@@ -164,7 +164,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		numParallelColls := getNumParallelCollsConfig(r.NumParallelColls, cfg.Restore)
 		numInsertionWorkersPerCol := getNumInsertionWorkersConfig(r.NumInsertionWorkers, cfg.Restore)
 
-		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
+		rr := restore.New(a.leadConn, a.ccrsConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
 		if r.OplogTS.IsZero() {
 			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {
@@ -193,6 +193,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		rstr, err = restore.NewPhysical(
 			ctx,
 			a.leadConn,
+			a.ccrsConn,
 			a.nodeConn,
 			nodeInfo,
 			r.RSMap,
@@ -216,7 +217,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	}
 
 	if bcpType == defs.LogicalBackup && nodeInfo.IsLeader() {
-		epch, err := config.ResetEpoch(ctx, a.leadConn)
+		epch, err := config.ResetEpoch(ctx, a.ccrsConn)
 		if err != nil {
 			l.Error("reset epoch: %v", err)
 		}

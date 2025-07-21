@@ -43,13 +43,14 @@ func GetMetaFromStore(stg storage.Storage, bcpName string) (*backup.BackupMeta, 
 func toState(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	status defs.Status,
 	bcp string,
 	inf *topo.NodeInfo,
 	reconcileFn reconcileStatus,
 	wait *time.Duration,
 ) error {
-	err := ChangeRestoreRSState(ctx, conn, bcp, inf.SetName, status, "")
+	err := ChangeRestoreRSState(ctx, ccrsConn, bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
@@ -64,7 +65,7 @@ func toState(
 		}
 	}
 
-	err = waitForStatus(ctx, conn, bcp, status)
+	err = waitForStatus(ctx, conn, ccrsConn, bcp, status)
 	if err != nil {
 		return errors.Wrapf(err, "waiting for %s", status)
 	}
@@ -78,6 +79,7 @@ type reconcileStatus func(ctx context.Context, status defs.Status, timeout *time
 func convergeCluster(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	name, opid string,
 	shards []topo.Shard,
 	status defs.Status,
@@ -88,7 +90,7 @@ func convergeCluster(
 	for {
 		select {
 		case <-tk.C:
-			ok, err := converged(ctx, conn, name, opid, shards, status)
+			ok, err := converged(ctx, conn, ccrsConn, name, opid, shards, status)
 			if err != nil {
 				return err
 			}
@@ -108,6 +110,7 @@ var errConvergeTimeOut = errors.New("reached converge timeout")
 func convergeClusterWithTimeout(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	name,
 	opid string,
 	shards []topo.Shard,
@@ -124,7 +127,7 @@ func convergeClusterWithTimeout(
 		select {
 		case <-tk.C:
 			var ok bool
-			ok, err := converged(ctx, conn, name, opid, shards, status)
+			ok, err := converged(ctx, conn, ccrsConn, name, opid, shards, status)
 			if err != nil {
 				return err
 			}
@@ -142,12 +145,13 @@ func convergeClusterWithTimeout(
 func converged(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	name, opid string,
 	shards []topo.Shard,
 	status defs.Status,
 ) (bool, error) {
 	shardsToFinish := len(shards)
-	bmeta, err := GetRestoreMeta(ctx, conn, name)
+	bmeta, err := GetRestoreMeta(ctx, ccrsConn, name)
 	if err != nil {
 		return false, errors.Wrap(err, "get backup metadata")
 	}
@@ -161,7 +165,7 @@ func converged(
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.RS {
 				// check if node alive
-				lck, err := lock.GetLockData(ctx, conn, &lock.LockHeader{
+				lck, err := lock.GetLockData(ctx, ccrsConn, &lock.LockHeader{
 					Type:    ctrl.CmdRestore,
 					OPID:    opid,
 					Replset: shard.Name,
@@ -192,7 +196,7 @@ func converged(
 	}
 
 	if shardsToFinish == 0 {
-		err := ChangeRestoreState(ctx, conn, name, status, "")
+		err := ChangeRestoreState(ctx, ccrsConn, name, status, "")
 		if err != nil {
 			return false, errors.Wrapf(err, "update backup meta with %s", status)
 		}
@@ -202,14 +206,14 @@ func converged(
 	return false, nil
 }
 
-func waitForStatus(ctx context.Context, conn connect.Client, name string, status defs.Status) error {
+func waitForStatus(ctx context.Context, conn connect.Client, ccrsConn connect.Client, name string, status defs.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
 	for {
 		select {
 		case <-tk.C:
-			meta, err := GetRestoreMeta(ctx, conn, name)
+			meta, err := GetRestoreMeta(ctx, ccrsConn, name)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}

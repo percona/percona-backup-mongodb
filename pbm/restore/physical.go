@@ -75,6 +75,7 @@ type files struct {
 
 type PhysRestore struct {
 	leadConn connect.Client
+	ccrsConn connect.Client
 	node     *mongo.Client
 	dbpath   string
 	// an ephemeral port to restart mongod on during the restore
@@ -124,6 +125,7 @@ type PhysRestore struct {
 func NewPhysical(
 	ctx context.Context,
 	leadConn connect.Client,
+	ccrsConn connect.Client,
 	node *mongo.Client,
 	inf *topo.NodeInfo,
 	rsMap map[string]string,
@@ -185,6 +187,7 @@ func NewPhysical(
 
 	return &PhysRestore{
 		leadConn:        leadConn,
+		ccrsConn:        ccrsConn,
 		node:            node,
 		dbpath:          p,
 		rsConf:          rcf,
@@ -1027,6 +1030,8 @@ func (l *logBuff) Flush() error {
 // metadata as with logical restores. But later, since mongod being shutdown,
 // status sync going via storage (see `PhysRestore.toState`)
 //
+// TODO: should ccrs change the behavior instead of storage?
+//
 // Unlike in logical restore, _every_ node of the replicaset is taking part in
 // a physical restore. In that way, we avoid logical resync between nodes after
 // the restore. Each node in the cluster does:
@@ -1115,7 +1120,7 @@ func (r *PhysRestore) Snapshot(
 
 	var oplogRanges []oplogRange
 	if !pitr.IsZero() {
-		chunks, err := chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
+		chunks, err := chunks(ctx, r.ccrsConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
@@ -2177,7 +2182,7 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 const hbFrameSec = 60 * 2
 
 func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l log.LogEvent) error {
-	cfg, err := config.GetConfig(ctx, r.leadConn)
+	cfg, err := config.GetConfig(ctx, r.ccrsConn)
 	if err != nil {
 		return errors.Wrap(err, "get pbm config")
 	}
@@ -2448,7 +2453,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 
 		r.log.Debug("get src %s", bcp.SrcBackup)
 		var err error
-		bcp, err = backup.NewDBManager(r.leadConn).GetBackupByName(ctx, bcp.SrcBackup)
+		bcp, err = backup.NewDBManager(r.ccrsConn).GetBackupByName(ctx, bcp.SrcBackup)
 		if err != nil {
 			return errors.Wrapf(err, "get source backup")
 		}
@@ -2543,7 +2548,7 @@ func getRS(bcp *backup.BackupMeta, rs string) *backup.BackupReplset {
 
 func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) error {
 	var err error
-	r.bcp, err = backup.NewDBManager(r.leadConn).GetBackupByName(ctx, backupName)
+	r.bcp, err = backup.NewDBManager(r.ccrsConn).GetBackupByName(ctx, backupName)
 	if errors.Is(err, errors.ErrNotFound) {
 		r.bcp, err = GetMetaFromStore(r.stg, backupName)
 	}
@@ -2560,7 +2565,7 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.New("snapshot name doesn't set")
 	}
 
-	err = setRestoreBackup(ctx, r.leadConn, r.name, r.bcp.Name, nil)
+	err = setRestoreBackup(ctx, r.ccrsConn, r.name, r.bcp.Name, nil)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}

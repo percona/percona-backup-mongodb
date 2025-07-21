@@ -135,12 +135,12 @@ func (a *Agent) helpSyncProfileBackups(ctx context.Context, profile *config.Conf
 }
 
 func (a *Agent) handleSyncMainStorage(ctx context.Context, includeRestores bool) error {
-	cfg, err := config.GetConfig(ctx, a.leadConn)
+	cfg, err := config.GetConfig(ctx, a.ccrsConn)
 	if err != nil {
 		return errors.Wrap(err, "get config")
 	}
 
-	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, includeRestores)
+	err = resync.Resync(ctx, a.ccrsConn, &cfg.Storage, a.brief.Me, includeRestores)
 	if err != nil {
 		return errors.Wrap(err, "resync")
 	}

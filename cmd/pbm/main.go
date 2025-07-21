@@ -32,6 +32,7 @@ const (
 
 const (
 	mongoConnFlag   = "mongodb-uri"
+	ccrsConnFlag    = "ccrs-uri"
 	RSMappingEnvVar = "PBM_REPLSET_REMAPPING"
 	RSMappingFlag   = "replset-remapping"
 	RSMappingDoc    = "re-map replset names for backups/oplog (e.g. to_name_1=from_name_1,to_name_2=from_name_2)"
@@ -63,13 +64,15 @@ type cliResult interface {
 type pbmApp struct {
 	rootCmd *cobra.Command
 
-	ctx     context.Context
-	cancel  context.CancelFunc
-	pbmOutF outFormat
-	mURL    string
-	conn    connect.Client
-	pbm     *sdk.Client
-	node    string
+	ctx      context.Context
+	cancel   context.CancelFunc
+	pbmOutF  outFormat
+	mURL     string
+	ccrsURI  string
+	conn     connect.Client
+	ccrsConn connect.Client
+	pbm      *sdk.Client
+	node     string
 }
 
 func main() {
@@ -128,6 +131,14 @@ func newPbmApp() *pbmApp {
 	_ = viper.BindPFlag(mongoConnFlag, app.rootCmd.PersistentFlags().Lookup(mongoConnFlag))
 	_ = viper.BindEnv(mongoConnFlag, "PBM_MONGODB_URI")
 
+	app.rootCmd.PersistentFlags().String(
+		ccrsConnFlag,
+		"",
+		"Control Collection RS connection string (Default = PBM_CCRS_URI environment variable)",
+	)
+	_ = viper.BindPFlag(ccrsConnFlag, app.rootCmd.PersistentFlags().Lookup(ccrsConnFlag))
+	_ = viper.BindEnv(ccrsConnFlag, "PBM_CCRS_URI")
+
 	app.rootCmd.PersistentFlags().StringP("out", "o", string(outText), "Output format <text>/<json>")
 	_ = viper.BindPFlag("out", app.rootCmd.PersistentFlags().Lookup("out"))
 
@@ -170,6 +181,12 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 		)
 	}
 
+	app.ccrsURI = viper.GetString(ccrsConnFlag)
+
+	if app.ccrsURI == "" {
+		app.ccrsURI = app.mURL
+	}
+
 	if viper.GetString("describe-restore.config") != "" || viper.GetString("restore-finish.config") != "" {
 		return nil
 	}
@@ -179,6 +196,12 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		exitErr(errors.Wrap(err, "connect to mongodb"), app.pbmOutF)
 	}
+
+	app.ccrsConn, err = connect.Connect(app.ctx, app.ccrsURI, "pbm-ctl-ccrs")
+	if err != nil {
+		exitErr(errors.Wrap(err, "connect to ccrs"), app.pbmOutF)
+	}
+
 	app.ctx = log.SetLoggerToContext(app.ctx, log.New(app.conn, "", ""))
 
 	ver, err := version.GetMongoVersion(app.ctx, app.conn.MongoClient())
@@ -190,7 +213,7 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
 	}
 
-	app.pbm, err = sdk.NewClient(app.ctx, app.mURL)
+	app.pbm, err = sdk.NewClient(app.ctx, app.mURL, app.ccrsURI)
 	if err != nil {
 		exitErr(errors.Wrap(err, "init sdk"), app.pbmOutF)
 	}
@@ -377,7 +400,7 @@ func (app *pbmApp) buildConfigCmd() *cobra.Command {
 			if len(args) == 1 {
 				cfg.key = args[0]
 			}
-			return runConfig(app.ctx, app.conn, app.pbm, &cfg)
+			return runConfig(app.ctx, app.conn, app.ccrsConn, app.pbm, &cfg)
 		}),
 	}
 
@@ -713,7 +736,7 @@ func (app *pbmApp) buildLogCmd() *cobra.Command {
 				return nil, err
 			}
 
-			return runLogs(app.ctx, app.conn, &logOptions, app.pbmOutF)
+			return runLogs(app.ctx, app.ccrsConn, &logOptions, app.pbmOutF)
 		}),
 	}
 
@@ -762,7 +785,7 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 				val, _ := cmd.Flags().GetBool("allow-partly-done")
 				restoreOptions.allowPartlyDone = &val
 			}
-			return runRestore(app.ctx, app.conn, app.pbm, &restoreOptions, app.node, app.pbmOutF)
+			return runRestore(app.ctx, app.conn, app.ccrsConn, app.pbm, &restoreOptions, app.node, app.pbmOutF)
 		}),
 	}
 
@@ -910,7 +933,7 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 				}
 			}
 
-			return status(app.ctx, app.conn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
+			return status(app.ctx, app.conn, app.ccrsConn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
 		}),
 	}
 

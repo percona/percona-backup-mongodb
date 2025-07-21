@@ -35,8 +35,9 @@ var (
 )
 
 type Client struct {
-	conn connect.Client
-	node string
+	conn     connect.Client
+	ccrsConn connect.Client
+	node     string
 }
 
 func (c *Client) Close(ctx context.Context) error {
@@ -267,7 +268,7 @@ func (c *Client) SyncFromStorage(ctx context.Context, includeRestores bool) (Com
 	if includeRestores {
 		opts = &ctrl.ResyncCmd{IncludeRestores: true}
 	}
-	opid, err := ctrl.SendResync(ctx, c.conn, opts)
+	opid, err := ctrl.SendResync(ctx, c.ccrsConn, opts)
 	return CommandID(opid.String()), err
 }
 

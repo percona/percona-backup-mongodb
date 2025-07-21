@@ -122,7 +122,7 @@ func (a *Agent) PITR(ctx context.Context) {
 		if err != nil {
 			// we need epoch just to log pitr err with an extra context
 			// so not much care if we get it or not
-			ep, _ := config.GetEpoch(ctx, a.leadConn)
+			ep, _ := config.GetEpoch(ctx, a.ccrsConn)
 			l.Error(string(ctrl.CmdPITR), "", "", ep.TS(), "init: %v", err)
 		}
 
@@ -530,7 +530,7 @@ func (a *Agent) waitAllOpLockRelease(ctx context.Context) (bool, error) {
 	for {
 		select {
 		case <-tick.C:
-			running, err := oplog.IsOplogSlicing(ctx, a.leadConn)
+			running, err := oplog.IsOplogSlicing(ctx, a.leadConn, a.ccrsConn)
 			if err != nil {
 				return false, errors.Wrap(err, "is oplog slicing check")
 			}
@@ -664,7 +664,7 @@ func (a *Agent) getPITRClusterAndStaleStatus(ctx context.Context) (oplog.Status,
 	l := log.LogEventFromContext(ctx)
 	isStale := false
 
-	meta, err := oplog.GetMeta(ctx, a.leadConn)
+	meta, err := oplog.GetMeta(ctx, a.ccrsConn)
 	if err != nil {
 		if !errors.Is(err, errors.ErrNotFound) {
 			l.Error("getting metta for reconfig status check: %v", err)

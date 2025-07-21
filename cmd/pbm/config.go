@@ -51,6 +51,7 @@ func (c confVals) String() string {
 func runConfig(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	pbm *sdk.Client,
 	c *configOpts,
 ) (fmt.Stringer, error) {
@@ -65,7 +66,7 @@ func runConfig(
 		var o confVals
 		rsnc := false
 		for k, v := range c.set {
-			err := config.SetConfigVar(ctx, conn, k, v)
+			err := config.SetConfigVar(ctx, ccrsConn, k, v)
 			if err != nil {
 				return nil, errors.Wrapf(err, "set %s", k)
 			}
@@ -90,7 +91,7 @@ func runConfig(
 		}
 		return o, nil
 	case len(c.key) > 0:
-		k, err := config.GetConfigVar(ctx, conn, c.key)
+		k, err := config.GetConfigVar(ctx, ccrsConn, c.key)
 		if err != nil {
 			if errors.Is(err, config.ErrUnsetConfigPath) {
 				return confKV{c.key, ""}, nil // unset config path
@@ -134,7 +135,8 @@ func runConfig(
 			oldCfg = &config.Config{}
 		}
 
-		if err := config.SetConfig(ctx, conn, newCfg); err != nil {
+		// TODO: determine if both conn
+		if err := config.SetConfig(ctx, ccrsConn, newCfg); err != nil {
 			return nil, errors.Wrap(err, "unable to set config: write to db")
 		}
 

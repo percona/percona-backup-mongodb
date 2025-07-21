@@ -41,6 +41,7 @@ import (
 type Restore struct {
 	name     string
 	leadConn connect.Client
+	ccrsConn connect.Client
 	nodeConn *mongo.Client
 	brief    topo.NodeBrief
 	stopHB   chan struct{}
@@ -90,6 +91,7 @@ type restoreUsersAndRolesOption bool
 // New creates a new restore object
 func New(
 	leadConn connect.Client,
+	ccrsConn connect.Client,
 	nodeConn *mongo.Client,
 	brief topo.NodeBrief,
 	cfg *config.Config,
@@ -103,6 +105,7 @@ func New(
 
 	return &Restore{
 		leadConn: leadConn,
+		ccrsConn: ccrsConn,
 		nodeConn: nodeConn,
 		brief:    brief,
 		rsMap:    rsMap,
@@ -219,7 +222,7 @@ func (r *Restore) Snapshot(
 		cloneNS,
 		cmd.UsersAndRoles)
 
-	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
+	err = setRestoreBackup(ctx, r.ccrsConn, r.name, cmd.BackupName, nss)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}
@@ -363,7 +366,7 @@ func (r *Restore) PITR(
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}
-	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.ccrsConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get oplog storage")
 	}
@@ -385,13 +388,13 @@ func (r *Restore) PITR(
 		cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {
-		err = SetOplogTimestamps(ctx, r.leadConn, r.name, 0, int64(cmd.OplogTS.T))
+		err = SetOplogTimestamps(ctx, r.ccrsConn, r.name, 0, int64(cmd.OplogTS.T))
 		if err != nil {
 			return errors.Wrap(err, "set PITR timestamp")
 		}
 	}
 
-	err = setRestoreBackup(ctx, r.leadConn, r.name, bcp.Name, nss)
+	err = setRestoreBackup(ctx, r.ccrsConn, r.name, bcp.Name, nss)
 	if err != nil {
 		return errors.Wrap(err, "set backup name")
 	}
@@ -515,13 +518,13 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 	}
 
 	if r.nodeInfo.IsLeader() {
-		err := SetOplogTimestamps(ctx, r.leadConn, r.name, int64(cmd.Start.T), int64(cmd.End.T))
+		err := SetOplogTimestamps(ctx, r.ccrsConn, r.name, int64(cmd.Start.T), int64(cmd.End.T))
 		if err != nil {
 			return errors.Wrap(err, "set oplog timestamps")
 		}
 	}
 
-	oplogShards, err := oplog.AllOplogRSNames(ctx, r.leadConn, cmd.Start, cmd.End)
+	oplogShards, err := oplog.AllOplogRSNames(ctx, r.ccrsConn, cmd.Start, cmd.End)
 	if err != nil {
 		return err
 	}
@@ -535,7 +538,7 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 		return r.Done(ctx) // skip. no oplog for current rs
 	}
 
-	r.oplogStg, err = util.GetStorage(ctx, r.leadConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
+	r.oplogStg, err = util.GetStorage(ctx, r.ccrsConn, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrapf(err, "get oplog storage")
 	}
@@ -595,7 +598,7 @@ func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID, l log.L
 			Replsets: []RestoreReplset{},
 			Hb:       ts,
 		}
-		err = SetRestoreMeta(ctx, r.leadConn, meta)
+		err = SetRestoreMeta(ctx, r.ccrsConn, meta)
 		if err != nil {
 			return errors.Wrap(err, "write backup meta to db")
 		}
@@ -608,7 +611,7 @@ func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID, l log.L
 			for {
 				select {
 				case <-tk.C:
-					err := RestoreHB(ctx, r.leadConn, r.name)
+					err := RestoreHB(ctx, r.leadConn, r.ccrsConn, r.name)
 					if err != nil {
 						l.Error("send heartbeat: %v", err)
 					}
@@ -633,7 +636,7 @@ func (r *Restore) init(ctx context.Context, name string, opid ctrl.OPID, l log.L
 		Conditions: Conditions{},
 	}
 
-	err = AddRestoreRSMeta(ctx, r.leadConn, r.name, rsMeta)
+	err = AddRestoreRSMeta(ctx, r.ccrsConn, r.name, rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
@@ -670,7 +673,7 @@ func (r *Restore) checkTopologyForOplog(currShards []topo.Shard, oplogShards []s
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
 func (r *Restore) chunks(ctx context.Context, from, to primitive.Timestamp) ([]oplog.OplogChunk, error) {
-	return chunks(ctx, r.leadConn, r.oplogStg, from, to, r.nodeInfo.SetName, r.rsMap)
+	return chunks(ctx, r.ccrsConn, r.oplogStg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
 // LookupBackupMeta fetches backup metadata.
@@ -859,7 +862,7 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 
 func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Duration) error {
 	r.log.Info("moving to state %s", status)
-	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
+	return toState(ctx, r.leadConn, r.ccrsConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
 // dropShardedDBs drop all sharded databases present in the backup.
@@ -1346,7 +1349,7 @@ func updateChunksRouterTable(ctx context.Context, m connect.Client, sMap map[str
 }
 
 func (r *Restore) setcommittedTxn(ctx context.Context, txn []phys.RestoreTxn) error {
-	return RestoreSetRSTxn(ctx, r.leadConn, r.name, r.nodeInfo.SetName, txn)
+	return RestoreSetRSTxn(ctx, r.ccrsConn, r.name, r.nodeInfo.SetName, txn)
 }
 
 func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]primitive.Timestamp, error) {
@@ -1358,11 +1361,12 @@ func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]primitive.Tim
 	}
 
 	for len(shards) > 0 {
-		bmeta, err := GetRestoreMeta(ctx, r.leadConn, r.name)
+		bmeta, err := GetRestoreMeta(ctx, r.ccrsConn, r.name)
 		if err != nil {
 			return nil, errors.Wrap(err, "get restore metadata")
 		}
 
+		// needs r.ccrsConn and r.leadConn
 		clusterTime, err := topo.GetClusterTime(ctx, r.leadConn)
 		if err != nil {
 			return nil, errors.Wrap(err, "read cluster time")
@@ -1375,7 +1379,7 @@ func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]primitive.Tim
 				continue
 			}
 			// check if node alive
-			lck, err := lock.GetLockData(ctx, r.leadConn, &lock.LockHeader{
+			lck, err := lock.GetLockData(ctx, r.ccrsConn, &lock.LockHeader{
 				Type:    ctrl.CmdRestore,
 				OPID:    r.opid,
 				Replset: shard.Name,
@@ -1437,13 +1441,13 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 			tops = append(tops, t.Oplog...)
 		}
 
-		err = RestoreSetRSPartTxn(ctx, r.leadConn, r.name, r.nodeInfo.SetName, tops)
+		err = RestoreSetRSPartTxn(ctx, r.ccrsConn, r.name, r.nodeInfo.SetName, tops)
 		if err != nil {
 			return errors.Wrap(err, "set partial transactions")
 		}
 	}
 
-	err = RestoreSetRSStat(ctx, r.leadConn, r.name, r.nodeInfo.SetName, stat)
+	err = RestoreSetRSStat(ctx, r.ccrsConn, r.name, r.nodeInfo.SetName, stat)
 	if err != nil {
 		r.log.Warning("applyOplog: failed to set stat: %v", err)
 	}
@@ -1469,7 +1473,7 @@ func (r *Restore) snapshot(input io.Reader, cloneNS snapshot.CloneNS, excludeRou
 // Done waits for the replicas to finish the job
 // and marks restore as done
 func (r *Restore) Done(ctx context.Context) error {
-	err := ChangeRestoreRSState(ctx, r.leadConn, r.name, r.nodeInfo.SetName, defs.StatusDone, "")
+	err := ChangeRestoreRSState(ctx, r.ccrsConn, r.name, r.nodeInfo.SetName, defs.StatusDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDone")
 	}
@@ -1480,7 +1484,7 @@ func (r *Restore) Done(ctx context.Context) error {
 			return errors.Wrap(err, "check cluster for the restore done")
 		}
 
-		m, err := GetRestoreMeta(ctx, r.leadConn, r.name)
+		m, err := GetRestoreMeta(ctx, r.ccrsConn, r.name)
 		if err != nil {
 			return errors.Wrap(err, "update stat: get restore meta")
 		}
@@ -1500,7 +1504,7 @@ func (r *Restore) Done(ctx context.Context) error {
 			}
 		}
 
-		err = RestoreSetStat(ctx, r.leadConn, r.name, phys.RestoreStat{RS: stat})
+		err = RestoreSetStat(ctx, r.ccrsConn, r.name, phys.RestoreStat{RS: stat})
 		if err != nil {
 			return errors.Wrap(err, "set restore stat")
 		}
@@ -1598,24 +1602,24 @@ func (r *Restore) swapUsers(ctx context.Context, exclude *topo.AuthInfo, nss []s
 
 func (r *Restore) reconcileStatus(ctx context.Context, status defs.Status, timeout *time.Duration) error {
 	if timeout != nil {
-		err := convergeClusterWithTimeout(ctx, r.leadConn, r.name, r.opid, r.shards, status, *timeout)
+		err := convergeClusterWithTimeout(ctx, r.leadConn, r.ccrsConn, r.name, r.opid, r.shards, status, *timeout)
 		return errors.Wrap(err, "convergeClusterWithTimeout")
 	}
-	err := convergeCluster(ctx, r.leadConn, r.name, r.opid, r.shards, status)
+	err := convergeCluster(ctx, r.leadConn, r.ccrsConn, r.name, r.opid, r.shards, status)
 	return errors.Wrap(err, "convergeCluster")
 }
 
 func (r *Restore) waitForStatus(ctx context.Context, status defs.Status) error {
 	r.log.Debug("waiting for '%s' status", status)
-	return waitForStatus(ctx, r.leadConn, r.name, status)
+	return waitForStatus(ctx, r.leadConn, r.ccrsConn, r.name, status)
 }
 
 // MarkFailed sets the restore and rs state as failed with the given message
 func (r *Restore) MarkFailed(ctx context.Context, e error) error {
-	err := ChangeRestoreState(ctx, r.leadConn, r.name, defs.StatusError, e.Error())
+	err := ChangeRestoreState(ctx, r.ccrsConn, r.name, defs.StatusError, e.Error())
 	if err != nil {
 		return errors.Wrap(err, "set restore state")
 	}
-	err = ChangeRestoreRSState(ctx, r.leadConn, r.name, r.nodeInfo.SetName, defs.StatusError, e.Error())
+	err = ChangeRestoreRSState(ctx, r.ccrsConn, r.name, r.nodeInfo.SetName, defs.StatusError, e.Error())
 	return errors.Wrap(err, "set replset state")
 }

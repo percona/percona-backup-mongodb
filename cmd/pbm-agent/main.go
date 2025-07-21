@@ -21,7 +21,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-const mongoConnFlag = "mongodb-uri"
+const (
+	mongoConnFlag = "mongodb-uri"
+	ccrsConnFlag  = "ccrs-uri"
+)
 
 func main() {
 	rootCmd := rootCommand()
@@ -45,6 +48,13 @@ func rootCommand() *cobra.Command {
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			url := "mongodb://" + strings.Replace(viper.GetString(mongoConnFlag), "mongodb://", "", 1)
+			ccrsURL := viper.GetString(ccrsConnFlag)
+
+			fmt.Println("--- ccrsURL:", ccrsURL)
+
+			if ccrsURL == "" {
+				ccrsURL = url
+			}
 
 			hidecreds()
 
@@ -52,7 +62,7 @@ func rootCommand() *cobra.Command {
 
 			l := log.NewWithOpts(nil, "", "", logOpts).NewDefaultEvent()
 
-			err := runAgent(url, viper.GetInt("backup.dump-parallel-collections"), logOpts)
+			err := runAgent(url, ccrsURL, viper.GetInt("backup.dump-parallel-collections"), logOpts)
 			if err != nil {
 				l.Error("Exit: %v", err)
 				os.Exit(1)
@@ -101,6 +111,10 @@ func setRootFlags(rootCmd *cobra.Command) {
 	rootCmd.Flags().String(mongoConnFlag, "", "MongoDB connection string")
 	_ = viper.BindPFlag(mongoConnFlag, rootCmd.Flags().Lookup(mongoConnFlag))
 	_ = viper.BindEnv(mongoConnFlag, "PBM_MONGODB_URI")
+
+	rootCmd.Flags().String(ccrsConnFlag, "", "Control Collection RS connection string")
+	_ = viper.BindPFlag(ccrsConnFlag, rootCmd.Flags().Lookup(ccrsConnFlag))
+	_ = viper.BindEnv(ccrsConnFlag, "PBM_CCRS_URI")
 
 	rootCmd.Flags().Int("dump-parallel-collections", 0, "Number of collections to dump in parallel")
 	_ = viper.BindPFlag("backup.dump-parallel-collections", rootCmd.Flags().Lookup("dump-parallel-collections"))
@@ -182,6 +196,7 @@ func buildLogOpts() *log.Opts {
 
 func runAgent(
 	mongoURI string,
+	ccrsURI string,
 	dumpConns int,
 	logOpts *log.Opts,
 ) error {
@@ -193,18 +208,23 @@ func runAgent(
 		return errors.Wrap(err, "connect to PBM")
 	}
 
-	err = setupNewDB(ctx, leadConn)
+	ccrsConn, err := connect.Connect(ctx, ccrsURI, "pbm-agent-ccrs")
+	if err != nil {
+		return errors.Wrap(err, "connect to CCRS")
+	}
+
+	err = setupNewDB(ctx, ccrsConn)
 	if err != nil {
 		return errors.Wrap(err, "setup pbm collections")
 	}
 
-	agent, err := newAgent(ctx, leadConn, mongoURI, dumpConns)
+	agent, err := newAgent(ctx, leadConn, ccrsConn, mongoURI, dumpConns)
 	if err != nil {
 		return errors.Wrap(err, "connect to the node")
 	}
 
 	logger := log.NewWithOpts(
-		agent.leadConn,
+		agent.ccrsConn,
 		agent.brief.SetName,
 		agent.brief.Me,
 		logOpts)
