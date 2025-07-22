@@ -165,7 +165,20 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, ccrsConn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
+	m, err := doRestore(
+		ctx,
+		conn,
+		ccrsConn,
+		o,
+		numParallelColls,
+		numInsertionWorkers,
+		nss,
+		o.nsFrom,
+		o.nsTo,
+		rsMap,
+		node,
+		outf,
+	)
 	if err != nil {
 		return nil, err
 	}

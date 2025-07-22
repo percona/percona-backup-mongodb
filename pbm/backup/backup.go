@@ -37,7 +37,7 @@ type Backup struct {
 	oplogSlicerInterval time.Duration
 }
 
-func New(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dumpConns int) *Backup {
+func New(leadConn, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dumpConns int) *Backup {
 	return &Backup{
 		leadConn:         leadConn,
 		ccrsConn:         ccrsConn,
@@ -48,7 +48,7 @@ func New(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, b
 	}
 }
 
-func NewPhysical(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
+func NewPhysical(leadConn, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
 	return &Backup{
 		leadConn: leadConn,
 		ccrsConn: ccrsConn,
@@ -58,7 +58,7 @@ func NewPhysical(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.C
 	}
 }
 
-func NewExternal(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
+func NewExternal(leadConn, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
 	return &Backup{
 		leadConn: leadConn,
 		ccrsConn: ccrsConn,
@@ -68,7 +68,7 @@ func NewExternal(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.C
 	}
 }
 
-func NewIncremental(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, base bool) *Backup {
+func NewIncremental(leadConn, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, base bool) *Backup {
 	return &Backup{
 		leadConn: leadConn,
 		ccrsConn: ccrsConn,

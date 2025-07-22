@@ -207,7 +207,7 @@ func AddRestoreRSMeta(ctx context.Context, m connect.Client, name string, rs Res
 	return err
 }
 
-func RestoreHB(ctx context.Context, m connect.Client, ccrsConn connect.Client, name string) error {
+func RestoreHB(ctx context.Context, m, ccrsConn connect.Client, name string) error {
 	ts, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")

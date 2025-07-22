@@ -68,7 +68,7 @@ type statusSect struct {
 	Name     string
 	longName string
 	Obj      fmt.Stringer
-	f        func(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (fmt.Stringer, error)
+	f        func(ctx context.Context, conn, ccrsConn connect.Client) (fmt.Stringer, error)
 }
 
 func (f statusSect) String() string {
@@ -115,20 +115,20 @@ func status(
 		data: []*statusSect{
 			{
 				"cluster", "Cluster", nil,
-				func(ctx context.Context, _ connect.Client, _ connect.Client) (fmt.Stringer, error) {
+				func(ctx context.Context, _, _ connect.Client) (fmt.Stringer, error) {
 					return clusterStatus(ctx, pbm, cli.RSConfGetter(curi), opts.priority)
 				},
 			},
 			{"pitr", "PITR incremental backup", nil, getPitrStatus},
 			{
 				"running", "Currently running", nil,
-				func(ctx context.Context, _ connect.Client, _ connect.Client) (fmt.Stringer, error) {
+				func(ctx context.Context, _, _ connect.Client) (fmt.Stringer, error) {
 					return getCurrOps(ctx, pbm)
 				},
 			},
 			{
 				"backups", "Backups", nil,
-				func(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (fmt.Stringer, error) {
+				func(ctx context.Context, conn, ccrsConn connect.Client) (fmt.Stringer, error) {
 					return getStorageStat(ctx, conn, ccrsConn, pbm, rsMap)
 				},
 			},
@@ -287,7 +287,7 @@ func (p pitrStat) String() string {
 	return s
 }
 
-func getPitrStatus(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (fmt.Stringer, error) {
+func getPitrStatus(ctx context.Context, conn, ccrsConn connect.Client) (fmt.Stringer, error) {
 	var p pitrStat
 	var err error
 	p.InConf, _, err = config.IsPITREnabled(ctx, ccrsConn)
@@ -312,7 +312,7 @@ func getPitrStatus(ctx context.Context, conn connect.Client, ccrsConn connect.Cl
 	return p, errors.Wrap(err, "check for errors")
 }
 
-func getPitrErr(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (string, error) {
+func getPitrErr(ctx context.Context, conn, ccrsConn connect.Client) (string, error) {
 	epch, err := config.GetEpoch(ctx, ccrsConn)
 	if err != nil {
 		return "", errors.Wrap(err, "get current epoch")

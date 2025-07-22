@@ -164,7 +164,16 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		numParallelColls := getNumParallelCollsConfig(r.NumParallelColls, cfg.Restore)
 		numInsertionWorkersPerCol := getNumInsertionWorkersConfig(r.NumInsertionWorkers, cfg.Restore)
 
-		rr := restore.New(a.leadConn, a.ccrsConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
+		rr := restore.New(
+			a.leadConn,
+			a.ccrsConn,
+			a.nodeConn,
+			a.brief,
+			cfg,
+			r.RSMap,
+			numParallelColls,
+			numInsertionWorkersPerCol,
+		)
 		if r.OplogTS.IsZero() {
 			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {

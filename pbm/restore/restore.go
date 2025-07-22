@@ -206,7 +206,7 @@ func converged(
 	return false, nil
 }
 
-func waitForStatus(ctx context.Context, conn connect.Client, ccrsConn connect.Client, name string, status defs.Status) error {
+func waitForStatus(ctx context.Context, conn, ccrsConn connect.Client, name string, status defs.Status) error {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 

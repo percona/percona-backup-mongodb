@@ -77,7 +77,7 @@ func findLastOplogTS(ctx context.Context, m *mongo.Client) (primitive.Timestamp,
 
 // IsOplogSlicing checks if PITR slicing is running. It looks for PITR locks
 // and returns true if there is at least one not stale.
-func IsOplogSlicing(ctx context.Context, conn connect.Client, ccrsConn connect.Client) (bool, error) {
+func IsOplogSlicing(ctx context.Context, conn, ccrsConn connect.Client) (bool, error) {
 	locks, err := lock.GetOpLocks(ctx, ccrsConn, &lock.LockHeader{Type: ctrl.CmdPITR})
 	if err != nil {
 		return false, errors.Wrap(err, "get locks")
