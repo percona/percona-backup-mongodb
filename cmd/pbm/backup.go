@@ -85,6 +85,7 @@ type descBcp struct {
 func runBackup(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	pbm *sdk.Client,
 	b *backupOpts,
 	outf outFormat,
@@ -101,7 +102,7 @@ func runBackup(
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
 
-	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {
+	if err := topo.CheckTopoForBackup(ctx, conn, ccrsConn, defs.BackupType(b.typ)); err != nil {
 		return nil, errors.Wrap(err, "backup pre-check")
 	}
 
@@ -109,7 +110,7 @@ func runBackup(
 		return nil, err
 	}
 
-	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
+	cfg, err := config.GetProfiledConfig(ctx, ccrsConn, b.profile)
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfig) {
 			return nil, errors.New("no config set. Set config with <pbm config>")
@@ -130,7 +131,7 @@ func runBackup(
 		level = &b.compressionLevel[0]
 	}
 
-	err = sendCmd(ctx, conn, ctrl.Cmd{
+	err = sendCmd(ctx, ccrsConn, ctrl.Cmd{
 		Cmd: ctrl.CmdBackup,
 		Backup: &ctrl.BackupCmd{
 			Type:             defs.BackupType(b.typ),
@@ -155,13 +156,13 @@ func runBackup(
 	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
-	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
+	err = waitForBcpStatus(startCtx, ccrsConn, b.name, showProgress)
 	if err != nil {
 		return nil, err
 	}
 
 	if b.typ == string(defs.ExternalBackup) {
-		s, err := waitBackup(ctx, conn, b.name, defs.StatusCopyReady, showProgress)
+		s, err := waitBackup(ctx, ccrsConn, b.name, defs.StatusCopyReady, showProgress)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -198,7 +199,7 @@ func runBackup(
 		if showProgress {
 			fmt.Printf("\nWaiting for '%s' backup...", b.name)
 		}
-		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone, showProgress)
+		s, err := waitBackup(ctx, ccrsConn, b.name, defs.StatusDone, showProgress)
 		if s != nil && showProgress {
 			fmt.Printf(" %s\n", *s)
 		}

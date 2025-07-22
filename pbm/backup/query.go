@@ -135,13 +135,13 @@ func saveBackupMeta(ctx context.Context, conn connect.Client, meta *BackupMeta) 
 	return err
 }
 
-func BackupHB(ctx context.Context, conn connect.Client, bcpName string) error {
+func BackupHB(ctx context.Context, conn connect.Client, ccrsConn connect.Client, bcpName string) error {
 	ts, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return errors.Wrap(err, "read cluster time")
 	}
 
-	_, err = conn.BcpCollection().UpdateOne(
+	_, err = ccrsConn.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}},
 		bson.D{

@@ -36,7 +36,7 @@ type AuthUserRoles struct {
 	DB   string `bson:"db" json:"db"`
 }
 
-func CheckTopoForBackup(ctx context.Context, m connect.Client, type_ defs.BackupType) error {
+func CheckTopoForBackup(ctx context.Context, m connect.Client, ccrsConn connect.Client, type_ defs.BackupType) error {
 	members, err := ClusterMembers(ctx, m.MongoClient())
 	if err != nil {
 		return errors.Wrap(err, "get cluster members")
@@ -47,7 +47,7 @@ func CheckTopoForBackup(ctx context.Context, m connect.Client, type_ defs.Backup
 		return errors.Wrap(err, "get cluster time")
 	}
 
-	agentList, err := ListAgents(ctx, m)
+	agentList, err := ListAgents(ctx, ccrsConn)
 	if err != nil {
 		return errors.Wrap(err, "list agents")
 	}

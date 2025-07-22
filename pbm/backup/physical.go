@@ -216,7 +216,7 @@ func (b *Backup) doPhysical(
 			{"incrementalBackup", true},
 		}
 		if !b.incrBase {
-			src, err := LastIncrementalBackup(ctx, b.leadConn)
+			src, err := LastIncrementalBackup(ctx, b.ccrsConn)
 			if err != nil {
 				return errors.Wrap(err, "define source backup")
 			}
@@ -226,7 +226,7 @@ func (b *Backup) doPhysical(
 
 			// ? should be done during Init()?
 			if inf.IsLeader() {
-				err := SetSrcBackup(ctx, b.leadConn, bcp.Name, src.Name)
+				err := SetSrcBackup(ctx, b.ccrsConn, bcp.Name, src.Name)
 				if err != nil {
 					return errors.Wrap(err, "set source backup in meta")
 				}
@@ -306,7 +306,7 @@ func (b *Backup) doPhysical(
 		// custom thisBackupName was used
 		rsMeta.CustomThisID = cursor.CustomThisID
 	}
-	err = AddRSMeta(ctx, b.leadConn, bcp.Name, *rsMeta)
+	err = AddRSMeta(ctx, b.ccrsConn, bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
@@ -390,7 +390,7 @@ func (b *Backup) handleExternal(
 	// original LastWriteTS in the meta stored on PBM storage. As rsMeta might
 	// be used outside of this method.
 	fsMeta := *rsMeta
-	bmeta, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcp.Name)
+	bmeta, err := NewDBManager(b.ccrsConn).GetBackupByName(ctx, bcp.Name)
 	if err == nil {
 		fsMeta.LastWriteTS = bmeta.LastWriteTS
 	} else {
@@ -532,7 +532,7 @@ func (b *Backup) uploadPhysical(
 	totalUncompressed := sizeUncompressed + flSize
 	err = IncBackupSize(
 		ctx,
-		b.leadConn,
+		b.ccrsConn,
 		bcp.Name,
 		totalSize,
 		&totalUncompressed,
@@ -542,7 +542,7 @@ func (b *Backup) uploadPhysical(
 	}
 	err = SetBackupSizeForRS(
 		ctx,
-		b.leadConn,
+		b.ccrsConn,
 		bcp.Name,
 		rsMeta.Name,
 		totalSize,

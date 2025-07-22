@@ -97,7 +97,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		go a.sliceNow(opid)
 	}
 
-	cfg, err := config.GetProfiledConfig(ctx, a.leadConn, cmd.Profile)
+	cfg, err := config.GetProfiledConfig(ctx, a.ccrsConn, cmd.Profile)
 	if err != nil {
 		l.Error("get profiled config: %v", err)
 		return
@@ -106,11 +106,11 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	var bcp *backup.Backup
 	switch cmd.Type {
 	case defs.PhysicalBackup:
-		bcp = backup.NewPhysical(a.leadConn, a.nodeConn, a.brief)
+		bcp = backup.NewPhysical(a.leadConn, a.ccrsConn, a.nodeConn, a.brief)
 	case defs.ExternalBackup:
-		bcp = backup.NewExternal(a.leadConn, a.nodeConn, a.brief)
+		bcp = backup.NewExternal(a.leadConn, a.ccrsConn, a.nodeConn, a.brief)
 	case defs.IncrementalBackup:
-		bcp = backup.NewIncremental(a.leadConn, a.nodeConn, a.brief, cmd.IncrBase)
+		bcp = backup.NewIncremental(a.leadConn, a.ccrsConn, a.nodeConn, a.brief, cmd.IncrBase)
 	case defs.LogicalBackup:
 		fallthrough
 	default:
@@ -118,7 +118,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		if cfg.Backup != nil && cfg.Backup.NumParallelCollections > 0 {
 			numParallelColls = cfg.Backup.NumParallelCollections
 		}
-		bcp = backup.New(a.leadConn, a.nodeConn, a.brief, numParallelColls)
+		bcp = backup.New(a.leadConn, a.ccrsConn, a.nodeConn, a.brief, numParallelColls)
 	}
 
 	bcp.SetConfig(cfg)
@@ -145,8 +145,8 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 		l.Debug("init backup meta")
 
-		if err = topo.CheckTopoForBackup(ctx, a.leadConn, cmd.Type); err != nil {
-			ferr := backup.ChangeBackupState(a.leadConn, cmd.Name, defs.StatusError, err.Error())
+		if err = topo.CheckTopoForBackup(ctx, a.leadConn, a.ccrsConn, cmd.Type); err != nil {
+			ferr := backup.ChangeBackupState(a.ccrsConn, cmd.Name, defs.StatusError, err.Error())
 			l.Info("mark backup as %s `%v`: %v", defs.StatusError, err, ferr)
 			return
 		}
@@ -157,7 +157,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		const srcHostMultiplier = 3.0
 		var c map[string]float64
 		if cmd.Type == defs.IncrementalBackup && !cmd.IncrBase {
-			src, err := backup.LastIncrementalBackup(ctx, a.leadConn)
+			src, err := backup.LastIncrementalBackup(ctx, a.ccrsConn)
 			if err != nil {
 				// try backup anyway
 				l.Warning("define source backup: %v", err)
@@ -169,7 +169,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 			}
 		}
 
-		agents, err := topo.ListSteadyAgents(ctx, a.leadConn)
+		agents, err := topo.ListSteadyAgents(ctx, a.leadConn, a.ccrsConn)
 		if err != nil {
 			l.Error("get agents list: %v", err)
 			return
@@ -204,7 +204,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	}
 
 	epoch := ep.TS()
-	lck := lock.NewLock(a.leadConn, lock.LockHeader{
+	lck := lock.NewLock(a.ccrsConn, lock.LockHeader{
 		Type:    ctrl.CmdBackup,
 		Replset: a.brief.SetName,
 		Node:    a.brief.Me,
@@ -229,7 +229,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}()
 
-	err = backup.SetRSNomineeACK(ctx, a.leadConn, cmd.Name, nodeInfo.SetName, nodeInfo.Me)
+	err = backup.SetRSNomineeACK(ctx, a.ccrsConn, cmd.Name, nodeInfo.SetName, nodeInfo.Me)
 	if err != nil {
 		l.Warning("set nominee ack: %v", err)
 	}
@@ -272,13 +272,13 @@ func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string
 	l := log.LogEventFromContext(ctx)
 	l.Debug("nomination list for %s: %v", rs, nodes)
 
-	err := backup.SetRSNomination(ctx, a.leadConn, bcp, rs)
+	err := backup.SetRSNomination(ctx, a.ccrsConn, bcp, rs)
 	if err != nil {
 		return errors.Wrap(err, "set nomination meta")
 	}
 
 	for _, n := range nodes {
-		nms, err := backup.GetRSNominees(ctx, a.leadConn, bcp, rs)
+		nms, err := backup.GetRSNominees(ctx, a.ccrsConn, bcp, rs)
 		if err != nil && !errors.Is(err, errors.ErrNotFound) {
 			return errors.Wrap(err, "get nomination meta")
 		}
@@ -287,13 +287,13 @@ func (a *Agent) nominateRS(ctx context.Context, bcp, rs string, nodes [][]string
 			return nil
 		}
 
-		err = backup.SetRSNominees(ctx, a.leadConn, bcp, rs, n)
+		err = backup.SetRSNominees(ctx, a.ccrsConn, bcp, rs, n)
 		if err != nil {
 			return errors.Wrap(err, "set nominees")
 		}
 		l.Debug("nomination %s, set candidates %v", rs, n)
 
-		err = backup.BackupHB(ctx, a.leadConn, bcp)
+		err = backup.BackupHB(ctx, a.leadConn, a.ccrsConn, bcp)
 		if err != nil {
 			l.Warning("send heartbeat: %v", err)
 		}
@@ -316,7 +316,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp string) (bool, error) {
 	for {
 		select {
 		case <-tk.C:
-			nm, err := backup.GetRSNominees(ctx, a.leadConn, bcp, a.brief.SetName)
+			nm, err := backup.GetRSNominees(ctx, a.ccrsConn, bcp, a.brief.SetName)
 			if err != nil {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
@@ -344,7 +344,7 @@ func (a *Agent) waitNomination(ctx context.Context, bcp string) (bool, error) {
 // false is returned in case a single active lock exists or error happens.
 // true means that there's no active locks.
 func (a *Agent) startBcpLockCheck(ctx context.Context) (bool, error) {
-	locks, err := lock.GetLocks(ctx, a.leadConn, &lock.LockHeader{})
+	locks, err := lock.GetLocks(ctx, a.ccrsConn, &lock.LockHeader{})
 	if err != nil {
 		return false, errors.Wrap(err, "get all locks for backup start")
 	}

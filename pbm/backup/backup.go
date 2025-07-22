@@ -25,6 +25,7 @@ import (
 
 type Backup struct {
 	leadConn            connect.Client
+	ccrsConn            connect.Client
 	nodeConn            *mongo.Client
 	brief               topo.NodeBrief
 	config              *config.Config
@@ -36,9 +37,10 @@ type Backup struct {
 	oplogSlicerInterval time.Duration
 }
 
-func New(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dumpConns int) *Backup {
+func New(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dumpConns int) *Backup {
 	return &Backup{
 		leadConn:         leadConn,
+		ccrsConn:         ccrsConn,
 		nodeConn:         conn,
 		brief:            brief,
 		typ:              defs.LogicalBackup,
@@ -46,27 +48,30 @@ func New(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, dump
 	}
 }
 
-func NewPhysical(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
+func NewPhysical(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
 	return &Backup{
 		leadConn: leadConn,
+		ccrsConn: ccrsConn,
 		nodeConn: conn,
 		brief:    brief,
 		typ:      defs.PhysicalBackup,
 	}
 }
 
-func NewExternal(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
+func NewExternal(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief) *Backup {
 	return &Backup{
 		leadConn: leadConn,
+		ccrsConn: ccrsConn,
 		nodeConn: conn,
 		brief:    brief,
 		typ:      defs.ExternalBackup,
 	}
 }
 
-func NewIncremental(leadConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, base bool) *Backup {
+func NewIncremental(leadConn connect.Client, ccrsConn connect.Client, conn *mongo.Client, brief topo.NodeBrief, base bool) *Backup {
 	return &Backup{
 		leadConn: leadConn,
+		ccrsConn: ccrsConn,
 		nodeConn: conn,
 		brief:    brief,
 		typ:      defs.IncrementalBackup,
@@ -158,7 +163,7 @@ func (b *Backup) Init(
 		}
 	}
 
-	return saveBackupMeta(ctx, b.leadConn, meta)
+	return saveBackupMeta(ctx, b.ccrsConn, meta)
 }
 
 // Run runs backup.
@@ -202,7 +207,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
 
-	bcpm, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcp.Name)
+	bcpm, err := NewDBManager(b.ccrsConn).GetBackupByName(ctx, bcp.Name)
 	if err != nil {
 		return errors.Wrap(err, "balancer status, get backup meta")
 	}
@@ -215,11 +220,11 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				status = defs.StatusCancelled
 			}
 
-			ferr := ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, status, err.Error())
+			ferr := ChangeRSState(b.ccrsConn, bcp.Name, rsMeta.Name, status, err.Error())
 			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
 
 			if inf.IsLeader() {
-				ferr := ChangeBackupState(b.leadConn, bcp.Name, status, err.Error())
+				ferr := ChangeBackupState(b.ccrsConn, bcp.Name, status, err.Error())
 				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
 			}
 		}
@@ -246,7 +251,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		hbstop := make(chan struct{})
 		defer close(hbstop)
 
-		err := BackupHB(ctx, b.leadConn, bcp.Name)
+		err := BackupHB(ctx, b.leadConn, b.ccrsConn, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "init heartbeat")
 		}
@@ -260,7 +265,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				case <-ctx.Done():
 					return
 				case <-tk.C:
-					err = BackupHB(ctx, b.leadConn, bcp.Name)
+					err = BackupHB(ctx, b.leadConn, b.ccrsConn, bcp.Name)
 					if err != nil {
 						l.Error("send pbm heartbeat: %v", err)
 					}
@@ -333,7 +338,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		return err
 	}
 
-	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDone, "")
+	err = ChangeRSState(b.ccrsConn, bcp.Name, rsMeta.Name, defs.StatusDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDone")
 	}
@@ -350,7 +355,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return err
 		}
 
-		bcpm, err = NewDBManager(b.leadConn).GetBackupByName(ctx, bcp.Name)
+		bcpm, err = NewDBManager(b.ccrsConn).GetBackupByName(ctx, bcp.Name)
 		if err != nil {
 			return errors.Wrap(err, "get backup metadata")
 		}
@@ -374,7 +379,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return errors.Wrap(err, "check backup files")
 		}
 
-		err = ChangeBackupStateWithUnixTime(ctx, b.leadConn, bcp.Name, defs.StatusDone, unix, "")
+		err = ChangeBackupStateWithUnixTime(ctx, b.ccrsConn, bcp.Name, defs.StatusDone, unix, "")
 		return errors.Wrapf(err, "check cluster for backup done: update backup meta with %s",
 			defs.StatusDone)
 	} else {
@@ -391,7 +396,7 @@ func (b *Backup) toState(
 	inf *topo.NodeInfo,
 	wait *time.Duration,
 ) error {
-	err := ChangeRSState(b.leadConn, bcp, inf.SetName, status, "")
+	err := ChangeRSState(b.ccrsConn, bcp, inf.SetName, status, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's status")
 	}
@@ -436,7 +441,7 @@ func (b *Backup) reconcileStatus(
 		return err
 	}
 
-	err = ChangeBackupState(b.leadConn, bcpName, status, "")
+	err = ChangeBackupState(b.ccrsConn, bcpName, status, "")
 	return errors.Wrapf(err, "update backup meta with %s", status)
 }
 
@@ -509,7 +514,7 @@ func (b *Backup) converged(
 	status defs.Status,
 ) (bool, error) {
 	shardsToFinish := len(shards)
-	bmeta, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcpName)
+	bmeta, err := NewDBManager(b.ccrsConn).GetBackupByName(ctx, bcpName)
 	if err != nil {
 		return false, errors.Wrap(err, "get backup metadata")
 	}
@@ -523,7 +528,7 @@ func (b *Backup) converged(
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.RS {
 				// check if node alive
-				lck, err := lock.GetLockData(ctx, b.leadConn, &lock.LockHeader{
+				lck, err := lock.GetLockData(ctx, b.ccrsConn, &lock.LockHeader{
 					Type:    ctrl.CmdBackup,
 					OPID:    opid,
 					Replset: shard.Name,
@@ -576,7 +581,7 @@ func (b *Backup) waitForStatus(
 	for {
 		select {
 		case <-tk.C:
-			bmeta, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcpName)
+			bmeta, err := NewDBManager(b.ccrsConn).GetBackupByName(ctx, bcpName)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
@@ -620,7 +625,7 @@ func (b *Backup) waitForFirstLastWrite(
 	for {
 		select {
 		case <-tk.C:
-			bmeta, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcpName)
+			bmeta, err := NewDBManager(b.ccrsConn).GetBackupByName(ctx, bcpName)
 			if err != nil {
 				return first, last, errors.Wrap(err, "get backup metadata")
 			}
@@ -656,7 +661,7 @@ func writeMeta(stg storage.Storage, meta *BackupMeta) error {
 func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error {
 	var err error
 	var bcp *BackupMeta
-	dbManager := NewDBManager(b.leadConn)
+	dbManager := NewDBManager(b.ccrsConn)
 
 	// make sure all replset has the first write ts
 	for {
@@ -682,27 +687,28 @@ func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error
 		}
 	}
 
-	err = SetFirstWrite(ctx, b.leadConn, bcpName, fw)
+	err = SetFirstWrite(ctx, b.ccrsConn, bcpName, fw)
 	return errors.Wrap(err, "set timestamp")
 }
 
 func (b *Backup) setClusterLastWrite(ctx context.Context, bcpName string) error {
-	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.Before, bcpName)
+	return setClusterLastWriteImpl(ctx, b.leadConn, b.ccrsConn, primitive.Timestamp.Before, bcpName)
 }
 
 func (b *Backup) setClusterLastWriteForPhysical(ctx context.Context, bcpName string) error {
-	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.After, bcpName)
+	return setClusterLastWriteImpl(ctx, b.leadConn, b.ccrsConn, primitive.Timestamp.After, bcpName)
 }
 
 func setClusterLastWriteImpl(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	cmp func(a, b primitive.Timestamp) bool,
 	bcpName string,
 ) error {
 	var err error
 	var bcp *BackupMeta
-	dbManager := NewDBManager(conn)
+	dbManager := NewDBManager(ccrsConn)
 
 	// make sure all replset has the last write ts
 	for {
@@ -724,7 +730,7 @@ func setClusterLastWriteImpl(
 			return errors.Wrap(err, "read cluster time")
 		}
 
-		locks, err := lock.GetLocks(ctx, conn, &lock.LockHeader{
+		locks, err := lock.GetLocks(ctx, ccrsConn, &lock.LockHeader{
 			Type: ctrl.CmdBackup,
 			OPID: bcp.OPID,
 		})
@@ -758,7 +764,7 @@ func setClusterLastWriteImpl(
 		}
 	}
 
-	err = SetLastWrite(ctx, conn, bcpName, lw)
+	err = SetLastWrite(ctx, ccrsConn, bcpName, lw)
 	return errors.Wrap(err, "set timestamp")
 }
 

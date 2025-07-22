@@ -55,7 +55,7 @@ func (b *Backup) doLogical(
 	rsMeta.Status = defs.StatusRunning
 	rsMeta.OplogName = path.Join(bcp.Name, rsMeta.Name, "oplog")
 	rsMeta.DumpName = path.Join(bcp.Name, rsMeta.Name, archive.MetaFile)
-	err = AddRSMeta(ctx, b.leadConn, bcp.Name, *rsMeta)
+	err = AddRSMeta(ctx, b.ccrsConn, bcp.Name, *rsMeta)
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
@@ -202,7 +202,7 @@ func (b *Backup) doLogical(
 
 	l.Info("dump finished, waiting for the oplog")
 
-	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
+	err = ChangeRSState(b.ccrsConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
 	if err != nil {
 		return errors.Wrap(err, "set shard's StatusDumpDone")
 	}
@@ -224,7 +224,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "oplog")
 	}
 
-	err = SetRSLastWrite(b.leadConn, bcp.Name, rsMeta.Name, lastSavedTS)
+	err = SetRSLastWrite(b.ccrsConn, bcp.Name, rsMeta.Name, lastSavedTS)
 	if err != nil {
 		return errors.Wrap(err, "set shard's last write ts")
 	}
@@ -236,7 +236,7 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	err = IncBackupSize(ctx, b.leadConn, bcp.Name, snapshotSize+oplogSize, nil)
+	err = IncBackupSize(ctx, b.ccrsConn, bcp.Name, snapshotSize+oplogSize, nil)
 	if err != nil {
 		return errors.Wrap(err, "inc backup size")
 	}

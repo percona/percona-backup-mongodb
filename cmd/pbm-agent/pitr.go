@@ -420,7 +420,7 @@ func (a *Agent) leadNomination(
 		return
 	}
 
-	candidates, err := topo.ListSteadyAgents(ctx, a.leadConn)
+	candidates, err := topo.ListSteadyAgents(ctx, a.leadConn, a.ccrsConn)
 	if err != nil {
 		l.Error("get agents list: %v", err)
 		return

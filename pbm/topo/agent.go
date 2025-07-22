@@ -157,7 +157,7 @@ func GetAgentStatus(ctx context.Context, m connect.Client, rs, node string) (Age
 }
 
 // AgentStatusGC cleans up stale agent statuses
-func AgentStatusGC(ctx context.Context, m connect.Client) error {
+func AgentStatusGC(ctx context.Context, m connect.Client, ccrsConn connect.Client) error {
 	ct, err := GetClusterTime(ctx, m)
 	if err != nil {
 		return errors.Wrap(err, "get cluster time")
@@ -172,7 +172,7 @@ func AgentStatusGC(ctx context.Context, m connect.Client) error {
 		stalesec = 35
 	}
 	ct.T -= uint32(stalesec)
-	_, err = m.AgentsStatusCollection().DeleteMany(
+	_, err = ccrsConn.AgentsStatusCollection().DeleteMany(
 		ctx,
 		bson.M{"hb": bson.M{"$lt": ct}},
 	)
@@ -181,17 +181,17 @@ func AgentStatusGC(ctx context.Context, m connect.Client) error {
 }
 
 // ListAgentStatuses returns list of registered agents
-func ListAgentStatuses(ctx context.Context, m connect.Client) ([]AgentStat, error) {
-	if err := AgentStatusGC(ctx, m); err != nil {
+func ListAgentStatuses(ctx context.Context, m connect.Client, ccrsConn connect.Client) ([]AgentStat, error) {
+	if err := AgentStatusGC(ctx, m, ccrsConn); err != nil {
 		return nil, errors.Wrap(err, "remove stale statuses")
 	}
 
-	return ListAgents(ctx, m)
+	return ListAgents(ctx, ccrsConn)
 }
 
 // ListSteadyAgents returns agents which are in steady state for backup or PITR.
-func ListSteadyAgents(ctx context.Context, m connect.Client) ([]AgentStat, error) {
-	agents, err := ListAgentStatuses(ctx, m)
+func ListSteadyAgents(ctx context.Context, m connect.Client, ccrsConn connect.Client) ([]AgentStat, error) {
+	agents, err := ListAgentStatuses(ctx, m, ccrsConn)
 	if err != nil {
 		return nil, errors.Wrap(err, "listing agents")
 	}

@@ -286,7 +286,7 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 			}
 
 			backupOptions.name = time.Now().UTC().Format(time.RFC3339)
-			return runBackup(app.ctx, app.conn, app.pbm, &backupOptions, app.pbmOutF)
+			return runBackup(app.ctx, app.conn, app.ccrsConn, app.pbm, &backupOptions, app.pbmOutF)
 		}),
 	}
 
