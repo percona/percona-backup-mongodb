@@ -183,10 +183,6 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 
 	app.ccrsURI = viper.GetString(ccrsConnFlag)
 
-	if app.ccrsURI == "" {
-		app.ccrsURI = app.mURL
-	}
-
 	if viper.GetString("describe-restore.config") != "" || viper.GetString("restore-finish.config") != "" {
 		return nil
 	}
@@ -195,11 +191,6 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	app.conn, err = connect.Connect(app.ctx, app.mURL, "pbm-ctl")
 	if err != nil {
 		exitErr(errors.Wrap(err, "connect to mongodb"), app.pbmOutF)
-	}
-
-	app.ccrsConn, err = connect.Connect(app.ctx, app.ccrsURI, "pbm-ctl-ccrs")
-	if err != nil {
-		exitErr(errors.Wrap(err, "connect to ccrs"), app.pbmOutF)
 	}
 
 	app.ctx = log.SetLoggerToContext(app.ctx, log.New(app.conn, "", ""))
@@ -216,6 +207,16 @@ func (app *pbmApp) persistentPreRun(cmd *cobra.Command, args []string) error {
 	app.pbm, err = sdk.NewClient(app.ctx, app.mURL, app.ccrsURI)
 	if err != nil {
 		exitErr(errors.Wrap(err, "init sdk"), app.pbmOutF)
+	}
+
+	if app.ccrsURI == "" || app.ccrsURI == app.mURL {
+		app.ccrsConn = app.conn
+		app.ccrsURI = app.mURL
+	} else {
+		app.ccrsConn, err = connect.Connect(app.ctx, app.ccrsURI, "pbm-ctl-ccrs")
+		if err != nil {
+			exitErr(errors.Wrap(err, "connect to ccrs"), app.pbmOutF)
+		}
 	}
 
 	inf, err := topo.GetNodeInfo(app.ctx, app.conn.MongoClient())

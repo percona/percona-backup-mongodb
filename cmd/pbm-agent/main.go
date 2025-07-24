@@ -52,10 +52,6 @@ func rootCommand() *cobra.Command {
 
 			fmt.Println("--- ccrsURL:", ccrsURL)
 
-			if ccrsURL == "" {
-				ccrsURL = url
-			}
-
 			hidecreds()
 
 			logOpts := buildLogOpts()
@@ -208,9 +204,12 @@ func runAgent(
 		return errors.Wrap(err, "connect to PBM")
 	}
 
-	ccrsConn, err := connect.Connect(ctx, ccrsURI, "pbm-agent-ccrs")
-	if err != nil {
-		return errors.Wrap(err, "connect to CCRS")
+	ccrsConn := leadConn
+	if ccrsURI != "" && ccrsURI != mongoURI {
+		ccrsConn, err = connect.Connect(ctx, ccrsURI, "pbm-agent-ccrs")
+		if err != nil {
+			return errors.Wrap(err, "connect to CCRS")
+		}
 	}
 
 	err = setupNewDB(ctx, ccrsConn)

@@ -138,9 +138,12 @@ func NewClient(ctx context.Context, uri, ccrsURI string) (*Client, error) {
 		return nil, err
 	}
 
-	ccrsConn, err := connect.Connect(ctx, ccrsURI, "sdk-ccrs")
-	if err != nil {
-		return nil, err
+	ccrsConn := conn
+	if ccrsURI != "" && ccrsURI != uri {
+		ccrsConn, err = connect.Connect(ctx, ccrsURI, "sdk-ccrs")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
