@@ -889,7 +889,7 @@ func (app *pbmApp) buildReplayCmd() *cobra.Command {
 		Use:   "oplog-replay",
 		Short: "Replay oplog",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			return replayOplog(app.ctx, app.conn, app.pbm, replayOpts, app.node, app.pbmOutF)
+			return replayOplog(app.ctx, app.conn, app.ccrsConn, app.pbm, replayOpts, app.node, app.pbmOutF)
 		}),
 	}
 

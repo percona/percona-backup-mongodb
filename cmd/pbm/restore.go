@@ -183,7 +183,7 @@ func runRestore(
 		return nil, err
 	}
 	if o.extern && outf == outText {
-		err = waitRestore(ctx, conn, m, node, defs.StatusCopyReady, tdiff)
+		err = waitRestore(ctx, conn, ccrsConn, m, node, defs.StatusCopyReady, tdiff)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -209,7 +209,7 @@ func runRestore(
 		typ = " physical restore.\nWaiting to finish"
 	}
 	fmt.Printf("Started%s", typ)
-	err = waitRestore(ctx, conn, m, node, defs.StatusDone, tdiff)
+	err = waitRestore(ctx, conn, ccrsConn, m, node, defs.StatusDone, tdiff)
 	if err == nil {
 		return restoreRet{
 			Name:     m.Name,
@@ -235,12 +235,13 @@ func runRestore(
 func waitRestore(
 	ctx context.Context,
 	conn connect.Client,
+	ccrsConn connect.Client,
 	m *restore.RestoreMeta,
 	node string,
 	status defs.Status,
 	tskew int64,
 ) error {
-	ep, _ := config.GetEpoch(ctx, conn)
+	ep, _ := config.GetEpoch(ctx, ccrsConn)
 	l := log.FromContext(ctx).
 		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
 	stg, err := util.GetStorage(ctx, conn, node, l)
