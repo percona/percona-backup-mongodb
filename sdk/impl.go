@@ -366,7 +366,7 @@ func (c *Client) Restore(ctx context.Context, backupName string, clusterTS Times
 var ErrStaleHearbeat = errors.New("stale heartbeat")
 
 func (c *Client) OpLocks(ctx context.Context) ([]OpLock, error) {
-	locks, err := lock.GetLocks(ctx, c.conn, &lock.LockHeader{})
+	locks, err := lock.GetLocks(ctx, c.ccrsConn, &lock.LockHeader{})
 	if err != nil {
 		return nil, errors.Wrap(err, "get locks")
 	}

@@ -39,12 +39,11 @@ type Shard struct {
 }
 
 // ClusterTime returns mongo's current cluster time
-// TODO: add ccrs?
 func GetClusterTime(ctx context.Context, m connect.Client) (primitive.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
 	// Otherwise, cluster timestamp could remain the same between node info reads,
 	// while in fact time has been moved forward.
-	err := m.LockCollection().FindOne(ctx, bson.D{}).Err()
+	err := m.MongoClient().Database("admin").Collection("system.version").FindOne(ctx, bson.D{}).Err()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return primitive.Timestamp{}, errors.Wrap(err, "void read")
 	}
