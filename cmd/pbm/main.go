@@ -750,6 +750,22 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	restoreCmd := &cobra.Command{
 		Use:   "restore [backup_name]",
 		Short: "Restore backup",
+		Args: func(cmd *cobra.Command, args []string) error {
+			timeFlag, _ := cmd.Flags().GetString("time")
+			external, _ := cmd.Flags().GetBool("external")
+
+			hasBackup := len(args) > 0
+			hasTime := timeFlag != ""
+
+			if hasBackup && hasTime {
+				return errors.New("backup name and --time cannot be used together")
+			}
+			if !external && !hasBackup && !hasTime {
+				return errors.New("specify a backup name, --time, or --external")
+			}
+
+			return nil
+		},
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
 			if len(args) == 1 {
 				restoreOptions.bcp = args[0]
