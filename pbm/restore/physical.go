@@ -1076,15 +1076,24 @@ func (r *PhysRestore) Snapshot(
 	}
 
 	var progress nodeStatus
+	var finalStat defs.Status
 	defer func() {
 		if err != nil && !errors.Is(err, ErrNoDataForShard) {
 			r.MarkFailed(err)
 		}
 
 		noerr := err == nil
-		err = r.close(noerr, progress)
-		if err != nil {
-			err = errors.Wrap(err, "snapshot close")
+		cerr := r.close(noerr, progress)
+
+		if cerr != nil && err == nil {
+			err = errors.Wrap(cerr, "snapshot close")
+		}
+
+		if noerr && err == nil {
+			r.log.Info("writing restore meta")
+			if derr := r.dumpMeta(meta, finalStat, ""); derr != nil {
+				r.log.Warning("writing restore meta to storage: %v", derr)
+			}
 		}
 	}()
 
@@ -1299,12 +1308,12 @@ func (r *PhysRestore) Snapshot(
 	// next.
 	progress |= restoreDone
 
-	stat, err := r.toState(defs.StatusDone)
+	finalStat, err = r.toState(defs.StatusDone)
 	if err != nil {
 		if r.nodeInfo.IsLeader() {
 			// before returning try to create meta
 			r.log.Info("writing restore meta")
-			merr := r.dumpMeta(meta, stat, "")
+			merr := r.dumpMeta(meta, finalStat, "")
 			if merr != nil {
 				r.log.Warning("writing restore meta to storage: %v", merr)
 			}
@@ -1315,12 +1324,6 @@ func (r *PhysRestore) Snapshot(
 	err = r.writeStat(stats)
 	if err != nil {
 		r.log.Warning("write download stat: %v", err)
-	}
-
-	r.log.Info("writing restore meta")
-	err = r.dumpMeta(meta, stat, "")
-	if err != nil {
-		return errors.Wrap(err, "writing restore meta to storage")
 	}
 
 	return nil
