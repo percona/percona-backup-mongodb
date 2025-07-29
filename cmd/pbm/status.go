@@ -580,7 +580,7 @@ func getStorageStat(
 	// which the `confsrv` param in `bcpMatchCluster` is all about
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 
-	stg, err := util.GetStorage(ctx, conn, inf.Me,
+	stg, err := util.GetStorage(ctx, ccrsConn, inf.Me,
 		log.FromContext(ctx).NewEvent("", "", "", primitive.Timestamp{}))
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")

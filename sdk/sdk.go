@@ -201,7 +201,7 @@ func WaitForDeleteOplogRange(ctx context.Context, client *Client) error {
 }
 
 func WaitForErrorLog(ctx context.Context, client *Client, cmd *Command) (string, error) {
-	return lastLogErr(ctx, client.conn, cmd.Cmd, cmd.TS)
+	return lastLogErr(ctx, client.ccrsConn, cmd.Cmd, cmd.TS)
 }
 
 func CanDeleteBackup(ctx context.Context, client *Client, bcp *BackupMetadata) error {

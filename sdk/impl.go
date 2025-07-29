@@ -41,7 +41,16 @@ type Client struct {
 }
 
 func (c *Client) Close(ctx context.Context) error {
-	return c.conn.Disconnect(ctx)
+	var firstErr error
+	if err := c.conn.Disconnect(ctx); err != nil {
+		firstErr = err
+	}
+	if c.ccrsConn != c.conn {
+		if err := c.ccrsConn.Disconnect(ctx); err != nil {
+			return err
+		}
+	}
+	return firstErr
 }
 
 func (c *Client) CommandInfo(ctx context.Context, id CommandID) (*Command, error) {
@@ -50,7 +59,7 @@ func (c *Client) CommandInfo(ctx context.Context, id CommandID) (*Command, error
 		return nil, ErrInvalidCommandID
 	}
 
-	res := c.conn.CmdStreamCollection().FindOne(ctx, bson.D{{"_id", opid.Obj()}})
+	res := c.ccrsConn.CmdStreamCollection().FindOne(ctx, bson.D{{"_id", opid.Obj()}})
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNotFound
@@ -68,19 +77,19 @@ func (c *Client) CommandInfo(ctx context.Context, id CommandID) (*Command, error
 }
 
 func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
-	return config.GetConfig(ctx, c.conn)
+	return config.GetConfig(ctx, c.ccrsConn)
 }
 
 func (c *Client) SetConfig(ctx context.Context, cfg Config) (CommandID, error) {
-	return NoOpID, config.SetConfig(ctx, c.conn, &cfg)
+	return NoOpID, config.SetConfig(ctx, c.ccrsConn, &cfg)
 }
 
 func (c *Client) GetAllConfigProfiles(ctx context.Context) ([]config.Config, error) {
-	return config.ListProfiles(ctx, c.conn)
+	return config.ListProfiles(ctx, c.ccrsConn)
 }
 
 func (c *Client) GetConfigProfile(ctx context.Context, name string) (*config.Config, error) {
-	profile, err := config.GetProfile(ctx, c.conn, name)
+	profile, err := config.GetProfile(ctx, c.ccrsConn, name)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			err = config.ErrMissedConfigProfile
@@ -92,17 +101,17 @@ func (c *Client) GetConfigProfile(ctx context.Context, name string) (*config.Con
 }
 
 func (c *Client) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {
-	opid, err := ctrl.SendAddConfigProfile(ctx, c.conn, name, cfg.Storage)
+	opid, err := ctrl.SendAddConfigProfile(ctx, c.ccrsConn, name, cfg.Storage)
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) RemoveConfigProfile(ctx context.Context, name string) (CommandID, error) {
-	opid, err := ctrl.SendRemoveConfigProfile(ctx, c.conn, name)
+	opid, err := ctrl.SendRemoveConfigProfile(ctx, c.ccrsConn, name)
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) GetAllBackups(ctx context.Context) ([]BackupMetadata, error) {
-	return backup.BackupsList(ctx, c.conn, 0)
+	return backup.BackupsList(ctx, c.ccrsConn, 0)
 }
 
 func (c *Client) GetAllRestores(
@@ -114,7 +123,7 @@ func (c *Client) GetAllRestores(
 	if limit < 0 {
 		limit = 0
 	}
-	return restore.RestoreList(ctx, c.conn, limit)
+	return restore.RestoreList(ctx, c.ccrsConn, limit)
 }
 
 func (c *Client) GetBackupByName(
@@ -122,7 +131,7 @@ func (c *Client) GetBackupByName(
 	name string,
 	options GetBackupByNameOptions,
 ) (*BackupMetadata, error) {
-	bcp, err := backup.NewDBManager(c.conn).GetBackupByName(ctx, name)
+	bcp, err := backup.NewDBManager(c.ccrsConn).GetBackupByName(ctx, name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup meta")
 	}
@@ -135,7 +144,7 @@ func (c *Client) GetBackupByOpID(
 	opid string,
 	options GetBackupByNameOptions,
 ) (*BackupMetadata, error) {
-	bcp, err := backup.NewDBManager(c.conn).GetBackupByOpID(ctx, opid)
+	bcp, err := backup.NewDBManager(c.ccrsConn).GetBackupByOpID(ctx, opid)
 	if err != nil {
 		return nil, errors.Wrap(err, "get backup meta")
 	}
@@ -153,7 +162,7 @@ func (c *Client) getBackupHelper(
 			return nil, ErrNotBaseIncrement
 		}
 
-		increments, err := backup.FetchAllIncrements(ctx, c.conn, bcp)
+		increments, err := backup.FetchAllIncrements(ctx, c.ccrsConn, bcp)
 		if err != nil {
 			return nil, errors.New("get increments")
 		}
@@ -256,11 +265,11 @@ func (c *Client) getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) 
 }
 
 func (c *Client) GetRestoreByName(ctx context.Context, name string) (*RestoreMetadata, error) {
-	return restore.GetRestoreMeta(ctx, c.conn, name)
+	return restore.GetRestoreMeta(ctx, c.ccrsConn, name)
 }
 
 func (c *Client) GetRestoreByOpID(ctx context.Context, opid string) (*RestoreMetadata, error) {
-	return restore.GetRestoreMetaByOPID(ctx, c.conn, opid)
+	return restore.GetRestoreMetaByOPID(ctx, c.ccrsConn, opid)
 }
 
 func (c *Client) SyncFromStorage(ctx context.Context, includeRestores bool) (CommandID, error) {
@@ -277,12 +286,12 @@ func (c *Client) SyncFromExternalStorage(ctx context.Context, name string) (Comm
 		return NoOpID, errors.New("name is not provided")
 	}
 
-	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{Name: name})
+	opid, err := ctrl.SendResync(ctx, c.ccrsConn, &ctrl.ResyncCmd{Name: name})
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) SyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
-	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{All: true})
+	opid, err := ctrl.SendResync(ctx, c.ccrsConn, &ctrl.ResyncCmd{All: true})
 	return CommandID(opid.String()), err
 }
 
@@ -291,12 +300,12 @@ func (c *Client) ClearSyncFromExternalStorage(ctx context.Context, name string) 
 		return NoOpID, errors.New("name is not provided")
 	}
 
-	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{Name: name, Clear: true})
+	opid, err := ctrl.SendResync(ctx, c.ccrsConn, &ctrl.ResyncCmd{Name: name, Clear: true})
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) ClearSyncFromAllExternalStorages(ctx context.Context) (CommandID, error) {
-	opid, err := ctrl.SendResync(ctx, c.conn, &ctrl.ResyncCmd{All: true, Clear: true})
+	opid, err := ctrl.SendResync(ctx, c.ccrsConn, &ctrl.ResyncCmd{All: true, Clear: true})
 	return CommandID(opid.String()), err
 }
 
@@ -315,7 +324,7 @@ func (c *Client) DeleteBackupByName(ctx context.Context, name string) (CommandID
 		return NoOpID, err
 	}
 
-	opid, err := ctrl.SendDeleteBackupByName(ctx, c.conn, name)
+	opid, err := ctrl.SendDeleteBackupByName(ctx, c.ccrsConn, name)
 	return CommandID(opid.String()), err
 }
 
@@ -324,12 +333,12 @@ func (c *Client) DeleteBackupBefore(
 	beforeTS Timestamp,
 	options DeleteBackupBeforeOptions,
 ) (CommandID, error) {
-	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.conn, beforeTS, options.Type)
+	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.ccrsConn, beforeTS, options.Type)
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) DeleteOplogRange(ctx context.Context, until Timestamp) (CommandID, error) {
-	opid, err := ctrl.SendDeleteOplogRangeBefore(ctx, c.conn, until)
+	opid, err := ctrl.SendDeleteOplogRangeBefore(ctx, c.ccrsConn, until)
 	return CommandID(opid.String()), err
 }
 
@@ -338,12 +347,12 @@ func (c *Client) CleanupReport(ctx context.Context, beforeTS Timestamp) (Cleanup
 }
 
 func (c *Client) RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error) {
-	opid, err := ctrl.SendCleanup(ctx, c.conn, beforeTS)
+	opid, err := ctrl.SendCleanup(ctx, c.ccrsConn, beforeTS)
 	return CommandID(opid.String()), err
 }
 
 func (c *Client) CancelBackup(ctx context.Context) (CommandID, error) {
-	opid, err := ctrl.SendCancelBackup(ctx, c.conn)
+	opid, err := ctrl.SendCancelBackup(ctx, c.ccrsConn)
 	return CommandID(opid.String()), err
 }
 

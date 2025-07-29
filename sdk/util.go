@@ -73,7 +73,7 @@ func WaitForResync(ctx context.Context, c *Client, cid CommandID) error {
 		},
 	}
 
-	outC, errC := log.Follow(ctx, c.conn, r, false)
+	outC, errC := log.Follow(ctx, c.ccrsConn, r, false)
 
 	for {
 		select {
