@@ -1014,6 +1014,10 @@ func (r *Restore) RunSnapshot(
 		if err != nil {
 			return errors.Wrap(err, "mongorestore")
 		}
+
+		if err := r.configsvrFullRestore(ctx, bcp, mapRS); err != nil {
+			return err
+		}
 	}
 
 	if usersAndRolesOpt {
