@@ -109,14 +109,22 @@ func NewRestore(uri string,
 
 	nsExclude := ExcludeFromRestore
 	if excludeRouterCollections {
+		// for selective restore we'll exclude all router collections
 		configColls := []string{
 			"config.databases",
 			"config.collections",
 			"config.chunks",
 		}
-		nsExclude = make([]string, len(ExcludeFromRestore)+len(configColls))
-		n := copy(nsExclude, ExcludeFromRestore)
-		copy(nsExclude[n:], configColls)
+		nsExclude = append(nsExclude, configColls...)
+	} else {
+		// for full restore we'll restore config.databases
+		// and for config.collections and config.chunks
+		// there is special restore handling later
+		configColls := []string{
+			"config.collections",
+			"config.chunks",
+		}
+		nsExclude = append(nsExclude, configColls...)
 	}
 
 	mopts := mongorestore.Options{}

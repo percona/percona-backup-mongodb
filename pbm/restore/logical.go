@@ -1006,7 +1006,7 @@ func (r *Restore) RunSnapshot(
 		}
 
 		// restore cluster specific configs only
-		if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
+		if err := r.configsvrSelRestore(ctx, bcp, nss, mapRS); err != nil {
 			return err
 		}
 	} else {
