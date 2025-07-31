@@ -69,6 +69,7 @@ func (r *Restore) fullRestoreConfigCollections(
 	if err = r.cleanUpConfigCollections(ctx); err != nil {
 		return "", errors.Wrap(err, "cleaning up config.collections")
 	}
+	r.log.Debug("cleaned up config.collections before restoring")
 
 	bcpSysSessUUID := ""
 	models := []mongo.WriteModel{}
@@ -114,9 +115,11 @@ func (r *Restore) fullRestoreConfigCollections(
 	}
 
 	coll := r.leadConn.ConfigDatabase().Collection("collections")
-	if _, err = coll.BulkWrite(ctx, models); err != nil {
+	res, err := coll.BulkWrite(ctx, models)
+	if err != nil {
 		return "", errors.Wrap(err, "restore config.collections")
 	}
+	r.log.Debug("finished restoring config.collections (%d documents)", res.InsertedCount)
 
 	return bcpSysSessUUID, nil
 }
@@ -151,7 +154,9 @@ func (r *Restore) fullRestoreConfigChunks(
 	if err = r.cleanUpConfigChunks(ctx); err != nil {
 		return errors.Wrap(err, "clean up config.chunks during full restore")
 	}
+	r.log.Debug("cleaned up config.chunks before restoring")
 
+	var docInserted int64
 	models := []mongo.WriteModel{}
 	buf := make([]byte, archive.MaxBSONSize)
 	for done := false; !done; {
@@ -213,13 +218,15 @@ func (r *Restore) fullRestoreConfigChunks(
 			return nil
 		}
 
-		_, err = r.leadConn.ConfigDatabase().Collection("chunks").BulkWrite(ctx, models)
+		res, err := r.leadConn.ConfigDatabase().Collection("chunks").BulkWrite(ctx, models)
 		if err != nil {
 			return errors.Wrap(err, "restore config.chunks")
 		}
+		docInserted += res.InsertedCount
 
 		models = models[:0]
 	}
+	r.log.Debug("finished restoring config.chunks (%d documents)", docInserted)
 
 	return nil
 }
