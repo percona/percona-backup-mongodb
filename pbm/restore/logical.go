@@ -999,24 +999,26 @@ func (r *Restore) RunSnapshot(
 	}
 	defer rdr.Close()
 
-	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-		err = r.snapshot(rdr, cloneNS, true)
-		if err != nil {
-			return errors.Wrap(err, "mongorestore")
-		}
+	if r.nodeInfo.IsConfigSrv() {
+		if util.IsSelective(nss) {
+			err = r.snapshot(rdr, cloneNS, true)
+			if err != nil {
+				return errors.Wrap(err, "mongorestore")
+			}
 
-		// restore cluster specific configs only
-		if err := r.configsvrSelRestore(ctx, bcp, nss, mapRS); err != nil {
-			return err
-		}
-	} else {
-		err = r.snapshot(rdr, cloneNS, false)
-		if err != nil {
-			return errors.Wrap(err, "mongorestore")
-		}
+			// restore cluster specific configs only
+			if err := r.configsvrSelRestore(ctx, bcp, nss, mapRS); err != nil {
+				return err
+			}
+		} else {
+			err = r.snapshot(rdr, cloneNS, false)
+			if err != nil {
+				return errors.Wrap(err, "mongorestore")
+			}
 
-		if err := r.configsvrFullRestore(ctx, bcp, mapRS); err != nil {
-			return err
+			if err := r.configsvrFullRestore(ctx, bcp, mapRS); err != nil {
+				return err
+			}
 		}
 	}
 

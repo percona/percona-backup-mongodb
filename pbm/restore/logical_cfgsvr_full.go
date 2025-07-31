@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -251,16 +252,17 @@ func (r *Restore) cleanUpConfigCollections(ctx context.Context) error {
 // config.collections.
 func (r *Restore) cleanUpConfigChunks(ctx context.Context) error {
 	sessBson, err := r.leadConn.ConfigDatabase().Collection("collections").
-		FindOne(ctx, bson.D{{"_id", "config.system.sessions"}}).Raw()
+		FindOne(ctx, bson.D{{"_id", defs.ConfigSystemSessionsNS}}).Raw()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return errors.Wrap(err, "querying config.system.sessions UUID")
 	}
 
 	excSessFilter := bson.M{}
 	if sessBson != nil {
-		_, uuid := sessBson.Lookup("uuid").Binary()
-		sysSessUUID := hex.EncodeToString(uuid)
-		excSessFilter["$ne"] = sysSessUUID
+		if subtype, uuid, ok := sessBson.Lookup("uuid").BinaryOK(); ok {
+			uuid := primitive.Binary{Subtype: subtype, Data: uuid}
+			excSessFilter["uuid"] = bson.M{"$ne": uuid}
+		}
 	}
 
 	_, err = r.leadConn.ConfigDatabase().Collection("chunks").
