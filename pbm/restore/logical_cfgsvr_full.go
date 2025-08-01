@@ -27,6 +27,10 @@ func (r *Restore) configsvrFullRestore(
 ) error {
 	mapS := util.MakeRSMapFunc(r.sMap)
 
+	if err := r.fullRestoreConfigDatabases(ctx, bcp, mapRS, mapS); err != nil {
+		return errors.Wrap(err, "full restore config.databases")
+	}
+
 	bcpSysSessUUIDToSkip, err := r.fullRestoreConfigCollections(ctx, bcp, mapRS)
 	if err != nil {
 		return errors.Wrap(err, "full restore config.collections")
@@ -35,6 +39,70 @@ func (r *Restore) configsvrFullRestore(
 	if err := r.fullRestoreConfigChunks(ctx, bcp, bcpSysSessUUIDToSkip, mapRS, mapS); err != nil {
 		return errors.Wrap(err, "full restore config.chunks")
 	}
+
+	return nil
+}
+
+// fullRestoreConfigDatabases does full restore of config.databases collection.
+func (r *Restore) fullRestoreConfigDatabases(
+	ctx context.Context,
+	bcp *backup.BackupMeta,
+	mapRS, mapS util.RSMapFunc,
+) error {
+	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), defs.ConfigDatabasesNS+bcp.Compression.Suffix())
+	rdr, err := r.bcpStg.SourceReader(filepath)
+	if err != nil {
+		return err
+	}
+	defer rdr.Close()
+
+	rdr, err = compress.Decompress(rdr, bcp.Compression)
+	if err != nil {
+		return err
+	}
+
+	if err = r.cleanUpConfigDatabases(ctx); err != nil {
+		return errors.Wrap(err, "cleaning up config.databases")
+	}
+
+	models := []mongo.WriteModel{}
+	buf := make([]byte, archive.MaxBSONSize)
+	for {
+		buf, err = archive.ReadBSONBuffer(rdr, buf[:cap(buf)])
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return err
+		}
+
+		doc := bson.D{}
+		if err = bson.Unmarshal(buf, &doc); err != nil {
+			return errors.Wrap(err, "unmarshal")
+		}
+
+		for i, a := range doc {
+			if a.Key == "primary" {
+				doc[i].Value = mapS(doc[i].Value.(string))
+				break
+			}
+		}
+
+		models = append(models, mongo.NewInsertOneModel().SetDocument(doc))
+	}
+
+	if len(models) == 0 {
+		r.log.Debug("finished restoring config.databases (0 documents)")
+		return nil
+	}
+
+	coll := r.leadConn.ConfigDatabase().Collection("databases")
+	res, err := coll.BulkWrite(ctx, models)
+	if err != nil {
+		return errors.Wrap(err, "restore config.databases")
+	}
+	r.log.Debug("finished restoring config.databases (%d documents)", res.InsertedCount)
 
 	return nil
 }
@@ -70,7 +138,6 @@ func (r *Restore) fullRestoreConfigCollections(
 	if err = r.cleanUpConfigCollections(ctx); err != nil {
 		return "", errors.Wrap(err, "cleaning up config.collections")
 	}
-	r.log.Debug("cleaned up config.collections before restoring")
 
 	bcpSysSessUUID := ""
 	models := []mongo.WriteModel{}
@@ -93,7 +160,6 @@ func (r *Restore) fullRestoreConfigCollections(
 				// save confgi.system.sessions UUID, we need it for filtering out chunks docs
 				bcpSysSessUUID = hex.EncodeToString(uuid)
 			}
-
 			// skip system.sessions if it's in the backup
 			continue
 		}
@@ -112,6 +178,7 @@ func (r *Restore) fullRestoreConfigCollections(
 	}
 
 	if len(models) == 0 {
+		r.log.Debug("finished restoring config.collections (0 documents)")
 		return bcpSysSessUUID, nil
 	}
 
@@ -155,7 +222,6 @@ func (r *Restore) fullRestoreConfigChunks(
 	if err = r.cleanUpConfigChunks(ctx); err != nil {
 		return errors.Wrap(err, "clean up config.chunks during full restore")
 	}
-	r.log.Debug("cleaned up config.chunks before restoring")
 
 	var docInserted int64
 	models := []mongo.WriteModel{}
@@ -216,6 +282,7 @@ func (r *Restore) fullRestoreConfigChunks(
 			continue
 		} else if len(models) == 0 && done {
 			// it's done and there's nothing to update
+			r.log.Debug("finished restoring config.chunks (0 documents)")
 			return nil
 		}
 
@@ -232,16 +299,30 @@ func (r *Restore) fullRestoreConfigChunks(
 	return nil
 }
 
+// cleanUpConfigDatabases deletes complete config.databases collection.
+func (r *Restore) cleanUpConfigDatabases(ctx context.Context) error {
+	res, err := r.leadConn.ConfigDatabase().Collection("databases").
+		DeleteMany(ctx, bson.D{})
+	if err != nil {
+		return errors.Wrap(err, "delete all from config.databases")
+	}
+	r.log.Debug("cleaned-up config.databases (%d documents)", res.DeletedCount)
+
+	return nil
+}
+
 // cleanUpConfigCollections deletes complete config.collections collection except
 // config.system.sessions related document.
 func (r *Restore) cleanUpConfigCollections(ctx context.Context) error {
 	excSessFilter := bson.M{
 		"_id": bson.M{"$ne": defs.ConfigSystemSessionsNS},
 	}
-	_, err := r.leadConn.ConfigDatabase().Collection("collections").DeleteMany(ctx, excSessFilter)
+	res, err := r.leadConn.ConfigDatabase().Collection("collections").
+		DeleteMany(ctx, excSessFilter)
 	if err != nil {
 		return errors.Wrap(err, "delete all from config.collections")
 	}
+	r.log.Debug("cleaned-up config.collections (%d documents)", res.DeletedCount)
 
 	return nil
 }
@@ -265,11 +346,12 @@ func (r *Restore) cleanUpConfigChunks(ctx context.Context) error {
 		}
 	}
 
-	_, err = r.leadConn.ConfigDatabase().Collection("chunks").
+	res, err := r.leadConn.ConfigDatabase().Collection("chunks").
 		DeleteMany(ctx, excSessFilter)
 	if err != nil {
 		return errors.Wrap(err, "delete all from config.chunks")
 	}
+	r.log.Debug("cleaned-up config.chunks: %d", res.DeletedCount)
 
 	return nil
 }
