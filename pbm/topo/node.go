@@ -101,12 +101,12 @@ func (i *NodeInfo) IsDelayed() bool {
 	return i.SecondaryDelayOld != 0 || i.SecondaryDelaySecs != 0
 }
 
-// IsSharded returns true is replset is part sharded cluster
+// IsMongoes returns true if node is mongos.
 func (i *NodeInfo) IsMongos() bool {
 	return i.Msg == "isdbgrid"
 }
 
-// IsSharded returns true is replset is part sharded cluster
+// IsSharded returns true is replset is part of sharded cluster.
 func (i *NodeInfo) IsSharded() bool {
 	return i.SetName != "" && (i.ConfigServerState != nil || i.Opts.Sharding.ClusterRole != "" || i.ConfigSvr == 2)
 }
