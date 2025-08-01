@@ -1010,7 +1010,7 @@ func (r *Restore) RunSnapshot(
 			if err := r.configsvrSelRestore(ctx, bcp, nss, mapRS); err != nil {
 				return err
 			}
-		} else { // full restore on CFSRS
+		} else { // full restore on CSRS
 			if err := r.configsvrFullRestore(ctx, bcp, mapRS); err != nil {
 				return err
 			}

@@ -74,7 +74,7 @@ func (r *Restore) fullRestoreConfigDatabases(
 				break
 			}
 
-			return err
+			return errors.Wrap(err, "read bson doc")
 		}
 
 		doc := bson.D{}
@@ -149,7 +149,7 @@ func (r *Restore) fullRestoreConfigCollections(
 				break
 			}
 
-			return "", err
+			return "", errors.Wrap(err, "read bson doc")
 		}
 
 		bsonDoc := bson.Raw(buf)
@@ -170,11 +170,7 @@ func (r *Restore) fullRestoreConfigCollections(
 			return "", errors.Wrap(err, "unmarshal")
 		}
 
-		model := mongo.NewReplaceOneModel()
-		model.SetFilter(bson.D{{"_id", ns}})
-		model.SetReplacement(doc)
-		model.SetUpsert(true)
-		models = append(models, model)
+		models = append(models, mongo.NewInsertOneModel().SetDocument(doc))
 	}
 
 	if len(models) == 0 {
@@ -182,8 +178,8 @@ func (r *Restore) fullRestoreConfigCollections(
 		return bcpSysSessUUID, nil
 	}
 
-	coll := r.leadConn.ConfigDatabase().Collection("collections")
-	res, err := coll.BulkWrite(ctx, models)
+	res, err := r.leadConn.ConfigDatabase().Collection("collections").
+		BulkWrite(ctx, models)
 	if err != nil {
 		return "", errors.Wrap(err, "restore config.collections")
 	}
@@ -237,7 +233,7 @@ func (r *Restore) fullRestoreConfigChunks(
 					break
 				}
 
-				return err
+				return errors.Wrap(err, "read bson doc")
 			}
 
 			if len(sysSessToSkip) != 0 {
@@ -286,7 +282,8 @@ func (r *Restore) fullRestoreConfigChunks(
 			return nil
 		}
 
-		res, err := r.leadConn.ConfigDatabase().Collection("chunks").BulkWrite(ctx, models)
+		res, err := r.leadConn.ConfigDatabase().Collection("chunks").
+			BulkWrite(ctx, models)
 		if err != nil {
 			return errors.Wrap(err, "restore config.chunks")
 		}

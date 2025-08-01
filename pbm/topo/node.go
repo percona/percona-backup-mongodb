@@ -101,7 +101,7 @@ func (i *NodeInfo) IsDelayed() bool {
 	return i.SecondaryDelayOld != 0 || i.SecondaryDelaySecs != 0
 }
 
-// IsMongoes returns true if node is mongos.
+// IsMongos returns true if node is mongos.
 func (i *NodeInfo) IsMongos() bool {
 	return i.Msg == "isdbgrid"
 }
