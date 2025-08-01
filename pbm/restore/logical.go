@@ -1000,25 +1000,25 @@ func (r *Restore) RunSnapshot(
 	defer rdr.Close()
 
 	if r.nodeInfo.IsConfigSrv() {
-		if util.IsSelective(nss) {
-			err = r.snapshot(rdr, cloneNS, true)
-			if err != nil {
-				return errors.Wrap(err, "mongorestore")
-			}
+		err = r.snapshot(rdr, cloneNS, true)
+		if err != nil {
+			return errors.Wrap(err, "mongorestore")
+		}
 
+		if util.IsSelective(nss) {
 			// restore cluster specific configs only
 			if err := r.configsvrSelRestore(ctx, bcp, nss, mapRS); err != nil {
 				return err
 			}
-		} else {
-			err = r.snapshot(rdr, cloneNS, false)
-			if err != nil {
-				return errors.Wrap(err, "mongorestore")
-			}
-
+		} else { // full restore on CFSRS
 			if err := r.configsvrFullRestore(ctx, bcp, mapRS); err != nil {
 				return err
 			}
+		}
+	} else { // restore on the RS topo or Shard
+		err = r.snapshot(rdr, cloneNS, false)
+		if err != nil {
+			return errors.Wrap(err, "mongorestore")
 		}
 	}
 

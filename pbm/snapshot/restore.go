@@ -3,6 +3,7 @@ package snapshot
 import (
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/mongodb/mongo-tools/common/options"
@@ -107,22 +108,12 @@ func NewRestore(uri string,
 		numParallelColls = 1
 	}
 
-	nsExclude := ExcludeFromRestore
+	nsExclude := slices.Clone(ExcludeFromRestore)
 	if excludeRouterCollections {
-		// for selective restore we'll exclude all router collections
 		configColls := []string{
-			"config.databases",
-			"config.collections",
-			"config.chunks",
-		}
-		nsExclude = append(nsExclude, configColls...)
-	} else {
-		// for full restore we'll restore config.databases
-		// and for config.collections and config.chunks
-		// there is special restore handling later
-		configColls := []string{
-			"config.collections",
-			"config.chunks",
+			defs.ConfigDatabasesNS,
+			defs.ConfigCollectionsNS,
+			defs.ConfigChunksNS,
 		}
 		nsExclude = append(nsExclude, configColls...)
 	}
