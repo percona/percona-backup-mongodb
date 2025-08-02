@@ -26,6 +26,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -227,6 +228,7 @@ type StorageConf struct {
 	GCS        *gcs.Config   `bson:"gcs,omitempty" json:"gcs,omitempty" yaml:"gcs,omitempty"`
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
+	OSS        *oss.Config   `bson:"oss,omitempty" json:"oss,omitempty" yaml:"oss,omitempty"`
 }
 
 func (s *StorageConf) Clone() *StorageConf {

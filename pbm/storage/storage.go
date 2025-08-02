@@ -28,6 +28,7 @@ const (
 	Filesystem Type = "filesystem"
 	Blackhole  Type = "blackhole"
 	GCS        Type = "gcs"
+	OSS        Type = "oss"
 )
 
 type FileInfo struct {
