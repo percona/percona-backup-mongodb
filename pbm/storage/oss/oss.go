@@ -54,6 +54,7 @@ func (o *OSS) SourceReader(name string) (io.ReadCloser, error) {
 	return nil, nil
 }
 
+// FileStat returns file info. It returns error if file is empty or not exists.
 func (o *OSS) FileStat(name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
@@ -78,14 +79,28 @@ func (o *OSS) FileStat(name string) (storage.FileInfo, error) {
 	return inf, nil
 }
 
+// List scans path with prefix and returns all files with given suffix.
+// Both prefix and suffix can be omitted.
 func (o *OSS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	return nil, nil
 }
 
+// Delete deletes given file.
+// It returns storage.ErrNotExist if a file doesn't exists.
 func (o *OSS) Delete(name string) error {
+	key := path.Join(o.cfg.Prefix, name)
+	path.Join(o.cfg.Prefix, name)
+	_, err := o.ossCli.DeleteObject(context.Background(), &oss.DeleteObjectRequest{
+		Bucket: oss.Ptr(o.cfg.Bucket),
+		Key:    oss.Ptr(key),
+	})
+	if err != nil {
+		return errors.Wrapf(err, "delete %s/%s file from OSS", o.cfg.Bucket, key)
+	}
 	return nil
 }
 
+// Copy makes a copy of the src objec/file under dst name
 func (o *OSS) Copy(src, dst string) error {
 	return nil
 }
