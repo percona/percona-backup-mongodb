@@ -1,11 +1,14 @@
 package oss
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"path"
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -52,7 +55,27 @@ func (o *OSS) SourceReader(name string) (io.ReadCloser, error) {
 }
 
 func (o *OSS) FileStat(name string) (storage.FileInfo, error) {
-	return storage.FileInfo{}, nil
+	inf := storage.FileInfo{}
+
+	res, err := o.ossCli.HeadObject(context.Background(), &oss.HeadObjectRequest{
+		Bucket: oss.Ptr(o.cfg.Bucket),
+		Key:    oss.Ptr(path.Join(o.cfg.Prefix, name)),
+	})
+	if err != nil {
+		var serr *oss.ServiceError
+		if errors.As(err, &serr) && serr.Code == "NoSuchKey" {
+			return inf, storage.ErrNotExist
+		}
+		return inf, errors.Wrap(err, "get OSS object header")
+	}
+
+	inf.Name = name
+	inf.Size = res.ContentLength
+	if inf.Size == 0 {
+		return inf, storage.ErrEmpty
+	}
+
+	return inf, nil
 }
 
 func (o *OSS) List(prefix, suffix string) ([]storage.FileInfo, error) {
