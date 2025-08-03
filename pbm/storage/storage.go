@@ -65,6 +65,8 @@ func ParseType(s string) Type {
 		return Blackhole
 	case string(GCS):
 		return GCS
+	case string(OSS):
+		return OSS
 	default:
 		return Undefined
 	}
