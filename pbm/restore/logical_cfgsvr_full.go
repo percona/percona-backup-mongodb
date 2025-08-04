@@ -24,23 +24,23 @@ func (r *Restore) configsvrFullRestore(
 	ctx context.Context,
 	bcp *backup.BackupMeta,
 	mapRS util.RSMapFunc,
-) error {
+) (string, error) {
 	mapS := util.MakeRSMapFunc(r.sMap)
 
 	if err := r.fullRestoreConfigDatabases(ctx, bcp, mapRS, mapS); err != nil {
-		return errors.Wrap(err, "full restore config.databases")
+		return "", errors.Wrap(err, "full restore config.databases")
 	}
 
 	bcpSysSessUUIDToSkip, err := r.fullRestoreConfigCollections(ctx, bcp, mapRS)
 	if err != nil {
-		return errors.Wrap(err, "full restore config.collections")
+		return "", errors.Wrap(err, "full restore config.collections")
 	}
 
 	if err := r.fullRestoreConfigChunks(ctx, bcp, bcpSysSessUUIDToSkip, mapRS, mapS); err != nil {
-		return errors.Wrap(err, "full restore config.chunks")
+		return "", errors.Wrap(err, "full restore config.chunks")
 	}
 
-	return nil
+	return bcpSysSessUUIDToSkip, nil
 }
 
 // fullRestoreConfigDatabases does full restore of config.databases collection.

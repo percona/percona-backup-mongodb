@@ -287,12 +287,13 @@ func chunks(
 }
 
 type applyOplogOption struct {
-	start   *primitive.Timestamp
-	end     *primitive.Timestamp
-	nss     []string
-	cloudNS snapshot.CloneNS
-	unsafe  bool
-	filter  oplog.OpFilter
+	start    *primitive.Timestamp
+	end      *primitive.Timestamp
+	nss      []string
+	cloudNS  snapshot.CloneNS
+	unsafe   bool
+	filter   oplog.OpFilter
+	sessUUID string
 }
 
 type (
@@ -373,6 +374,7 @@ func applyOplog(
 	} else if err != nil {
 		return nil, errors.Wrap(err, "set cloning ns")
 	}
+	oplogRestore.SetSessionsToExclude(options.sessUUID)
 
 	var lts primitive.Timestamp
 	for _, oplogRange := range ranges {

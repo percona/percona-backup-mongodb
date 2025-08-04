@@ -179,8 +179,9 @@ type OplogRestore struct {
 
 	unsafe bool
 
-	filter  OpFilter
-	cloneNS cloneNS
+	filter   OpFilter
+	cloneNS  cloneNS
+	sessUUID string
 }
 
 const saveLastDistTxns = 100
@@ -337,6 +338,12 @@ func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) erro
 	}
 
 	return nil
+}
+
+// SetSessionsToExclude sets UUID for the config.system.sessions collection
+// that needs to be excluded from when oplog is applied.
+func (o *OplogRestore) SetSessionsToExclude(sessUUID string) {
+	o.sessUUID = sessUUID
 }
 
 // isOpAllowed inspects whether op is allowed from config database point of view.
@@ -614,7 +621,8 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	}
 
 	if o.isOpExcluded(&oe) || !isOpAllowed(&oe) ||
-		!o.isOpSelected(&oe) || !o.isOpForCloning(&oe) {
+		!o.isOpSelected(&oe) || !o.isOpForCloning(&oe) ||
+		isRoutingDocExcluded(&oe, o.sessUUID) {
 		return nil
 	}
 
@@ -971,7 +979,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	// have to handle it here one more time because before the op gets thru
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
 	if o.isOpExcluded(&op) || !isOpAllowed(&op) ||
-		!o.isOpSelected(&op) || !o.isOpForCloning(&op) {
+		!o.isOpSelected(&op) || !o.isOpForCloning(&op) ||
+		isRoutingDocExcluded(&op, o.sessUUID) {
 		return nil
 	}
 
