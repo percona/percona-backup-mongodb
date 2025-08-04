@@ -3,6 +3,7 @@ package oplog
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
 
@@ -215,6 +217,116 @@ func TestIsOpAllowed(t *testing.T) {
 			if res != tC.opAllowed {
 				t.Errorf("%s: for entry: %+v isOpAllowed is: %t, but it should be opposite",
 					tC.desc, tC.entry, tC.opAllowed)
+			}
+		})
+	}
+}
+
+func TestIsConfigCollectionsDocAllowed(t *testing.T) {
+	testCases := []struct {
+		desc      string
+		entry     *db.Oplog
+		uuid      string
+		opAllowed bool
+	}{
+		{
+			desc:      "not config db entry",
+			entry:     createInsertOp(t, "a.b"),
+			opAllowed: true,
+		},
+		{
+			desc:      "not config.collections entry",
+			entry:     createConfigChunksEntry("abc"),
+			uuid:      "abc",
+			opAllowed: true,
+		},
+		{
+			desc:      "config.collections entry for sessions with empty uuid",
+			entry:     createConfigCollectionsEntry("config.system.sessions", ""),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: true,
+		},
+		{
+			desc:      "config.collections entry for sessions without uuid",
+			entry:     createConfigCollectionsEntryWithoutUUID("config.system.sessions"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: true,
+		},
+		{
+			desc:      "config.collections entry for sessions that should not be allowed",
+			entry:     createConfigCollectionsEntry("config.system.sessions", "06f587d338174590ad1cadd65bf9ee4f"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: false,
+		},
+		{
+			desc:      "config.collections entry for session that doesn't match uuid",
+			entry:     createConfigCollectionsEntry("config.system.sessions", "06f587d338174590ad1cadd65bf9ee5a"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: true,
+		},
+		{
+			desc:      "config.collections entry for session without uuid to filter out",
+			entry:     createConfigCollectionsEntry(defs.ConfigSystemSessionsNS, "06f587d338174590ad1cadd65bf9ee5a"),
+			uuid:      "",
+			opAllowed: true,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			res := isConfigCollectionsDocAllowed(tC.entry, tC.uuid)
+			if res != tC.opAllowed {
+				t.Errorf("%s: for entry: %+v isConfigCollectionsDocAllowed is: %t, but it should be opposite",
+					tC.desc, tC.entry, res)
+			}
+		})
+	}
+}
+
+func TestIsConfigChunksDocAllowed(t *testing.T) {
+	testCases := []struct {
+		desc      string
+		entry     *db.Oplog
+		uuid      string
+		opAllowed bool
+	}{
+		{
+			desc:      "not config db entry",
+			entry:     createInsertOp(t, "a.b"),
+			opAllowed: true,
+		},
+		{
+			desc:      "not config.chunks entry",
+			entry:     createConfigCollectionsEntry("abc", "06f587d338174590ad1cadd65bf9ee5a"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee5a",
+			opAllowed: true,
+		},
+		{
+			desc:      "empty uuid",
+			entry:     createConfigChunksEntry(""),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: true,
+		},
+		{
+			desc:      "config.chunks entry for sessions that should not be allowed",
+			entry:     createConfigChunksEntry("06f587d338174590ad1cadd65bf9ee4f"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: false,
+		},
+		{
+			desc:      "config.chunks entry for session that doesn't match uuid",
+			entry:     createConfigChunksEntry("06f587d338174590ad1cadd65bf9ee5a"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: true,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			res := isConfigChunksDocAllowed(tC.entry, tC.uuid)
+			if res != tC.opAllowed {
+				t.Errorf("%s: for entry: %+v isConfigChunksDocAllowed is: %t, but it should be opposite",
+					tC.desc, tC.entry, res)
 			}
 		})
 	}
@@ -741,5 +853,41 @@ func configSettingsAnyOtherEntry() *db.Oplog {
 		Namespace: "config.settings",
 		Object:    bson.D{{"_id", "chunksize"}, {"value", 128}},
 		Query:     bson.D{{"_id", "chunksize"}},
+	}
+}
+
+func createConfigCollectionsEntry(shardedColl string, sessUUID string) *db.Oplog {
+	uuid, _ := hex.DecodeString(sessUUID)
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.collections",
+		Object: bson.D{
+			{"_id", shardedColl},
+			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
+		},
+	}
+}
+
+func createConfigCollectionsEntryWithoutUUID(shardedColl string) *db.Oplog {
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.collections",
+		Object: bson.D{
+			{"_id", shardedColl},
+		},
+	}
+}
+
+func createConfigChunksEntry(uuid string) *db.Oplog {
+	uuidDecoded, _ := hex.DecodeString(uuid)
+	id, _ := hex.DecodeString("some id")
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.chunks",
+		Object: bson.D{
+			{"_id", id},
+			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
+			{"shard", "rsX"},
+		},
 	}
 }

@@ -10,6 +10,7 @@ package oplog
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -111,7 +112,11 @@ var configCollToKeep = []string{
 	"version",
 }
 
-const settingsColl = "settings"
+const (
+	settingsColl    = "settings"
+	collectionsColl = "collections"
+	chunksColl      = "chunks"
+)
 
 var settingsToSkip = []string{
 	"balancer",
@@ -379,6 +384,111 @@ func isConfigSettingAllowed(oe *Record) bool {
 		}
 	}
 	return true // allow setting from config.settings
+}
+
+func isRoutingDocExcluded(oe *Record, sessUUID string) bool {
+	if !isConfigCollectionsDocAllowed(oe, sessUUID) {
+		return true
+	}
+
+	if !isConfigChunksDocAllowed(oe, sessUUID) {
+		return true
+	}
+
+	return false
+}
+
+// isConfigCollectionsDocAllowed returns true if config.collections entry has
+// allowed document. Disallowed document has:
+// - namespace config.system.sessions
+// - uuid specified with sessUUID parameter.
+// For all other documents false will be returned.
+func isConfigCollectionsDocAllowed(oe *Record, sessUUID string) bool {
+	if len(sessUUID) == 0 {
+		// uuid for config.system.sessions is not set, so just allow the entry
+		return true
+	}
+
+	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
+	if !ok {
+		return true // no config db, just skip it
+	}
+
+	if coll != collectionsColl {
+		return true
+	}
+
+	// entry is for config.collection
+	var id, uuid string
+	for _, e := range oe.Object {
+		if e.Key != "_id" && e.Key != "uuid" {
+			continue
+		}
+
+		switch e.Key {
+		case "_id":
+			id, _ = e.Value.(string)
+			if id != defs.ConfigSystemSessionsNS {
+				return true
+			}
+		case "uuid":
+			oeUUID, ok := e.Value.(primitive.Binary)
+			if !ok {
+				return true
+			}
+			uuid = hex.EncodeToString(oeUUID.Data)
+
+			if uuid != sessUUID {
+				return true
+			}
+		}
+	}
+
+	if id == defs.ConfigSystemSessionsNS && uuid == sessUUID {
+		return false
+	}
+
+	return true
+}
+
+// isConfigChunksDocAllowed returns true if config.chunks entry has
+// allowed document. Disallowed document has UUID of disallowed namespace
+// specified with sessUUID parameter.
+// For all other documents false will be returned.
+func isConfigChunksDocAllowed(oe *Record, sessUUID string) bool {
+	if len(sessUUID) == 0 {
+		// uuid for config.system.sessions is not set, so just allow the entry
+		return true
+	}
+
+	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
+	if !ok {
+		return true // no config db, just skip it
+	}
+
+	if coll != chunksColl {
+		return true
+	}
+
+	for _, e := range oe.Object {
+		if e.Key != "uuid" {
+			continue
+		}
+
+		oeUUID, ok := e.Value.(primitive.Binary)
+		if !ok {
+			return true
+		}
+		uuid := hex.EncodeToString(oeUUID.Data)
+
+		if uuid == sessUUID {
+			return false
+		} else {
+			return true
+		}
+	}
+
+	return true
 }
 
 func (o *OplogRestore) isOpSelected(oe *Record) bool {

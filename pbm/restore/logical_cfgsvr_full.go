@@ -348,7 +348,7 @@ func (r *Restore) cleanUpConfigChunks(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "delete all from config.chunks")
 	}
-	r.log.Debug("cleaned-up config.chunks: %d", res.DeletedCount)
+	r.log.Debug("cleaned-up config.chunks (%d documents)", res.DeletedCount)
 
 	return nil
 }
