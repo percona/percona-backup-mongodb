@@ -393,12 +393,18 @@ func isConfigSettingAllowed(oe *Record) bool {
 	return true // allow setting from config.settings
 }
 
-func isRoutingDocExcluded(oe *Record, sessUUID string) bool {
+// isRoutingDocExcluded checks if we need to exclude document from
+// CSRS routing tables (collections and chunks).
+// It excludes config.system.sessions related documents with specified
+// UUID (sessUUID).
+// In case whaen sessUUID is not specified, function can set sessUUID
+// based on oplog entry (op:"i") for config.system.sessions doc.
+func isRoutingDocExcluded(oe *Record, sessUUID *string) bool {
 	if !isConfigCollectionsDocAllowed(oe, sessUUID) {
 		return true
 	}
 
-	if !isConfigChunksDocAllowed(oe, sessUUID) {
+	if !isConfigChunksDocAllowed(oe, *sessUUID) {
 		return true
 	}
 
@@ -406,16 +412,15 @@ func isRoutingDocExcluded(oe *Record, sessUUID string) bool {
 }
 
 // isConfigCollectionsDocAllowed returns true if config.collections entry has
-// allowed document. Disallowed document has:
-// - namespace config.system.sessions
-// - uuid specified with sessUUID parameter.
-// For all other documents false will be returned.
-func isConfigCollectionsDocAllowed(oe *Record, sessUUID string) bool {
-	if len(sessUUID) == 0 {
-		// uuid for config.system.sessions is not set, so just allow the entry
-		return true
-	}
-
+// allowed document.
+// Disallowed document has:
+//   - namespace config.system.sessions,
+//   - uuid specified with sessUUID parameter,
+//   - when sessUUID is unspecified, function will try to update sessUUID
+//     from the oplog entry, and in that case sessUUID will contain updated value.
+//
+// For disallowed document false will be returned.
+func isConfigCollectionsDocAllowed(oe *Record, sessUUID *string) bool {
 	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
 	if !ok {
 		return true // no config db, just skip it
@@ -426,33 +431,37 @@ func isConfigCollectionsDocAllowed(oe *Record, sessUUID string) bool {
 	}
 
 	// entry is for config.collection
-	var id, uuid string
 	for _, e := range oe.Object {
-		if e.Key != "_id" && e.Key != "uuid" {
+		if e.Key != "_id" {
 			continue
 		}
-
-		switch e.Key {
-		case "_id":
-			id, _ = e.Value.(string)
-			if id != defs.ConfigSystemSessionsNS {
-				return true
-			}
-		case "uuid":
-			oeUUID, ok := e.Value.(primitive.Binary)
-			if !ok {
-				return true
-			}
-			uuid = hex.EncodeToString(oeUUID.Data)
-
-			if uuid != sessUUID {
-				return true
-			}
+		id, _ := e.Value.(string)
+		if id != defs.ConfigSystemSessionsNS {
+			return true
+		} else {
+			break
 		}
 	}
 
-	if id == defs.ConfigSystemSessionsNS && uuid == sessUUID {
-		return false
+	// try to update system.sessions from the oplog
+	for _, e := range oe.Object {
+		if e.Key != "uuid" {
+			continue
+		}
+
+		oeUUID, ok := e.Value.(primitive.Binary)
+		if !ok {
+			return true
+		}
+		uuid := hex.EncodeToString(oeUUID.Data)
+
+		if len(*sessUUID) == 0 && oe.Operation == "i" {
+			// uuid for config.system.sessions collection is created within oplog
+			*sessUUID = uuid
+			return false
+		} else {
+			return false
+		}
 	}
 
 	return true
@@ -622,7 +631,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 
 	if o.isOpExcluded(&oe) || !isOpAllowed(&oe) ||
 		!o.isOpSelected(&oe) || !o.isOpForCloning(&oe) ||
-		isRoutingDocExcluded(&oe, o.sessUUID) {
+		isRoutingDocExcluded(&oe, &o.sessUUID) {
 		return nil
 	}
 
@@ -980,7 +989,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
 	if o.isOpExcluded(&op) || !isOpAllowed(&op) ||
 		!o.isOpSelected(&op) || !o.isOpForCloning(&op) ||
-		isRoutingDocExcluded(&op, o.sessUUID) {
+		isRoutingDocExcluded(&op, &o.sessUUID) {
 		return nil
 	}
 
