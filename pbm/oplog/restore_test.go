@@ -856,7 +856,7 @@ func configSettingsAnyOtherEntry() *db.Oplog {
 	}
 }
 
-func createConfigCollectionsEntry(shardedColl string, sessUUID string) *db.Oplog {
+func createConfigCollectionsEntry(shardedColl, sessUUID string) *db.Oplog {
 	uuid, _ := hex.DecodeString(sessUUID)
 	return &db.Oplog{
 		Operation: "i",
