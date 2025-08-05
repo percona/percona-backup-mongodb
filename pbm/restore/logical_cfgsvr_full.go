@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
@@ -52,14 +53,17 @@ func (r *Restore) fullRestoreConfigDatabases(
 ) error {
 	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), defs.ConfigDatabasesNS+bcp.Compression.Suffix())
 	rdr, err := r.bcpStg.SourceReader(filepath)
-	if err != nil {
-		return err
+	if errors.Is(err, storage.ErrNotExist) {
+		r.log.Debug("skipping restoring config.databases, cannot find file %s", filepath)
+		return nil
+	} else if err != nil {
+		return errors.Wrap(err, "reading file")
 	}
 	defer rdr.Close()
 
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "decompress")
 	}
 
 	if err = r.cleanUpConfigDatabases(ctx); err != nil {
@@ -126,14 +130,17 @@ func (r *Restore) fullRestoreConfigCollections(
 ) (string, error) {
 	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), defs.ConfigCollectionsNS+bcp.Compression.Suffix())
 	rdr, err := r.bcpStg.SourceReader(filepath)
-	if err != nil {
-		return "", err
+	if errors.Is(err, storage.ErrNotExist) {
+		r.log.Debug("skipping restoring config.collections, cannot find file %s", filepath)
+		return "", nil
+	} else if err != nil {
+		return "", errors.Wrap(err, "reading file")
 	}
 	defer rdr.Close()
 
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "decompress")
 	}
 
 	if err = r.cleanUpConfigCollections(ctx); err != nil {
@@ -206,14 +213,17 @@ func (r *Restore) fullRestoreConfigChunks(
 ) error {
 	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), defs.ConfigChunksNS+bcp.Compression.Suffix())
 	rdr, err := r.bcpStg.SourceReader(filepath)
-	if err != nil {
-		return err
+	if errors.Is(err, storage.ErrNotExist) {
+		r.log.Debug("skipping restoring config.chunks, cannot find file %s", filepath)
+		return nil
+	} else if err != nil {
+		return errors.Wrap(err, "reading file")
 	}
 	defer rdr.Close()
 
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "decompress")
 	}
 
 	if err = r.cleanUpConfigChunks(ctx); err != nil {
