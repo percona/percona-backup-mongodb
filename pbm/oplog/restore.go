@@ -644,6 +644,31 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
+	if err := o.setPreserveUUID(oe); err != nil {
+		return err
+	}
+
+	meta, err := txn.NewMeta(oe)
+	if err != nil {
+		return errors.Wrap(err, "get op metadata")
+	}
+
+	if meta.IsTxn() {
+		err = o.handleTxnOp(meta, oe)
+		if err != nil {
+			return errors.Wrap(err, "applying a transaction entry")
+		}
+	} else {
+		err = o.handleNonTxnOp(oe)
+		if err != nil {
+			return errors.Wrap(err, "applying an entry")
+		}
+	}
+
+	return nil
+}
+
+func (o *OplogRestore) setPreserveUUID(oe db.Oplog) error {
 	// optimization - not to parse namespace if it remains the same
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
@@ -664,23 +689,6 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		}
 
 		o.cnamespase = oe.Namespace
-	}
-
-	meta, err := txn.NewMeta(oe)
-	if err != nil {
-		return errors.Wrap(err, "get op metadata")
-	}
-
-	if meta.IsTxn() {
-		err = o.handleTxnOp(meta, oe)
-		if err != nil {
-			return errors.Wrap(err, "applying a transaction entry")
-		}
-	} else {
-		err = o.handleNonTxnOp(oe)
-		if err != nil {
-			return errors.Wrap(err, "applying an entry")
-		}
 	}
 
 	return nil
