@@ -1001,6 +1001,10 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		return nil
 	}
 
+	if err := o.setPreserveUUID(op); err != nil {
+		return err
+	}
+
 	op, err := o.filterUUIDs(op)
 	if err != nil {
 		return errors.Wrap(err, "filtering UUIDs from oplog")
