@@ -964,16 +964,6 @@ func createConfigCollectionsEntry(shardedColl, collUUID string) *db.Oplog {
 	}
 }
 
-func createConfigCollectionsEntryWithoutUUID(shardedColl string) *db.Oplog {
-	return &db.Oplog{
-		Operation: "i",
-		Namespace: "config.collections",
-		Object: bson.D{
-			{"_id", shardedColl},
-		},
-	}
-}
-
 func createConfigChunksEntry(uuid string) *db.Oplog {
 	uuidDecoded, _ := hex.DecodeString(uuid)
 	id, _ := hex.DecodeString("some id")
