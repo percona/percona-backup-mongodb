@@ -97,6 +97,9 @@ var dontPreserveUUID = []string{
 	"admin.system.users",
 	"admin.system.roles",
 	"admin.system.keys",
+	defs.ConfigDatabasesNS,
+	defs.ConfigCollectionsNS,
+	defs.ConfigChunksNS,
 	"*.system.buckets.*", // timeseries
 	"*.system.views",     // timeseries
 }
