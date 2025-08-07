@@ -51,6 +51,10 @@ func (r *Restore) fullRestoreConfigDatabases(
 	bcp *backup.BackupMeta,
 	mapRS, mapS util.RSMapFunc,
 ) error {
+	if err := r.cleanUpConfigDatabases(ctx); err != nil {
+		return errors.Wrap(err, "cleaning up config.databases")
+	}
+
 	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), defs.ConfigDatabasesNS+bcp.Compression.Suffix())
 	rdr, err := r.bcpStg.SourceReader(filepath)
 	if errors.Is(err, storage.ErrNotExist) {
@@ -64,10 +68,6 @@ func (r *Restore) fullRestoreConfigDatabases(
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return errors.Wrap(err, "decompress")
-	}
-
-	if err = r.cleanUpConfigDatabases(ctx); err != nil {
-		return errors.Wrap(err, "cleaning up config.databases")
 	}
 
 	models := []mongo.WriteModel{}
@@ -128,6 +128,10 @@ func (r *Restore) fullRestoreConfigCollections(
 	bcp *backup.BackupMeta,
 	mapRS util.RSMapFunc,
 ) (string, error) {
+	if err := r.cleanUpConfigCollections(ctx); err != nil {
+		return "", errors.Wrap(err, "cleaning up config.collections")
+	}
+
 	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), defs.ConfigCollectionsNS+bcp.Compression.Suffix())
 	rdr, err := r.bcpStg.SourceReader(filepath)
 	if errors.Is(err, storage.ErrNotExist) {
@@ -141,10 +145,6 @@ func (r *Restore) fullRestoreConfigCollections(
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return "", errors.Wrap(err, "decompress")
-	}
-
-	if err = r.cleanUpConfigCollections(ctx); err != nil {
-		return "", errors.Wrap(err, "cleaning up config.collections")
 	}
 
 	bcpSysSessUUID := ""
@@ -211,6 +211,10 @@ func (r *Restore) fullRestoreConfigChunks(
 	mapRS,
 	mapS util.RSMapFunc,
 ) error {
+	if err := r.cleanUpConfigChunks(ctx); err != nil {
+		return errors.Wrap(err, "clean up config.chunks during full restore")
+	}
+
 	filepath := path.Join(bcp.Name, mapRS(r.brief.SetName), defs.ConfigChunksNS+bcp.Compression.Suffix())
 	rdr, err := r.bcpStg.SourceReader(filepath)
 	if errors.Is(err, storage.ErrNotExist) {
@@ -224,10 +228,6 @@ func (r *Restore) fullRestoreConfigChunks(
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return errors.Wrap(err, "decompress")
-	}
-
-	if err = r.cleanUpConfigChunks(ctx); err != nil {
-		return errors.Wrap(err, "clean up config.chunks during full restore")
 	}
 
 	var docInserted int64
