@@ -79,6 +79,12 @@ install_dependencies() {
       dnf config-manager --set-enabled ol${RHEL}_codeready_builder || true
       dnf install -y 'dnf-command(config-manager)'
       ;;
+    amzn)
+      RHEL=$(rpm --eval %amzn)
+      PLATFORM=${PLATFORM_ID}${RHEL}
+      dnf install -y jq
+      dnf install -y 'dnf-command(config-manager)'
+      ;;
     ubuntu|debian)
       # Install dependencies for Ubuntu/Debian
       PLATFORM=$(echo "$VERSION_CODENAME" | tr '[:upper:]' '[:lower:]')
@@ -99,7 +105,7 @@ install_dependencies
 # Install Percona repo and PostgreSQL
 install_percona_backup_mongodb() {
   case "$PLATFORM_ID" in
-    ol|rhel|centos|oraclelinux)
+    ol|rhel|centos|oraclelinux|amzn)
       # Install Percona repo on RHEL/CentOS/OracleLinux
       curl -sO https://repo.percona.com/yum/percona-release-latest.noarch.rpm
       dnf install -y percona-release-latest.noarch.rpm
