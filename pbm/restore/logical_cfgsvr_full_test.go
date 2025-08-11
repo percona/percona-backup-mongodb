@@ -11,6 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/mongodb"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -19,10 +24,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/mongodb"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var leadConn connect.Client
@@ -114,7 +115,6 @@ func TestFullRestoreConfigDatabases(t *testing.T) {
 		if gotRemappedDocs != wantDocs {
 			t.Fatalf("want=%d, got=%d number of remapped docs", wantDocs, gotRemappedDocs)
 		}
-
 	})
 
 	t.Run("restore many documents", func(t *testing.T) {
@@ -176,9 +176,7 @@ func TestFullRestoreConfigCollections(t *testing.T) {
 	})
 
 	t.Run("restore documents and filter out system.sessions", func(t *testing.T) {
-		var (
-			wantDocs int64 = 8
-		)
+		var wantDocs int64 = 8
 		r, backupMeta, remap := newConfigCollectionsTestObj(t, wantDocs+1, true)
 
 		gotUUID, err := r.fullRestoreConfigCollections(ctx, backupMeta, remap)
@@ -201,9 +199,7 @@ func TestFullRestoreConfigCollections(t *testing.T) {
 	})
 
 	t.Run("restore many documents and filter out system.sessions", func(t *testing.T) {
-		var (
-			wantDocs int64 = 10000
-		)
+		var wantDocs int64 = 10000
 		r, backupMeta, remap := newConfigCollectionsTestObj(t, wantDocs+1, true)
 
 		gotUUID, err := r.fullRestoreConfigCollections(ctx, backupMeta, remap)
@@ -261,9 +257,7 @@ func TestFullRestoreConfigChunks(t *testing.T) {
 	})
 
 	t.Run("restore documents and filter out system.sessions chunks", func(t *testing.T) {
-		var (
-			wantDocs int64 = 15
-		)
+		var wantDocs int64 = 15
 		r, backupMeta, remap := newConfigChunksTestObj(t, wantDocs+1, true, configSystemSessionsUUID)
 
 		err := r.fullRestoreConfigChunks(ctx, backupMeta, configSystemSessionsUUID, remap, remap)
@@ -513,7 +507,11 @@ func newConfigDatabasesTestObj(t *testing.T, numOfDocs int64) (*Restore, *backup
 	return r, backupMeta, rsmap
 }
 
-func newConfigCollectionsTestObj(t *testing.T, numOfDocs int64, addSession bool) (*Restore, *backup.BackupMeta, util.RSMapFunc) {
+func newConfigCollectionsTestObj(
+	t *testing.T,
+	numOfDocs int64,
+	addSession bool,
+) (*Restore, *backup.BackupMeta, util.RSMapFunc) {
 	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1)
 	r.log = pbmlog.DiscardEvent
 	r.bcpStg = newTestStorage(createConfigCollectionsDocs(t, numOfDocs, addSession))
@@ -528,7 +526,12 @@ func newConfigCollectionsTestObj(t *testing.T, numOfDocs int64, addSession bool)
 	return r, backupMeta, rsmap
 }
 
-func newConfigChunksTestObj(t *testing.T, numOfDocs int64, addSessionChunk bool, sysSessUUID string) (*Restore, *backup.BackupMeta, util.RSMapFunc) {
+func newConfigChunksTestObj(
+	t *testing.T,
+	numOfDocs int64,
+	addSessionChunk bool,
+	sysSessUUID string,
+) (*Restore, *backup.BackupMeta, util.RSMapFunc) {
 	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1)
 	r.log = pbmlog.DiscardEvent
 	r.bcpStg = newTestStorage(createConfigChunksDocs(t, numOfDocs, addSessionChunk, sysSessUUID))
@@ -544,7 +547,7 @@ func newConfigChunksTestObj(t *testing.T, numOfDocs int64, addSessionChunk bool,
 }
 
 var (
-	noImp = errors.New("not implemented")
+	errNotImp = errors.New("not implemented")
 
 	_ storage.Storage = &testStorage{}
 )
@@ -560,20 +563,20 @@ func newTestStorage(data *bytes.Buffer) *testStorage {
 func (*testStorage) Type() storage.Type { return storage.Filesystem }
 
 func (*testStorage) Save(_ string, _ io.Reader, _ ...storage.Option) error {
-	return noImp
+	return errNotImp
 }
 
 func (*testStorage) List(_, _ string) ([]storage.FileInfo, error) {
-	return []storage.FileInfo{}, noImp
+	return []storage.FileInfo{}, errNotImp
 }
 
-func (*testStorage) Delete(_ string) error { return noImp }
+func (*testStorage) Delete(_ string) error { return errNotImp }
 
 func (*testStorage) FileStat(_ string) (storage.FileInfo, error) {
-	return storage.FileInfo{}, noImp
+	return storage.FileInfo{}, errNotImp
 }
 
-func (*testStorage) Copy(_, _ string) error { return noImp }
+func (*testStorage) Copy(_, _ string) error { return errNotImp }
 
 func (s *testStorage) SourceReader(_ string) (io.ReadCloser, error) {
 	return io.NopCloser(s.b), nil
