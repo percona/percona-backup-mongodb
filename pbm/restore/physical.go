@@ -442,7 +442,7 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 	}
 
 	if r.nodeInfo.IsPrimary {
-		err = util.RetryableWrite(r.stg, r.syncPathRS+"."+string(defs.StatusDown), okStatus())
+		err = storage.RetryableWrite(r.stg, r.syncPathRS+"."+string(defs.StatusDown), okStatus())
 		if err != nil {
 			return errors.Wrap(err, "write replset StatusDown")
 		}
@@ -697,14 +697,14 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 	defer func() {
 		if err != nil {
 			if r.nodeInfo.IsPrimary && status != defs.StatusDone {
-				serr := util.RetryableWrite(r.stg,
+				serr := storage.RetryableWrite(r.stg,
 					r.syncPathRS+"."+string(defs.StatusError), errStatus(err))
 				if serr != nil {
 					r.log.Error("toState: write replset error state `%v`: %v", err, serr)
 				}
 			}
 			if r.nodeInfo.IsClusterLeader() && status != defs.StatusDone {
-				serr := util.RetryableWrite(r.stg,
+				serr := storage.RetryableWrite(r.stg,
 					r.syncPathCluster+"."+string(defs.StatusError), errStatus(err))
 				if serr != nil {
 					r.log.Error("toState: write cluster error state `%v`: %v", err, serr)
@@ -715,7 +715,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 
 	r.log.Info("moving to state %s", status)
 
-	err = util.RetryableWrite(r.stg, r.syncPathNode+"."+string(status), okStatus())
+	err = storage.RetryableWrite(r.stg, r.syncPathNode+"."+string(status), okStatus())
 	if err != nil {
 		return defs.StatusError, errors.Wrap(err, "write node state")
 	}
@@ -727,7 +727,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 			return defs.StatusError, errors.Wrap(err, "wait for nodes in rs")
 		}
 
-		err = util.RetryableWrite(r.stg, r.syncPathRS+"."+string(cstat), okStatus())
+		err = storage.RetryableWrite(r.stg, r.syncPathRS+"."+string(cstat), okStatus())
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "write replset state")
 		}
@@ -740,7 +740,7 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 			return defs.StatusError, errors.Wrap(err, "wait for shards")
 		}
 
-		err = util.RetryableWrite(r.stg, r.syncPathCluster+"."+string(cstat), okStatus())
+		err = storage.RetryableWrite(r.stg, r.syncPathCluster+"."+string(cstat), okStatus())
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "write cluster state")
 		}
@@ -1386,7 +1386,7 @@ func (r *PhysRestore) writeStat(stat any) error {
 		return errors.Wrap(err, "marshal")
 	}
 
-	err = util.RetryableWrite(r.stg, r.syncPathNodeStat, b)
+	err = storage.RetryableWrite(r.stg, r.syncPathNodeStat, b)
 	if err != nil {
 		return errors.Wrap(err, "write")
 	}
@@ -1431,7 +1431,7 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	if err != nil {
 		return errors.Wrap(err, "encode restore meta")
 	}
-	err = util.RetryableWrite(r.stg, name, buf)
+	err = storage.RetryableWrite(r.stg, name, buf)
 	if err != nil {
 		return errors.Wrap(err, "write restore meta")
 	}
@@ -1762,7 +1762,7 @@ func (r *PhysRestore) replayOplog(
 		if err != nil {
 			return errors.Wrap(err, "encode")
 		}
-		err = util.RetryableWrite(r.stg, r.syncPathRS+".partTxn", buf)
+		err = storage.RetryableWrite(r.stg, r.syncPathRS+".partTxn", buf)
 		if err != nil {
 			return errors.Wrap(err, "write partial transactions")
 		}
@@ -1991,7 +1991,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 
 	// saving straight for RS as backup for nodes in the RS the same,
 	// hence TS would be the same as well
-	err = util.RetryableWrite(r.stg,
+	err = storage.RetryableWrite(r.stg,
 		r.syncPathRS+"."+string(defs.StatusExtTS),
 		[]byte(fmt.Sprintf("%d:%d,%d", time.Now().Unix(), cts.T, cts.I)))
 	if err != nil {
@@ -2015,7 +2015,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 			}
 		}
 
-		err = util.RetryableWrite(r.stg,
+		err = storage.RetryableWrite(r.stg,
 			r.syncPathCluster+"."+string(defs.StatusExtTS),
 			[]byte(fmt.Sprintf("%d:%d,%d", time.Now().Unix(), mints.T, mints.I)))
 		if err != nil {
@@ -2044,7 +2044,7 @@ func (r *PhysRestore) setcommittedTxn(_ context.Context, txn []phys.RestoreTxn) 
 	if err != nil {
 		return errors.Wrap(err, "encode")
 	}
-	return util.RetryableWrite(r.stg, r.syncPathRS+".txn", b)
+	return storage.RetryableWrite(r.stg, r.syncPathRS+".txn", b)
 }
 
 func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]primitive.Timestamp, error) {
@@ -2263,17 +2263,17 @@ const syncHbSuffix = "hb"
 func (r *PhysRestore) hb() error {
 	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
 
-	err := util.RetryableWrite(r.stg, r.syncPathNode+"."+syncHbSuffix, now)
+	err := storage.RetryableWrite(r.stg, r.syncPathNode+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write node hb")
 	}
 
-	err = util.RetryableWrite(r.stg, r.syncPathRS+"."+syncHbSuffix, now)
+	err = storage.RetryableWrite(r.stg, r.syncPathRS+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write rs hb")
 	}
 
-	err = util.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbSuffix, now)
+	err = storage.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write rs hb")
 	}
@@ -2724,7 +2724,7 @@ func (r *PhysRestore) disableFallbackForOldBackup() {
 func (r *PhysRestore) MarkFailed(e error) {
 	r.log.Error("mark error during restore: %v", e)
 
-	err := util.RetryableWrite(r.stg,
+	err := storage.RetryableWrite(r.stg,
 		r.syncPathNode+"."+string(defs.StatusError), errStatus(e))
 	if err != nil {
 		r.log.Error("write error state `%v` to storage: %v", e, err)
@@ -2735,7 +2735,7 @@ func (r *PhysRestore) MarkFailed(e error) {
 	// Here we are not aware of partlyDone etc so leave it to the `toState`.
 	if r.checkForRSLevelErr() {
 		r.log.Debug("set error on rs level")
-		serr := util.RetryableWrite(r.stg,
+		serr := storage.RetryableWrite(r.stg,
 			r.syncPathRS+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
 			r.log.Error("MarkFailed: write replset error state `%v`: %v", e, serr)
@@ -2743,7 +2743,7 @@ func (r *PhysRestore) MarkFailed(e error) {
 	}
 	if r.nodeInfo.IsLeader() && r.checkForClusterLevelErr() {
 		r.log.Debug("set error on cluster level")
-		serr := util.RetryableWrite(r.stg,
+		serr := storage.RetryableWrite(r.stg,
 			r.syncPathCluster+"."+string(defs.StatusError), errStatus(e))
 		if serr != nil {
 			r.log.Error("MarkFailed: write cluster error state `%v`: %v", e, serr)
@@ -2753,7 +2753,7 @@ func (r *PhysRestore) MarkFailed(e error) {
 
 func (r *PhysRestore) MarkAsFallback() error {
 	r.log.Debug("set fallback error on cluster level")
-	err := util.RetryableWrite(r.stg,
+	err := storage.RetryableWrite(r.stg,
 		r.syncPathCluster+"."+string(defs.StatusError), errStatus(errors.New("fallback is applied")))
 	if err != nil {
 		r.log.Error("write cluster error state for fallback: %v", err)
@@ -2783,7 +2783,7 @@ func (r *PhysRestore) MarkAsFallback() error {
 	if err != nil {
 		return errors.Wrapf(err, "encode restore meta")
 	}
-	err = util.RetryableWrite(r.stg, mf, buf)
+	err = storage.RetryableWrite(r.stg, mf, buf)
 	if err != nil {
 		return errors.Wrap(err, "write restore meta")
 	}

@@ -11,19 +11,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-type RetryableError struct {
-	Err error
-}
-
-func (e *RetryableError) Error() string {
-	return e.Err.Error()
-}
-
-func IsRetryableError(err error) bool {
-	var e *RetryableError
-	return errors.As(err, &e)
-}
-
 const tmpFileSuffix = ".tmp"
 
 type Config struct {
@@ -114,7 +101,7 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 			}
 
 			if os.IsNotExist(err) {
-				err = &RetryableError{Err: err}
+				err = &storage.RetryableError{Err: err}
 			} else {
 				os.Remove(filepath)
 			}
