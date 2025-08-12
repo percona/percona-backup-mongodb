@@ -298,9 +298,7 @@ func ComputePartSize(fileSize, defaultSize, minSize, maxParts, userSize int64) i
 
 	if userSize > 0 {
 		partSize = userSize
-		if partSize < minSize {
-			partSize = minSize
-		}
+		partSize = max(partSize, minSize)
 	}
 
 	if fileSize > 0 {
