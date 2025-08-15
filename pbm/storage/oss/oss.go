@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"strings"
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 
@@ -81,9 +82,52 @@ func (o *OSS) FileStat(name string) (storage.FileInfo, error) {
 
 // List scans path with prefix and returns all files with given suffix.
 // Both prefix and suffix can be omitted.
+
 func (o *OSS) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	return nil, nil
+
+	prfx := path.Join(o.cfg.Prefix, prefix)
+	if prfx != "" && !strings.HasSuffix(prfx, "/") {
+		prfx += "/"
+	}
+
+	var files []storage.FileInfo
+	var marker *string
+	for {
+		res, err := o.ossCli.ListObjects(context.Background(), &oss.ListObjectsRequest{
+			Bucket: oss.Ptr(o.cfg.Bucket),
+			Prefix: oss.Ptr(prfx),
+			Marker: marker,
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "list OSS objects")
+		}
+		for _, obj := range res.Contents {
+			var key string
+			if obj.Key != nil {
+				key = *obj.Key
+			}
+			if suffix != "" && !strings.HasSuffix(key, suffix) {
+				continue
+			}
+			if key == "" || strings.HasSuffix(key, "/") {
+				continue
+			}
+			name := strings.TrimPrefix(key, o.cfg.Prefix)
+			name = strings.TrimPrefix(name, "/")
+			files = append(files, storage.FileInfo{
+				Name: name,
+				Size: obj.Size,
+			})
+		}
+		if res.IsTruncated {
+			marker = res.NextMarker
+			continue
+		}
+		break
+	}
+	return files, nil
 }
+
 
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file doesn't exists.
