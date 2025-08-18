@@ -7,15 +7,20 @@ import (
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 	osscred "github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
+	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/retry"
 	"github.com/aliyun/credentials-go/credentials/providers"
 )
 
 const (
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
+	minPartSize     int64 = 5 * 1024 * 1024  // 5MB
 	defaultS3Region       = "ap-southeast-5"
+	maxPart         int32 = 10000
 
-	defaultRetryBaseDelay    = 30 * time.Millisecond
-	defaultRetryerMaxBackoff = 300 * time.Second
+	defaultRetryMaxAttempts       = 5
+	defaultRetryBaseDelay         = 30 * time.Millisecond
+	defaultRetryerMaxBackoff      = 300 * time.Second
+	defaultSessionDurationSeconds = 3600
 )
 
 //nolint:lll
@@ -53,11 +58,20 @@ func (cfg *Config) Cast() error {
 		cfg.Region = defaultS3Region
 	}
 	if cfg.Retryer != nil {
+		if cfg.Retryer.MaxAttempts == 0 {
+			cfg.Retryer.MaxAttempts = defaultRetryMaxAttempts
+		}
 		if cfg.Retryer.BaseDelay == 0 {
 			cfg.Retryer.BaseDelay = defaultRetryBaseDelay
 		}
 		if cfg.Retryer.MaxBackoff == 0 {
 			cfg.Retryer.MaxBackoff = defaultRetryerMaxBackoff
+		}
+	} else {
+		cfg.Retryer = &Retryer{
+			MaxAttempts: defaultRetryMaxAttempts,
+			MaxBackoff:  defaultRetryerMaxBackoff,
+			BaseDelay:   defaultRetryBaseDelay,
 		}
 	}
 	if cfg.MaxUploadParts <= 0 {
@@ -65,11 +79,6 @@ func (cfg *Config) Cast() error {
 	}
 	return nil
 }
-
-const (
-	defaultSessionExpiration = 3600
-	maxPart                  = int32(10000)
-)
 
 func newCred(config *Config) (*cred, error) {
 	var credentialsProvider providers.CredentialsProvider
@@ -101,7 +110,7 @@ func newCred(config *Config) (*cred, error) {
 			WithCredentialsProvider(internalProvider).
 			WithRoleArn(config.Credentials.RoleARN).
 			WithRoleSessionName(config.Credentials.SessionName).
-			WithDurationSeconds(defaultSessionExpiration).
+			WithDurationSeconds(defaultSessionDurationSeconds).
 			Build()
 		if err != nil {
 			return nil, fmt.Errorf("ram role credential provider: %w", err)
@@ -134,10 +143,10 @@ func configureClient(config *Config) (*oss.Client, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
-	if config.Retryer == nil {
-		config.Retryer = &Retryer{MaxAttempts: 3, MaxBackoff: defaultRetryerMaxBackoff, BaseDelay: defaultRetryBaseDelay}
-	}
-	if config.Region == "" || config.Bucket == "" || config.Credentials.AccessKeyID == "" || config.Credentials.AccessKeySecret == "" {
+
+	if config.Region == "" || config.Bucket == "" ||
+		config.Credentials.AccessKeyID == "" ||
+		config.Credentials.AccessKeySecret == "" {
 		return nil, fmt.Errorf("Missing required OSS config: %+v", config)
 	}
 
@@ -150,12 +159,12 @@ func configureClient(config *Config) (*oss.Client, error) {
 		WithRegion(config.Region).
 		WithCredentialsProvider(cred).
 		WithSignatureVersion(oss.SignatureVersionV4).
-		// WithRetryMaxAttempts(config.Retryer.MaxAttempts).
-		// WithRetryer(retry.NewStandard(func(ro *retry.RetryOptions) {
-		// 	ro.MaxAttempts = config.Retryer.MaxAttempts
-		// 	ro.MaxBackoff = config.Retryer.MaxBackoff
-		// 	ro.BaseDelay = config.Retryer.BaseDelay
-		// })).
+		WithRetryMaxAttempts(config.Retryer.MaxAttempts).
+		WithRetryer(retry.NewStandard(func(ro *retry.RetryOptions) {
+			ro.MaxAttempts = config.Retryer.MaxAttempts
+			ro.MaxBackoff = config.Retryer.MaxBackoff
+			ro.BaseDelay = config.Retryer.BaseDelay
+		})).
 		WithConnectTimeout(time.Duration(config.ConnectTimeout) * time.Second)
 
 	if config.EndpointURL != "" {

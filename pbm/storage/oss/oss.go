@@ -56,10 +56,6 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 		}
 	}
 
-	// TODO move it somewhere
-	defaultPartSize := int64(10 * 1024 * 1024) // 10MB
-	minPartSize := int64(5 * 1024 * 1024)      // 5MB
-
 	partSize := storage.ComputePartSize(
 		opts.Size,
 		defaultPartSize,
