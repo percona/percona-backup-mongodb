@@ -73,8 +73,19 @@ func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 }
 
 func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
-	return sm.s.List(prefix, suffix)
+	fi, err := sm.s.List(prefix, suffix)
+	if err != nil {
+		return nil, errors.Wrap(err, "list files")
+	}
+
+	res := slices.DeleteFunc(
+		fi,
+		func(f FileInfo) bool { return strings.Contains(f.Name, pbmPartToken) },
+	)
+
+	return res, nil
 }
+
 func (sm *SpitMergeMiddleware) Delete(name string) error {
 	return sm.s.Delete(name)
 }
