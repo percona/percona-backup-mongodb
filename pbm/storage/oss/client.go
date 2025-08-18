@@ -7,7 +7,6 @@ import (
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 	osscred "github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
-	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/retry"
 	"github.com/aliyun/credentials-go/credentials/providers"
 )
 
@@ -61,11 +60,15 @@ func (cfg *Config) Cast() error {
 			cfg.Retryer.MaxBackoff = defaultRetryerMaxBackoff
 		}
 	}
+	if cfg.MaxUploadParts <= 0 {
+		cfg.MaxUploadParts = maxPart
+	}
 	return nil
 }
 
 const (
 	defaultSessionExpiration = 3600
+	maxPart                  = int32(10000)
 )
 
 func newCred(config *Config) (*cred, error) {
@@ -147,12 +150,12 @@ func configureClient(config *Config) (*oss.Client, error) {
 		WithRegion(config.Region).
 		WithCredentialsProvider(cred).
 		WithSignatureVersion(oss.SignatureVersionV4).
-		WithRetryMaxAttempts(config.Retryer.MaxAttempts).
-		WithRetryer(retry.NewStandard(func(ro *retry.RetryOptions) {
-			ro.MaxAttempts = config.Retryer.MaxAttempts
-			ro.MaxBackoff = config.Retryer.MaxBackoff
-			ro.BaseDelay = config.Retryer.BaseDelay
-		})).
+		// WithRetryMaxAttempts(config.Retryer.MaxAttempts).
+		// WithRetryer(retry.NewStandard(func(ro *retry.RetryOptions) {
+		// 	ro.MaxAttempts = config.Retryer.MaxAttempts
+		// 	ro.MaxBackoff = config.Retryer.MaxBackoff
+		// 	ro.BaseDelay = config.Retryer.BaseDelay
+		// })).
 		WithConnectTimeout(time.Duration(config.ConnectTimeout) * time.Second)
 
 	if config.EndpointURL != "" {
