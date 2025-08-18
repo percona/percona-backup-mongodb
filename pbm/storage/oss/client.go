@@ -128,8 +128,14 @@ func (c *cred) GetCredentials(ctx context.Context) (osscred.Credentials, error) 
 }
 
 func configureClient(config *Config) (*oss.Client, error) {
-	if config.Region == "" {
-		return nil, fmt.Errorf("oss region is required")
+	if config == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	if config.Retryer == nil {
+		config.Retryer = &Retryer{MaxAttempts: 3, MaxBackoff: defaultRetryerMaxBackoff, BaseDelay: defaultRetryBaseDelay}
+	}
+	if config.Region == "" || config.Bucket == "" || config.Credentials.AccessKeyID == "" || config.Credentials.AccessKeySecret == "" {
+		return nil, fmt.Errorf("Missing required OSS config: %+v", config)
 	}
 
 	cred, err := newCred(config)
