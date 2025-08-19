@@ -65,7 +65,30 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 }
 
 func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
-	return sm.s.SourceReader(name)
+	files, err := sm.s.List(name, "")
+	if err != nil || len(files) <= 1 {
+		// let's handle this case like there's no middleware
+		return sm.s.SourceReader(name)
+	}
+
+	sortedNames := make([]string, len(files))
+	for _, f := range files {
+		i, err := getPartIndex(f.Name)
+		if err != nil {
+			return nil, errors.Wrap(err, "parsing id pbm part from files")
+		}
+		sortedNames[i] = f.Name
+	}
+
+	partReaders := make([]io.Reader, len(sortedNames))
+	for i, f := range sortedNames {
+		partReaders[i], err = sm.s.SourceReader(f)
+		if err != nil {
+			return nil, errors.Wrapf(err, "reading pbm part %s", f)
+		}
+	}
+	mr := io.MultiReader(partReaders...)
+	return io.NopCloser(mr), nil
 }
 
 func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
@@ -122,4 +145,19 @@ func createNextPart(fname string) (string, error) {
 		// creating part name based on base part: e.g. base-file.pbmpart.1
 		return fmt.Sprintf("%s%s1", fname, pbmPartToken), nil
 	}
+}
+
+func getPartIndex(fname string) (int, error) {
+	partID := 0
+	if strings.Contains(fname, pbmPartToken) {
+		fileParts := strings.Split(fname, ".")
+
+		var err error
+		partID, err = strconv.Atoi(fileParts[len(fileParts)-1])
+		if err != nil {
+			return 0, errors.Wrap(err, "parsing id pbm part")
+		}
+	}
+
+	return partID, nil
 }
