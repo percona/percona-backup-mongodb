@@ -1,7 +1,6 @@
 package oss
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -56,87 +55,31 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 		}
 	}
 
+	if opts.Size > 0 {
+		o.log.Debug("uploading %s with size %d", name, opts.Size)
+	} else {
+		o.log.Debug("uploading %s", name)
+	}
+
 	partSize := storage.ComputePartSize(
 		opts.Size,
-		defaultPartSize,
-		minPartSize,
-		int64(o.cfg.MaxUploadParts),
-		int64(o.cfg.UploadPartSize),
+		oss.DefaultPartSize,
+		oss.MinPartSize,
+		int64(oss.MaxUploadParts),
+		int64(oss.DefaultUploadPartSize),
 	)
 
-	if o.log != nil && opts.UseLogger {
-		o.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
-			name,
-			opts.Size,
-			storage.PrettySize(opts.Size),
-			partSize,
-			storage.PrettySize(partSize))
-	}
+	uploader := oss.NewUploader(o.ossCli, func(uo *oss.UploaderOptions) {
+		uo.PartSize = partSize
+		uo.LeavePartsOnError = true
+	})
 
-	key := path.Join(o.cfg.Prefix, name)
-
-	// Use multipart upload
-	initResult, err := o.ossCli.InitiateMultipartUpload(context.Background(), &oss.InitiateMultipartUploadRequest{
+	_, err := uploader.UploadFrom(context.Background(), &oss.PutObjectRequest{
 		Bucket: oss.Ptr(o.cfg.Bucket),
-		Key:    oss.Ptr(key),
-	})
-	if err != nil {
-		return errors.Wrap(err, "initiate multipart upload")
-	}
-	uploadID := initResult.UploadId
+		Key:    oss.Ptr(path.Join(o.cfg.Prefix, name)),
+	}, data)
 
-	var completeParts []oss.UploadPart
-	partNumber := int32(1)
-	buf := make([]byte, partSize)
-
-	for {
-		n, err := data.Read(buf)
-		if n > 0 {
-			uploadPartResult, uerr := o.ossCli.UploadPart(context.Background(), &oss.UploadPartRequest{
-				Bucket:     oss.Ptr(o.cfg.Bucket),
-				Key:        oss.Ptr(key),
-				UploadId:   uploadID,
-				PartNumber: partNumber,
-				Body:       bytes.NewReader(buf[:n]),
-			})
-			if uerr != nil {
-				_, _ = o.ossCli.AbortMultipartUpload(context.Background(), &oss.AbortMultipartUploadRequest{
-					Bucket:   oss.Ptr(o.cfg.Bucket),
-					Key:      oss.Ptr(key),
-					UploadId: uploadID,
-				})
-				return errors.Wrap(uerr, "upload part")
-			}
-			completeParts = append(completeParts, oss.UploadPart{
-				ETag:       uploadPartResult.ETag,
-				PartNumber: partNumber,
-			})
-			partNumber++
-		}
-
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			_, _ = o.ossCli.AbortMultipartUpload(context.Background(), &oss.AbortMultipartUploadRequest{
-				Bucket:   oss.Ptr(o.cfg.Bucket),
-				Key:      oss.Ptr(key),
-				UploadId: uploadID,
-			})
-			return errors.Wrap(err, "read chunk")
-		}
-	}
-
-	_, err = o.ossCli.CompleteMultipartUpload(context.Background(), &oss.CompleteMultipartUploadRequest{
-		Bucket:   oss.Ptr(o.cfg.Bucket),
-		Key:      oss.Ptr(key),
-		UploadId: uploadID,
-		CompleteMultipartUpload: &oss.CompleteMultipartUpload{
-			Parts: completeParts,
-		},
-	})
-
-	return errors.Wrap(err, "complete multipart upload")
+	return errors.Wrap(err, "put object")
 }
 
 func (o *OSS) SourceReader(name string) (io.ReadCloser, error) {
@@ -246,12 +189,12 @@ func (o *OSS) Delete(name string) error {
 
 // Copy makes a copy of the src objec/file under dst name
 func (o *OSS) Copy(src, dst string) error {
-	_, err := o.ossCli.CopyObject(context.Background(), &oss.CopyObjectRequest{
+	uploader := oss.NewCopier(o.ossCli)
+	_, err := uploader.Copy(context.Background(), &oss.CopyObjectRequest{
 		Bucket:       oss.Ptr(o.cfg.Bucket),
 		Key:          oss.Ptr(path.Join(o.cfg.Prefix, dst)),
 		SourceBucket: oss.Ptr(o.cfg.Bucket),
 		SourceKey:    oss.Ptr(path.Join(o.cfg.Prefix, src)),
 	})
-
 	return errors.Wrap(err, "copy object")
 }
