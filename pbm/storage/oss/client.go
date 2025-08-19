@@ -21,6 +21,7 @@ const (
 	defaultRetryBaseDelay         = 30 * time.Millisecond
 	defaultRetryerMaxBackoff      = 300 * time.Second
 	defaultSessionDurationSeconds = 3600
+	defaultConnectTimeout         = 5 * time.Second
 )
 
 //nolint:lll
@@ -34,9 +35,9 @@ type Config struct {
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
-	ConnectTimeout int   `bson:"connectTimeout" json:"connectTimeout" yaml:"connectTimeout"`
-	UploadPartSize int   `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
-	MaxUploadParts int32 `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	ConnectTimeout time.Duration `bson:"connectTimeout" json:"connectTimeout" yaml:"connectTimeout"`
+	UploadPartSize int           `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	MaxUploadParts int32         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 }
 
 type Retryer struct {
@@ -56,6 +57,9 @@ type Credentials struct {
 func (cfg *Config) Cast() error {
 	if cfg.Region == "" {
 		cfg.Region = defaultS3Region
+	}
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = defaultConnectTimeout
 	}
 	if cfg.Retryer != nil {
 		if cfg.Retryer.MaxAttempts == 0 {
@@ -174,7 +178,7 @@ func configureClient(config *Config) (*oss.Client, error) {
 			ro.MaxBackoff = config.Retryer.MaxBackoff
 			ro.BaseDelay = config.Retryer.BaseDelay
 		})).
-		WithConnectTimeout(time.Duration(config.ConnectTimeout) * time.Second)
+		WithConnectTimeout(config.ConnectTimeout)
 
 	if config.EndpointURL != "" {
 		ossConfig = ossConfig.WithEndpoint(config.EndpointURL)
