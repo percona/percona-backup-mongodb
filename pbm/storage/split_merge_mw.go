@@ -93,7 +93,21 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 }
 
 func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
-	return sm.s.FileStat(name)
+	fi, err := sm.listWithParts(name)
+	if err != nil {
+		return FileInfo{}, errors.Wrap(err, "list with parts for mw file stat op")
+	}
+
+	totalSize := int64(0)
+	for _, f := range fi {
+		totalSize += f.Size
+	}
+	res := FileInfo{
+		Name: fi[0].Name, // base part has 0 index
+		Size: totalSize,
+	}
+
+	return res, nil
 }
 
 func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
