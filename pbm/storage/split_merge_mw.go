@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -114,6 +115,36 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 }
 func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	return sm.s.Copy(src, dst)
+// listWithParts fetches file with base name and all it's PBM parts.
+func (sm *SpitMergeMiddleware) listWithParts(name string) ([]FileInfo, error) {
+	fi, err := sm.s.List(name, "")
+	if err != nil {
+		return nil, errors.Wrap(err, "list files for mw list op")
+	}
+
+	fiParts := []FileInfo{}
+	for _, f := range fi {
+		if getBasePart(name) == name {
+			fiParts = append(fiParts, f)
+		}
+	}
+
+	// sort based on the index
+	res := make([]FileInfo, len(fiParts))
+	for _, f := range fiParts {
+		if f.Name == name {
+			res[0] = f
+		} else {
+			i, err := getPartIndex(f.Name)
+			if err != nil {
+				return nil, errors.Wrap(err, "sort file parts")
+			}
+			res[i] = f
+		}
+	}
+	//todo: add validation (holes)
+
+	return res, nil
 }
 
 // createNextPart returns file name for the next pbm part.
@@ -160,4 +191,16 @@ func getPartIndex(fname string) (int, error) {
 	}
 
 	return partID, nil
+}
+
+func getBasePart(fname string) string {
+	base := fname
+
+	pattern := regexp.MustCompile(`\.pbmpart\.\d+$`)
+	if pattern.MatchString(fname) {
+		fileParts := strings.Split(fname, ".")
+		base = strings.Join(fileParts[:len(fileParts)-2], ".")
+	}
+
+	return base
 }
