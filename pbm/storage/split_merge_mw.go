@@ -140,7 +140,30 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 }
 
 func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
-	return sm.s.Copy(src, dst)
+	fi, err := sm.listWithParts(src)
+	if err != nil {
+		return errors.Wrap(err, "list with parts for mw delete op")
+	}
+
+	dstPartName := dst
+	for _, f := range fi {
+		if f.Name != src {
+			// copy base part
+			sm.s.Copy(src, dstPartName)
+		} else {
+			dstPartName, err := createNextPart(dstPartName)
+			if err != nil {
+				return errors.Wrap(err, "create next part name")
+			}
+			if err := sm.s.Copy(f.Name, dstPartName); err != nil {
+				return errors.Wrapf(err, "copy %s to %s", f.Name, dstPartName)
+			}
+		}
+	}
+
+	return nil
+}
+
 // listWithParts fetches file with base name and all it's PBM parts.
 func (sm *SpitMergeMiddleware) listWithParts(name string) ([]FileInfo, error) {
 	fi, err := sm.s.List(name, "")
