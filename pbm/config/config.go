@@ -161,6 +161,17 @@ func (c *Config) String() string {
 			c.Storage.GCS.Credentials.HMACSecret = "***"
 		}
 	}
+	if c.Storage.OSS != nil {
+		if c.Storage.OSS.Credentials.AccessKeyID != "" {
+			c.Storage.OSS.Credentials.AccessKeyID = "***"
+		}
+		if c.Storage.OSS.Credentials.AccessKeySecret != "" {
+			c.Storage.OSS.Credentials.AccessKeySecret = "***"
+		}
+		if c.Storage.OSS.Credentials.SecurityToken != "" {
+			c.Storage.OSS.Credentials.SecurityToken = "***"
+		}
+	}
 
 	b, err := yaml.Marshal(c)
 	if err != nil {
@@ -249,6 +260,8 @@ func (s *StorageConf) Clone() *StorageConf {
 		rv.Azure = s.Azure.Clone()
 	case storage.GCS:
 		rv.GCS = s.GCS.Clone()
+	case storage.OSS:
+		rv.OSS = s.OSS.Clone()
 	case storage.Blackhole: // no config
 	}
 

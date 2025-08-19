@@ -80,6 +80,15 @@ func (cfg *Config) Cast() error {
 	return nil
 }
 
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	rv := *cfg
+	return &rv
+}
+
 func newCred(config *Config) (*cred, error) {
 	var credentialsProvider providers.CredentialsProvider
 	var err error
