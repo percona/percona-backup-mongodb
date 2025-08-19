@@ -308,6 +308,8 @@ func (s *StorageConf) Cast() error {
 		return s.Filesystem.Cast()
 	case storage.S3:
 		return s.S3.Cast()
+	case storage.OSS:
+		return s.OSS.Cast()
 	case storage.GCS:
 		return nil
 	case storage.Azure: // noop
