@@ -63,15 +63,14 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 
 	partSize := storage.ComputePartSize(
 		opts.Size,
-		oss.DefaultPartSize,
+		defaultPartSize,
 		oss.MinPartSize,
-		int64(oss.MaxUploadParts),
-		int64(oss.DefaultUploadPartSize),
+		int64(o.cfg.MaxUploadParts),
+		int64(o.cfg.UploadPartSize),
 	)
 
 	uploader := oss.NewUploader(o.ossCli, func(uo *oss.UploaderOptions) {
 		uo.PartSize = partSize
-		uo.LeavePartsOnError = true
 	})
 
 	_, err := uploader.UploadFrom(context.Background(), &oss.PutObjectRequest{
