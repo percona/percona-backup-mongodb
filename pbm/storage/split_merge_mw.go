@@ -125,8 +125,20 @@ func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 }
 
 func (sm *SpitMergeMiddleware) Delete(name string) error {
-	return sm.s.Delete(name)
+	fi, err := sm.listWithParts(name)
+	if err != nil {
+		return errors.Wrap(err, "list with parts for mw delete op")
+	}
+
+	for _, f := range fi {
+		if err = sm.s.Delete(f.Name); err != nil {
+			return errors.Wrapf(err, "delete file part: %s", f.Name)
+		}
+	}
+
+	return nil
 }
+
 func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	return sm.s.Copy(src, dst)
 // listWithParts fetches file with base name and all it's PBM parts.
