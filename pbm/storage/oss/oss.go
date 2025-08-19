@@ -175,7 +175,6 @@ func (o *OSS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 // It returns storage.ErrNotExist if a file doesn't exists.
 func (o *OSS) Delete(name string) error {
 	key := path.Join(o.cfg.Prefix, name)
-	path.Join(o.cfg.Prefix, name)
 	_, err := o.ossCli.DeleteObject(context.Background(), &oss.DeleteObjectRequest{
 		Bucket: oss.Ptr(o.cfg.Bucket),
 		Key:    oss.Ptr(key),
@@ -186,7 +185,7 @@ func (o *OSS) Delete(name string) error {
 	return nil
 }
 
-// Copy makes a copy of the src objec/file under dst name
+// Copy makes a copy of the src object/file under dst name
 func (o *OSS) Copy(src, dst string) error {
 	uploader := oss.NewCopier(o.ossCli)
 	_, err := uploader.Copy(context.Background(), &oss.CopyObjectRequest{
