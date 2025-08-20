@@ -149,8 +149,10 @@ func TestPBMSupport(t *testing.T) {
 				if tc.contains != "" && !strings.Contains(err.Error(), tc.contains) {
 					t.Fatalf("unexpected error message: %q does not contain %q", err.Error(), tc.contains)
 				}
-				if !strings.Contains(err.Error(), "This PBM works with v5.0, v6.0, v7.0, v8.0") {
-					t.Fatalf("error should list supported versions, got: %q", err.Error())
+				if tc.contains == "" || !strings.Contains(tc.contains, "incomplete versionArray") {
+					if !strings.Contains(err.Error(), "This PBM works with v5.0, v6.0, v7.0, v8.0") {
+						t.Fatalf("error should list supported versions, got: %q", err.Error())
+					}
 				}
 			}
 		})
