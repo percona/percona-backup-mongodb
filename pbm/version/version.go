@@ -224,11 +224,18 @@ type FeatureSupport MongoVersion
 func (f FeatureSupport) PBMSupport() error {
 	v := MongoVersion(f)
 
+	// Ensure we have at least major and minor versions
+	if len(v.Version) < 2 {
+		return errors.New("cannot determine MongoDB major/minor version: incomplete versionArray")
+	}
+
 	// Supported MongoDB major versions for PBM
 	supportedMajors := []int{5, 6, 7, 8}
 
 	// Happy path: supported major within range and minor is 0
-	if (v.Version[0] >= supportedMajors[0] && v.Version[0] <= supportedMajors[len(supportedMajors)-1]) && v.Version[1] == 0 {
+	if (v.Version[0] >= supportedMajors[0] &&
+		v.Version[0] <= supportedMajors[len(supportedMajors)-1]) &&
+		v.Version[1] == 0 {
 		return nil
 	}
 
@@ -242,11 +249,19 @@ func (f FeatureSupport) PBMSupport() error {
 
 	// If MongoDB is older than the minimum supported, suggest upgrading MongoDB
 	if v.Version[0] < supportedMajors[0] {
-		return errors.Errorf("This PBM works with %s and you are running %s. Please upgrade your MongoDB to a supported version", strings.Join(supported, ", "), current)
+		return errors.Errorf(
+			"This PBM works with %s and you are running %s. Please upgrade your MongoDB to a supported version",
+			strings.Join(supported, ", "),
+			current,
+		)
 	}
 
 	// Otherwise, MongoDB is newer or uses an unsupported minor → suggest upgrading PBM
-	return errors.Errorf("This PBM works with %s and you are running %s. Please upgrade your PBM package", strings.Join(supported, ", "), current)
+	return errors.Errorf(
+		"This PBM works with %s and you are running %s. Please upgrade your PBM package",
+		strings.Join(supported, ", "),
+		current,
+	)
 }
 
 func (f FeatureSupport) FullPhysicalBackup() bool {

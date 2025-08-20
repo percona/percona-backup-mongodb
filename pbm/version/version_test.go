@@ -122,10 +122,10 @@ func TestHasPhysicalFilesMetadata(t *testing.T) {
 
 func TestPBMSupport(t *testing.T) {
 	cases := []struct {
-		name      string
-		ver       []int
-		wantErr   bool
-		contains  string
+		name     string
+		ver      []int
+		wantErr  bool
+		contains string
 	}{
 		{name: "supported 5.0.0", ver: []int{5, 0, 0}, wantErr: false},
 		{name: "supported 5.0.x", ver: []int{5, 0, 14}, wantErr: false},
@@ -136,6 +136,7 @@ func TestPBMSupport(t *testing.T) {
 		{name: "unsupported minor 5.1.0", ver: []int{5, 1, 0}, wantErr: true, contains: "upgrade your PBM"},
 		{name: "newer major 9.0.0", ver: []int{9, 0, 0}, wantErr: true, contains: "upgrade your PBM"},
 		{name: "unsupported minor 7.2.3", ver: []int{7, 2, 3}, wantErr: true, contains: "upgrade your PBM"},
+		{name: "incomplete version array", ver: []int{7}, wantErr: true, contains: "incomplete versionArray"},
 	}
 
 	for _, tc := range cases {
