@@ -3,6 +3,8 @@ package storage
 import (
 	"fmt"
 	"io"
+	"log"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -93,9 +95,13 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 }
 
 func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
-	fi, err := sm.listWithParts(name)
+	fi, err := sm.fileWithParts(name)
 	if err != nil {
 		return FileInfo{}, errors.Wrap(err, "list with parts for mw file stat op")
+	}
+	if len(fi) == 0 {
+		// the same behaviour like without mw
+		return sm.s.FileStat(name)
 	}
 
 	totalSize := int64(0)
@@ -113,7 +119,7 @@ func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 	fi, err := sm.s.List(prefix, suffix)
 	if err != nil {
-		return nil, errors.Wrap(err, "list files")
+		return nil, errors.Wrap(err, "list files for mw list op")
 	}
 
 	res := slices.DeleteFunc(
@@ -125,7 +131,7 @@ func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 }
 
 func (sm *SpitMergeMiddleware) Delete(name string) error {
-	fi, err := sm.listWithParts(name)
+	fi, err := sm.fileWithParts(name)
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
@@ -140,14 +146,14 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 }
 
 func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
-	fi, err := sm.listWithParts(src)
+	fi, err := sm.fileWithParts(src)
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
 
 	dstPartName := dst
 	for _, f := range fi {
-		if f.Name != src {
+		if f.Name == src {
 			// copy base part
 			sm.s.Copy(src, dstPartName)
 		} else {
@@ -164,31 +170,34 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	return nil
 }
 
-// listWithParts fetches file with base name and all it's PBM parts.
-func (sm *SpitMergeMiddleware) listWithParts(name string) ([]FileInfo, error) {
-	fi, err := sm.s.List(name, "")
+// fileWithParts fetches file with base name and all it's PBM parts.
+func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
+	log.Printf("bi: fileWithParts: name=%s", name)
+	d, f := filepath.Split(name)
+	fList, err := sm.s.List(d, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "list files for mw list op")
 	}
 
 	fiParts := []FileInfo{}
-	for _, f := range fi {
-		if getBasePart(name) == name {
-			fiParts = append(fiParts, f)
+	for _, fi := range fList {
+		if f == getBasePart(filepath.Base(fi.Name)) {
+			fiParts = append(fiParts, fi)
 		}
 	}
 
 	// sort based on the index
+	// only if it's bigger than one
 	res := make([]FileInfo, len(fiParts))
 	for _, f := range fiParts {
 		if f.Name == name {
-			res[0] = f
+			res[0] = FileInfo{Name: filepath.Join(d, f.Name), Size: f.Size}
 		} else {
 			i, err := getPartIndex(f.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "sort file parts")
 			}
-			res[i] = f
+			res[i] = FileInfo{Name: filepath.Join(d, f.Name), Size: f.Size}
 		}
 	}
 	//todo: add validation (holes)
