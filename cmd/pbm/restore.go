@@ -473,10 +473,11 @@ func doRestore(
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
 
-	restoreStr := fmt.Sprintf("%s%s%s", name, pitrs, bcpName)
+	fmt.Println("Restore:")
+	fmt.Printf(" - %s%s%s\n", name, pitrs, bcpName)
 
 	if !o.confirmYes {
-		err := util.AskConfirmation(fmt.Sprintf("Are you sure you want to restore %s?", restoreStr))
+		err := util.AskConfirmation("Are you sure you want to restore this backup?")
 		if err != nil {
 			return nil, err
 		}
@@ -487,7 +488,7 @@ func doRestore(
 		return nil, errors.Wrap(err, "send command")
 	}
 
-	fmt.Printf("Starting restore %s", restoreStr)
+	fmt.Printf("Starting restore")
 
 	var (
 		fn     getRestoreMetaFn
