@@ -26,7 +26,7 @@
 #     prefix:  
 
 ## The URL to access the bucket for MinIO
-#     endpointURL: 
+#     endpointUrl: 
 
 ## S3 access credentials.
 #     credentials:
