@@ -30,6 +30,8 @@ const (
 	defaultRetries = 10
 
 	maxBlocks = 50_000
+
+	DefaultMaxObjSizeTB = 190.0
 )
 
 //nolint:lll
@@ -40,6 +42,7 @@ type Config struct {
 	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
 	Prefix         string            `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	MaxObjSizeTB   *float64          `bson:"maxObjSizeTB,omitempty" json:"maxObjSizeTB,omitempty" yaml:"maxObjSizeTB,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -73,6 +76,9 @@ func (cfg *Config) Equal(other *Config) bool {
 		return false
 	}
 	if cfg.Credentials.Key != other.Credentials.Key {
+		return false
+	}
+	if cfg.MaxObjSizeTB != other.MaxObjSizeTB {
 		return false
 	}
 
@@ -109,6 +115,13 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 		ep = fmt.Sprintf(BlobURL, cfg.Account)
 	}
 	return ep
+}
+
+func (cfg *Config) GetMaxObjSizeTB() float64 {
+	if cfg.MaxObjSizeTB != nil {
+		return *cfg.MaxObjSizeTB
+	}
+	return DefaultMaxObjSizeTB
 }
 
 type Credentials struct {

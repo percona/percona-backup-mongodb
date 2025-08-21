@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"io"
-	"log"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -14,17 +13,19 @@ import (
 )
 
 const (
-	pbmPartSize  = 20 * 1024 * 1024 // 20MB
 	pbmPartToken = ".pbmpart."
 )
 
 type SpitMergeMiddleware struct {
-	s Storage
+	s          Storage
+	maxObjSize int64 // in bytes
 }
 
-func NewSplitMergeMW(s Storage) Storage {
+func NewSplitMergeMW(s Storage, maxObjSize float64) Storage {
+	maxObjSizeB := int64(maxObjSize * 1000 * 1000 * 1000 * 1000)
 	return &SpitMergeMiddleware{
-		s: s,
+		s:          s,
+		maxObjSize: maxObjSizeB,
 	}
 }
 
@@ -40,7 +41,7 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 		pr, pw := io.Pipe()
 
 		go func() {
-			_, err := io.CopyN(pw, data, pbmPartSize)
+			_, err := io.CopyN(pw, data, sm.maxObjSize)
 			pw.Close()
 			errC <- err
 		}()

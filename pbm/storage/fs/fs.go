@@ -11,10 +11,14 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-const tmpFileSuffix = ".tmp"
+const (
+	DefaultMaxObjSizeTB = 5.0
+	tmpFileSuffix       = ".tmp"
+)
 
 type Config struct {
-	Path string `bson:"path" json:"path" yaml:"path"`
+	Path         string   `bson:"path" json:"path" yaml:"path"`
+	MaxObjSizeTB *float64 `bson:"maxObjSizeTB,omitempty" json:"maxObjSizeTB,omitempty" yaml:"maxObjSizeTB,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -22,12 +26,16 @@ func (cfg *Config) Clone() *Config {
 		return nil
 	}
 
-	return &Config{Path: cfg.Path}
+	rv := *cfg
+	return &rv
 }
 
 func (cfg *Config) Equal(other *Config) bool {
 	if cfg == nil || other == nil {
 		return cfg == other
+	}
+	if cfg.MaxObjSizeTB != other.MaxObjSizeTB {
+		return false
 	}
 
 	return cfg.Path == other.Path
@@ -41,11 +49,18 @@ func (cfg *Config) Cast() error {
 	return nil
 }
 
+func (cfg *Config) GetMaxObjSizeTB() float64 {
+	if cfg.MaxObjSizeTB != nil {
+		return *cfg.MaxObjSizeTB
+	}
+	return DefaultMaxObjSizeTB
+}
+
 type FS struct {
 	root string
 }
 
-func New(opts *Config) (*FS, error) {
+func New(opts *Config) (storage.Storage, error) {
 	info, err := os.Lstat(opts.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -74,7 +89,8 @@ func New(opts *Config) (*FS, error) {
 		return nil, errors.Errorf("%s is not directory", root)
 	}
 
-	return &FS{root}, nil
+	fs := &FS{root}
+	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeTB()), nil
 }
 
 func (*FS) Type() storage.Type {
