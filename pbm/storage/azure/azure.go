@@ -306,7 +306,7 @@ func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
 		EarlyCloseAsError: true,
 		OnFailedRead: func(failureCount int32, lastError error, rnge azblob.HTTPRange, willRetry bool) {
 			// failureCount is reset on each call to Read(), so repeats of "attempt 1" are expected
-			b.log.Debug("Read from Azure failed (attempt %d): %v, retrying: %v\n", failureCount, lastError, willRetry)
+			b.log.Debug("Read from Azure failed (attempt %d): %v, retrying: %v", failureCount, lastError, willRetry)
 		},
 	})
 	return rr, nil
