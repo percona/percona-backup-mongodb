@@ -211,7 +211,7 @@ func TestSave(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				tmpDir, _ := os.MkdirTemp("", "fs-test-*")
+				tmpDir := setupTestDir(t)
 				fs := &FS{root: tmpDir}
 				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
 
@@ -283,6 +283,11 @@ func TestSourceReader(t *testing.T) {
 				mergedFileSize: 50*1024 + 1,
 			},
 			{
+				desc:           "empty file",
+				partSize:       20 * 1024,
+				mergedFileSize: 0,
+			},
+			{
 				desc:           "1 byte file",
 				partSize:       20 * 1024,
 				mergedFileSize: 1,
@@ -290,7 +295,7 @@ func TestSourceReader(t *testing.T) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				tmpDir, _ := os.MkdirTemp("", "fs-test-*")
+				tmpDir := setupTestDir(t)
 				fs := &FS{root: tmpDir}
 				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
 
@@ -305,7 +310,7 @@ func TestSourceReader(t *testing.T) {
 						t.Fatalf("error while creating test parts: %v", err)
 					}
 				} else {
-					file, err := os.Create(fName)
+					file, err := os.Create(filepath.Join(tmpDir, fName))
 					if err != nil {
 						t.Fatalf("error creating empty file: %v", err)
 					}
@@ -332,28 +337,19 @@ func TestSourceReader(t *testing.T) {
 			})
 		}
 	})
+}
 
-	t.Run("empty file", func(t *testing.T) {
-		tmpDir, _ := os.MkdirTemp("", "fs-test-*")
-		fs := &FS{root: tmpDir}
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+func setupTestDir(t *testing.T) string {
+	tmpDir, err := os.MkdirTemp("", "fs-test-*")
+	if err != nil {
+		t.Fatalf("error while creating setup files: %v", err)
+	}
 
-		fName := "test_merge"
-		file, err := os.Create(fName)
-		if err != nil {
-			t.Fatalf("error creating empty file: %v", err)
-		}
-		defer file.Close()
-
-		rc, err := smMW.SourceReader(fName)
-		wantErr := storage.ErrNotExist
-		if err != wantErr {
-			t.Fatalf("want err=%v, got=%v", wantErr, err)
-		}
-		if rc != nil {
-			t.Fatal("reader should be nil")
-		}
+	t.Cleanup(func() {
+		os.RemoveAll(tmpDir)
 	})
+
+	return tmpDir
 }
 
 func setupTestFiles(t *testing.T) string {

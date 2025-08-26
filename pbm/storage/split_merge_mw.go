@@ -88,15 +88,28 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 		return sm.s.SourceReader(name)
 	}
 
-	partReaders := make([]io.Reader, len(fi))
-	for i, f := range fi {
-		partReaders[i], err = sm.s.SourceReader(f.Name)
-		if err != nil {
-			return nil, errors.Wrapf(err, "reading pbm part %s", f.Name)
+	pr, pw := io.Pipe()
+
+	go func() {
+		for _, f := range fi {
+			r, err := sm.s.SourceReader(f.Name)
+			if err != nil {
+				pw.CloseWithError(errors.Wrapf(err, "reading pbm part %s", f.Name))
+				return
+			}
+			if _, err = io.Copy(pw, r); err != nil {
+				pr.CloseWithError(errors.Wrapf(err, "copy file stream: %s:", f.Name))
+				return
+			}
+			if err = r.Close(); err != nil {
+				pr.CloseWithError(errors.Wrapf(err, "closing file stream: %s", f.Name))
+				return
+			}
 		}
-	}
-	mr := io.MultiReader(partReaders...)
-	return io.NopCloser(mr), nil
+		pw.Close()
+	}()
+
+	return io.NopCloser(pr), nil
 }
 
 func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
