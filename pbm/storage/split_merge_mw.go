@@ -79,26 +79,20 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 }
 
 func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
-	files, err := sm.s.List(name, "")
-	if err != nil || len(files) <= 1 {
-		// let's handle this case like there's no middleware
+	fi, err := sm.fileWithParts(name)
+	if err != nil {
+		return nil, errors.Wrap(err, "list with parts for mw source reader")
+	}
+	if len(fi) <= 1 {
+		// the same behaviour like without mw
 		return sm.s.SourceReader(name)
 	}
 
-	sortedNames := make([]string, len(files))
-	for _, f := range files {
-		i, err := GetPartIndex(f.Name)
+	partReaders := make([]io.Reader, len(fi))
+	for i, f := range fi {
+		partReaders[i], err = sm.s.SourceReader(f.Name)
 		if err != nil {
-			return nil, errors.Wrap(err, "parsing id pbm part from files")
-		}
-		sortedNames[i] = f.Name
-	}
-
-	partReaders := make([]io.Reader, len(sortedNames))
-	for i, f := range sortedNames {
-		partReaders[i], err = sm.s.SourceReader(f)
-		if err != nil {
-			return nil, errors.Wrapf(err, "reading pbm part %s", f)
+			return nil, errors.Wrapf(err, "reading pbm part %s", f.Name)
 		}
 	}
 	mr := io.MultiReader(partReaders...)
