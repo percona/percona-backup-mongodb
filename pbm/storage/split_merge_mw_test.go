@@ -91,7 +91,7 @@ func TestGetPartIndex(t *testing.T) {
 		fname := "file_name"
 		want := 0
 
-		got, err := getPartIndex(fname)
+		got, err := GetPartIndex(fname)
 
 		if err != nil {
 			t.Errorf("got error: %v", err)
@@ -105,7 +105,7 @@ func TestGetPartIndex(t *testing.T) {
 		fname := "file_name.pbmpart.15"
 		want := 15
 
-		got, err := getPartIndex(fname)
+		got, err := GetPartIndex(fname)
 
 		if err != nil {
 			t.Errorf("got error: %v", err)
@@ -118,7 +118,7 @@ func TestGetPartIndex(t *testing.T) {
 	t.Run("error while parsing index", func(t *testing.T) {
 		fname := "file_name.pbmpart.X"
 
-		got, err := getPartIndex(fname)
+		got, err := GetPartIndex(fname)
 
 		if err == nil {
 			t.Error("want error, get nil")
@@ -132,7 +132,7 @@ func TestGetPartIndex(t *testing.T) {
 		fname := ".pbmpart.5"
 		want := 5
 
-		got, err := getPartIndex(fname)
+		got, err := GetPartIndex(fname)
 
 		if err != nil {
 			t.Errorf("got error: %v", err)
@@ -145,7 +145,7 @@ func TestGetPartIndex(t *testing.T) {
 	t.Run("token exists, index doesn't", func(t *testing.T) {
 		fname := "file_name.pbmpart."
 
-		got, err := getPartIndex(fname)
+		got, err := GetPartIndex(fname)
 
 		if err == nil {
 			t.Error("want error, get nil")

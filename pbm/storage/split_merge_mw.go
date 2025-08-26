@@ -22,7 +22,7 @@ type SpitMergeMiddleware struct {
 }
 
 func NewSplitMergeMW(s Storage, maxObjSize float64) Storage {
-	maxObjSizeB := int64(maxObjSize * 1000 * 1000 * 1000 * 1000)
+	maxObjSizeB := int64(maxObjSize * 1024 * 1024 * 1024 * 1024)
 	return &SpitMergeMiddleware{
 		s:          s,
 		maxObjSize: maxObjSizeB,
@@ -33,17 +33,22 @@ func (sm *SpitMergeMiddleware) Type() Type {
 	return sm.s.Type()
 }
 
+type wInfo struct {
+	n   int64
+	err error
+}
+
 func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Option) error {
 	fName := name
 
-	errC := make(chan error)
+	wInfoC := make(chan wInfo)
 	for {
 		pr, pw := io.Pipe()
 
 		go func() {
-			_, err := io.CopyN(pw, data, sm.maxObjSize)
+			n, err := io.CopyN(pw, data, sm.maxObjSize)
 			pw.Close()
-			errC <- err
+			wInfoC <- wInfo{n, err}
 		}()
 
 		err := sm.s.Save(fName, pr, options...)
@@ -51,12 +56,17 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 			return errors.Wrap(err, "save during split-merge mw")
 		}
 
-		wErr := <-errC
-		if wErr != nil {
-			if wErr == io.EOF {
+		winfo := <-wInfoC
+		if winfo.err != nil {
+			if winfo.err == io.EOF && winfo.n != 0 {
+				break
+			} else if winfo.err == io.EOF && winfo.n == 0 {
+				if err := sm.s.Delete(fName); err != nil {
+					return errors.Wrap(err, "empty file deletion")
+				}
 				break
 			}
-			return errors.Wrap(err, "write pipeline split-merge mw")
+			return errors.Wrap(winfo.err, "write pipeline split-merge mw")
 		}
 
 		fName, err = createNextPart(fName)
@@ -77,7 +87,7 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 
 	sortedNames := make([]string, len(files))
 	for _, f := range files {
-		i, err := getPartIndex(f.Name)
+		i, err := GetPartIndex(f.Name)
 		if err != nil {
 			return nil, errors.Wrap(err, "parsing id pbm part from files")
 		}
@@ -182,7 +192,7 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 
 	fiParts := []FileInfo{}
 	for _, fi := range fList {
-		if f == getBasePart(filepath.Base(fi.Name)) {
+		if f == GetBasePart(filepath.Base(fi.Name)) {
 			fiParts = append(fiParts, fi)
 		}
 	}
@@ -194,7 +204,7 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 		if f.Name == name {
 			res[0] = FileInfo{Name: filepath.Join(d, f.Name), Size: f.Size}
 		} else {
-			i, err := getPartIndex(f.Name)
+			i, err := GetPartIndex(f.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "sort file parts")
 			}
@@ -237,7 +247,7 @@ func createNextPart(fname string) (string, error) {
 	}
 }
 
-func getPartIndex(fname string) (int, error) {
+func GetPartIndex(fname string) (int, error) {
 	partID := 0
 	if strings.Contains(fname, pbmPartToken) {
 		fileParts := strings.Split(fname, ".")
@@ -252,7 +262,7 @@ func getPartIndex(fname string) (int, error) {
 	return partID, nil
 }
 
-func getBasePart(fname string) string {
+func GetBasePart(fname string) string {
 	base := fname
 
 	pattern := regexp.MustCompile(`\.pbmpart\.\d+$`)

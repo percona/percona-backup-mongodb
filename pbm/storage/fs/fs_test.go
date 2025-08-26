@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,4 +184,162 @@ func createTestDir(t *testing.T, path string) {
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatalf("error while creating dir %s: %v", path, err)
 	}
+}
+
+func TestSave(t *testing.T) {
+	t.Run("save with split-merge middleware", func(t *testing.T) {
+		testCases := []struct {
+			desc      string
+			partSize  int64
+			fileSize  int64
+			wantParts int
+		}{
+			{
+				desc:      "basic use case for splitting files",
+				partSize:  10 * 1024,
+				fileSize:  23 * 1024,
+				wantParts: 3,
+			},
+			{
+				desc:      "splitting 100s of files",
+				partSize:  1 * 1024,
+				fileSize:  220*1024 + 555,
+				wantParts: 221,
+			},
+			{
+				desc:      "splitting 1000s of files",
+				partSize:  1 * 512,
+				fileSize:  1100*1024 + 1,
+				wantParts: 2201,
+			},
+			{
+				desc:      "file of the same size as part",
+				partSize:  5 * 1024 * 1024,
+				fileSize:  5 * 1024 * 1024,
+				wantParts: 1,
+			},
+			{
+				desc:      "file size is a multiple of part",
+				partSize:  12 * 1024 * 1024,
+				fileSize:  48 * 1024 * 1024,
+				wantParts: 4,
+			},
+			{
+				desc:      "single file little bit bigger than part",
+				partSize:  15 * 1024 * 1024,
+				fileSize:  15*1024*1024 + 2,
+				wantParts: 2,
+			},
+			{
+				desc:      "single file that's a bit smaller than part",
+				partSize:  7 * 1024 * 1024,
+				fileSize:  7*1024*1024 - 1,
+				wantParts: 1,
+			},
+			{
+				desc:      "lots of files and one smaller part",
+				partSize:  7 * 1024,
+				fileSize:  490*1024 + 1,
+				wantParts: 71,
+			},
+			{
+				desc:      "empty file",
+				partSize:  10 * 1024,
+				fileSize:  0,
+				wantParts: 0,
+			},
+			{
+				desc:      "1 byte file",
+				partSize:  14 * 1024,
+				fileSize:  1,
+				wantParts: 1,
+			},
+		}
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				tmpDir, _ := os.MkdirTemp("", "fs-test-*")
+				fs := &FS{root: tmpDir}
+				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+
+				fName := "test_file"
+				fContent := make([]byte, tC.fileSize)
+				r := bytes.NewReader(fContent)
+
+				err := smMW.Save(fName, r)
+				if err != nil {
+					t.Fatalf("error while saving file: %v", err)
+				}
+
+				files := getFileWithParts(t, tmpDir, fName)
+				if len(files) != tC.wantParts {
+					t.Fatalf("wrong number of splitted files: want=%d, got=%d", tC.wantParts, len(files))
+				}
+
+				wantSizes := calcPartSizes(tC.partSize, tC.fileSize)
+				for i := range len(files) {
+					if wantSizes[i] != files[i].Size {
+						t.Fatalf("wrong file size for file: %s: want=%d, got=%d", files[i].Name, wantSizes[i], files[i].Size)
+					}
+				}
+			})
+		}
+	})
+}
+
+func BytesToTB(bytes int64) float64 {
+	const TB = 1024 * 1024 * 1024 * 1024
+	return float64(bytes) / TB
+}
+
+func getFileWithParts(t *testing.T, dir, name string) []storage.FileInfo {
+	t.Helper()
+
+	fiParts := []storage.FileInfo{}
+	fList, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading dir: %v", err)
+	}
+	for _, entry := range fList {
+		if name == storage.GetBasePart(entry.Name()) {
+			info, err := entry.Info()
+			if err != nil {
+				t.Fatalf("gettting file info: %v", err)
+			}
+			fiParts = append(fiParts, storage.FileInfo{
+				Name: entry.Name(),
+				Size: info.Size(),
+			})
+		}
+	}
+
+	// sort by base part first, and then by index
+	res := make([]storage.FileInfo, len(fiParts))
+	for _, f := range fiParts {
+		if f.Name == name {
+			res[0] = f
+		} else {
+			i, err := storage.GetPartIndex(f.Name)
+			if err != nil {
+				t.Fatalf("getting part index: %v", err)
+			}
+			res[i] = f
+		}
+	}
+
+	return res
+}
+
+func calcPartSizes(partSize, totalSize int64) []int64 {
+	padding := totalSize % partSize
+	partsCount := totalSize / partSize
+
+	res := make([]int64, partsCount)
+	for i := range partsCount {
+		res[i] = partSize
+	}
+	if padding > 0 {
+		res = append(res, padding)
+	}
+
+	return res
 }
