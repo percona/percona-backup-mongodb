@@ -12,8 +12,6 @@ import (
 )
 
 const (
-	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
-	minPartSize     int64 = 5 * 1024 * 1024  // 5MB
 	defaultS3Region       = "ap-southeast-5"
 	maxPart         int32 = 10000
 
@@ -36,8 +34,16 @@ type Config struct {
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
 	ConnectTimeout time.Duration `bson:"connectTimeout" json:"connectTimeout" yaml:"connectTimeout"`
-	UploadPartSize int           `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	UploadPartSize int64         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts int32         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+
+	ServerSideEncryption *SSE `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+}
+
+type SSE struct {
+	EncryptionMethod    string `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
+	EncryptionAlgorithm string `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
+	EncryptionKeyID     string `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
 }
 
 type Retryer struct {
@@ -80,6 +86,9 @@ func (cfg *Config) Cast() error {
 	}
 	if cfg.MaxUploadParts <= 0 {
 		cfg.MaxUploadParts = maxPart
+	}
+	if cfg.UploadPartSize <= 0 {
+		cfg.UploadPartSize = oss.DefaultUploadPartSize
 	}
 	return nil
 }

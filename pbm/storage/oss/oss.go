@@ -16,6 +16,12 @@ import (
 
 var _ storage.Storage = &OSS{}
 
+const (
+	ServerSideEncryptionAes256 = "AES256"
+	ServerSideEncryptionKMS    = "KMS"
+	ServerSideEncryptionSM4    = "SM4"
+)
+
 func New(cfg *Config, node string, l log.LogEvent) (*OSS, error) {
 	if err := cfg.Cast(); err != nil {
 		return nil, fmt.Errorf("cast config: %w", err)
@@ -61,9 +67,28 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 		o.log.Debug("uploading %s", name)
 	}
 
+	req := &oss.PutObjectRequest{
+		Bucket: oss.Ptr(o.cfg.Bucket),
+		Key:    oss.Ptr(path.Join(o.cfg.Prefix, name)),
+	}
+
+	if o.cfg.ServerSideEncryption != nil {
+		sse := o.cfg.ServerSideEncryption
+		switch sse.EncryptionMethod {
+		case ServerSideEncryptionSM4:
+			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionSM4)
+		case ServerSideEncryptionKMS:
+			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionKMS)
+			req.ServerSideDataEncryption = oss.Ptr(sse.EncryptionAlgorithm)
+			req.ServerSideEncryptionKeyId = oss.Ptr(sse.EncryptionKeyID)
+		default:
+			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionAes256)
+		}
+	}
+
 	partSize := storage.ComputePartSize(
 		opts.Size,
-		defaultPartSize,
+		o.cfg.UploadPartSize,
 		oss.MinPartSize,
 		int64(o.cfg.MaxUploadParts),
 		int64(o.cfg.UploadPartSize),
@@ -72,11 +97,7 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 	uploader := oss.NewUploader(o.ossCli, func(uo *oss.UploaderOptions) {
 		uo.PartSize = partSize
 	})
-
-	_, err := uploader.UploadFrom(context.Background(), &oss.PutObjectRequest{
-		Bucket: oss.Ptr(o.cfg.Bucket),
-		Key:    oss.Ptr(path.Join(o.cfg.Prefix, name)),
-	}, data)
+	_, err := uploader.UploadFrom(context.Background(), req, data)
 
 	return errors.Wrap(err, "put object")
 }
@@ -101,10 +122,12 @@ func (o *OSS) SourceReader(name string) (io.ReadCloser, error) {
 func (o *OSS) FileStat(name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
-	res, err := o.ossCli.HeadObject(context.Background(), &oss.HeadObjectRequest{
+	req := &oss.HeadObjectRequest{
 		Bucket: oss.Ptr(o.cfg.Bucket),
 		Key:    oss.Ptr(path.Join(o.cfg.Prefix, name)),
-	})
+	}
+
+	res, err := o.ossCli.HeadObject(context.Background(), req)
 	if err != nil {
 		var serr *oss.ServiceError
 		if errors.As(err, &serr) && serr.Code == "NoSuchKey" {
@@ -187,12 +210,27 @@ func (o *OSS) Delete(name string) error {
 
 // Copy makes a copy of the src object/file under dst name
 func (o *OSS) Copy(src, dst string) error {
-	uploader := oss.NewCopier(o.ossCli)
-	_, err := uploader.Copy(context.Background(), &oss.CopyObjectRequest{
+	req := &oss.CopyObjectRequest{
 		Bucket:       oss.Ptr(o.cfg.Bucket),
 		Key:          oss.Ptr(path.Join(o.cfg.Prefix, dst)),
 		SourceBucket: oss.Ptr(o.cfg.Bucket),
 		SourceKey:    oss.Ptr(path.Join(o.cfg.Prefix, src)),
-	})
+	}
+
+	if o.cfg.ServerSideEncryption != nil {
+		sse := o.cfg.ServerSideEncryption
+		switch sse.EncryptionMethod {
+		case ServerSideEncryptionSM4:
+			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionSM4)
+		case ServerSideEncryptionKMS:
+			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionKMS)
+			req.ServerSideDataEncryption = oss.Ptr(sse.EncryptionAlgorithm)
+			req.ServerSideEncryptionKeyId = oss.Ptr(sse.EncryptionKeyID)
+		default:
+			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionAes256)
+		}
+	}
+	copier := oss.NewCopier(o.ossCli, func(co *oss.CopierOptions) {})
+	_, err := copier.Copy(context.Background(), req)
 	return errors.Wrap(err, "copy object")
 }
