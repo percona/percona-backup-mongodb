@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,8 @@ import (
 func TestList(t *testing.T) {
 	t.Run("basic usage", func(t *testing.T) {
 		tmpDir := setupTestFiles(t)
-		fs := &FS{root: tmpDir}
+		var fs storage.Storage = &FS{root: tmpDir}
+		fs = storage.NewSplitMergeMW(fs, BytesToTB(5*1024*1024*1024))
 
 		testCases := []struct {
 			desc      string
@@ -137,6 +139,111 @@ func TestList(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Log("timed out while waiting for err")
 		}
+	})
+	t.Run("split-merge middleware logic", func(t *testing.T) {
+		t.Run("file parts are ignored", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			fName := "test_parts1"
+			fSize := int64(5 * 1024)
+			// create test parts
+			srcContent := make([]byte, fSize)
+			r := bytes.NewReader(srcContent)
+			err := smMW.Save(fName, r)
+			if err != nil {
+				t.Fatalf("error while creating test parts: %v", err)
+			}
+
+			fInfo, err := smMW.List("", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+
+			if len(fInfo) != 1 {
+				t.Fatalf("expected single file, got=%d", len(fInfo))
+			}
+			if fInfo[0].Name != fName {
+				t.Fatalf("wrong file name: want=%s, got=%s", fName, fInfo[0].Name)
+			}
+			if fInfo[0].Size != fSize {
+				t.Fatalf("wrong file size: want=%d, got=%d", fSize, fInfo[0].Size)
+			}
+		})
+
+		t.Run("file parts are ignored for multiple files", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			fName1 := "test_parts1"
+			fSize1 := int64(1 * 1024)
+			createFileWithParts(t, fName1, fSize1, smMW)
+			fName2 := "test_parts2"
+			fSize2 := int64(2 * 1024)
+			createFileWithParts(t, fName2, fSize2, smMW)
+
+			fInfo, err := smMW.List("", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+
+			if len(fInfo) != 2 {
+				t.Fatalf("expected 2 files, got=%d", len(fInfo))
+			}
+
+			slices.SortFunc(fInfo, fileInfoSort)
+			if fInfo[0].Name != fName1 {
+				t.Fatalf("wrong file name: want=%s, got=%s", fName1, fInfo[0].Name)
+			}
+			if fInfo[0].Size != fSize1 {
+				t.Fatalf("wrong file size: want=%d, got=%d", fSize1, fInfo[0].Size)
+			}
+			if fInfo[1].Name != fName2 {
+				t.Fatalf("wrong file name: want=%s, got=%s", fName2, fInfo[1].Name)
+			}
+			if fInfo[1].Size != fSize2 {
+				t.Fatalf("wrong file size: want=%d, got=%d", fSize2, fInfo[1].Size)
+			}
+		})
+
+		t.Run("file parts are ignored within sub dir", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			fName1 := "sub/test_parts1"
+			fSize1 := int64(1 * 1024)
+			createFileWithParts(t, fName1, fSize1, smMW)
+			fName2 := "test_parts2"
+			fSize2 := int64(4 * 1024)
+			createFileWithParts(t, fName2, fSize2, smMW)
+
+			fInfo, err := smMW.List("", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+
+			if len(fInfo) != 2 {
+				t.Fatalf("expected 2 files, got=%d", len(fInfo))
+			}
+
+			slices.SortFunc(fInfo, fileInfoSort)
+			if fInfo[0].Name != fName1 {
+				t.Fatalf("wrong file name: want=%s, got=%s", fName1, fInfo[0].Name)
+			}
+			if fInfo[0].Size != fSize1 {
+				t.Fatalf("wrong file size: want=%d, got=%d", fSize1, fInfo[0].Size)
+			}
+			if fInfo[1].Name != fName2 {
+				t.Fatalf("wrong file name: want=%s, got=%s", fName2, fInfo[1].Name)
+			}
+			if fInfo[1].Size != fSize2 {
+				t.Fatalf("wrong file size: want=%d, got=%d", fSize2, fInfo[1].Size)
+			}
+
+		})
 	})
 }
 
@@ -675,4 +782,28 @@ func countFilesInDir(t *testing.T, d string) int {
 		t.Logf("read dir: %v", err)
 	}
 	return len(e)
+}
+
+func createFileWithParts(
+	t *testing.T,
+	fName string,
+	fTotalSize int64,
+	mw storage.Storage,
+) {
+	srcContent := make([]byte, fTotalSize)
+	r := bytes.NewReader(srcContent)
+	err := mw.Save(fName, r)
+	if err != nil {
+		t.Fatalf("error while creating test parts: %v", err)
+	}
+}
+
+func fileInfoSort(a storage.FileInfo, b storage.FileInfo) int {
+	if a.Name < b.Name {
+		return -1
+	} else if a.Name > b.Name {
+		return 1
+	} else {
+		return 0
+	}
 }

@@ -139,10 +139,33 @@ func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 		return nil, errors.Wrap(err, "list files for mw list op")
 	}
 
-	res := slices.DeleteFunc(
-		fi,
-		func(f FileInfo) bool { return strings.Contains(f.Name, pbmPartToken) },
-	)
+	fHasPart := []string{}
+	res := []FileInfo{}
+
+	// filter our all parts, keep base files
+	for _, f := range fi {
+		if strings.Contains(f.Name, pbmPartToken) {
+			// mark base part
+			baseFile := GetBasePart(f.Name)
+			fHasPart = append(fHasPart, baseFile)
+			// and ignore the part
+			continue
+		}
+
+		// this is base part
+		res = append(res, f)
+	}
+
+	for i, f := range res {
+		if slices.Contains(fHasPart, f.Name) {
+			// this file has parts, we need to calculate total size
+			fStat, err := sm.FileStat(f.Name)
+			if err != nil {
+				return nil, errors.Wrapf(err, "file stat for list op for file: %s", f.Name)
+			}
+			res[i] = fStat
+		}
+	}
 
 	return res, nil
 }
@@ -207,7 +230,6 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	}
 
 	// sort based on the index
-	// only if it's bigger than one
 	res := make([]FileInfo, len(fiParts))
 	for _, f := range fiParts {
 		if f.Name == name {
@@ -220,7 +242,6 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 			res[i] = FileInfo{Name: filepath.Join(d, f.Name), Size: f.Size}
 		}
 	}
-	//todo: add validation (holes)
 
 	return res, nil
 }
