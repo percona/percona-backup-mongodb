@@ -193,6 +193,9 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
+	if len(fi) <= 1 {
+		return sm.s.Copy(src, dst)
+	}
 
 	dstPartName := dst
 	for _, f := range fi {
@@ -200,7 +203,7 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 			// copy base part
 			sm.s.Copy(src, dstPartName)
 		} else {
-			dstPartName, err := createNextPart(dstPartName)
+			dstPartName, err = createNextPart(dstPartName)
 			if err != nil {
 				return errors.Wrap(err, "create next part name")
 			}

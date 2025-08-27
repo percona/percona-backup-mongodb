@@ -140,6 +140,7 @@ func TestList(t *testing.T) {
 			t.Log("timed out while waiting for err")
 		}
 	})
+
 	t.Run("split-merge middleware logic", func(t *testing.T) {
 		t.Run("file parts are ignored", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
@@ -179,10 +180,10 @@ func TestList(t *testing.T) {
 
 			fName1 := "test_parts1"
 			fSize1 := int64(1 * 1024)
-			createFileWithParts(t, fName1, fSize1, smMW)
+			createFileWithParts(t, fName1, fSize1, smMW, tmpDir)
 			fName2 := "test_parts2"
 			fSize2 := int64(2 * 1024)
-			createFileWithParts(t, fName2, fSize2, smMW)
+			createFileWithParts(t, fName2, fSize2, smMW, tmpDir)
 
 			fInfo, err := smMW.List("", "")
 			if err != nil {
@@ -215,10 +216,10 @@ func TestList(t *testing.T) {
 
 			fName1 := "sub/test_parts1"
 			fSize1 := int64(1 * 1024)
-			createFileWithParts(t, fName1, fSize1, smMW)
+			createFileWithParts(t, fName1, fSize1, smMW, tmpDir)
 			fName2 := "test_parts2"
 			fSize2 := int64(4 * 1024)
-			createFileWithParts(t, fName2, fSize2, smMW)
+			createFileWithParts(t, fName2, fSize2, smMW, tmpDir)
 
 			fInfo, err := smMW.List("", "")
 			if err != nil {
@@ -658,6 +659,77 @@ func TestDelete(t *testing.T) {
 	})
 }
 
+func TestFileCopy(t *testing.T) {
+	t.Run("Copy with split-merge middleware", func(t *testing.T) {
+		testCases := []struct {
+			desc          string
+			partSize      int64
+			totalFileSize int64
+		}{
+			{
+				desc:          "basic use caser for Copy",
+				partSize:      5 * 1024,
+				totalFileSize: 10*5*1024 + 456,
+			},
+			{
+				desc:          "stat for 100s of parts",
+				partSize:      456,
+				totalFileSize: 123*456 + 789,
+			},
+			{
+				desc:          "single part",
+				partSize:      1024 * 1024,
+				totalFileSize: 1024 * 1024,
+			},
+			{
+				desc:          "two parts",
+				partSize:      1024 * 1024,
+				totalFileSize: 2 * 1024 * 1024,
+			},
+			{
+				desc:          "1 byte file",
+				partSize:      20 * 1024,
+				totalFileSize: 1,
+			},
+		}
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				tmpDir := setupTestDir(t)
+				fs := &FS{root: tmpDir}
+				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+
+				fNameSrc := "test_file_stat"
+				// create test parts
+				srcContent := make([]byte, tC.totalFileSize)
+				r := bytes.NewReader(srcContent)
+				err := smMW.Save(fNameSrc, r)
+				if err != nil {
+					t.Fatalf("error while creating test parts: %v", err)
+				}
+
+				fNameDst := "dst/test_file_stat"
+
+				err = smMW.Copy(fNameSrc, fNameDst)
+				if err != nil {
+					t.Fatalf("error while copying: %v", err)
+				}
+
+				fInfoDst, err := smMW.FileStat(fNameDst)
+				if err != nil {
+					t.Fatalf("error while invoking FileStat: %v", err)
+				}
+
+				if fInfoDst.Name != fNameDst {
+					t.Fatalf("wrong file name, want=%s, got=%s", fNameDst, fInfoDst.Name)
+				}
+				if fInfoDst.Size != tC.totalFileSize {
+					t.Fatalf("wrong file size, want=%d, got=%d", tC.totalFileSize, fInfoDst.Size)
+				}
+			})
+		}
+	})
+}
+
 func setupTestDir(t *testing.T) string {
 	tmpDir, err := os.MkdirTemp("", "fs-test-*")
 	if err != nil {
@@ -789,12 +861,21 @@ func createFileWithParts(
 	fName string,
 	fTotalSize int64,
 	mw storage.Storage,
+	dir string,
 ) {
-	srcContent := make([]byte, fTotalSize)
-	r := bytes.NewReader(srcContent)
-	err := mw.Save(fName, r)
-	if err != nil {
-		t.Fatalf("error while creating test parts: %v", err)
+	if fTotalSize == 0 {
+		file, err := os.Create(filepath.Join(dir, fName))
+		if err != nil {
+			t.Fatalf("error creating empty file: %v", err)
+		}
+		defer file.Close()
+	} else {
+		srcContent := make([]byte, fTotalSize)
+		r := bytes.NewReader(srcContent)
+		err := mw.Save(fName, r)
+		if err != nil {
+			t.Fatalf("error while creating test parts: %v", err)
+		}
 	}
 }
 
