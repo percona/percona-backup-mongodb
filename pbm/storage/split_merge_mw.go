@@ -3,7 +3,7 @@ package storage
 import (
 	"fmt"
 	"io"
-	"path/filepath"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -219,7 +219,7 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 // fileWithParts fetches file with base name and all it's PBM parts.
 func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	log.Printf("bi: fileWithParts: name=%s", name)
-	d, f := filepath.Split(name)
+	d, f := path.Split(name)
 	fList, err := sm.s.List(d, "")
 	if err != nil {
 		return nil, errors.Wrap(err, "list files for mw list op")
@@ -227,7 +227,7 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 
 	fiParts := []FileInfo{}
 	for _, fi := range fList {
-		if f == GetBasePart(filepath.Base(fi.Name)) {
+		if f == GetBasePart(path.Base(fi.Name)) {
 			fiParts = append(fiParts, fi)
 		}
 	}
@@ -236,13 +236,13 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	res := make([]FileInfo, len(fiParts))
 	for _, f := range fiParts {
 		if f.Name == name {
-			res[0] = FileInfo{Name: filepath.Join(d, f.Name), Size: f.Size}
+			res[0] = FileInfo{Name: path.Join(d, f.Name), Size: f.Size}
 		} else {
 			i, err := GetPartIndex(f.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "sort file parts")
 			}
-			res[i] = FileInfo{Name: filepath.Join(d, f.Name), Size: f.Size}
+			res[i] = FileInfo{Name: path.Join(d, f.Name), Size: f.Size}
 		}
 	}
 

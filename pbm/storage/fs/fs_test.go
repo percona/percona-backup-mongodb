@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -254,6 +255,7 @@ func TestSave(t *testing.T) {
 			desc      string
 			partSize  int64
 			fileSize  int64
+			file      string
 			wantParts int
 		}{
 			{
@@ -316,6 +318,13 @@ func TestSave(t *testing.T) {
 				fileSize:  1,
 				wantParts: 1,
 			},
+			{
+				desc:      "file in sub dir",
+				partSize:  1024,
+				fileSize:  3*1024 + 1,
+				file:      "sub/file_in_sub",
+				wantParts: 4,
+			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -324,6 +333,9 @@ func TestSave(t *testing.T) {
 				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
 
 				fName := "test_split"
+				if tC.file != "" {
+					fName = tC.file
+				}
 				fContent := make([]byte, tC.fileSize)
 				r := bytes.NewReader(fContent)
 
@@ -332,7 +344,8 @@ func TestSave(t *testing.T) {
 					t.Fatalf("error while saving file: %v", err)
 				}
 
-				files := getFileWithParts(t, tmpDir, fName)
+				fWithPath := path.Join(tmpDir, fName)
+				files := getFileWithParts(t, path.Dir(fWithPath), path.Base(fWithPath))
 				if len(files) != tC.wantParts {
 					t.Fatalf("wrong number of splitted files: want=%d, got=%d", tC.wantParts, len(files))
 				}
@@ -354,6 +367,7 @@ func TestSourceReader(t *testing.T) {
 			desc           string
 			partSize       int64
 			mergedFileSize int64
+			file           string
 		}{
 			{
 				desc:           "basic use case for merging parts",
@@ -400,6 +414,12 @@ func TestSourceReader(t *testing.T) {
 				partSize:       20 * 1024,
 				mergedFileSize: 1,
 			},
+			{
+				desc:           "file within dir",
+				partSize:       1024,
+				mergedFileSize: 4 * 1024,
+				file:           "sub/test_merge_in_sub",
+			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -408,6 +428,9 @@ func TestSourceReader(t *testing.T) {
 				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
 
 				fName := "test_merge"
+				if tC.file != "" {
+					fName = tC.file
+				}
 				var srcContent []byte
 				if tC.mergedFileSize != 0 {
 					// create test parts
@@ -457,6 +480,7 @@ func TestFileStat(t *testing.T) {
 			desc          string
 			partSize      int64
 			totalFileSize int64
+			file          string
 		}{
 			{
 				desc:          "basic use caser for FileStat",
@@ -488,6 +512,12 @@ func TestFileStat(t *testing.T) {
 				partSize:      20 * 1024,
 				totalFileSize: 1,
 			},
+			{
+				desc:          "file in dir",
+				partSize:      4 * 1024,
+				totalFileSize: 4*1024 + 456,
+				file:          "sub/test_stat_in_dir",
+			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -496,6 +526,9 @@ func TestFileStat(t *testing.T) {
 				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
 
 				fName := "test_file_stat"
+				if tC.file != "" {
+					fName = tC.file
+				}
 				// create test parts
 				srcContent := make([]byte, tC.totalFileSize)
 				r := bytes.NewReader(srcContent)
@@ -553,6 +586,7 @@ func TestDelete(t *testing.T) {
 			desc          string
 			partSize      int64
 			totalFileSize int64
+			file          string
 		}{
 			{
 				desc:          "basic use caser for Delete",
@@ -584,6 +618,12 @@ func TestDelete(t *testing.T) {
 				partSize:      20 * 1024,
 				totalFileSize: 1,
 			},
+			{
+				desc:          "file within dir",
+				partSize:      5 * 1024,
+				totalFileSize: 5*1024 + 456,
+				file:          "dub/test_rm_in_dir",
+			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -592,6 +632,9 @@ func TestDelete(t *testing.T) {
 				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
 
 				fName := "test_rm_file"
+				if tC.file != "" {
+					fName = tC.file
+				}
 				// create test parts
 				srcContent := make([]byte, tC.totalFileSize)
 				r := bytes.NewReader(srcContent)
@@ -600,8 +643,9 @@ func TestDelete(t *testing.T) {
 					t.Fatalf("error while creating test parts: %v", err)
 				}
 
+				fileDir := path.Dir(path.Join(tmpDir, fName))
 				wantFilesInDir := len(calcPartSizes(tC.partSize, tC.totalFileSize))
-				gotFilesInDir := countFilesInDir(t, tmpDir)
+				gotFilesInDir := countFilesInDir(t, fileDir)
 				if wantFilesInDir != gotFilesInDir {
 					t.Fatalf("wrong number of files within dir: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
 				}
@@ -611,7 +655,7 @@ func TestDelete(t *testing.T) {
 				}
 
 				wantFilesInDir = 0
-				gotFilesInDir = countFilesInDir(t, tmpDir)
+				gotFilesInDir = countFilesInDir(t, fileDir)
 				if wantFilesInDir != gotFilesInDir {
 					t.Fatalf("wrong number of files after deletion: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
 				}
@@ -665,6 +709,7 @@ func TestFileCopy(t *testing.T) {
 			desc          string
 			partSize      int64
 			totalFileSize int64
+			file          string
 		}{
 			{
 				desc:          "basic use caser for Copy",
@@ -691,6 +736,12 @@ func TestFileCopy(t *testing.T) {
 				partSize:      20 * 1024,
 				totalFileSize: 1,
 			},
+			{
+				desc:          "copy from sub dir",
+				partSize:      5 * 1024,
+				totalFileSize: 4*5*1024 + 456,
+				file:          "sub/test_copy_from_sub",
+			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
@@ -698,7 +749,10 @@ func TestFileCopy(t *testing.T) {
 				fs := &FS{root: tmpDir}
 				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
 
-				fNameSrc := "test_file_stat"
+				fNameSrc := "test_copy"
+				if tC.file != "" {
+					fNameSrc = tC.file
+				}
 				// create test parts
 				srcContent := make([]byte, tC.totalFileSize)
 				r := bytes.NewReader(srcContent)
