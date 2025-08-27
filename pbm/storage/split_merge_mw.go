@@ -118,7 +118,6 @@ func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 		return FileInfo{}, errors.Wrap(err, "list with parts for mw file stat op")
 	}
 	if len(fi) <= 1 {
-		// the same behaviour like without mw
 		return sm.s.FileStat(name)
 	}
 
@@ -152,6 +151,9 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 	fi, err := sm.fileWithParts(name)
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
+	}
+	if len(fi) <= 1 {
+		return sm.s.Delete(name)
 	}
 
 	for _, f := range fi {

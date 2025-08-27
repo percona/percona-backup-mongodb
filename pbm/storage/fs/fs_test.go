@@ -349,7 +349,6 @@ func TestFileStat(t *testing.T) {
 			desc          string
 			partSize      int64
 			totalFileSize int64
-			wantErr       error
 		}{
 			{
 				desc:          "basic use caser for FileStat",
@@ -436,6 +435,118 @@ func TestFileStat(t *testing.T) {
 		}
 		if fInfo.Size != 0 {
 			t.Fatalf("wrong file size, want=%d, got=%d", 0, fInfo.Size)
+		}
+	})
+}
+
+func TestDelete(t *testing.T) {
+	t.Run("Delete with split-merge middleware", func(t *testing.T) {
+		testCases := []struct {
+			desc          string
+			partSize      int64
+			totalFileSize int64
+		}{
+			{
+				desc:          "basic use caser for Delete",
+				partSize:      5 * 1024,
+				totalFileSize: 10*5*1024 + 456,
+			},
+			{
+				desc:          "stat for 100s of parts",
+				partSize:      456,
+				totalFileSize: 123*456 + 789,
+			},
+			{
+				desc:          "stat for 1000s of parts",
+				partSize:      123,
+				totalFileSize: 4567*123 + 1,
+			},
+			{
+				desc:          "single part",
+				partSize:      1024 * 1024,
+				totalFileSize: 1024 * 1024,
+			},
+			{
+				desc:          "two parts",
+				partSize:      1024 * 1024,
+				totalFileSize: 2 * 1024 * 1024,
+			},
+			{
+				desc:          "1 byte file",
+				partSize:      20 * 1024,
+				totalFileSize: 1,
+			},
+		}
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				tmpDir := setupTestDir(t)
+				fs := &FS{root: tmpDir}
+				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+
+				fName := "test_rm_file"
+				// create test parts
+				srcContent := make([]byte, tC.totalFileSize)
+				r := bytes.NewReader(srcContent)
+				err := smMW.Save(fName, r)
+				if err != nil {
+					t.Fatalf("error while creating test parts: %v", err)
+				}
+
+				wantFilesInDir := len(calcPartSizes(tC.partSize, tC.totalFileSize))
+				gotFilesInDir := countFilesInDir(t, tmpDir)
+				if wantFilesInDir != gotFilesInDir {
+					t.Fatalf("wrong number of files within dir: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
+				}
+				err = smMW.Delete(fName)
+				if err != nil {
+					t.Fatalf("error while invoking Delete: %v", err)
+				}
+
+				wantFilesInDir = 0
+				gotFilesInDir = countFilesInDir(t, tmpDir)
+				if wantFilesInDir != gotFilesInDir {
+					t.Fatalf("wrong number of files after deletion: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
+				}
+			})
+		}
+	})
+
+	t.Run("Delete with split-merge middleware - file doesn't exist", func(t *testing.T) {
+		partSize := int64(1024)
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+
+		fName := "test_rm_file"
+
+		err := smMW.Delete(fName)
+		if err != nil {
+			t.Fatalf("error while invoking Delete: %v", err)
+		}
+	})
+
+	t.Run("Delete with split-merge middleware - empty file", func(t *testing.T) {
+		partSize := int64(1024)
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+
+		fName := "test_rm_file"
+		file, err := os.Create(filepath.Join(tmpDir, fName))
+		if err != nil {
+			t.Fatalf("error creating empty file: %v", err)
+		}
+		defer file.Close()
+
+		err = smMW.Delete(fName)
+		if err != nil {
+			t.Fatalf("error while invoking Delete: %v", err)
+		}
+
+		wantFilesInDir := 0
+		gotFilesInDir := countFilesInDir(t, tmpDir)
+		if wantFilesInDir != gotFilesInDir {
+			t.Fatalf("wrong number of files after deletion: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
 		}
 	})
 }
@@ -556,4 +667,12 @@ func calcPartSizes(partSize, totalSize int64) []int64 {
 	}
 
 	return res
+}
+
+func countFilesInDir(t *testing.T, d string) int {
+	e, err := os.ReadDir(d)
+	if err != nil {
+		t.Logf("read dir: %v", err)
+	}
+	return len(e)
 }
