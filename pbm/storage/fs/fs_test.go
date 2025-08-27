@@ -337,6 +337,107 @@ func TestSourceReader(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("Closing the stream when using split-merge middleware", func(t *testing.T) {
+		//todo...
+	})
+}
+
+func TestFileStat(t *testing.T) {
+	t.Run("FileStat with split-merge middleware", func(t *testing.T) {
+		testCases := []struct {
+			desc          string
+			partSize      int64
+			totalFileSize int64
+			wantErr       error
+		}{
+			{
+				desc:          "basic use caser for FileStat",
+				partSize:      5 * 1024,
+				totalFileSize: 10*5*1024 + 456,
+			},
+			{
+				desc:          "stat for 100s of parts",
+				partSize:      456,
+				totalFileSize: 123*456 + 789,
+			},
+			{
+				desc:          "stat for 1000s of parts",
+				partSize:      123,
+				totalFileSize: 4567*123 + 1,
+			},
+			{
+				desc:          "single part",
+				partSize:      1024 * 1024,
+				totalFileSize: 1024 * 1024,
+			},
+			{
+				desc:          "two parts",
+				partSize:      1024 * 1024,
+				totalFileSize: 2 * 1024 * 1024,
+			},
+			{
+				desc:          "1 byte file",
+				partSize:      20 * 1024,
+				totalFileSize: 1,
+			},
+		}
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				tmpDir := setupTestDir(t)
+				fs := &FS{root: tmpDir}
+				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+
+				fName := "test_file_stat"
+				// create test parts
+				srcContent := make([]byte, tC.totalFileSize)
+				r := bytes.NewReader(srcContent)
+				err := smMW.Save(fName, r)
+				if err != nil {
+					t.Fatalf("error while creating test parts: %v", err)
+				}
+
+				fInfo, err := smMW.FileStat(fName)
+				if err != nil {
+					t.Fatalf("error while invoking FileStat: %v", err)
+				}
+
+				if fInfo.Name != fName {
+					t.Fatalf("wrong file name, want=%s, got=%s", fName, fInfo.Name)
+				}
+				if fInfo.Size != tC.totalFileSize {
+					t.Fatalf("wrong file size, want=%d, got=%d", tC.totalFileSize, fInfo.Size)
+				}
+			})
+		}
+	})
+
+	t.Run("FileStat with empty file and split-merge middleware", func(t *testing.T) {
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		partSize := int64(1024)
+
+		smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+
+		fName := "test_file_stat"
+		file, err := os.Create(filepath.Join(tmpDir, fName))
+		if err != nil {
+			t.Fatalf("error creating empty file: %v", err)
+		}
+		defer file.Close()
+
+		fInfo, err := smMW.FileStat(fName)
+		if err != storage.ErrEmpty {
+			t.Fatalf("error while invoking FileStat: want=%v, got=%v", storage.ErrEmpty, err)
+		}
+
+		if fInfo.Name != "" {
+			t.Fatalf("wrong file name, want empty string but got=%s", fInfo.Name)
+		}
+		if fInfo.Size != 0 {
+			t.Fatalf("wrong file size, want=%d, got=%d", 0, fInfo.Size)
+		}
+	})
 }
 
 func setupTestDir(t *testing.T) string {

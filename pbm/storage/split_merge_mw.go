@@ -117,7 +117,7 @@ func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 	if err != nil {
 		return FileInfo{}, errors.Wrap(err, "list with parts for mw file stat op")
 	}
-	if len(fi) == 0 {
+	if len(fi) <= 1 {
 		// the same behaviour like without mw
 		return sm.s.FileStat(name)
 	}

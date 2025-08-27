@@ -177,12 +177,12 @@ func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
 	if err != nil {
 		return inf, err
 	}
-
-	inf.Size = f.Size()
-
-	if inf.Size == 0 {
+	if f.Size() == 0 {
 		return inf, storage.ErrEmpty
 	}
+
+	inf.Name = name
+	inf.Size = f.Size()
 
 	return inf, nil
 }
