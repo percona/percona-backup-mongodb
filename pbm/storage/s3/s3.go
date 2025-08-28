@@ -40,7 +40,7 @@ const (
 	defaultRetryerMinRetryDelay = 30 * time.Millisecond
 	defaultRetryerMaxRetryDelay = 300 * time.Second
 
-	DefaultMaxObjSizeTB = 5.0
+	DefaultMaxObjSizeTB = 4.9
 )
 
 //nolint:lll

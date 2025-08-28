@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	DefaultMaxObjSizeTB = 5.0
+	DefaultMaxObjSizeTB = 4.9
 )
 
 type Config struct {
@@ -139,7 +139,7 @@ func (cfg *Config) GetMaxObjSizeTB() float64 {
 	return DefaultMaxObjSizeTB
 }
 
-func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
+func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	g := &GCS{
 		opts: opts,
 		log:  l,
@@ -166,7 +166,7 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 		cc:       1,
 	}
 
-	return g, nil
+	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeTB()), nil
 }
 
 func (*GCS) Type() storage.Type {

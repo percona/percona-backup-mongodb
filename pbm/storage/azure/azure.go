@@ -136,7 +136,7 @@ type Blob struct {
 	c *azblob.Client
 }
 
-func New(opts *Config, node string, l log.LogEvent) (*Blob, error) {
+func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	if l == nil {
 		l = log.DiscardEvent
 	}
@@ -152,7 +152,7 @@ func New(opts *Config, node string, l log.LogEvent) (*Blob, error) {
 		return nil, errors.Wrap(err, "init container")
 	}
 
-	return b, b.ensureContainer()
+	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeTB()), b.ensureContainer()
 }
 
 func (*Blob) Type() storage.Type {

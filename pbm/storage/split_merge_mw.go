@@ -201,18 +201,19 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	for _, f := range fi {
 		if f.Name == src {
 			// copy base part
-			sm.s.Copy(src, dstPartName)
+			if err = sm.s.Copy(src, dstPartName); err != nil {
+				return errors.Wrap(err, "copy base part")
+			}
 		} else {
 			dstPartName, err = createNextPart(dstPartName)
 			if err != nil {
 				return errors.Wrap(err, "create next part name")
 			}
-			if err := sm.s.Copy(f.Name, dstPartName); err != nil {
+			if err = sm.s.Copy(f.Name, dstPartName); err != nil {
 				return errors.Wrapf(err, "copy %s to %s", f.Name, dstPartName)
 			}
 		}
 	}
-
 	return nil
 }
 
