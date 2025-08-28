@@ -3,6 +3,7 @@ package oplog
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -136,6 +137,292 @@ func TestIsOpForCloning(t *testing.T) {
 			if res != tC.isForCloning {
 				t.Errorf("%s: for entry: %+v isOpForCloning is: %t, but it should be opposite",
 					tC.desc, tC.entry, tC.isForCloning)
+			}
+		})
+	}
+}
+
+func TestIsOpAllowed(t *testing.T) {
+	testCases := []struct {
+		desc      string
+		entry     *db.Oplog
+		opAllowed bool
+	}{
+		{
+			desc:      "any other than config",
+			entry:     createInsertOp(t, "db1.c1"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.chunks",
+			entry:     createInsertOp(t, "config.chunks"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.collections",
+			entry:     createInsertOp(t, "config.collections"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.databases",
+			entry:     createInsertOp(t, "config.databases"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.shards",
+			entry:     createInsertOp(t, "config.shards"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.tags",
+			entry:     createUpdateOp(t, "config.tags"),
+			opAllowed: true,
+		},
+		{
+			desc:      "config.version",
+			entry:     createDeleteOp(t, "config.version"),
+			opAllowed: true,
+		},
+		{
+			desc:      "dissalowed config collection",
+			entry:     createInsertOp(t, "config.mongos"),
+			opAllowed: false,
+		},
+		{
+			desc:      "wrong config.settings doc will not break",
+			entry:     createDeleteOp(t, "config.settings"),
+			opAllowed: true,
+		},
+		{
+			desc:      "settings doc for balancer",
+			entry:     configSettingsBalancerEntry(),
+			opAllowed: false,
+		},
+		{
+			desc:      "settings doc for automerge",
+			entry:     configSettingsAutomergeEntry(),
+			opAllowed: false,
+		},
+		{
+			desc:      "allowed settings doc",
+			entry:     configSettingsAnyOtherEntry(),
+			opAllowed: true,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			res := isOpAllowed(tC.entry)
+			if res != tC.opAllowed {
+				t.Errorf("%s: for entry: %+v isOpAllowed is: %t, but it should be opposite",
+					tC.desc, tC.entry, tC.opAllowed)
+			}
+		})
+	}
+}
+
+func TestIsConfigCollectionsDocAllowed(t *testing.T) {
+	tUUID := "06f587d338174590ad1cadd65bf9ee4f"
+	tUUID2 := "06f587d338174590ad1cadd65bf9ee4a"
+	testCases := []struct {
+		desc         string
+		entry        *db.Oplog
+		sessUUID     string
+		wantSessUUID string
+		opAllowed    bool
+	}{
+		{
+			desc:         "not config db entry, sess uuid specified",
+			entry:        createInsertOp(t, "a.b"),
+			sessUUID:     tUUID,
+			wantSessUUID: tUUID,
+			opAllowed:    true,
+		},
+		{
+			desc:         "not config db entry, sess uuid unspecified",
+			entry:        createInsertOp(t, "a.b"),
+			sessUUID:     "",
+			wantSessUUID: "",
+			opAllowed:    true,
+		},
+		{
+			desc:         "not config.collections entry",
+			entry:        createConfigChunksEntry("abc"),
+			sessUUID:     tUUID,
+			wantSessUUID: tUUID,
+			opAllowed:    true,
+		},
+		{
+			desc:         "config.collections entry for sessions with empty uuid",
+			entry:        createConfigCollectionsEntry("config.system.sessions", ""),
+			sessUUID:     tUUID,
+			wantSessUUID: tUUID,
+			opAllowed:    false,
+		},
+		{
+			desc:         "config.collections entry for sessions that should not be allowed",
+			entry:        createConfigCollectionsEntry("config.system.sessions", tUUID),
+			sessUUID:     tUUID,
+			wantSessUUID: tUUID,
+			opAllowed:    false,
+		},
+		{
+			desc:         "config.collections entry for session that doesn't match uuid",
+			entry:        createConfigCollectionsEntry("config.system.sessions", tUUID),
+			sessUUID:     tUUID2,
+			wantSessUUID: tUUID2,
+			opAllowed:    false,
+		},
+		{
+			desc:         "insert config.collections entry for session and sessUUID is not specified",
+			entry:        createConfigCollectionsEntry("config.system.sessions", tUUID),
+			sessUUID:     "",
+			wantSessUUID: tUUID,
+			opAllowed:    false,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			sessUUID := tC.sessUUID
+			res := isConfigCollectionsDocAllowed(tC.entry, &sessUUID)
+
+			if res != tC.opAllowed {
+				t.Errorf("%s: for entry: %+v isConfigCollectionsDocAllowed is: %t, but it should be opposite",
+					tC.desc, tC.entry, res)
+			}
+
+			if tC.wantSessUUID != sessUUID {
+				t.Errorf("%s: wrong sessUUID, want=%s, got=%s",
+					tC.desc, tC.wantSessUUID, sessUUID)
+			}
+		})
+	}
+}
+
+func TestIsConfigChunksDocAllowed(t *testing.T) {
+	testCases := []struct {
+		desc      string
+		entry     *db.Oplog
+		uuid      string
+		opAllowed bool
+	}{
+		{
+			desc:      "not config db entry",
+			entry:     createInsertOp(t, "a.b"),
+			opAllowed: true,
+		},
+		{
+			desc:      "not config.chunks entry",
+			entry:     createConfigCollectionsEntry("abc", "06f587d338174590ad1cadd65bf9ee5a"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee5a",
+			opAllowed: true,
+		},
+		{
+			desc:      "empty uuid",
+			entry:     createConfigChunksEntry(""),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: true,
+		},
+		{
+			desc:      "config.chunks entry for sessions that should not be allowed",
+			entry:     createConfigChunksEntry("06f587d338174590ad1cadd65bf9ee4f"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: false,
+		},
+		{
+			desc:      "config.chunks entry for session that doesn't match uuid",
+			entry:     createConfigChunksEntry("06f587d338174590ad1cadd65bf9ee5a"),
+			uuid:      "06f587d338174590ad1cadd65bf9ee4f",
+			opAllowed: true,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			res := isConfigChunksDocAllowed(tC.entry, tC.uuid)
+			if res != tC.opAllowed {
+				t.Errorf("%s: for entry: %+v isConfigChunksDocAllowed is: %t, but it should be opposite",
+					tC.desc, tC.entry, res)
+			}
+		})
+	}
+}
+
+func TestIsRoutingDocExcluded(t *testing.T) {
+	tUUID := "06f587d338174590ad1cadd65bf9ee4f"
+	tUUID2 := "06f587d338174590ad1cadd65bf9ee4a"
+	testCases := []struct {
+		desc         string
+		entry        *db.Oplog
+		sessUUID     string
+		wantSessUUID string
+		excluded     bool
+	}{
+		{
+			desc:         "different ns, op should be included",
+			entry:        createInsertOp(t, "a.b"),
+			sessUUID:     tUUID,
+			wantSessUUID: tUUID,
+			excluded:     false,
+		},
+		{
+			desc:         "config.collections should be included, sessUUID specified",
+			entry:        createConfigCollectionsEntry("a.b", tUUID),
+			sessUUID:     tUUID2,
+			wantSessUUID: tUUID2,
+			excluded:     false,
+		},
+		{
+			desc:         "config.collections should be included, sessUUID not specified",
+			entry:        createConfigCollectionsEntry("a.b", tUUID),
+			sessUUID:     "",
+			wantSessUUID: "",
+			excluded:     false,
+		},
+		{
+			desc:         "config.collections should be excluded, sessUUID specified",
+			entry:        createConfigCollectionsEntry("config.system.sessions", tUUID),
+			sessUUID:     tUUID2,
+			wantSessUUID: tUUID2,
+			excluded:     true,
+		},
+		{
+			desc:         "config.collections should be excluded, sessUUID not specified, sessUUID updated",
+			entry:        createConfigCollectionsEntry("config.system.sessions", tUUID),
+			sessUUID:     "",
+			wantSessUUID: tUUID,
+			excluded:     true,
+		},
+		{
+			desc:         "config.chunks should be included",
+			entry:        createConfigChunksEntry(tUUID),
+			sessUUID:     tUUID2,
+			wantSessUUID: tUUID2,
+			excluded:     false,
+		},
+		{
+			desc:         "config.chunks should be excluded",
+			entry:        createConfigChunksEntry(tUUID),
+			sessUUID:     tUUID,
+			wantSessUUID: tUUID,
+			excluded:     true,
+		},
+	}
+
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+			sessUUID := tC.sessUUID
+			res := isRoutingDocExcluded(tC.entry, &sessUUID)
+
+			if res != tC.excluded {
+				t.Errorf("%s: isRoutingDocExcluded for entry: %+v  is: %t, but it should be opposite",
+					tC.desc, tC.entry, res)
+			}
+
+			if tC.wantSessUUID != sessUUID {
+				t.Errorf("%s: wrong sessUUID, want=%s, got=%s",
+					tC.desc, tC.wantSessUUID, sessUUID)
 			}
 		})
 	}
@@ -637,4 +924,56 @@ func replaceNsWithinOpEntry(t *testing.T, jsonEntry, ns string) *db.Oplog {
 		oe.Namespace = ns
 	}
 	return &oe
+}
+
+func configSettingsBalancerEntry() *db.Oplog {
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.settings",
+		Object:    bson.D{{"_id", "balancer"}, {"mode", "off"}, {"stopped", true}},
+		Query:     bson.D{{"_id", "balancer"}},
+	}
+}
+
+func configSettingsAutomergeEntry() *db.Oplog {
+	return &db.Oplog{
+		Operation: "u",
+		Namespace: "config.settings",
+		Query:     bson.D{{"_id", "automerge"}},
+	}
+}
+
+func configSettingsAnyOtherEntry() *db.Oplog {
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.settings",
+		Object:    bson.D{{"_id", "chunksize"}, {"value", 128}},
+		Query:     bson.D{{"_id", "chunksize"}},
+	}
+}
+
+func createConfigCollectionsEntry(shardedColl, collUUID string) *db.Oplog {
+	uuid, _ := hex.DecodeString(collUUID)
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.collections",
+		Object: bson.D{
+			{"_id", shardedColl},
+			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
+		},
+	}
+}
+
+func createConfigChunksEntry(uuid string) *db.Oplog {
+	uuidDecoded, _ := hex.DecodeString(uuid)
+	id, _ := hex.DecodeString("some id")
+	return &db.Oplog{
+		Operation: "i",
+		Namespace: "config.chunks",
+		Object: bson.D{
+			{"_id", id},
+			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
+			{"shard", "rsX"},
+		},
+	}
 }

@@ -266,7 +266,8 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
+	sysSessionsUUID := ""
+	sysSessionsUUID, err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -280,9 +281,10 @@ func (r *Restore) Snapshot(
 		{chunks: chunks, storage: r.bcpStg},
 	}
 	oplogOption := &applyOplogOption{
-		end:     &bcp.LastWriteTS,
-		nss:     nss,
-		cloudNS: cloneNS,
+		end:      &bcp.LastWriteTS,
+		nss:      nss,
+		cloudNS:  cloneNS,
+		sessUUID: sysSessionsUUID,
 	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
@@ -452,7 +454,8 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
+	sysSessionsUUID := ""
+	sysSessionsUUID, err = r.RunSnapshot(ctx, dump, bcp, nss, cloneNS, usersAndRolesOpt)
 	if err != nil {
 		return err
 	}
@@ -467,9 +470,10 @@ func (r *Restore) PITR(
 		{chunks: chunks, storage: r.oplogStg},
 	}
 	oplogOption := applyOplogOption{
-		end:     &cmd.OplogTS,
-		nss:     nss,
-		cloudNS: cloneNS,
+		end:      &cmd.OplogTS,
+		nss:      nss,
+		cloudNS:  cloneNS,
+		sessUUID: sysSessionsUUID,
 	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
@@ -941,13 +945,13 @@ func (r *Restore) RunSnapshot(
 	nss []string,
 	cloneNS snapshot.CloneNS,
 	usersAndRolesOpt restoreUsersAndRolesOption,
-) error {
+) (string, error) {
 	if version.IsLegacyArchive(bcp.PBMVersion) {
 		if util.IsSelective(bcp.Namespaces) || util.IsSelective(nss) {
-			return errors.New("selective restore is not supported from legacy backup")
+			return "", errors.New("selective restore is not supported from legacy backup")
 		}
 
-		return r.restoreLegacyArchive(ctx, dump, bcp)
+		return "", r.restoreLegacyArchive(ctx, dump, bcp)
 	}
 
 	if !util.IsSelective(nss) {
@@ -995,34 +999,44 @@ func (r *Restore) RunSnapshot(
 		util.MakeSelectedPred(nss),
 		r.numParallelColls)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer rdr.Close()
 
-	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
+	sysSessionsUUID := ""
+	if r.nodeInfo.IsConfigSrv() {
 		err = r.snapshot(rdr, cloneNS, true)
 		if err != nil {
-			return errors.Wrap(err, "mongorestore")
+			return "", errors.Wrap(err, "mongorestore")
 		}
 
-		// restore cluster specific configs only
-		if err := r.configsvrRestore(ctx, bcp, nss, mapRS); err != nil {
-			return err
+		if util.IsSelective(nss) {
+			// restore cluster specific configs only
+			if err := r.configsvrSelRestore(ctx, bcp, nss, mapRS); err != nil {
+				return "", err
+			}
+		} else {
+			// full restore on CSRS
+			sysSessionsUUID, err = r.configsvrFullRestore(ctx, bcp, mapRS)
+			if err != nil {
+				return "", err
+			}
 		}
 	} else {
+		// restore on the RS topo or Shard
 		err = r.snapshot(rdr, cloneNS, false)
 		if err != nil {
-			return errors.Wrap(err, "mongorestore")
+			return "", errors.Wrap(err, "mongorestore")
 		}
 	}
 
 	if usersAndRolesOpt {
 		if err := r.restoreUsersAndRoles(ctx, nss); err != nil {
-			return errors.Wrap(err, "restoring users and roles")
+			return "", errors.Wrap(err, "restoring users and roles")
 		}
 	}
 
-	return nil
+	return sysSessionsUUID, nil
 }
 
 func (r *Restore) restoreLegacyArchive(

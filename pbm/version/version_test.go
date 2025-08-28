@@ -1,6 +1,7 @@
 package version
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -116,5 +117,44 @@ func TestHasPhysicalFilesMetadata(t *testing.T) {
 		if expect != got {
 			t.Errorf("%q - expected %v, got %v", ver, expect, got)
 		}
+	}
+}
+
+func TestPBMSupport(t *testing.T) {
+	cases := []struct {
+		name     string
+		ver      []int
+		wantErr  bool
+		contains string
+	}{
+		{name: "supported 5.0.0", ver: []int{5, 0, 0}, wantErr: false},
+		{name: "supported 5.0.x", ver: []int{5, 0, 14}, wantErr: false},
+		{name: "supported 6.0.x", ver: []int{6, 0, 5}, wantErr: false},
+		{name: "supported 8.0.x", ver: []int{8, 0, 1}, wantErr: false},
+
+		{name: "too old 4.4.18", ver: []int{4, 4, 18}, wantErr: true, contains: "upgrade your MongoDB"},
+		{name: "unsupported minor 5.1.0", ver: []int{5, 1, 0}, wantErr: true, contains: "upgrade your PBM"},
+		{name: "newer major 9.0.0", ver: []int{9, 0, 0}, wantErr: true, contains: "upgrade your PBM"},
+		{name: "unsupported minor 7.2.3", ver: []int{7, 2, 3}, wantErr: true, contains: "upgrade your PBM"},
+		{name: "incomplete version array", ver: []int{7}, wantErr: true, contains: "incomplete versionArray"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := FeatureSupport(MongoVersion{Version: tc.ver}).PBMSupport()
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("unexpected error presence: err=%v wantErr=%v", err, tc.wantErr)
+			}
+			if err != nil {
+				if tc.contains != "" && !strings.Contains(err.Error(), tc.contains) {
+					t.Fatalf("unexpected error message: %q does not contain %q", err.Error(), tc.contains)
+				}
+				if tc.contains == "" || !strings.Contains(tc.contains, "incomplete versionArray") {
+					if !strings.Contains(err.Error(), "This PBM works with v5.0, v6.0, v7.0, v8.0") {
+						t.Fatalf("error should list supported versions, got: %q", err.Error())
+					}
+				}
+			}
+		})
 	}
 }

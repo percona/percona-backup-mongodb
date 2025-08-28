@@ -10,6 +10,7 @@ package oplog
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,8 +97,33 @@ var dontPreserveUUID = []string{
 	"admin.system.users",
 	"admin.system.roles",
 	"admin.system.keys",
+	defs.ConfigDatabasesNS,
+	defs.ConfigCollectionsNS,
+	defs.ConfigChunksNS,
 	"*.system.buckets.*", // timeseries
 	"*.system.views",     // timeseries
+}
+
+// ConfigCollToKeep defines a list of collections in the `config`
+// database that PBM will apply oplog events.
+var configCollToKeep = []string{
+	"chunks",
+	"collections",
+	"databases",
+	"shards",
+	"tags",
+	"version",
+}
+
+const (
+	settingsColl    = "settings"
+	collectionsColl = "collections"
+	chunksColl      = "chunks"
+)
+
+var settingsToSkip = []string{
+	"balancer",
+	"automerge",
 }
 
 var ErrNoCloningNamespace = errors.New("cloning namespace desn't exist")
@@ -156,8 +182,9 @@ type OplogRestore struct {
 
 	unsafe bool
 
-	filter  OpFilter
-	cloneNS cloneNS
+	filter   OpFilter
+	cloneNS  cloneNS
+	sessUUID string
 }
 
 const saveLastDistTxns = 100
@@ -316,14 +343,27 @@ func (o *OplogRestore) SetCloneNS(ctx context.Context, ns snapshot.CloneNS) erro
 	return nil
 }
 
+// SetSessionsToExclude sets UUID for the config.system.sessions collection
+// that needs to be excluded from when oplog is applied.
+func (o *OplogRestore) SetSessionsToExclude(sessUUID string) {
+	o.sessUUID = sessUUID
+}
+
+// isOpAllowed inspects whether op is allowed from config database point of view.
+// It allows/disallows only specific collections for config database.
+// It disallows balancer settings that would cause the balancer to work during PITR.
 func isOpAllowed(oe *Record) bool {
 	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
 	if !ok {
 		return true // OK: not a "config" database. allow any ops
 	}
 
-	if slices.Contains(dumprestore.ConfigCollectionsToKeep, coll) {
+	if slices.Contains(configCollToKeep, coll) {
 		return true // OK: create/update/delete a doc
+	}
+
+	if coll == settingsColl {
+		return isConfigSettingAllowed(oe)
 	}
 
 	if coll != "$cmd" || len(oe.Object) == 0 {
@@ -340,6 +380,134 @@ func isOpAllowed(oe *Record) bool {
 	}
 
 	return false
+}
+
+// isConfigSettingAllowed filter out entries from config.settings collection
+func isConfigSettingAllowed(oe *Record) bool {
+	for _, e := range oe.Query {
+		if e.Key != "_id" {
+			continue
+		}
+		setting, _ := e.Value.(string)
+		if slices.Contains(settingsToSkip, setting) {
+			return false
+		}
+	}
+	return true // allow setting from config.settings
+}
+
+// isRoutingDocExcluded checks if we need to exclude document from
+// CSRS routing tables (collections and chunks).
+// It excludes config.system.sessions related documents with specified
+// UUID (sessUUID).
+// In case whaen sessUUID is not specified, function can set sessUUID
+// based on oplog entry (op:"i") for config.system.sessions doc.
+func isRoutingDocExcluded(oe *Record, sessUUID *string) bool {
+	if !isConfigCollectionsDocAllowed(oe, sessUUID) {
+		return true
+	}
+
+	if !isConfigChunksDocAllowed(oe, *sessUUID) {
+		return true
+	}
+
+	return false
+}
+
+// isConfigCollectionsDocAllowed returns true if config.collections entry has
+// allowed document.
+// Disallowed document has:
+//   - namespace config.system.sessions,
+//   - uuid specified with sessUUID parameter,
+//   - when sessUUID is unspecified, function will try to update sessUUID
+//     from the oplog entry, and in that case sessUUID will contain updated value.
+//
+// For disallowed document false will be returned.
+func isConfigCollectionsDocAllowed(oe *Record, sessUUID *string) bool {
+	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
+	if !ok {
+		return true // no config db, just skip it
+	}
+
+	if coll != collectionsColl {
+		return true
+	}
+
+	// entry is for config.collection
+	for _, e := range oe.Object {
+		if e.Key != "_id" {
+			continue
+		}
+		id, _ := e.Value.(string)
+		if id != defs.ConfigSystemSessionsNS {
+			return true
+		} else {
+			break
+		}
+	}
+
+	// try to update system.sessions from the oplog
+	for _, e := range oe.Object {
+		if e.Key != "uuid" {
+			continue
+		}
+
+		oeUUID, ok := e.Value.(primitive.Binary)
+		if !ok {
+			return true
+		}
+		uuid := hex.EncodeToString(oeUUID.Data)
+
+		if len(*sessUUID) == 0 && oe.Operation == "i" {
+			// uuid for config.system.sessions collection is created within oplog
+			*sessUUID = uuid
+			return false
+		} else {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isConfigChunksDocAllowed returns true if config.chunks entry has
+// allowed document. Disallowed document has UUID of disallowed namespace
+// specified with sessUUID parameter.
+// For all other documents false will be returned.
+func isConfigChunksDocAllowed(oe *Record, sessUUID string) bool {
+	if len(sessUUID) == 0 {
+		// uuid for config.system.sessions is not set, so just allow the entry
+		return true
+	}
+
+	coll, ok := strings.CutPrefix(oe.Namespace, "config.")
+	if !ok {
+		return true // no config db, just skip it
+	}
+
+	if coll != chunksColl {
+		return true
+	}
+
+	for _, e := range oe.Object {
+		if e.Key != "uuid" {
+			continue
+		}
+
+		oeUUID, ok := e.Value.(primitive.Binary)
+		if !ok {
+			return true
+		}
+		uuid := hex.EncodeToString(oeUUID.Data)
+
+		if uuid == sessUUID {
+			return false
+		} else {
+			return true
+		}
+	}
+
+	return true
 }
 
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
@@ -412,6 +580,8 @@ func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
 	return false
 }
 
+// isOpExcluded check if collection is excluded.
+// Mostly refers PBM's control collections, but also some config and admin ones.
 func (o *OplogRestore) isOpExcluded(oe *Record) bool {
 	if o.excludeNS == nil {
 		return false
@@ -463,7 +633,8 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	}
 
 	if o.isOpExcluded(&oe) || !isOpAllowed(&oe) ||
-		!o.isOpSelected(&oe) || !o.isOpForCloning(&oe) {
+		!o.isOpSelected(&oe) || !o.isOpForCloning(&oe) ||
+		isRoutingDocExcluded(&oe, &o.sessUUID) {
 		return nil
 	}
 
@@ -476,6 +647,31 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
+	if err := o.setPreserveUUID(oe); err != nil {
+		return err
+	}
+
+	meta, err := txn.NewMeta(oe)
+	if err != nil {
+		return errors.Wrap(err, "get op metadata")
+	}
+
+	if meta.IsTxn() {
+		err = o.handleTxnOp(meta, oe)
+		if err != nil {
+			return errors.Wrap(err, "applying a transaction entry")
+		}
+	} else {
+		err = o.handleNonTxnOp(oe)
+		if err != nil {
+			return errors.Wrap(err, "applying an entry")
+		}
+	}
+
+	return nil
+}
+
+func (o *OplogRestore) setPreserveUUID(oe db.Oplog) error {
 	// optimization - not to parse namespace if it remains the same
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
@@ -496,23 +692,6 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		}
 
 		o.cnamespase = oe.Namespace
-	}
-
-	meta, err := txn.NewMeta(oe)
-	if err != nil {
-		return errors.Wrap(err, "get op metadata")
-	}
-
-	if meta.IsTxn() {
-		err = o.handleTxnOp(meta, oe)
-		if err != nil {
-			return errors.Wrap(err, "applying a transaction entry")
-		}
-	} else {
-		err = o.handleNonTxnOp(oe)
-		if err != nil {
-			return errors.Wrap(err, "applying an entry")
-		}
 	}
 
 	return nil
@@ -820,8 +999,13 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	// have to handle it here one more time because before the op gets thru
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
 	if o.isOpExcluded(&op) || !isOpAllowed(&op) ||
-		!o.isOpSelected(&op) || !o.isOpForCloning(&op) {
+		!o.isOpSelected(&op) || !o.isOpForCloning(&op) ||
+		isRoutingDocExcluded(&op, &o.sessUUID) {
 		return nil
+	}
+
+	if err := o.setPreserveUUID(op); err != nil {
+		return err
 	}
 
 	op, err := o.filterUUIDs(op)
