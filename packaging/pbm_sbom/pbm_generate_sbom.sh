@@ -82,7 +82,7 @@ install_dependencies() {
     amzn)
       RHEL=$(rpm --eval %amzn)
       PLATFORM=${PLATFORM_ID}${RHEL}
-      dnf install -y jq
+      dnf install -y jq tar
       dnf install -y 'dnf-command(config-manager)'
       ;;
     ubuntu|debian)
