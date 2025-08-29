@@ -78,7 +78,7 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 }
 
 func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
-	fi, err := sm.fileWithParts(name)
+	fi, err := sm.FileWithParts(name)
 	if err != nil {
 		return nil, errors.Wrap(err, "list with parts for mw source reader")
 	}
@@ -112,7 +112,7 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 }
 
 func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
-	fi, err := sm.fileWithParts(name)
+	fi, err := sm.FileWithParts(name)
 	if err != nil {
 		return FileInfo{}, errors.Wrap(err, "list with parts for mw file stat op")
 	}
@@ -165,7 +165,7 @@ func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 }
 
 func (sm *SpitMergeMiddleware) Delete(name string) error {
-	fi, err := sm.fileWithParts(name)
+	fi, err := sm.FileWithParts(name)
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
@@ -183,7 +183,7 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 }
 
 func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
-	fi, err := sm.fileWithParts(src)
+	fi, err := sm.FileWithParts(src)
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
@@ -211,8 +211,8 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	return nil
 }
 
-// fileWithParts fetches file with base name and all it's PBM parts.
-func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
+// FileWithParts fetches file with base name and all it's PBM parts.
+func (sm *SpitMergeMiddleware) FileWithParts(name string) ([]FileInfo, error) {
 	d, f := path.Split(name)
 	fList, err := sm.s.List(d, "")
 	if err != nil {
@@ -241,6 +241,11 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	}
 
 	return res, nil
+}
+
+// setPartsSize set pbm part size (in bytes) for the purpose of unit testing.
+func (sm *SpitMergeMiddleware) setPartsSize(maxObjSize int64) {
+	sm.maxObjSize = maxObjSize
 }
 
 // createNextPart returns file name for the next pbm part.

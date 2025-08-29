@@ -425,7 +425,7 @@ func TestSave(t *testing.T) {
 					t.Fatalf("wrong number of splitted files: want=%d, got=%d", tC.wantParts, len(files))
 				}
 
-				wantSizes := calcPartSizes(tC.partSize, tC.fileSize)
+				wantSizes := storage.CalcPartSizes(tC.partSize, tC.fileSize)
 				for i := range len(files) {
 					if wantSizes[i] != files[i].Size {
 						t.Fatalf("wrong file size for file: %s: want=%d, got=%d", files[i].Name, wantSizes[i], files[i].Size)
@@ -719,7 +719,7 @@ func TestDelete(t *testing.T) {
 				}
 
 				fileDir := path.Dir(path.Join(tmpDir, fName))
-				wantFilesInDir := len(calcPartSizes(tC.partSize, tC.totalFileSize))
+				wantFilesInDir := len(storage.CalcPartSizes(tC.partSize, tC.totalFileSize))
 				gotFilesInDir := countFilesInDir(t, fileDir)
 				if wantFilesInDir != gotFilesInDir {
 					t.Fatalf("wrong number of files within dir: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
@@ -957,21 +957,6 @@ func getFileWithParts(t *testing.T, dir, name string) []storage.FileInfo {
 			}
 			res[i] = f
 		}
-	}
-
-	return res
-}
-
-func calcPartSizes(partSize, totalSize int64) []int64 {
-	padding := totalSize % partSize
-	partsCount := totalSize / partSize
-
-	res := make([]int64, partsCount)
-	for i := range partsCount {
-		res[i] = partSize
-	}
-	if padding > 0 {
-		res = append(res, padding)
 	}
 
 	return res
