@@ -248,7 +248,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 					t.Fatalf("error while saving file: %v", err)
 				}
 
-				fi, err := mw.FileWithParts(fName)
+				fi, err := mw.fileWithParts(fName)
 				if err != nil {
 					t.Fatalf("error while getting parts: %v", err)
 				}

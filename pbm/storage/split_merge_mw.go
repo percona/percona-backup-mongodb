@@ -78,7 +78,7 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 }
 
 func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
-	fi, err := sm.FileWithParts(name)
+	fi, err := sm.fileWithParts(name)
 	if err != nil {
 		return nil, errors.Wrap(err, "list with parts for mw source reader")
 	}
@@ -112,7 +112,7 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 }
 
 func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
-	fi, err := sm.FileWithParts(name)
+	fi, err := sm.fileWithParts(name)
 	if err != nil {
 		return FileInfo{}, errors.Wrap(err, "list with parts for mw file stat op")
 	}
@@ -165,7 +165,7 @@ func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 }
 
 func (sm *SpitMergeMiddleware) Delete(name string) error {
-	fi, err := sm.FileWithParts(name)
+	fi, err := sm.fileWithParts(name)
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
@@ -183,7 +183,7 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 }
 
 func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
-	fi, err := sm.FileWithParts(src)
+	fi, err := sm.fileWithParts(src)
 	if err != nil {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
@@ -211,8 +211,8 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	return nil
 }
 
-// FileWithParts fetches file with base name and all it's PBM parts.
-func (sm *SpitMergeMiddleware) FileWithParts(name string) ([]FileInfo, error) {
+// fileWithParts fetches file with base name and all it's PBM parts.
+func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	d, f := path.Split(name)
 	fList, err := sm.s.List(d, "")
 	if err != nil {
