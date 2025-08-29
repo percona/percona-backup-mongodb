@@ -50,7 +50,7 @@ func TestList(t *testing.T) {
 				wantFiles: []storage.FileInfo{{Name: "file3.txt.tmp", Size: 8}, {Name: "subdir/file6.txt.tmp", Size: 8}},
 			},
 			{
-				desc:      "List files with prefix only",
+				desc:      "list files with prefix only",
 				prefix:    "subdir",
 				suffix:    "",
 				wantFiles: []storage.FileInfo{{Name: "file4.txt", Size: 8}, {Name: "file5.log", Size: 8}},
@@ -244,7 +244,82 @@ func TestList(t *testing.T) {
 			if fInfo[1].Size != fSize2 {
 				t.Fatalf("wrong file size: want=%d, got=%d", fSize2, fInfo[1].Size)
 			}
+		})
 
+		t.Run("listing files using deeper dir path", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			fName1 := "sub1/file_test_parts1"
+			fSize1 := int64(1 * 1024)
+			createFileWithParts(t, fName1, fSize1, smMW, tmpDir)
+			fName2 := "sub1/sub2/file_test_parts2"
+			fSize2 := int64(2 * 1024)
+			createFileWithParts(t, fName2, fSize2, smMW, tmpDir)
+			fName3 := "sub1/sub2/sub3/file_test_parts3"
+			fSize3 := int64(3 * 1024)
+			createFileWithParts(t, fName3, fSize3, smMW, tmpDir)
+
+			fInfo, err := smMW.List("", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+			if len(fInfo) != 3 {
+				t.Fatalf("expected 3 files, got=%d", len(fInfo))
+			}
+			slices.SortFunc(fInfo, fileInfoSort)
+			checkFileSizeAndName(
+				t,
+				fInfo,
+				[]string{fName1, fName2, fName3},
+				[]int64{fSize1, fSize2, fSize3},
+			)
+
+			fInfo, err = smMW.List("sub1", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+			if len(fInfo) != 3 {
+				t.Fatalf("expected 3 files, got=%d", len(fInfo))
+			}
+			slices.SortFunc(fInfo, fileInfoSort)
+			checkFileSizeAndName(
+				t,
+				fInfo,
+				[]string{removeParentDir(fName1, 1), removeParentDir(fName2, 1), removeParentDir(fName3, 1)},
+				[]int64{fSize1, fSize2, fSize3},
+			)
+
+			fInfo, err = smMW.List("sub1/sub2", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+			if len(fInfo) != 2 {
+				t.Fatalf("expected 2 files, got=%d", len(fInfo))
+			}
+			slices.SortFunc(fInfo, fileInfoSort)
+			checkFileSizeAndName(
+				t,
+				fInfo,
+				[]string{removeParentDir(fName2, 2), removeParentDir(fName3, 2)},
+				[]int64{fSize2, fSize3},
+			)
+
+			fInfo, err = smMW.List("sub1/sub2/sub3", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+			if len(fInfo) != 1 {
+				t.Fatalf("expected 1 files, got=%d", len(fInfo))
+			}
+			slices.SortFunc(fInfo, fileInfoSort)
+			checkFileSizeAndName(
+				t,
+				fInfo,
+				[]string{removeParentDir(fName3, 3)},
+				[]int64{fSize3},
+			)
 		})
 	})
 }
@@ -941,4 +1016,24 @@ func fileInfoSort(a storage.FileInfo, b storage.FileInfo) int {
 	} else {
 		return 0
 	}
+}
+
+func checkFileSizeAndName(
+	t *testing.T,
+	files []storage.FileInfo,
+	names []string, sizes []int64,
+) {
+	t.Helper()
+
+	for i, f := range files {
+		if f.Name != names[i] || f.Size != sizes[i] {
+			t.Fatalf("wrong file name or size for: %+v, want name=%s and size=%d",
+				f, names[i], sizes[i])
+		}
+	}
+}
+
+func removeParentDir(file string, nToRemove int) string {
+	s := strings.SplitAfterN(file, "/", nToRemove+1)
+	return s[len(s)-1]
 }

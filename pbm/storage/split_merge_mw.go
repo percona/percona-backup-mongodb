@@ -5,7 +5,6 @@ import (
 	"io"
 	"path"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -134,37 +133,32 @@ func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 }
 
 func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
-	fi, err := sm.s.List(prefix, suffix)
+	var fi []FileInfo
+	var err error
+	if suffix == ".tmp" {
+		fi, err = sm.s.List(prefix, suffix)
+	} else {
+		// fetch all without suffix, and filter after
+		fi, err = sm.s.List(prefix, "")
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "list files for mw list op")
 	}
 
-	fHasPart := []string{}
-	res := []FileInfo{}
-
-	// filter our all parts, keep base files
+	baseParts := map[string]int64{}
 	for _, f := range fi {
-		if strings.Contains(f.Name, pbmPartToken) {
-			// mark base part
-			baseFile := GetBasePart(f.Name)
-			fHasPart = append(fHasPart, baseFile)
-			// and ignore the part
+		baseFile := GetBasePart(f.Name)
+		if !strings.HasSuffix(baseFile, suffix) {
 			continue
 		}
-
-		// this is base part
-		res = append(res, f)
+		baseParts[baseFile] += f.Size
 	}
 
-	for i, f := range res {
-		if slices.Contains(fHasPart, f.Name) {
-			// this file has parts, we need to calculate total size
-			fStat, err := sm.FileStat(f.Name)
-			if err != nil {
-				return nil, errors.Wrapf(err, "file stat for list op for file: %s", f.Name)
-			}
-			res[i] = fStat
-		}
+	res := make([]FileInfo, len(baseParts))
+	i := 0
+	for f, s := range baseParts {
+		res[i] = FileInfo{Name: f, Size: s}
+		i++
 	}
 
 	return res, nil
@@ -219,7 +213,6 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 
 // fileWithParts fetches file with base name and all it's PBM parts.
 func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
-	log.Printf("bi: fileWithParts: name=%s", name)
 	d, f := path.Split(name)
 	fList, err := sm.s.List(d, "")
 	if err != nil {
@@ -296,6 +289,8 @@ func GetPartIndex(fname string) (int, error) {
 	return partID, nil
 }
 
+// GetBasePart extract base part of the file.
+// Base part is file without .pbmpart.xy suffix.
 func GetBasePart(fname string) string {
 	base := fname
 
