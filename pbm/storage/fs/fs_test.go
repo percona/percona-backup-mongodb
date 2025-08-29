@@ -545,7 +545,7 @@ func TestSourceReader(t *testing.T) {
 	})
 
 	t.Run("Closing the stream when using split-merge middleware", func(t *testing.T) {
-		//todo...
+		// todo...
 	})
 }
 
@@ -993,7 +993,7 @@ func createFileWithParts(
 	}
 }
 
-func fileInfoSort(a storage.FileInfo, b storage.FileInfo) int {
+func fileInfoSort(a, b storage.FileInfo) int {
 	if a.Name < b.Name {
 		return -1
 	} else if a.Name > b.Name {

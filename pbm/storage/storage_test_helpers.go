@@ -623,5 +623,4 @@ func randomSuffix() string {
 	randomBytes := make([]byte, 8)
 	_, _ = rand.Read(randomBytes)
 	return hex.EncodeToString(randomBytes)
-
 }

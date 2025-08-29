@@ -8,7 +8,6 @@ func TestCreateNextPart(t *testing.T) {
 		want := "file_name.pbmpart.1"
 
 		got, err := createNextPart(fname)
-
 		if err != nil {
 			t.Errorf("got error: %v", err)
 		}
@@ -22,7 +21,6 @@ func TestCreateNextPart(t *testing.T) {
 		want := "file_name.pbmpart.2"
 
 		got, err := createNextPart(fname)
-
 		if err != nil {
 			t.Errorf("got error: %v", err)
 		}
@@ -36,7 +34,6 @@ func TestCreateNextPart(t *testing.T) {
 		want := "file_name.pbmpart.10"
 
 		got, err := createNextPart(fname)
-
 		if err != nil {
 			t.Errorf("got error: %v", err)
 		}
@@ -49,7 +46,6 @@ func TestCreateNextPart(t *testing.T) {
 		fname := "file_name.pbmpart.X"
 
 		got, err := createNextPart(fname)
-
 		if err == nil {
 			t.Error("want error, get nil")
 		}
@@ -63,7 +59,6 @@ func TestCreateNextPart(t *testing.T) {
 		want := ".pbmpart.6"
 
 		got, err := createNextPart(fname)
-
 		if err != nil {
 			t.Errorf("got error: %v", err)
 		}
@@ -76,7 +71,6 @@ func TestCreateNextPart(t *testing.T) {
 		fname := "file_name.pbmpart."
 
 		got, err := createNextPart(fname)
-
 		if err == nil {
 			t.Error("want error, get nil")
 		}
@@ -92,7 +86,6 @@ func TestGetPartIndex(t *testing.T) {
 		want := 0
 
 		got, err := GetPartIndex(fname)
-
 		if err != nil {
 			t.Errorf("got error: %v", err)
 		}
@@ -106,7 +99,6 @@ func TestGetPartIndex(t *testing.T) {
 		want := 15
 
 		got, err := GetPartIndex(fname)
-
 		if err != nil {
 			t.Errorf("got error: %v", err)
 		}
@@ -119,7 +111,6 @@ func TestGetPartIndex(t *testing.T) {
 		fname := "file_name.pbmpart.X"
 
 		got, err := GetPartIndex(fname)
-
 		if err == nil {
 			t.Error("want error, get nil")
 		}
@@ -133,7 +124,6 @@ func TestGetPartIndex(t *testing.T) {
 		want := 5
 
 		got, err := GetPartIndex(fname)
-
 		if err != nil {
 			t.Errorf("got error: %v", err)
 		}
@@ -146,7 +136,6 @@ func TestGetPartIndex(t *testing.T) {
 		fname := "file_name.pbmpart."
 
 		got, err := GetPartIndex(fname)
-
 		if err == nil {
 			t.Error("want error, get nil")
 		}

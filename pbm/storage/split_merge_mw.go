@@ -83,7 +83,6 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 		return nil, errors.Wrap(err, "list with parts for mw source reader")
 	}
 	if len(fi) <= 1 {
-		// the same behaviour like without mw
 		return sm.s.SourceReader(name)
 	}
 
