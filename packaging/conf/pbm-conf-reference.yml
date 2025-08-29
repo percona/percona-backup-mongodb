@@ -10,7 +10,7 @@
 
 #storage:
 
-##  Remote backup storage type. Supported types: S3, filesystem, azure
+##  Remote backup storage type. Supported types: S3, GCS, shared filesystem, Azure
  
 
 #---------------------S3 Storage Configuration--------------------------
@@ -25,7 +25,7 @@
 ## When undefined, backups are saved at the root of the bucket.
 #     prefix:  
 
-## The URL to access the bucket for MinIO
+## An optional custom URL to access the bucket. Useful for S3-compatible storage (e.g. MinIO)
 #     endpointUrl: 
 
 ## S3 access credentials.
@@ -41,7 +41,7 @@
 #     maxUploadParts: 10,000
 
 ## Set the storage classes for data objects in the bucket. 
-## If undefined, the default STANDRD object will be used.
+## If undefined, the default STANDARD object will be used.
 #     storageClass:  
 
 ## Allow PBM to upload data to storage with self-issued TLS certificates. 
@@ -101,7 +101,6 @@
 ## The path to backup directory
 #      path: 
 
-
 #--------------------Microsoft Azure Configuration-----------------------
 #  type:
 #    azure:
@@ -116,6 +115,29 @@
 ## Specify the access key
 #      credentials:
 #        key: 
+
+#--------------------Google Cloud Storage Configuration-----------------------
+#  type:
+#    gcs:
+
+## Specify the name of the bucket that you have configured in GCS 
+#     bucket: 
+
+## The data directory to store backups in. 
+## When undefined, backups are saved at the root of the bucket.
+#     prefix:  
+
+## GCS access credentials. You can use either HMAC or Service Account keys.
+## HMAC Example:
+#     credentials:
+#       hmacAccessKey: GOOG1E7GHK2...
+#       hmacSecret: U7PCRkLy...
+
+## Service Account Example:
+#     credentials:
+#       clientEmail: account@dev-sandbox.iam.gserviceaccount.com
+#       privateKey: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg...kqh3vNY2NQ=\n-----END PRIVATE KEY-----\n"
+#
 
 #====================Point-in-Time Recovery Configuration==================
 
@@ -169,6 +191,7 @@
 #restore:
 #  batchSize: 500
 #  numInsertionWorkers: 10
+#  numParallelCollections: 
 
 ## Set the number of parallel collections to process during a logical restore.
 ## Default value is half of the number of CPU cores.
