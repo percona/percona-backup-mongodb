@@ -164,12 +164,19 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
+	ep, _ := config.GetEpoch(ctx, conn)
+	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), "", "", ep.TS())
+	stg, err := util.GetStorage(ctx, conn, node, l)
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage")
+	}
+
 	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
 	if err != nil {
 		return nil, err
 	}
 	if o.extern && outf == outText {
-		err = waitRestore(ctx, conn, m, node, defs.StatusCopyReady, tdiff)
+		err = waitRestore(ctx, conn, m, node, defs.StatusCopyReady, tdiff, stg)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -195,7 +202,7 @@ func runRestore(
 		typ = " physical restore.\nWaiting to finish"
 	}
 	fmt.Printf("Started%s", typ)
-	err = waitRestore(ctx, conn, m, node, defs.StatusDone, tdiff)
+	err = waitRestore(ctx, conn, m, node, defs.StatusDone, tdiff, stg)
 	if err == nil {
 		return restoreRet{
 			Name:     m.Name,
@@ -225,13 +232,22 @@ func waitRestore(
 	node string,
 	status defs.Status,
 	tskew int64,
+	stg storage.Storage,
 ) error {
-	ep, _ := config.GetEpoch(ctx, conn)
-	l := log.FromContext(ctx).
-		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorage(ctx, conn, node, l)
-	if err != nil {
-		return errors.Wrap(err, "get storage")
+	var ep config.Epoch
+	var l log.LogEvent
+
+	if m.Type == defs.LogicalBackup {
+		var err error
+		ep, err = config.GetEpoch(ctx, conn)
+		if err != nil {
+			return errors.Wrap(err, "get epoch")
+		}
+		l = log.FromContext(ctx).
+			NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
+	} else {
+		l = log.FromContext(ctx).
+			NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, primitive.Timestamp{})
 	}
 
 	tk := time.NewTicker(time.Second * 1)
@@ -253,6 +269,7 @@ func waitRestore(
 	}
 	for range tk.C {
 		fmt.Print(".")
+		var err error
 		rmeta, err = getMeta(ctx, conn, m.Name)
 		if errors.Is(err, errors.ErrNotFound) {
 			continue

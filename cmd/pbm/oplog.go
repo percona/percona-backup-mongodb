@@ -106,7 +106,7 @@ func replayOplog(
 	}
 
 	fmt.Print("Started.\nWaiting to finish")
-	err = waitRestore(ctx, conn, m, node, defs.StatusDone, 0)
+	err = waitRestore(ctx, conn, m, node, defs.StatusDone, 0, nil)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = errWaitTimeout
