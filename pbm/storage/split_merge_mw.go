@@ -12,22 +12,23 @@ import (
 
 const (
 	pbmPartToken = ".pbmpart."
+	TB           = 1024 * 1024 * 1024 * 1024
 )
 
-type SpitMergeMiddleware struct {
+type SplitMergeMiddleware struct {
 	s          Storage
 	maxObjSize int64 // in bytes
 }
 
 func NewSplitMergeMW(s Storage, maxObjSize float64) Storage {
-	maxObjSizeB := int64(maxObjSize * 1024 * 1024 * 1024 * 1024)
-	return &SpitMergeMiddleware{
+	maxObjSizeB := int64(maxObjSize * TB)
+	return &SplitMergeMiddleware{
 		s:          s,
 		maxObjSize: maxObjSizeB,
 	}
 }
 
-func (sm *SpitMergeMiddleware) Type() Type {
+func (sm *SplitMergeMiddleware) Type() Type {
 	return sm.s.Type()
 }
 
@@ -36,7 +37,7 @@ type wInfo struct {
 	err error
 }
 
-func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Option) error {
+func (sm *SplitMergeMiddleware) Save(name string, data io.Reader, options ...Option) error {
 	fName := name
 
 	wInfoC := make(chan wInfo)
@@ -79,7 +80,7 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 	return nil
 }
 
-func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
+func (sm *SplitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
 	fi, err := sm.fileWithParts(name)
 	if err != nil &&
 		!errors.Is(err, ErrEmpty) &&
@@ -100,11 +101,11 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 				return
 			}
 			if _, err = io.Copy(pw, r); err != nil {
-				pr.CloseWithError(errors.Wrapf(err, "copy file stream: %s:", f.Name))
+				pw.CloseWithError(errors.Wrapf(err, "copy file stream: %s:", f.Name))
 				return
 			}
 			if err = r.Close(); err != nil {
-				pr.CloseWithError(errors.Wrapf(err, "closing file stream: %s", f.Name))
+				pw.CloseWithError(errors.Wrapf(err, "closing file stream: %s", f.Name))
 				return
 			}
 		}
@@ -114,7 +115,7 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 	return io.NopCloser(pr), nil
 }
 
-func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
+func (sm *SplitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 	fi, err := sm.fileWithParts(name)
 	if err != nil &&
 		!errors.Is(err, ErrEmpty) &&
@@ -130,14 +131,14 @@ func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 		totalSize += f.Size
 	}
 	res := FileInfo{
-		Name: fi[0].Name, // base part has 0 index
+		Name: fi[0].Name, // the base part has 0 index
 		Size: totalSize,
 	}
 
 	return res, nil
 }
 
-func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
+func (sm *SplitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 	var fi []FileInfo
 	var err error
 	if suffix == ".tmp" {
@@ -169,7 +170,7 @@ func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 	return res, nil
 }
 
-func (sm *SpitMergeMiddleware) Delete(name string) error {
+func (sm *SplitMergeMiddleware) Delete(name string) error {
 	fi, err := sm.fileWithParts(name)
 	if err != nil &&
 		!errors.Is(err, ErrEmpty) &&
@@ -189,7 +190,7 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 	return nil
 }
 
-func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
+func (sm *SplitMergeMiddleware) Copy(src, dst string) error {
 	fi, err := sm.fileWithParts(src)
 	if err != nil &&
 		!errors.Is(err, ErrEmpty) &&
@@ -221,7 +222,7 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 }
 
 // fileWithParts fetches file with base name and all it's PBM parts.
-func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
+func (sm *SplitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	res := []FileInfo{}
 
 	fi, err := sm.s.FileStat(name)
@@ -250,13 +251,13 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 }
 
 // setPartsSize set pbm part size (in bytes) for the purpose of unit testing.
-func (sm *SpitMergeMiddleware) setPartsSize(maxObjSize int64) {
+func (sm *SplitMergeMiddleware) setPartsSize(maxObjSize int64) {
 	sm.maxObjSize = maxObjSize
 }
 
 // getStorage returns Storage object that MW is based on.
 // The only purpose for this method is unit testing.
-func (sm *SpitMergeMiddleware) getStorage() Storage {
+func (sm *SplitMergeMiddleware) getStorage() Storage {
 	return sm.s
 }
 

@@ -158,7 +158,7 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 	t.Helper()
 
 	// remove MW
-	stg = stg.(*SpitMergeMiddleware).getStorage()
+	stg = stg.(*SplitMergeMiddleware).getStorage()
 
 	t.Run("storage api", func(t *testing.T) {
 		t.Run("Save", func(t *testing.T) {
@@ -329,7 +329,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				mw := stg.(*SpitMergeMiddleware)
+				mw := stg.(*SplitMergeMiddleware)
 				mw.setPartsSize(tC.partSize)
 
 				fName := "test_split" + randomSuffix()
@@ -362,7 +362,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 
 		t.Run("empty file", func(t *testing.T) {
-			mw := stg.(*SpitMergeMiddleware)
+			mw := stg.(*SplitMergeMiddleware)
 			mw.setPartsSize(1024)
 			name := "empty"
 
@@ -434,7 +434,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				mw := stg.(*SpitMergeMiddleware)
+				mw := stg.(*SplitMergeMiddleware)
 				mw.setPartsSize(tC.partSize)
 
 				fName := "test_merge" + randomSuffix()
@@ -538,7 +538,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				mw := stg.(*SpitMergeMiddleware)
+				mw := stg.(*SplitMergeMiddleware)
 				mw.setPartsSize(tC.partSize)
 
 				fName := "test_file_stat" + randomSuffix()
@@ -568,7 +568,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 
 		t.Run("file doesn't exist", func(t *testing.T) {
-			mw := stg.(*SpitMergeMiddleware)
+			mw := stg.(*SplitMergeMiddleware)
 			fName := "test_fs" + randomSuffix()
 
 			_, err := mw.FileStat(fName)
@@ -578,7 +578,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		})
 
 		t.Run("empty file", func(t *testing.T) {
-			mw := stg.(*SpitMergeMiddleware)
+			mw := stg.(*SplitMergeMiddleware)
 			fName := "empty" + randomSuffix()
 			err := stg.Save(fName, strings.NewReader(""))
 			if err != nil {
@@ -641,7 +641,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				mw := stg.(*SpitMergeMiddleware)
+				mw := stg.(*SplitMergeMiddleware)
 				mw.setPartsSize(tC.partSize)
 
 				dir := randomSuffix()
@@ -676,7 +676,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 
 		t.Run("file doesn't exist", func(t *testing.T) {
-			mw := stg.(*SpitMergeMiddleware)
+			mw := stg.(*SplitMergeMiddleware)
 			fName := "test_rm_file" + randomSuffix()
 
 			err := mw.Delete(fName)
@@ -686,7 +686,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		})
 
 		t.Run("empty file", func(t *testing.T) {
-			mw := stg.(*SpitMergeMiddleware)
+			mw := stg.(*SplitMergeMiddleware)
 			fName := "empty"
 			err := stg.Save(fName, strings.NewReader(""))
 			if err != nil {
@@ -741,7 +741,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				mw := stg.(*SpitMergeMiddleware)
+				mw := stg.(*SplitMergeMiddleware)
 				mw.setPartsSize(tC.partSize)
 
 				fNameSrc := "test_copy" + randomSuffix()

@@ -814,7 +814,6 @@ func TestFileStat(t *testing.T) {
 			defer file.Close()
 
 			fInfo, err := smMW.FileStat(fName)
-			// if !errors.Is(err, storage.ErrEmpty) {
 			if err != storage.ErrEmpty {
 				t.Fatalf("error while invoking FileStat: want=%v, got=%v", storage.ErrEmpty, err)
 			}
