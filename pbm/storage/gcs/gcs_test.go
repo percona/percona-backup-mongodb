@@ -99,6 +99,8 @@ func TestGCS(t *testing.T) {
 	}
 
 	storage.RunStorageTests(t, stg, storage.GCS)
+	storage.RunStorageAPITests(t, stg)
+	storage.RunSplitMergeMWTests(t, stg)
 
 	t.Run("Delete fails", func(t *testing.T) {
 		name := "not_found.txt"
