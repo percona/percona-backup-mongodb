@@ -325,6 +325,24 @@ func TestList(t *testing.T) {
 }
 
 func TestSave(t *testing.T) {
+	t.Run("Save storage api", func(t *testing.T) {
+		t.Run("create empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			fName := "empty"
+
+			err := fs.Save(fName, bytes.NewReader([]byte{}))
+			if err != nil {
+				t.Fatalf("error while saving file: %v", err)
+			}
+
+			_, err = fs.FileStat(fName)
+			if err != storage.ErrEmpty {
+				t.Errorf("FileStat failed: want=%v, got=%v", storage.ErrEmpty, err)
+			}
+		})
+	})
+
 	t.Run("Save with split-merge middleware", func(t *testing.T) {
 		testCases := []struct {
 			desc      string
@@ -382,12 +400,6 @@ func TestSave(t *testing.T) {
 				wantParts: 71,
 			},
 			{
-				desc:      "empty file",
-				partSize:  10 * 1024,
-				fileSize:  0,
-				wantParts: 0,
-			},
-			{
 				desc:      "1 byte file",
 				partSize:  14 * 1024,
 				fileSize:  1,
@@ -433,10 +445,62 @@ func TestSave(t *testing.T) {
 				}
 			})
 		}
+
+		t.Run("create empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			fName := "empty"
+
+			err := smMW.Save(fName, bytes.NewReader([]byte{}))
+			if err != nil {
+				t.Fatalf("error while saving file: %v", err)
+			}
+
+			_, err = smMW.FileStat(fName)
+			if err != storage.ErrEmpty {
+				t.Errorf("FileStat failed: want=%v, got=%v", storage.ErrEmpty, err)
+			}
+		})
 	})
 }
 
 func TestSourceReader(t *testing.T) {
+	t.Run("SourceReader storage api", func(t *testing.T) {
+		t.Run("file doesn't exist", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+
+			fName := "no_file"
+
+			_, err := fs.SourceReader(fName)
+			if err != storage.ErrNotExist {
+				t.Fatalf("wrong error while invoking SourceReader on non-existing file: want=%v, got=%v",
+					storage.ErrNotExist, err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+
+			fName := "empty"
+			createEmptyFile(t, tmpDir, fName)
+
+			r, err := fs.SourceReader(fName)
+			if err != nil {
+				t.Fatalf("err while reading from empty file: %v", err)
+			}
+			content, err := io.ReadAll(r)
+			if err != nil {
+				t.Fatalf("err while reading file content: %v", err)
+			}
+			if len(content) != 0 {
+				t.Fatalf("expected empty file, got len: %d", len(content))
+			}
+		})
+	})
+
 	t.Run("SourceReader with split-merge middleware", func(t *testing.T) {
 		testCases := []struct {
 			desc           string
@@ -480,11 +544,6 @@ func TestSourceReader(t *testing.T) {
 				mergedFileSize: 50*1024 + 1,
 			},
 			{
-				desc:           "empty file",
-				partSize:       20 * 1024,
-				mergedFileSize: 0,
-			},
-			{
 				desc:           "1 byte file",
 				partSize:       20 * 1024,
 				mergedFileSize: 1,
@@ -506,21 +565,12 @@ func TestSourceReader(t *testing.T) {
 				if tC.file != "" {
 					fName = tC.file
 				}
-				var srcContent []byte
-				if tC.mergedFileSize != 0 {
-					// create test parts
-					srcContent = make([]byte, tC.mergedFileSize)
-					r := bytes.NewReader(srcContent)
-					err := smMW.Save(fName, r)
-					if err != nil {
-						t.Fatalf("error while creating test parts: %v", err)
-					}
-				} else {
-					file, err := os.Create(filepath.Join(tmpDir, fName))
-					if err != nil {
-						t.Fatalf("error creating empty file: %v", err)
-					}
-					defer file.Close()
+				// create test parts
+				srcContent := make([]byte, tC.mergedFileSize)
+				r := bytes.NewReader(srcContent)
+				err := smMW.Save(fName, r)
+				if err != nil {
+					t.Fatalf("error while creating test parts: %v", err)
 				}
 
 				rc, err := smMW.SourceReader(fName)
@@ -544,12 +594,105 @@ func TestSourceReader(t *testing.T) {
 		}
 	})
 
-	t.Run("Closing the stream when using split-merge middleware", func(t *testing.T) {
+	t.Run("file doesn't exist", func(t *testing.T) {
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+		fName := "no_file"
+
+		_, err := smMW.SourceReader(fName)
+		if err != storage.ErrNotExist {
+			t.Fatalf("wrong error while invoking SourceReader on non-existing file: want=%v, got=%v",
+				storage.ErrNotExist, err)
+		}
+	})
+
+	t.Run("empty file", func(t *testing.T) {
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+		fName := "empty"
+		createEmptyFile(t, tmpDir, fName)
+
+		r, err := smMW.SourceReader(fName)
+		if err != nil {
+			t.Fatalf("err while reading from empty file: %v", err)
+		}
+		content, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("err while reading file content: %v", err)
+		}
+		if len(content) != 0 {
+			t.Fatalf("expected empty file, got len: %d", len(content))
+		}
+	})
+
+	t.Run("SourceReader with the same file name within sub dir", func(t *testing.T) {
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+		fName := "test_merge_file"
+		fNameInSub := "sub/test_merge_file"
+		fSize := int64(1024)
+		createFileWithParts(t, fName, fSize, smMW, "")
+		createFileWithParts(t, fNameInSub, fSize, smMW, "")
+
+		rc, err := smMW.SourceReader(fName)
+		if err != nil {
+			t.Fatalf("error while invoking SourceReader: %v", err)
+		}
+
+		dstContent, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatalf("reading merged file: %v", err)
+		}
+
+		if fSize != int64(len(dstContent)) {
+			t.Fatalf("wrong file size after merge, want=%d, got=%d", fSize, len(dstContent))
+		}
+	})
+
+	t.Run("closing the stream when using split-merge middleware", func(t *testing.T) {
 		// todo...
 	})
 }
 
 func TestFileStat(t *testing.T) {
+	t.Run("FileStat storage api", func(t *testing.T) {
+		t.Run("file doesn't exist", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			fName := "doesnt_exist"
+
+			_, err := fs.FileStat(fName)
+			if err != storage.ErrNotExist {
+				t.Fatalf("wrong error reported: want=%v, got=%v", storage.ErrNotExist, err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			fName := "empty"
+
+			err := fs.Save(fName, strings.NewReader(""))
+			if err != nil {
+				t.Fatalf("Save failed: %s", err)
+			}
+
+			f, err := fs.FileStat(fName)
+			if err != storage.ErrEmpty {
+				t.Fatalf("wrong error reported: want=%v, got=%v", storage.ErrEmpty, err)
+			}
+			if f.Name != fName && f.Size != 0 {
+				t.Fatalf("wrong file info: want name=%s, size=0, got=%+v", fName, f)
+			}
+		})
+	})
+
 	t.Run("FileStat with split-merge middleware", func(t *testing.T) {
 		testCases := []struct {
 			desc          string
@@ -625,37 +768,100 @@ func TestFileStat(t *testing.T) {
 				}
 			})
 		}
-	})
 
-	t.Run("FileStat with empty file and split-merge middleware", func(t *testing.T) {
-		tmpDir := setupTestDir(t)
-		fs := &FS{root: tmpDir}
-		partSize := int64(1024)
+		t.Run("FileStat with the same file within sub dir", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
 
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+			fName := "test_file_stat"
+			fSize := int64(1024)
+			createFileWithParts(t, fName, fSize, smMW, "")
+			createFileWithParts(t, path.Join("sub", fName), fSize, smMW, "")
 
-		fName := "test_file_stat"
-		file, err := os.Create(filepath.Join(tmpDir, fName))
-		if err != nil {
-			t.Fatalf("error creating empty file: %v", err)
-		}
-		defer file.Close()
+			fInfo, err := smMW.FileStat(fName)
+			if err != nil {
+				t.Fatalf("error while invoking FileStat: %v", err)
+			}
 
-		fInfo, err := smMW.FileStat(fName)
-		if err != storage.ErrEmpty {
-			t.Fatalf("error while invoking FileStat: want=%v, got=%v", storage.ErrEmpty, err)
-		}
+			if fInfo.Name != fName && fInfo.Size != fSize {
+				t.Fatalf("want to have file: %s with size: %d, got=%+v", fName, fSize, fInfo)
+			}
+		})
 
-		if fInfo.Name != "" {
-			t.Fatalf("wrong file name, want empty string but got=%s", fInfo.Name)
-		}
-		if fInfo.Size != 0 {
-			t.Fatalf("wrong file size, want=%d, got=%d", 0, fInfo.Size)
-		}
+		t.Run("file doesn't exist", func(t *testing.T) {
+			fName := "doesnt_exist"
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			_, err := smMW.FileStat(fName)
+			if err != storage.ErrNotExist {
+				t.Fatalf("wrong error reported: want=%v, got=%v", storage.ErrNotExist, err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			fName := "test_file_stat"
+			file, err := os.Create(filepath.Join(tmpDir, fName))
+			if err != nil {
+				t.Fatalf("error creating empty file: %v", err)
+			}
+			defer file.Close()
+
+			fInfo, err := smMW.FileStat(fName)
+			// if !errors.Is(err, storage.ErrEmpty) {
+			if err != storage.ErrEmpty {
+				t.Fatalf("error while invoking FileStat: want=%v, got=%v", storage.ErrEmpty, err)
+			}
+			if fInfo.Name != "" {
+				t.Fatalf("wrong file name, want empty string but got=%s", fInfo.Name)
+			}
+			if fInfo.Size != 0 {
+				t.Fatalf("wrong file size, want=%d, got=%d", 0, fInfo.Size)
+			}
+		})
 	})
 }
 
 func TestDelete(t *testing.T) {
+	t.Run("Delete storage api", func(t *testing.T) {
+		t.Run("file doesn't exist", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+
+			fName := "test_rm_file"
+
+			err := fs.Delete(fName)
+			if err != nil {
+				t.Fatalf("error reported while invoking Delete on non-existing file: %v", err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+
+			fName := "test_rm_file"
+			createEmptyFile(t, tmpDir, fName)
+
+			err := fs.Delete(fName)
+			if err != nil {
+				t.Fatalf("error while invoking Delete: %v", err)
+			}
+
+			wantFilesInDir := 0
+			gotFilesInDir := countFilesInDir(t, tmpDir)
+			if wantFilesInDir != gotFilesInDir {
+				t.Fatalf("wrong number of files after deletion: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
+			}
+		})
+	})
+
 	t.Run("Delete with split-merge middleware", func(t *testing.T) {
 		testCases := []struct {
 			desc          string
@@ -736,45 +942,68 @@ func TestDelete(t *testing.T) {
 				}
 			})
 		}
-	})
 
-	t.Run("Delete with split-merge middleware - file doesn't exist", func(t *testing.T) {
-		partSize := int64(1024)
-		tmpDir := setupTestDir(t)
-		fs := &FS{root: tmpDir}
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+		t.Run("file doesn't exist", func(t *testing.T) {
+			partSize := int64(1024)
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
 
-		fName := "test_rm_file"
+			fName := "test_rm_file"
 
-		err := smMW.Delete(fName)
-		if err != nil {
-			t.Fatalf("error while invoking Delete: %v", err)
-		}
-	})
+			err := smMW.Delete(fName)
+			if err != nil {
+				t.Fatalf("error while invoking Delete: %v", err)
+			}
+		})
 
-	t.Run("Delete with split-merge middleware - empty file", func(t *testing.T) {
-		partSize := int64(1024)
-		tmpDir := setupTestDir(t)
-		fs := &FS{root: tmpDir}
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+		t.Run("empty file", func(t *testing.T) {
+			partSize := int64(1024)
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
 
-		fName := "test_rm_file"
-		file, err := os.Create(filepath.Join(tmpDir, fName))
-		if err != nil {
-			t.Fatalf("error creating empty file: %v", err)
-		}
-		defer file.Close()
+			fName := "test_rm_file"
+			createEmptyFile(t, tmpDir, fName)
 
-		err = smMW.Delete(fName)
-		if err != nil {
-			t.Fatalf("error while invoking Delete: %v", err)
-		}
+			err := smMW.Delete(fName)
+			if err != nil {
+				t.Fatalf("error while invoking Delete: %v", err)
+			}
 
-		wantFilesInDir := 0
-		gotFilesInDir := countFilesInDir(t, tmpDir)
-		if wantFilesInDir != gotFilesInDir {
-			t.Fatalf("wrong number of files after deletion: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
-		}
+			wantFilesInDir := 0
+			gotFilesInDir := countFilesInDir(t, tmpDir)
+			if wantFilesInDir != gotFilesInDir {
+				t.Fatalf("wrong number of files after deletion: want=%d, got=%d", wantFilesInDir, gotFilesInDir)
+			}
+		})
+
+		t.Run("Delete file that contains the same name within sub dir", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			fName := "test_file_stat"
+			fNameSub := "sub/test_file_stat"
+			fSize := int64(1024)
+			createFileWithParts(t, fName, fSize, smMW, "")
+			createFileWithParts(t, fNameSub, fSize, smMW, "")
+
+			err := smMW.Delete(fName)
+			if err != nil {
+				t.Fatalf("error while invoking Delete: %v", err)
+			}
+
+			wantInDir, wantInSubDir := 1, 1
+			gotInDir := countFilesInDir(t, tmpDir)
+			if wantInDir != gotInDir {
+				t.Fatalf("wrong number of files after deletion in root dir: want=%d, got=%d", wantInDir, gotInDir)
+			}
+			gotInSubDir := countFilesInDir(t, path.Join(tmpDir, "sub"))
+			if wantInSubDir != gotInSubDir {
+				t.Fatalf("wrong number of files after deletion in sub dir: want=%d, got=%d", wantInSubDir, gotInSubDir)
+			}
+		})
 	})
 }
 
@@ -978,11 +1207,9 @@ func createFileWithParts(
 	dir string,
 ) {
 	if fTotalSize == 0 {
-		file, err := os.Create(filepath.Join(dir, fName))
-		if err != nil {
-			t.Fatalf("error creating empty file: %v", err)
-		}
-		defer file.Close()
+		// dir is only necessary for the empty file creation,
+		// in other case root dir is part of MW
+		createEmptyFile(t, dir, fName)
 	} else {
 		srcContent := make([]byte, fTotalSize)
 		r := bytes.NewReader(srcContent)
@@ -991,6 +1218,14 @@ func createFileWithParts(
 			t.Fatalf("error while creating test parts: %v", err)
 		}
 	}
+}
+
+func createEmptyFile(t *testing.T, dir, fName string) {
+	file, err := os.Create(filepath.Join(dir, fName))
+	if err != nil {
+		t.Fatalf("error creating empty file: %v", err)
+	}
+	defer file.Close()
 }
 
 func fileInfoSort(a, b storage.FileInfo) int {

@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"io"
-	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -60,8 +59,11 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 			if winfo.err == io.EOF && winfo.n != 0 {
 				break
 			} else if winfo.err == io.EOF && winfo.n == 0 {
-				if err := sm.s.Delete(fName); err != nil {
-					return errors.Wrap(err, "empty file deletion")
+				// empty part needs to be deleted, empty base should stay
+				if isPartFile(fName) {
+					if err := sm.s.Delete(fName); err != nil {
+						return errors.Wrap(err, "empty file deletion")
+					}
 				}
 				break
 			}
@@ -79,7 +81,9 @@ func (sm *SpitMergeMiddleware) Save(name string, data io.Reader, options ...Opti
 
 func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
 	fi, err := sm.fileWithParts(name)
-	if err != nil {
+	if err != nil &&
+		!errors.Is(err, ErrEmpty) &&
+		!errors.Is(err, ErrNotExist) {
 		return nil, errors.Wrap(err, "list with parts for mw source reader")
 	}
 	if len(fi) <= 1 {
@@ -112,7 +116,9 @@ func (sm *SpitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) 
 
 func (sm *SpitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 	fi, err := sm.fileWithParts(name)
-	if err != nil {
+	if err != nil &&
+		!errors.Is(err, ErrEmpty) &&
+		!errors.Is(err, ErrNotExist) {
 		return FileInfo{}, errors.Wrap(err, "list with parts for mw file stat op")
 	}
 	if len(fi) <= 1 {
@@ -165,7 +171,9 @@ func (sm *SpitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 
 func (sm *SpitMergeMiddleware) Delete(name string) error {
 	fi, err := sm.fileWithParts(name)
-	if err != nil {
+	if err != nil &&
+		!errors.Is(err, ErrEmpty) &&
+		!errors.Is(err, ErrNotExist) {
 		return errors.Wrap(err, "list with parts for mw delete op")
 	}
 	if len(fi) <= 1 {
@@ -183,8 +191,10 @@ func (sm *SpitMergeMiddleware) Delete(name string) error {
 
 func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 	fi, err := sm.fileWithParts(src)
-	if err != nil {
-		return errors.Wrap(err, "list with parts for mw delete op")
+	if err != nil &&
+		!errors.Is(err, ErrEmpty) &&
+		!errors.Is(err, ErrNotExist) {
+		return errors.Wrap(err, "list with parts for mw copy op")
 	}
 	if len(fi) <= 1 {
 		return sm.s.Copy(src, dst)
@@ -212,31 +222,28 @@ func (sm *SpitMergeMiddleware) Copy(src, dst string) error {
 
 // fileWithParts fetches file with base name and all it's PBM parts.
 func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
-	d, f := path.Split(name)
-	fList, err := sm.s.List(d, "")
+	res := []FileInfo{}
+
+	fi, err := sm.s.FileStat(name)
 	if err != nil {
-		return nil, errors.Wrap(err, "list files for mw list op")
+		return res, errors.Wrap(err, "fetching pbm file parts base")
 	}
+	res = append(res, fi)
 
-	fiParts := []FileInfo{}
-	for _, fi := range fList {
-		if f == GetBasePart(path.Base(fi.Name)) {
-			fiParts = append(fiParts, fi)
+	nextPart := name
+	for {
+		nextPart, err = createNextPart(nextPart)
+		if err != nil {
+			return []FileInfo{}, errors.Wrap(err, "creating next part")
 		}
-	}
-
-	// sort based on the index
-	res := make([]FileInfo, len(fiParts))
-	for _, f := range fiParts {
-		if f.Name == name {
-			res[0] = FileInfo{Name: path.Join(d, f.Name), Size: f.Size}
-		} else {
-			i, err := GetPartIndex(f.Name)
-			if err != nil {
-				return nil, errors.Wrap(err, "sort file parts")
+		fi, err = sm.s.FileStat(nextPart)
+		if err != nil {
+			if err == ErrNotExist || err == ErrEmpty {
+				break
 			}
-			res[i] = FileInfo{Name: path.Join(d, f.Name), Size: f.Size}
+			return []FileInfo{}, errors.Wrap(err, "fetching next part")
 		}
+		res = append(res, fi)
 	}
 
 	return res, nil
@@ -245,6 +252,12 @@ func (sm *SpitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 // setPartsSize set pbm part size (in bytes) for the purpose of unit testing.
 func (sm *SpitMergeMiddleware) setPartsSize(maxObjSize int64) {
 	sm.maxObjSize = maxObjSize
+}
+
+// getStorage returns Storage object that MW is based on.
+// The only purpose for this method is unit testing.
+func (sm *SpitMergeMiddleware) getStorage() Storage {
+	return sm.s
 }
 
 // createNextPart returns file name for the next pbm part.
@@ -261,7 +274,7 @@ func (sm *SpitMergeMiddleware) setPartsSize(maxObjSize int64) {
 // collection-14-4294136943066280761.wt.pbmpart.2 <-- third part (part index 2)
 // collection-14-4294136943066280761.wt.pbmpart.3 <-- the last part
 func createNextPart(fname string) (string, error) {
-	if strings.Contains(fname, pbmPartToken) {
+	if isPartFile(fname) {
 		fileParts := strings.Split(fname, ".")
 
 		partID, err := strconv.Atoi(fileParts[len(fileParts)-1])
@@ -280,7 +293,7 @@ func createNextPart(fname string) (string, error) {
 
 func GetPartIndex(fname string) (int, error) {
 	partID := 0
-	if strings.Contains(fname, pbmPartToken) {
+	if isPartFile(fname) {
 		fileParts := strings.Split(fname, ".")
 
 		var err error
@@ -305,4 +318,8 @@ func GetBasePart(fname string) string {
 	}
 
 	return base
+}
+
+func isPartFile(fname string) bool {
+	return strings.Contains(fname, pbmPartToken)
 }

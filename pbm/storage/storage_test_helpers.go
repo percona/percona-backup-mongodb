@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"io"
 	"path"
 	"strings"
@@ -152,6 +153,107 @@ func RunStorageTests(t *testing.T, stg Storage, stgType Type) {
 	})
 }
 
+// RunStorageAPITests contains corner cases for storage API.
+func RunStorageAPITests(t *testing.T, stg Storage) {
+	t.Helper()
+
+	// remove MW
+	stg = stg.(*SpitMergeMiddleware).getStorage()
+
+	t.Run("storage api", func(t *testing.T) {
+		t.Run("Save", func(t *testing.T) {
+			t.Run("create empty file", func(t *testing.T) {
+				name := "empty"
+
+				err := stg.Save(name, strings.NewReader(""))
+				if err != nil {
+					t.Fatalf("Save failed: %s", err)
+				}
+
+				_, err = stg.FileStat(name)
+				if err != ErrEmpty {
+					t.Errorf("FileStat failed: want=%v, got=%v", ErrEmpty, err)
+				}
+			})
+		})
+
+		t.Run("SourceReader", func(t *testing.T) {
+			t.Run("file doesn't exist", func(t *testing.T) {
+				name := "doesnt_exist"
+
+				_, err := stg.SourceReader(name)
+				if !errors.Is(err, ErrNotExist) {
+					t.Fatalf("error reported while invoking SourceReader on non-existing file: %v", err)
+				}
+			})
+
+			t.Run("empty file", func(t *testing.T) {
+				fName := "empty"
+				err := stg.Save(fName, strings.NewReader(""))
+				if err != nil {
+					t.Fatalf("Save failed: %s", err)
+				}
+
+				_, err = stg.SourceReader(fName)
+				if !errors.Is(err, ErrEmpty) {
+					t.Fatalf("error reported while invoking SourceReader on empty file: %v", err)
+				}
+			})
+		})
+
+		t.Run("Delete", func(t *testing.T) {
+			t.Run("file doesn't exist", func(t *testing.T) {
+				name := "doesnt_exist"
+
+				err := stg.Delete(name)
+				if err != nil {
+					t.Fatalf("error reported while invoking Delete on non-existing file: %v", err)
+				}
+			})
+
+			t.Run("empty file", func(t *testing.T) {
+				fName := "empty"
+				err := stg.Save(fName, strings.NewReader(""))
+				if err != nil {
+					t.Fatalf("Save failed: %s", err)
+				}
+
+				err = stg.Delete(fName)
+				if err != nil {
+					t.Fatalf("error reported while invoking Delete on empty file: %v", err)
+				}
+			})
+		})
+
+		t.Run("FileStat", func(t *testing.T) {
+			t.Run("file doesn't exist", func(t *testing.T) {
+				name := "doesnt_exist"
+
+				_, err := stg.FileStat(name)
+				if err != ErrNotExist {
+					t.Fatalf("wrong error reported: want=%v, got=%v", ErrNotExist, err)
+				}
+			})
+
+			t.Run("empty file", func(t *testing.T) {
+				fName := "empty" + randomSuffix()
+				err := stg.Save(fName, strings.NewReader(""))
+				if err != nil {
+					t.Fatalf("Save failed: %s", err)
+				}
+
+				f, err := stg.FileStat(fName)
+				if err != ErrEmpty {
+					t.Fatalf("wrong error reported: want=%v, got=%v", ErrEmpty, err)
+				}
+				if f.Name != fName && f.Size != 0 {
+					t.Fatalf("wrong file info: want name=%s, size=0, got=%+v", fName, f)
+				}
+			})
+		})
+	})
+}
+
 func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 	t.Helper()
 
@@ -212,12 +314,6 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				wantParts: 71,
 			},
 			{
-				desc:      "empty file",
-				partSize:  10 * 1024,
-				fileSize:  0,
-				wantParts: 0,
-			},
-			{
 				desc:      "1 byte file",
 				partSize:  14 * 1024,
 				fileSize:  1,
@@ -264,6 +360,22 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				}
 			})
 		}
+
+		t.Run("empty file", func(t *testing.T) {
+			mw := stg.(*SpitMergeMiddleware)
+			mw.setPartsSize(1024)
+			name := "empty"
+
+			err := mw.Save(name, strings.NewReader(""))
+			if err != nil {
+				t.Fatalf("Save failed: %s", err)
+			}
+
+			_, err = mw.FileStat(name)
+			if err != ErrEmpty {
+				t.Errorf("FileStat failed: want=%v, got=%v", ErrEmpty, err)
+			}
+		})
 	})
 
 	t.Run("SourceReader with split-merge middleware", func(t *testing.T) {
@@ -356,6 +468,28 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				}
 			})
 		}
+
+		t.Run("file doesn't exist", func(t *testing.T) {
+			name := "doesnt_exist"
+
+			_, err := stg.SourceReader(name)
+			if !errors.Is(err, ErrNotExist) {
+				t.Fatalf("error reported while invoking SourceReader on non-existing file: %v", err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			fName := "empty"
+			err := stg.Save(fName, strings.NewReader(""))
+			if err != nil {
+				t.Fatalf("Save failed: %s", err)
+			}
+
+			_, err = stg.SourceReader(fName)
+			if !errors.Is(err, ErrEmpty) {
+				t.Fatalf("error reported while invoking SourceReader on empty file: %v", err)
+			}
+		})
 	})
 
 	t.Run("FileStat with split-merge middleware", func(t *testing.T) {
@@ -432,6 +566,33 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				}
 			})
 		}
+
+		t.Run("file doesn't exist", func(t *testing.T) {
+			mw := stg.(*SpitMergeMiddleware)
+			fName := "test_fs" + randomSuffix()
+
+			_, err := mw.FileStat(fName)
+			if err != ErrNotExist {
+				t.Fatalf("wrong error reported: want=%v, got=%v", ErrNotExist, err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			mw := stg.(*SpitMergeMiddleware)
+			fName := "empty" + randomSuffix()
+			err := stg.Save(fName, strings.NewReader(""))
+			if err != nil {
+				t.Fatalf("Save failed: %s", err)
+			}
+
+			f, err := mw.FileStat(fName)
+			if err != ErrEmpty {
+				t.Fatalf("wrong error reported: want=%v, got=%v", ErrEmpty, err)
+			}
+			if f.Name != fName && f.Size != 0 {
+				t.Fatalf("wrong file info: want name=%s, size=0, got=%+v", fName, f)
+			}
+		})
 	})
 
 	t.Run("Delete with split-merge middleware", func(t *testing.T) {
@@ -514,13 +675,27 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 			})
 		}
 
-		t.Run("Delete with split-merge middleware - file doesn't exist", func(t *testing.T) {
+		t.Run("file doesn't exist", func(t *testing.T) {
 			mw := stg.(*SpitMergeMiddleware)
 			fName := "test_rm_file" + randomSuffix()
 
 			err := mw.Delete(fName)
 			if err != nil {
-				t.Fatalf("error while invoking Delete: %v", err)
+				t.Fatalf("error reported while invoking Delete non-existing file: %v", err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			mw := stg.(*SpitMergeMiddleware)
+			fName := "empty"
+			err := stg.Save(fName, strings.NewReader(""))
+			if err != nil {
+				t.Fatalf("Save failed: %s", err)
+			}
+
+			err = mw.Delete(fName)
+			if err != nil {
+				t.Fatalf("error reported while invoking Delete on empty file: %v", err)
 			}
 		})
 	})

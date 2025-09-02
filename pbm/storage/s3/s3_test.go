@@ -74,6 +74,7 @@ func TestS3(t *testing.T) {
 	}
 
 	storage.RunStorageTests(t, stg, storage.S3)
+	storage.RunStorageAPITests(t, stg)
 	storage.RunSplitMergeMWTests(t, stg)
 
 	t.Run("default SDKLogLevel for invalid value", func(t *testing.T) {
