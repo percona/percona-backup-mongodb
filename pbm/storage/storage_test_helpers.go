@@ -163,7 +163,7 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 	t.Run("storage api", func(t *testing.T) {
 		t.Run("Save", func(t *testing.T) {
 			t.Run("create empty file", func(t *testing.T) {
-				name := "empty"
+				name := "empty" + randomSuffix()
 
 				err := stg.Save(name, strings.NewReader(""))
 				if err != nil {
@@ -179,7 +179,7 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 
 		t.Run("SourceReader", func(t *testing.T) {
 			t.Run("file doesn't exist", func(t *testing.T) {
-				name := "doesnt_exist"
+				name := "doesnt_exist" + randomSuffix()
 
 				_, err := stg.SourceReader(name)
 				if !errors.Is(err, ErrNotExist) {
@@ -188,7 +188,7 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 			})
 
 			t.Run("empty file", func(t *testing.T) {
-				fName := "empty"
+				fName := "empty" + randomSuffix()
 				err := stg.Save(fName, strings.NewReader(""))
 				if err != nil {
 					t.Fatalf("Save failed: %s", err)
@@ -203,16 +203,18 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 
 		t.Run("Delete", func(t *testing.T) {
 			t.Run("file doesn't exist", func(t *testing.T) {
-				name := "doesnt_exist"
+				name := "doesnt_exist" + randomSuffix()
 
 				err := stg.Delete(name)
-				if err != nil {
-					t.Fatalf("error reported while invoking Delete on non-existing file: %v", err)
+
+				wantErr := ErrNotExist
+				if err != wantErr {
+					t.Fatalf("error reported while invoking Delete on non-existing file: want=%v, got=%v", wantErr, err)
 				}
 			})
 
 			t.Run("empty file", func(t *testing.T) {
-				fName := "empty"
+				fName := "empty" + randomSuffix()
 				err := stg.Save(fName, strings.NewReader(""))
 				if err != nil {
 					t.Fatalf("Save failed: %s", err)
@@ -227,7 +229,7 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 
 		t.Run("FileStat", func(t *testing.T) {
 			t.Run("file doesn't exist", func(t *testing.T) {
-				name := "doesnt_exist"
+				name := "doesnt_exist" + randomSuffix()
 
 				_, err := stg.FileStat(name)
 				if err != ErrNotExist {
@@ -364,7 +366,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		t.Run("empty file", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
 			mw.setPartsSize(1024)
-			name := "empty"
+			name := "empty" + randomSuffix()
 
 			err := mw.Save(name, strings.NewReader(""))
 			if err != nil {
@@ -479,7 +481,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		})
 
 		t.Run("empty file", func(t *testing.T) {
-			fName := "empty"
+			fName := "empty" + randomSuffix()
 			err := stg.Save(fName, strings.NewReader(""))
 			if err != nil {
 				t.Fatalf("Save failed: %s", err)
@@ -680,14 +682,16 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 			fName := "test_rm_file" + randomSuffix()
 
 			err := mw.Delete(fName)
-			if err != nil {
-				t.Fatalf("error reported while invoking Delete non-existing file: %v", err)
+
+			wantErr := ErrNotExist
+			if err != wantErr {
+				t.Fatalf("error reported while invoking Delete on non-existing file: want=%v, got=%v", wantErr, err)
 			}
 		})
 
 		t.Run("empty file", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
-			fName := "empty"
+			fName := "empty" + randomSuffix()
 			err := stg.Save(fName, strings.NewReader(""))
 			if err != nil {
 				t.Fatalf("Save failed: %s", err)

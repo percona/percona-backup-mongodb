@@ -542,6 +542,10 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
+	if _, err := s.FileStat(name); err == storage.ErrNotExist {
+		return err
+	}
+
 	_, err := s.s3cli.DeleteObject(context.Background(), &s3.DeleteObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),
