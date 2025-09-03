@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/logging"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -486,8 +487,20 @@ func (s *S3) Copy(src, dst string) error {
 	}
 
 	_, err := s.s3cli.CopyObject(context.Background(), copyOpts)
+	if err != nil {
+		var noSuchKeyErr *types.NoSuchKey
+		if errors.As(err, &noSuchKeyErr) {
+			return storage.ErrNotExist
+		}
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) {
+			if apiErr.ErrorCode() == "NoSuchKey" {
+				return storage.ErrNotExist
+			}
+		}
+	}
 
-	return err
+	return errors.Wrapf(err, "copy '%s/%s' to %q file from S3", s.opts.Bucket, src, dst)
 }
 
 func (s *S3) FileStat(name string) (storage.FileInfo, error) {

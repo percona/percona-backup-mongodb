@@ -98,7 +98,7 @@ func TestGCS(t *testing.T) {
 		t.Fatalf("failed to create gcs storage: %s", err)
 	}
 
-	storage.RunStorageTests(t, stg, storage.GCS)
+	storage.RunStorageBaseTests(t, stg, storage.GCS)
 	storage.RunStorageAPITests(t, stg)
 	storage.RunSplitMergeMWTests(t, stg)
 

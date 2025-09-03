@@ -73,7 +73,7 @@ func TestS3(t *testing.T) {
 		t.Fatalf("failed to create s3 storage: %s", err)
 	}
 
-	storage.RunStorageTests(t, stg, storage.S3)
+	storage.RunStorageBaseTests(t, stg, storage.S3)
 	storage.RunStorageAPITests(t, stg)
 	storage.RunSplitMergeMWTests(t, stg)
 

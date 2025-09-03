@@ -213,7 +213,12 @@ func (g googleClient) copy(src, dst string) error {
 	srcObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, src))
 	dstObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, dst))
 
-	_, err := dstObj.CopierFrom(srcObj).Run(ctx)
+	_, err := g.fileStat(src)
+	if err == storage.ErrNotExist {
+		return err
+	}
+
+	_, err = dstObj.CopierFrom(srcObj).Run(ctx)
 	return err
 }
 

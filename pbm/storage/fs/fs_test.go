@@ -1070,7 +1070,42 @@ func TestDelete(t *testing.T) {
 	})
 }
 
-func TestFileCopy(t *testing.T) {
+func TestCopy(t *testing.T) {
+	t.Run("Copy storage api", func(t *testing.T) {
+		t.Run("file doesn't exist", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+
+			fName := "no_file"
+			fNameDst := "dst/test_copy"
+
+			err := fs.Copy(fName, fNameDst)
+			if !strings.Contains(err.Error(), storage.ErrNotExist.Error()) {
+				t.Fatalf("wrong error while invoking SourceReader on non-existing file: want=%v, got=%v",
+					storage.ErrNotExist, err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+
+			fName := "empty"
+			fNameDst := "dst/test_copy"
+			createEmptyFile(t, tmpDir, fName)
+
+			err := fs.Copy(fName, fNameDst)
+			if err != nil {
+				t.Fatalf("err while reading from empty file: %v", err)
+			}
+
+			_, err = fs.FileStat(fNameDst)
+			if err != storage.ErrEmpty {
+				t.Fatalf("wrong error reported: want=%v, got=%v", storage.ErrEmpty, err)
+			}
+		})
+	})
+
 	t.Run("Copy with split-merge middleware", func(t *testing.T) {
 		testCases := []struct {
 			desc          string
@@ -1128,7 +1163,7 @@ func TestFileCopy(t *testing.T) {
 					t.Fatalf("error while creating test parts: %v", err)
 				}
 
-				fNameDst := "dst/test_file_stat"
+				fNameDst := "dst/test_copy"
 
 				err = smMW.Copy(fNameSrc, fNameDst)
 				if err != nil {
@@ -1148,6 +1183,40 @@ func TestFileCopy(t *testing.T) {
 				}
 			})
 		}
+
+		t.Run("file doesn't exist", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			fName := "no_file"
+			fNameDst := "dst/test_copy"
+
+			err := smMW.Copy(fName, fNameDst)
+
+			if !strings.Contains(err.Error(), storage.ErrNotExist.Error()) {
+				t.Fatalf("wrong error while invoking SourceReader on non-existing file: want=%v, got=%v",
+					storage.ErrNotExist, err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			fName := "empty"
+			fNameDst := "dst/test_copy"
+			createEmptyFile(t, tmpDir, fName)
+
+			err := smMW.Copy(fName, fNameDst)
+			if err != nil {
+				t.Fatalf("err while reading from empty file: %v", err)
+			}
+
+			_, err = fs.FileStat(fNameDst)
+			if err != storage.ErrEmpty {
+				t.Fatalf("wrong error reported: want=%v, got=%v", storage.ErrEmpty, err)
+			}
+		})
 	})
 }
 

@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func RunStorageTests(t *testing.T, stg Storage, stgType Type) {
+func RunStorageBaseTests(t *testing.T, stg Storage, stgType Type) {
 	t.Helper()
 
 	t.Run("Type", func(t *testing.T) {
@@ -253,6 +253,36 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 				}
 			})
 		})
+
+		t.Run("Copy", func(t *testing.T) {
+			t.Run("file doesn't exist", func(t *testing.T) {
+				name := "doesnt_exist" + randomSuffix()
+				dstName := "dst/" + name
+
+				err := stg.Copy(name, dstName)
+				if !errors.Is(err, ErrNotExist) {
+					t.Fatalf("error reported while invoking Copy on non-existing file: %v", err)
+				}
+			})
+
+			t.Run("empty file", func(t *testing.T) {
+				name := "empty" + randomSuffix()
+				dstName := "dst/" + name
+				err := stg.Save(name, strings.NewReader(""))
+				if err != nil {
+					t.Fatalf("Save failed: %s", err)
+				}
+
+				err = stg.Copy(name, dstName)
+				if err != nil {
+					t.Fatalf("error while copying: %v", err)
+				}
+				_, err = stg.FileStat(dstName)
+				if err != ErrEmpty {
+					t.Fatalf("wrong error reported: want=%v, got=%v", ErrEmpty, err)
+				}
+			})
+		})
 	})
 }
 
@@ -472,22 +502,27 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 
 		t.Run("file doesn't exist", func(t *testing.T) {
+			mw := stg.(*SplitMergeMiddleware)
+			mw.setPartsSize(1024)
 			name := "doesnt_exist"
 
-			_, err := stg.SourceReader(name)
+			_, err := mw.SourceReader(name)
 			if !errors.Is(err, ErrNotExist) {
 				t.Fatalf("error reported while invoking SourceReader on non-existing file: %v", err)
 			}
 		})
 
 		t.Run("empty file", func(t *testing.T) {
+			mw := stg.(*SplitMergeMiddleware)
+			mw.setPartsSize(1024)
 			fName := "empty" + randomSuffix()
-			err := stg.Save(fName, strings.NewReader(""))
+
+			err := mw.Save(fName, strings.NewReader(""))
 			if err != nil {
 				t.Fatalf("Save failed: %s", err)
 			}
 
-			_, err = stg.SourceReader(fName)
+			_, err = mw.SourceReader(fName)
 			if !errors.Is(err, ErrEmpty) {
 				t.Fatalf("error reported while invoking SourceReader on empty file: %v", err)
 			}
@@ -648,7 +683,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		t.Run("empty file", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
 			fName := "empty" + randomSuffix()
-			err := stg.Save(fName, strings.NewReader(""))
+			err := mw.Save(fName, strings.NewReader(""))
 			if err != nil {
 				t.Fatalf("Save failed: %s", err)
 			}
@@ -758,7 +793,8 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		t.Run("empty file", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
 			fName := "empty" + randomSuffix()
-			err := stg.Save(fName, strings.NewReader(""))
+
+			err := mw.Save(fName, strings.NewReader(""))
 			if err != nil {
 				t.Fatalf("Save failed: %s", err)
 			}
@@ -846,6 +882,40 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				}
 			})
 		}
+
+		t.Run("file doesn't exist", func(t *testing.T) {
+			mw := stg.(*SplitMergeMiddleware)
+			mw.setPartsSize(1024)
+
+			name := "doesnt_exist" + randomSuffix()
+			dstName := "dst/" + name
+
+			err := mw.Copy(name, dstName)
+			if !errors.Is(err, ErrNotExist) {
+				t.Fatalf("error reported while invoking Copy on non-existing file: %v", err)
+			}
+		})
+
+		t.Run("empty file", func(t *testing.T) {
+			mw := stg.(*SplitMergeMiddleware)
+			mw.setPartsSize(1024)
+
+			name := "empty" + randomSuffix()
+			dstName := "dst/" + name
+			err := mw.Save(name, strings.NewReader(""))
+			if err != nil {
+				t.Fatalf("Save failed: %s", err)
+			}
+
+			err = mw.Copy(name, dstName)
+			if err != nil {
+				t.Fatalf("error while copying: %v", err)
+			}
+			_, err = mw.FileStat(dstName)
+			if err != ErrEmpty {
+				t.Fatalf("wrong error reported: want=%v, got=%v", ErrEmpty, err)
+			}
+		})
 	})
 }
 
