@@ -1067,6 +1067,34 @@ func TestDelete(t *testing.T) {
 				t.Fatalf("wrong number of files after deletion in sub dir: want=%d, got=%d", wantInSubDir, gotInSubDir)
 			}
 		})
+
+		t.Run("Delete dir", func(t *testing.T) {
+			tmpDir := setupTestDir(t)
+			fs := &FS{root: tmpDir}
+			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+
+			fName := "test_file_stat"
+			fNameSub := "sub/test_file_stat"
+			fSize := int64(1024)
+			createFileWithParts(t, fName, 3*fSize, smMW, "")
+			createFileWithParts(t, fNameSub, 5*fSize, smMW, "")
+			dir := "sub"
+
+			err := smMW.Delete(dir)
+			if err != nil {
+				t.Fatalf("error while invoking Delete: %v", err)
+			}
+
+			wantInDir, wantInSubDir := 3, 0
+			gotInDir := countFilesInDir(t, tmpDir)
+			if wantInDir != gotInDir {
+				t.Fatalf("wrong number of files after deletion in root dir: want=%d, got=%d", wantInDir, gotInDir)
+			}
+			gotInSubDir := countFilesInDir(t, path.Join(tmpDir, "sub"))
+			if wantInSubDir != gotInSubDir {
+				t.Fatalf("wrong number of files after deletion in sub dir: want=%d, got=%d", wantInSubDir, gotInSubDir)
+			}
+		})
 	})
 }
 
