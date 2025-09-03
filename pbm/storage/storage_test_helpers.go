@@ -492,6 +492,72 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				t.Fatalf("error reported while invoking SourceReader on empty file: %v", err)
 			}
 		})
+
+		t.Run("closing the stream when using split-merge middleware", func(t *testing.T) {
+			mw := stg.(*SplitMergeMiddleware)
+			partSize := int64(1024)
+			mw.setPartsSize(partSize)
+			fileSize := int64(3*1014 + 512)
+
+			fName := "test_merge_with_closing_stream" + randomSuffix()
+			// create test parts
+			srcContent := make([]byte, fileSize)
+			r := bytes.NewReader(srcContent)
+			err := mw.Save(fName, r)
+			if err != nil {
+				t.Fatalf("error while creating test parts: %v", err)
+			}
+
+			rc, err := mw.SourceReader(fName)
+			if err != nil {
+				t.Fatalf("error while invoking SourceReader: %v", err)
+			}
+
+			dstContent, err := io.ReadAll(rc)
+			if err != nil {
+				t.Fatalf("reading merged file: %v", err)
+			}
+			if err = rc.Close(); err != nil {
+				t.Fatalf("error while closing source reader stream: %v", err)
+			}
+			if fileSize != int64(len(dstContent)) {
+				t.Fatalf("wrong file size after merge, want=%d, got=%d", fileSize, len(dstContent))
+			}
+
+			rc, err = mw.SourceReader(fName)
+			if err != nil {
+				t.Fatalf("error while invoking SourceReader for buffered reading: %v", err)
+			}
+			buffSize := int64(512)
+			buff := make([]byte, buffSize)
+			n, err := io.ReadFull(rc, buff)
+			if err != nil {
+				t.Fatalf("error while reading within first part: %v", err)
+			}
+			if n != int(buffSize) {
+				t.Fatalf("wrong buff size while reading buffer: want=%d, got=%d", buffSize, n)
+			}
+			if err = rc.Close(); err != nil {
+				t.Fatalf("error while closing source reader after partial read: %v", err)
+			}
+
+			rc, err = mw.SourceReader(fName)
+			if err != nil {
+				t.Fatalf("error while invoking SourceReader for buffered reading: %v", err)
+			}
+			buffSize = int64(1536)
+			buff = make([]byte, buffSize)
+			n, err = io.ReadFull(rc, buff)
+			if err != nil {
+				t.Fatalf("error while reading within first & second part: %v", err)
+			}
+			if n != int(buffSize) {
+				t.Fatalf("wrong buff size while reading buffer: want=%d, got=%d", buffSize, n)
+			}
+			if err = rc.Close(); err != nil {
+				t.Fatalf("error while closing source reader after partial read: %v", err)
+			}
+		})
 	})
 
 	t.Run("FileStat with split-merge middleware", func(t *testing.T) {

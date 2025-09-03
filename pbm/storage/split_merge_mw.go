@@ -102,6 +102,7 @@ func (sm *SplitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error)
 			}
 			if _, err = io.Copy(pw, r); err != nil {
 				pw.CloseWithError(errors.Wrapf(err, "copy file stream: %s:", f.Name))
+				r.Close()
 				return
 			}
 			if err = r.Close(); err != nil {
@@ -112,7 +113,7 @@ func (sm *SplitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error)
 		pw.Close()
 	}()
 
-	return io.NopCloser(pr), nil
+	return pr, nil
 }
 
 func (sm *SplitMergeMiddleware) FileStat(name string) (FileInfo, error) {
