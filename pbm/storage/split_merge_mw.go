@@ -37,6 +37,8 @@ type wInfo struct {
 	err error
 }
 
+// Save intercepts the data stream and splits a large file into multiple pbm parts
+// before saving them to the storage.
 func (sm *SplitMergeMiddleware) Save(name string, data io.Reader, options ...Option) error {
 	fName := name
 
@@ -80,6 +82,7 @@ func (sm *SplitMergeMiddleware) Save(name string, data io.Reader, options ...Opt
 	return nil
 }
 
+// SourceReader merges multiple pbm file parts and returns a single stream.
 func (sm *SplitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error) {
 	fi, err := sm.fileWithParts(name)
 	if err != nil &&
@@ -116,6 +119,8 @@ func (sm *SplitMergeMiddleware) SourceReader(name string) (io.ReadCloser, error)
 	return pr, nil
 }
 
+// FileStat returns the combined file information (name & total size) for a file
+// which is split into multiple pbm parts.
 func (sm *SplitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 	fi, err := sm.fileWithParts(name)
 	if err != nil &&
@@ -139,6 +144,8 @@ func (sm *SplitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 	return res, nil
 }
 
+// List returns a list of FileInfo for all files specified with prefix,
+// aggregating information for files split into pbm parts.
 func (sm *SplitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 	var fi []FileInfo
 	var err error
@@ -171,6 +178,7 @@ func (sm *SplitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) 
 	return res, nil
 }
 
+// Delete handles the deletion of a file, including all of its split parts.
 func (sm *SplitMergeMiddleware) Delete(name string) error {
 	fi, err := sm.fileWithParts(name)
 	if err != nil &&
@@ -191,6 +199,7 @@ func (sm *SplitMergeMiddleware) Delete(name string) error {
 	return nil
 }
 
+// Copy handles copying a file and all its split parts to a new location.
 func (sm *SplitMergeMiddleware) Copy(src, dst string) error {
 	fi, err := sm.fileWithParts(src)
 	if err != nil &&
@@ -222,7 +231,9 @@ func (sm *SplitMergeMiddleware) Copy(src, dst string) error {
 	return nil
 }
 
-// fileWithParts fetches file with base name and all it's PBM parts.
+// fileWithParts fetches a list of FileInfo for the base file and all its PBM parts.
+// The base part has always 0 index, and all other parts have the array index the
+// same as pbm part index.
 func (sm *SplitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	res := []FileInfo{}
 
@@ -293,6 +304,7 @@ func createNextPart(fname string) (string, error) {
 	}
 }
 
+// GetPartIndex extracts the part index from a pbm part file name.
 func GetPartIndex(fname string) (int, error) {
 	partID := 0
 	if isPartFile(fname) {
