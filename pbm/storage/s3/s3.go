@@ -41,7 +41,7 @@ const (
 	defaultRetryerMinRetryDelay = 30 * time.Millisecond
 	defaultRetryerMaxRetryDelay = 300 * time.Second
 
-	DefaultMaxObjSizeTB = 4.9
+	DefaultMaxObjSizeGB = 5018 // 4.9 TB
 )
 
 //nolint:lll
@@ -58,7 +58,7 @@ type Config struct {
 	UploadPartSize       int               `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts       int32             `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 	StorageClass         string            `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
-	MaxObjSizeTB         *float64          `bson:"maxObjSizeTB,omitempty" json:"maxObjSizeTB,omitempty" yaml:"maxObjSizeTB,omitempty"`
+	MaxObjSizeGB         *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
@@ -168,7 +168,7 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.StorageClass != other.StorageClass {
 		return false
 	}
-	if cfg.MaxObjSizeTB != other.MaxObjSizeTB {
+	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
 		return false
 	}
 
@@ -250,11 +250,11 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 	return ep
 }
 
-func (cfg *Config) GetMaxObjSizeTB() float64 {
-	if cfg.MaxObjSizeTB != nil {
-		return *cfg.MaxObjSizeTB
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil {
+		return *cfg.MaxObjSizeGB
 	}
-	return DefaultMaxObjSizeTB
+	return DefaultMaxObjSizeGB
 }
 
 // SDKLogLevel returns AWS SDK log level value from comma-separated
@@ -339,7 +339,7 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 		cc:       1,
 	}
 
-	return storage.NewSplitMergeMW(s, opts.GetMaxObjSizeTB()), nil
+	return storage.NewSplitMergeMW(s, opts.GetMaxObjSizeGB()), nil
 }
 
 func (*S3) Type() storage.Type {

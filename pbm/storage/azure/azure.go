@@ -31,7 +31,7 @@ const (
 
 	maxBlocks = 50_000
 
-	DefaultMaxObjSizeTB = 190.0
+	DefaultMaxObjSizeGB = 194560 // 190 TB
 )
 
 //nolint:lll
@@ -42,7 +42,7 @@ type Config struct {
 	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
 	Prefix         string            `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
-	MaxObjSizeTB   *float64          `bson:"maxObjSizeTB,omitempty" json:"maxObjSizeTB,omitempty" yaml:"maxObjSizeTB,omitempty"`
+	MaxObjSizeGB   *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -78,7 +78,7 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.Credentials.Key != other.Credentials.Key {
 		return false
 	}
-	if cfg.MaxObjSizeTB != other.MaxObjSizeTB {
+	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
 		return false
 	}
 
@@ -117,11 +117,11 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 	return ep
 }
 
-func (cfg *Config) GetMaxObjSizeTB() float64 {
-	if cfg.MaxObjSizeTB != nil {
-		return *cfg.MaxObjSizeTB
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil {
+		return *cfg.MaxObjSizeGB
 	}
-	return DefaultMaxObjSizeTB
+	return DefaultMaxObjSizeGB
 }
 
 type Credentials struct {
@@ -152,7 +152,7 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 		return nil, errors.Wrap(err, "init container")
 	}
 
-	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeTB()), b.ensureContainer()
+	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeGB()), b.ensureContainer()
 }
 
 func (*Blob) Type() storage.Type {

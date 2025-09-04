@@ -12,13 +12,14 @@ import (
 )
 
 const (
-	DefaultMaxObjSizeTB = 5.0
-	tmpFileSuffix       = ".tmp"
+	DefaultMaxObjSizeGB = 5018 // 4.9 TB
+
+	tmpFileSuffix = ".tmp"
 )
 
 type Config struct {
 	Path         string   `bson:"path" json:"path" yaml:"path"`
-	MaxObjSizeTB *float64 `bson:"maxObjSizeTB,omitempty" json:"maxObjSizeTB,omitempty" yaml:"maxObjSizeTB,omitempty"`
+	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -34,7 +35,7 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg == nil || other == nil {
 		return cfg == other
 	}
-	if cfg.MaxObjSizeTB != other.MaxObjSizeTB {
+	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
 		return false
 	}
 
@@ -49,11 +50,11 @@ func (cfg *Config) Cast() error {
 	return nil
 }
 
-func (cfg *Config) GetMaxObjSizeTB() float64 {
-	if cfg.MaxObjSizeTB != nil {
-		return *cfg.MaxObjSizeTB
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil {
+		return *cfg.MaxObjSizeGB
 	}
-	return DefaultMaxObjSizeTB
+	return DefaultMaxObjSizeGB
 }
 
 type FS struct {
@@ -90,7 +91,7 @@ func New(opts *Config) (storage.Storage, error) {
 	}
 
 	fs := &FS{root}
-	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeTB()), nil
+	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 }
 
 func (*FS) Type() storage.Type {

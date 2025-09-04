@@ -18,7 +18,7 @@ func TestList(t *testing.T) {
 	t.Run("basic usage", func(t *testing.T) {
 		tmpDir := setupTestFiles(t)
 		var fs storage.Storage = &FS{root: tmpDir}
-		fs = storage.NewSplitMergeMW(fs, BytesToTB(5*1024*1024*1024))
+		fs = storage.NewSplitMergeMW(fs, BytesToGB(5*1024*1024*1024))
 
 		testCases := []struct {
 			desc      string
@@ -146,7 +146,7 @@ func TestList(t *testing.T) {
 		t.Run("file parts are ignored", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName := "test_parts1"
 			fSize := int64(5 * 1024)
@@ -177,7 +177,7 @@ func TestList(t *testing.T) {
 		t.Run("file parts are ignored for multiple files", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName1 := "test_parts1"
 			fSize1 := int64(1 * 1024)
@@ -213,7 +213,7 @@ func TestList(t *testing.T) {
 		t.Run("file parts are ignored within sub dir", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName1 := "sub/test_parts1"
 			fSize1 := int64(1 * 1024)
@@ -249,7 +249,7 @@ func TestList(t *testing.T) {
 		t.Run("listing files using deeper dir path", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName1 := "sub1/file_test_parts1"
 			fSize1 := int64(1 * 1024)
@@ -417,7 +417,7 @@ func TestSave(t *testing.T) {
 			t.Run(tC.desc, func(t *testing.T) {
 				tmpDir := setupTestDir(t)
 				fs := &FS{root: tmpDir}
-				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+				smMW := storage.NewSplitMergeMW(fs, BytesToGB(tC.partSize))
 
 				fName := "test_split"
 				if tC.file != "" {
@@ -449,7 +449,7 @@ func TestSave(t *testing.T) {
 		t.Run("create empty file", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 			fName := "empty"
 
 			err := smMW.Save(fName, bytes.NewReader([]byte{}))
@@ -559,7 +559,7 @@ func TestSourceReader(t *testing.T) {
 			t.Run(tC.desc, func(t *testing.T) {
 				tmpDir := setupTestDir(t)
 				fs := &FS{root: tmpDir}
-				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+				smMW := storage.NewSplitMergeMW(fs, BytesToGB(tC.partSize))
 
 				fName := "test_merge"
 				if tC.file != "" {
@@ -597,7 +597,7 @@ func TestSourceReader(t *testing.T) {
 	t.Run("file doesn't exist", func(t *testing.T) {
 		tmpDir := setupTestDir(t)
 		fs := &FS{root: tmpDir}
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+		smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 		fName := "no_file"
 
@@ -611,7 +611,7 @@ func TestSourceReader(t *testing.T) {
 	t.Run("empty file", func(t *testing.T) {
 		tmpDir := setupTestDir(t)
 		fs := &FS{root: tmpDir}
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+		smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 		fName := "empty"
 		createEmptyFile(t, tmpDir, fName)
@@ -632,7 +632,7 @@ func TestSourceReader(t *testing.T) {
 	t.Run("SourceReader with the same file name within sub dir", func(t *testing.T) {
 		tmpDir := setupTestDir(t)
 		fs := &FS{root: tmpDir}
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+		smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 		fName := "test_merge_file"
 		fNameInSub := "sub/test_merge_file"
@@ -660,7 +660,7 @@ func TestSourceReader(t *testing.T) {
 		fs := &FS{root: tmpDir}
 		partSize := int64(1024)
 		fileSize := int64(3*1014 + 512)
-		smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+		smMW := storage.NewSplitMergeMW(fs, BytesToGB(partSize))
 
 		fName := "test_merge_with_closing_stream"
 
@@ -805,7 +805,7 @@ func TestFileStat(t *testing.T) {
 			t.Run(tC.desc, func(t *testing.T) {
 				tmpDir := setupTestDir(t)
 				fs := &FS{root: tmpDir}
-				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+				smMW := storage.NewSplitMergeMW(fs, BytesToGB(tC.partSize))
 
 				fName := "test_file_stat"
 				if tC.file != "" {
@@ -836,7 +836,7 @@ func TestFileStat(t *testing.T) {
 		t.Run("FileStat with the same file within sub dir", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName := "test_file_stat"
 			fSize := int64(1024)
@@ -857,7 +857,7 @@ func TestFileStat(t *testing.T) {
 			fName := "doesnt_exist"
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			_, err := smMW.FileStat(fName)
 			if err != storage.ErrNotExist {
@@ -868,7 +868,7 @@ func TestFileStat(t *testing.T) {
 		t.Run("empty file", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName := "test_file_stat"
 			file, err := os.Create(filepath.Join(tmpDir, fName))
@@ -973,7 +973,7 @@ func TestDelete(t *testing.T) {
 			t.Run(tC.desc, func(t *testing.T) {
 				tmpDir := setupTestDir(t)
 				fs := &FS{root: tmpDir}
-				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+				smMW := storage.NewSplitMergeMW(fs, BytesToGB(tC.partSize))
 
 				fName := "test_rm_file"
 				if tC.file != "" {
@@ -1010,7 +1010,7 @@ func TestDelete(t *testing.T) {
 			partSize := int64(1024)
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(partSize))
 
 			fName := "test_rm_file"
 
@@ -1024,7 +1024,7 @@ func TestDelete(t *testing.T) {
 			partSize := int64(1024)
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(partSize))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(partSize))
 
 			fName := "test_rm_file"
 			createEmptyFile(t, tmpDir, fName)
@@ -1044,7 +1044,7 @@ func TestDelete(t *testing.T) {
 		t.Run("Delete file that contains the same name within sub dir", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName := "test_file_stat"
 			fNameSub := "sub/test_file_stat"
@@ -1071,7 +1071,7 @@ func TestDelete(t *testing.T) {
 		t.Run("Delete dir", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 
 			fName := "test_file_stat"
 			fNameSub := "sub/test_file_stat"
@@ -1177,7 +1177,7 @@ func TestCopy(t *testing.T) {
 			t.Run(tC.desc, func(t *testing.T) {
 				tmpDir := setupTestDir(t)
 				fs := &FS{root: tmpDir}
-				smMW := storage.NewSplitMergeMW(fs, BytesToTB(tC.partSize))
+				smMW := storage.NewSplitMergeMW(fs, BytesToGB(tC.partSize))
 
 				fNameSrc := "test_copy"
 				if tC.file != "" {
@@ -1215,7 +1215,7 @@ func TestCopy(t *testing.T) {
 		t.Run("file doesn't exist", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 			fName := "no_file"
 			fNameDst := "dst/test_copy"
 
@@ -1230,7 +1230,7 @@ func TestCopy(t *testing.T) {
 		t.Run("empty file", func(t *testing.T) {
 			tmpDir := setupTestDir(t)
 			fs := &FS{root: tmpDir}
-			smMW := storage.NewSplitMergeMW(fs, BytesToTB(1024))
+			smMW := storage.NewSplitMergeMW(fs, BytesToGB(1024))
 			fName := "empty"
 			fNameDst := "dst/test_copy"
 			createEmptyFile(t, tmpDir, fName)
@@ -1308,9 +1308,9 @@ func createTestDir(t *testing.T, path string) {
 	}
 }
 
-func BytesToTB(bytes int64) float64 {
-	const TB = 1024 * 1024 * 1024 * 1024
-	return float64(bytes) / TB
+func BytesToGB(bytes int64) float64 {
+	const GB = 1024 * 1024 * 1024
+	return float64(bytes) / GB
 }
 
 func getFileWithParts(t *testing.T, dir, name string) []storage.FileInfo {

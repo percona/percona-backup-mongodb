@@ -12,7 +12,7 @@ import (
 
 const (
 	pbmPartToken = ".pbmpart."
-	TB           = 1024 * 1024 * 1024 * 1024
+	GB           = 1024 * 1024 * 1024
 )
 
 type SplitMergeMiddleware struct {
@@ -21,7 +21,7 @@ type SplitMergeMiddleware struct {
 }
 
 func NewSplitMergeMW(s Storage, maxObjSize float64) Storage {
-	maxObjSizeB := int64(maxObjSize * TB)
+	maxObjSizeB := int64(maxObjSize * GB)
 	return &SplitMergeMiddleware{
 		s:          s,
 		maxObjSize: maxObjSizeB,
