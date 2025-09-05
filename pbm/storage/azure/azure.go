@@ -31,7 +31,7 @@ const (
 
 	maxBlocks = 50_000
 
-	DefaultMaxObjSizeGB = 194560 // 190 TB
+	defaultMaxObjSizeGB = 194560 // 190 TB
 )
 
 //nolint:lll
@@ -121,7 +121,7 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	if cfg.MaxObjSizeGB != nil {
 		return *cfg.MaxObjSizeGB
 	}
-	return DefaultMaxObjSizeGB
+	return defaultMaxObjSizeGB
 }
 
 type Credentials struct {

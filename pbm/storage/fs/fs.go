@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultMaxObjSizeGB = 5018 // 4.9 TB
+	defaultMaxObjSizeGB = 5018 // 4.9 TB
 
 	tmpFileSuffix = ".tmp"
 )
@@ -54,7 +54,7 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	if cfg.MaxObjSizeGB != nil {
 		return *cfg.MaxObjSizeGB
 	}
-	return DefaultMaxObjSizeGB
+	return defaultMaxObjSizeGB
 }
 
 type FS struct {

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	DefaultMaxObjSizeGB = 5018 // 4.9 TB
+	defaultMaxObjSizeGB = 5018 // 4.9 TB
 )
 
 type Config struct {
@@ -136,7 +136,7 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	if cfg.MaxObjSizeGB != nil {
 		return *cfg.MaxObjSizeGB
 	}
-	return DefaultMaxObjSizeGB
+	return defaultMaxObjSizeGB
 }
 
 func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {

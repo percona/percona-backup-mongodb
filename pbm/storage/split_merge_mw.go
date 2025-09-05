@@ -262,17 +262,6 @@ func (sm *SplitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	return res, nil
 }
 
-// setPartsSize set pbm part size (in bytes) for the purpose of unit testing.
-func (sm *SplitMergeMiddleware) setPartsSize(maxObjSize int64) {
-	sm.maxObjSize = maxObjSize
-}
-
-// getStorage returns Storage object that MW is based on.
-// The only purpose for this method is unit testing.
-func (sm *SplitMergeMiddleware) getStorage() Storage {
-	return sm.s
-}
-
 // createNextPart returns file name for the next pbm part.
 // Input for the name creation is the last part name: base part or any indexed part.
 // For part names PBM uses following naming schema:
@@ -327,8 +316,7 @@ func GetBasePart(fname string) string {
 
 	pattern := regexp.MustCompile(`\.pbmpart\.\d+$`)
 	if pattern.MatchString(fname) {
-		fileParts := strings.Split(fname, ".")
-		base = strings.Join(fileParts[:len(fileParts)-2], ".")
+		base = strings.Split(fname, pbmPartToken)[0]
 	}
 
 	return base

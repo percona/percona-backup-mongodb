@@ -158,7 +158,7 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 	t.Helper()
 
 	// remove MW
-	stg = stg.(*SplitMergeMiddleware).getStorage()
+	stg = stg.(*SplitMergeMiddleware).s
 
 	t.Run("storage api", func(t *testing.T) {
 		t.Run("Save", func(t *testing.T) {
@@ -362,7 +362,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
 				mw := stg.(*SplitMergeMiddleware)
-				mw.setPartsSize(tC.partSize)
+				mw.maxObjSize = tC.partSize
 
 				fName := "test_split" + randomSuffix()
 				if tC.file != "" {
@@ -395,7 +395,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 
 		t.Run("empty file", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
-			mw.setPartsSize(1024)
+			mw.maxObjSize = 1024
 			name := "empty" + randomSuffix()
 
 			err := mw.Save(name, strings.NewReader(""))
@@ -467,7 +467,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
 				mw := stg.(*SplitMergeMiddleware)
-				mw.setPartsSize(tC.partSize)
+				mw.maxObjSize = tC.partSize
 
 				fName := "test_merge" + randomSuffix()
 				if tC.file != "" {
@@ -503,7 +503,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 
 		t.Run("file doesn't exist", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
-			mw.setPartsSize(1024)
+			mw.maxObjSize = 1024
 			name := "doesnt_exist"
 
 			_, err := mw.SourceReader(name)
@@ -514,7 +514,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 
 		t.Run("empty file", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
-			mw.setPartsSize(1024)
+			mw.maxObjSize = 1024
 			fName := "empty" + randomSuffix()
 
 			err := mw.Save(fName, strings.NewReader(""))
@@ -531,7 +531,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		t.Run("closing the stream when using split-merge middleware", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
 			partSize := int64(1024)
-			mw.setPartsSize(partSize)
+			mw.maxObjSize = partSize
 			fileSize := int64(3*1014 + 512)
 
 			fName := "test_merge_with_closing_stream" + randomSuffix()
@@ -642,7 +642,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
 				mw := stg.(*SplitMergeMiddleware)
-				mw.setPartsSize(tC.partSize)
+				mw.maxObjSize = tC.partSize
 
 				fName := "test_file_stat" + randomSuffix()
 				if tC.file != "" {
@@ -745,7 +745,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
 				mw := stg.(*SplitMergeMiddleware)
-				mw.setPartsSize(tC.partSize)
+				mw.maxObjSize = tC.partSize
 
 				dir := randomSuffix()
 				fName := "test_rm_file"
@@ -848,7 +848,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
 				mw := stg.(*SplitMergeMiddleware)
-				mw.setPartsSize(tC.partSize)
+				mw.maxObjSize = tC.partSize
 
 				fNameSrc := "test_copy" + randomSuffix()
 				if tC.file != "" {
@@ -885,7 +885,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 
 		t.Run("file doesn't exist", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
-			mw.setPartsSize(1024)
+			mw.maxObjSize = 1024
 
 			name := "doesnt_exist" + randomSuffix()
 			dstName := "dst/" + name
@@ -898,7 +898,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 
 		t.Run("empty file", func(t *testing.T) {
 			mw := stg.(*SplitMergeMiddleware)
-			mw.setPartsSize(1024)
+			mw.maxObjSize = 1024
 
 			name := "empty" + randomSuffix()
 			dstName := "dst/" + name
