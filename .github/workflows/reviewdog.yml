@@ -70,7 +70,7 @@ jobs:
       - run: go install mvdan.cc/gofumpt@latest
       - run: goimports -w -local "github.com/percona" $(find . -not -path "*/vendor/*" -name "*.go")
       - run: gofumpt -w -extra $(find . -not -path "*/vendor/*" -name "*.go")
-      - uses: reviewdog/action-suggester@v1
+      - uses: reviewdog/action-suggester@v1.22.0
         with:
           tool_name: gofmt
 
@@ -85,6 +85,6 @@ jobs:
       - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
       - run: shfmt -f . | grep -v 'vendor' | xargs shfmt -w -s
       - name: suggester / shfmt
-        uses: reviewdog/action-suggester@v1
+        uses: reviewdog/action-suggester@v1.22.0
         with:
           tool_name: shfmt
