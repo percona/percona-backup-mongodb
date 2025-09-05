@@ -144,3 +144,42 @@ func TestGetPartIndex(t *testing.T) {
 		}
 	})
 }
+
+// TestGetBasePart tests GetBasePart function.
+func TestGetBasePart(t *testing.T) {
+	tests := []struct {
+		name  string
+		fname string
+		want  string
+	}{
+		{
+			name:  "only base part",
+			fname: "file_name",
+			want:  "file_name",
+		},
+		{
+			name:  "base part with pbmpart token and index",
+			fname: "file_name.pbmpart.15",
+			want:  "file_name",
+		},
+		{
+			name:  "base part with pbmpart token, without index",
+			fname: "file_name.pbmpart.",
+			want:  "file_name",
+		},
+		{
+			name:  "pbmpart token exists, base part doesn't",
+			fname: ".pbmpart.5",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetBasePart(tt.fname)
+			if got != tt.want {
+				t.Errorf("want=%s, got=%s", tt.want, got)
+			}
+		})
+	}
+}

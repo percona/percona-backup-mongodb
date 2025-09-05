@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -312,14 +311,7 @@ func GetPartIndex(fname string) (int, error) {
 // GetBasePart extract base part of the file.
 // Base part is file without .pbmpart.xy suffix.
 func GetBasePart(fname string) string {
-	base := fname
-
-	pattern := regexp.MustCompile(`\.pbmpart\.\d+$`)
-	if pattern.MatchString(fname) {
-		base = strings.Split(fname, pbmPartToken)[0]
-	}
-
-	return base
+	return strings.Split(fname, pbmPartToken)[0]
 }
 
 func isPartFile(fname string) bool {
