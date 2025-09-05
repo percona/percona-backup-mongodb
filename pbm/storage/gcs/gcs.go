@@ -12,6 +12,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
+const (
+	defaultMaxObjSizeGB = 5018 // 4.9 TB
+)
+
 type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
@@ -19,7 +23,8 @@ type Config struct {
 
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
-	ChunkSize int `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	ChunkSize    int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
@@ -100,6 +105,9 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.ChunkSize != other.ChunkSize {
 		return false
 	}
+	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
+		return false
+	}
 
 	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
 		return false
@@ -124,7 +132,14 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 	return true
 }
 
-func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil {
+		return *cfg.MaxObjSizeGB
+	}
+	return defaultMaxObjSizeGB
+}
+
+func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	g := &GCS{
 		opts: opts,
 		log:  l,
@@ -151,7 +166,7 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 		cc:       1,
 	}
 
-	return g, nil
+	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
 }
 
 func (*GCS) Type() storage.Type {
