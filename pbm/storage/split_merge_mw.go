@@ -311,7 +311,12 @@ func GetPartIndex(fname string) (int, error) {
 // GetBasePart extract base part of the file.
 // Base part is file without .pbmpart.xy suffix.
 func GetBasePart(fname string) string {
-	return strings.Split(fname, pbmPartToken)[0]
+	base, idx, found := strings.Cut(fname, pbmPartToken)
+	if _, err := strconv.Atoi(idx); err == nil && found {
+		return base
+	}
+
+	return fname
 }
 
 func isPartFile(fname string) bool {

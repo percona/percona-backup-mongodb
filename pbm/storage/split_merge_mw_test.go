@@ -165,7 +165,12 @@ func TestGetBasePart(t *testing.T) {
 		{
 			name:  "base part with pbmpart token, without index",
 			fname: "file_name.pbmpart.",
-			want:  "file_name",
+			want:  "file_name.pbmpart.",
+		},
+		{
+			name:  "base part with pbmpart token, invalid index",
+			fname: "file_name.pbmpart.23xx",
+			want:  "file_name.pbmpart.23xx",
 		},
 		{
 			name:  "pbmpart token exists, base part doesn't",
