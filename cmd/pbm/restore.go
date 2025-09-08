@@ -263,7 +263,9 @@ func waitRestore(
 
 		switch rmeta.Status {
 		case status, defs.StatusDone, defs.StatusPartlyDone:
-			if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
+			if status != defs.StatusCopyReady &&
+				(m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup) {
+				// apply cleanup waiting logic only for physical/inc backups, and not external
 				alive, err := restore.IsCleanupHbAlive(m.Name, stg, tskew)
 				if err != nil {
 					return errors.Wrap(err, "checking cleanup hb")
