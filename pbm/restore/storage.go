@@ -2,10 +2,13 @@ package restore
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
 
@@ -275,4 +278,37 @@ func parsePhysRestoreCond(stg storage.Storage, fname, restoreName string) (*Cond
 		}
 	}
 	return &cond, nil
+}
+
+// IsCleanupHbAlive returns true if cleanup hb is active on any agent during physical restore.
+// It reads timestamp from file and takes into account potential time skew.
+// When hb excides timeout, means that cleanup is done, false is returned.
+func IsCleanupHbAlive(restoreName string, stg storage.Storage, tskew int64) (bool, error) {
+	file := path.Join(defs.PhysRestoresDir, restoreName, fmt.Sprintf("cluster.%s", syncHbCleanupSuffix))
+	_, err := stg.FileStat(file)
+	if err != nil {
+		return false, errors.Wrap(err, "get cleanup hb file stat")
+	}
+
+	f, err := stg.SourceReader(file)
+	if err != nil {
+		return false, errors.Wrap(err, "get cleanup hb file")
+	}
+
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return false, errors.Wrap(err, "read cleanup hb content")
+	}
+
+	t, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 0)
+	if err != nil {
+		return false, errors.Wrap(err, "cleanup hb decode")
+	}
+
+	ctime := time.Now().Unix() + tskew
+	if t+int64(hbCleanupFrame.Seconds())+hbCleanupTimeout < ctime {
+		return false, nil
+	}
+
+	return true, nil
 }
