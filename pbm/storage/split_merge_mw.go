@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,8 @@ const (
 	pbmPartToken = ".pbmpart."
 	GB           = 1024 * 1024 * 1024
 )
+
+var pbmPartRE = regexp.MustCompile(`\.pbmpart\.\d+$`)
 
 type SplitMergeMiddleware struct {
 	s          Storage
@@ -311,12 +314,13 @@ func GetPartIndex(fname string) (int, error) {
 // GetBasePart extract base part of the file.
 // Base part is file without .pbmpart.xy suffix.
 func GetBasePart(fname string) string {
-	base, idx, found := strings.Cut(fname, pbmPartToken)
-	if _, err := strconv.Atoi(idx); err == nil && found {
-		return base
+	base := fname
+
+	if pbmPartRE.MatchString(fname) {
+		base = strings.Split(fname, pbmPartToken)[0]
 	}
 
-	return fname
+	return base
 }
 
 func isPartFile(fname string) bool {
