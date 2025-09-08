@@ -287,6 +287,11 @@ func IsCleanupHbAlive(restoreName string, stg storage.Storage, tskew int64) (boo
 	file := path.Join(defs.PhysRestoresDir, restoreName, fmt.Sprintf("cluster.%s", syncHbCleanupSuffix))
 	_, err := stg.FileStat(file)
 	if err != nil {
+		if errors.Is(err, storage.ErrNotExist) ||
+			errors.Is(err, storage.ErrEmpty) {
+			// HB hasn't been created yet
+			return true, nil
+		}
 		return false, errors.Wrap(err, "get cleanup hb file stat")
 	}
 

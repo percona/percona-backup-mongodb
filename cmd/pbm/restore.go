@@ -266,10 +266,6 @@ func waitRestore(
 			if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
 				alive, err := restore.IsCleanupHbAlive(m.Name, stg, tskew)
 				if err != nil {
-					if errors.Is(err, storage.ErrNotExist) ||
-						errors.Is(err, storage.ErrEmpty) {
-						continue
-					}
 					return errors.Wrap(err, "checking cleanup hb")
 				}
 				if alive {
