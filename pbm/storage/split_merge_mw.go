@@ -15,6 +15,8 @@ const (
 	GB           = 1024 * 1024 * 1024
 )
 
+var pbmPartRE = regexp.MustCompile(`\.pbmpart\.\d+$`)
+
 type SplitMergeMiddleware struct {
 	s          Storage
 	maxObjSize int64 // in bytes
@@ -314,8 +316,7 @@ func GetPartIndex(fname string) (int, error) {
 func GetBasePart(fname string) string {
 	base := fname
 
-	pattern := regexp.MustCompile(`\.pbmpart\.\d+$`)
-	if pattern.MatchString(fname) {
+	if pbmPartRE.MatchString(fname) {
 		base = strings.Split(fname, pbmPartToken)[0]
 	}
 
