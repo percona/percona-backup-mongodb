@@ -669,10 +669,10 @@ func (r *PhysRestore) waitToBecomePrimary(ctx context.Context, m *mongo.Client) 
 //
 //		.pbm.restore/<restore-name>
 //			rs.<rs-name>/
-//				node.<node-name>.hb			// hearbeats. last beat ts inside.
+//				node.<node-name>.hb			// heartbeats. last beat ts inside.
 //				node.<node-name>.<status>	// node's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
 //				rs.<status>					// replicaset's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
-//			cluster.hb						// hearbeats. last beat ts inside.
+//			cluster.hb						// heartbeats. last beat ts inside.
 //			cluster.<status>				// cluster's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
 //
 //	 For example:
@@ -2245,7 +2245,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		tk := time.NewTicker(time.Second * hbFrameSec)
 		defer func() {
 			tk.Stop()
-			l.Debug("hearbeats stopped")
+			l.Debug("heartbeats stopped")
 		}()
 
 		for {
@@ -2296,7 +2296,7 @@ func (r *PhysRestore) hbCleanup() error {
 	return nil
 }
 
-// startCleanupHb genereates cleanup hb for the purpose of detecting physical restore
+// startCleanupHb generates cleanup hb for the purpose of detecting physical restore
 // cleanup activity.
 func (r *PhysRestore) startCleanupHb() {
 	if r.stopHB == nil {
@@ -2311,7 +2311,7 @@ func (r *PhysRestore) startCleanupHb() {
 	tk := time.NewTicker(hbCleanupFrame)
 	defer func() {
 		tk.Stop()
-		r.log.Debug("cleaning hearbeats stopped")
+		r.log.Debug("cleaning heartbeats stopped")
 	}()
 
 	for {

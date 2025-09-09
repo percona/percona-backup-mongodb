@@ -282,7 +282,7 @@ func parsePhysRestoreCond(stg storage.Storage, fname, restoreName string) (*Cond
 
 // IsCleanupHbAlive returns true if cleanup hb is active on any agent during physical restore.
 // It reads timestamp from file and takes into account potential time skew.
-// When hb excides timeout, means that cleanup is done, false is returned.
+// When hb exceeds timeout, means that cleanup is done, false is returned.
 func IsCleanupHbAlive(restoreName string, stg storage.Storage, tskew int64) (bool, error) {
 	file := path.Join(defs.PhysRestoresDir, restoreName, fmt.Sprintf("cluster.%s", syncHbCleanupSuffix))
 	_, err := stg.FileStat(file)
