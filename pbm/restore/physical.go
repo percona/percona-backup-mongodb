@@ -62,6 +62,12 @@ const (
 	mongodPortTimeout = 5 * time.Minute
 
 	internalMongodLog = "pbm.restore.log"
+
+	hbFrameSec          = 60 * 2
+	syncHbSuffix        = "hb"
+	syncHbCleanupSuffix = "cleanup.hb"
+	hbCleanupFrame      = 15 * time.Second
+	hbCleanupTimeout    = 3
 )
 
 type files struct {
@@ -252,6 +258,8 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 	if err != nil {
 		r.log.Warning("waiting for cluster status during cleanup: %v", err)
 	}
+
+	go r.startCleanupHb()
 
 	defer func() {
 		if r.fallback {
@@ -661,10 +669,10 @@ func (r *PhysRestore) waitToBecomePrimary(ctx context.Context, m *mongo.Client) 
 //
 //		.pbm.restore/<restore-name>
 //			rs.<rs-name>/
-//				node.<node-name>.hb			// hearbeats. last beat ts inside.
+//				node.<node-name>.hb			// heartbeats. last beat ts inside.
 //				node.<node-name>.<status>	// node's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
 //				rs.<status>					// replicaset's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
-//			cluster.hb						// hearbeats. last beat ts inside.
+//			cluster.hb						// heartbeats. last beat ts inside.
 //			cluster.<status>				// cluster's PBM status. Inside is the ts of the transition. In case of error, file contains an error text.
 //
 //	 For example:
@@ -2174,8 +2182,6 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 	return nil
 }
 
-const hbFrameSec = 60 * 2
-
 func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l log.LogEvent) error {
 	cfg, err := config.GetConfig(ctx, r.leadConn)
 	if err != nil {
@@ -2239,7 +2245,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		tk := time.NewTicker(time.Second * hbFrameSec)
 		defer func() {
 			tk.Stop()
-			l.Debug("hearbeats stopped")
+			l.Debug("heartbeats stopped")
 		}()
 
 		for {
@@ -2258,8 +2264,6 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 	return nil
 }
 
-const syncHbSuffix = "hb"
-
 func (r *PhysRestore) hb() error {
 	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
 
@@ -2275,10 +2279,52 @@ func (r *PhysRestore) hb() error {
 
 	err = storage.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbSuffix, now)
 	if err != nil {
-		return errors.Wrap(err, "write rs hb")
+		return errors.Wrap(err, "write cluster hb")
 	}
 
 	return nil
+}
+
+func (r *PhysRestore) hbCleanup() error {
+	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
+
+	err := storage.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbCleanupSuffix, now)
+	if err != nil {
+		return errors.Wrap(err, "write cleanup hb")
+	}
+
+	return nil
+}
+
+// startCleanupHb generates cleanup hb for the purpose of detecting physical restore
+// cleanup activity.
+func (r *PhysRestore) startCleanupHb() {
+	if r.stopHB == nil {
+		return
+	}
+
+	err := r.hbCleanup()
+	if err != nil {
+		r.log.Warning("send heartbeat: %v", err)
+	}
+
+	tk := time.NewTicker(hbCleanupFrame)
+	defer func() {
+		tk.Stop()
+		r.log.Debug("cleaning heartbeats stopped")
+	}()
+
+	for {
+		select {
+		case <-tk.C:
+			err := r.hbCleanup()
+			if err != nil {
+				r.log.Warning("send heartbeat: %v", err)
+			}
+		case <-r.stopHB:
+			return
+		}
+	}
 }
 
 func (r *PhysRestore) checkHB(file string) error {

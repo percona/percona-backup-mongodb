@@ -362,7 +362,7 @@ func (c *Client) Restore(ctx context.Context, backupName string, clusterTS Times
 	return NoOpID, ErrNotImplemented
 }
 
-var ErrStaleHearbeat = errors.New("stale heartbeat")
+var ErrStaleHeartbeat = errors.New("stale heartbeat")
 
 func (c *Client) OpLocks(ctx context.Context) ([]OpLock, error) {
 	locks, err := lock.GetLocks(ctx, c.conn, &lock.LockHeader{})
@@ -388,7 +388,7 @@ func (c *Client) OpLocks(ctx context.Context) ([]OpLock, error) {
 		rv[i].Heartbeat = locks[i].Heartbeat
 
 		if rv[i].Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
-			rv[i].err = ErrStaleHearbeat
+			rv[i].err = ErrStaleHeartbeat
 		}
 	}
 	return rv, nil

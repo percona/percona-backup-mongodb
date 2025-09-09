@@ -234,11 +234,7 @@ func waitRestore(
 		return errors.Wrap(err, "get storage")
 	}
 
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-
 	var rmeta *restore.RestoreMeta
-
 	getMeta := restore.GetRestoreMeta
 	if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
 		getMeta = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
@@ -251,6 +247,10 @@ func waitRestore(
 	if m.Type != defs.LogicalBackup {
 		frameSec = 60 * 3
 	}
+
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+
 	for range tk.C {
 		fmt.Print(".")
 		rmeta, err = getMeta(ctx, conn, m.Name)
@@ -263,6 +263,17 @@ func waitRestore(
 
 		switch rmeta.Status {
 		case status, defs.StatusDone, defs.StatusPartlyDone:
+			if status != defs.StatusCopyReady &&
+				(m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup) {
+				// apply cleanup waiting logic only for physical/inc backups, and not external
+				alive, err := restore.IsCleanupHbAlive(m.Name, stg, tskew)
+				if err != nil {
+					return errors.Wrap(err, "checking cleanup hb")
+				}
+				if alive {
+					continue
+				}
+			}
 			return nil
 		case defs.StatusError:
 			return restoreFailedError{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
