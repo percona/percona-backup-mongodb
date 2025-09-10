@@ -79,17 +79,23 @@
 #      bucket: pbm-testing
 
 ## The data directory to store backups in.
+## When undefined, backups are saved at the root of the bucket.
 #      prefix:
 
 ## The size of data chunks in bytes to be uploaded to the storage bucket in a single request.
 #      chunkSize: 10MB
 
-## GCS access credentials
-#      credentials:
-#        clientEmail:
-#        privateKey:
-#        hmacAccessKey
-#        hmacSecret:
+## GCS access credentials. You can use either HMAC or Service Account keys.
+## HMAC Example:
+#     credentials:
+#       hmacAccessKey: GOOG1E7GHK2...
+#       hmacSecret: U7PCRkLy...
+
+## Service Account Example:
+#     credentials:
+#       clientEmail: account@dev-sandbox.iam.gserviceaccount.com
+#       privateKey: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg...kqh3vNY2NQ=\n-----END PRIVATE KEY-----\n"
+#
 
 ## Retry upload configuration options.
 #      retryer:
@@ -127,29 +133,6 @@
 #
 ## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 194560
-
-#--------------------Google Cloud Storage Configuration-----------------------
-#  type:
-#    gcs:
-
-## Specify the name of the bucket that you have configured in GCS
-#     bucket:
-
-## The data directory to store backups in.
-## When undefined, backups are saved at the root of the bucket.
-#     prefix:
-
-## GCS access credentials. You can use either HMAC or Service Account keys.
-## HMAC Example:
-#     credentials:
-#       hmacAccessKey: GOOG1E7GHK2...
-#       hmacSecret: U7PCRkLy...
-
-## Service Account Example:
-#     credentials:
-#       clientEmail: account@dev-sandbox.iam.gserviceaccount.com
-#       privateKey: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg...kqh3vNY2NQ=\n-----END PRIVATE KEY-----\n"
-#
 
 #====================Point-in-Time Recovery Configuration==================
 
