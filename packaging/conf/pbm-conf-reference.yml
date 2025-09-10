@@ -67,7 +67,7 @@
 #        minRetryDelay: 30
 #        maxRetryDelay: 5
 #
-## Maximal object size that will be stored on the storage
+## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 5018
 
 #--------------------Google Cloud Storage Configuration-----------------
@@ -97,7 +97,7 @@
 #        backoffMax: 30
 #        backoffMultiplier: 2
 #
-## Maximal object size that will be stored on the storage
+## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 5018
 
 #--------------------Filesystem Configuration---------------------------
@@ -107,7 +107,7 @@
 ## The path to backup directory
 #      path:
 #
-## Maximal object size that will be stored on the storage
+## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 5018
 
 #--------------------Microsoft Azure Configuration-----------------------
@@ -125,7 +125,7 @@
 #      credentials:
 #        key:
 #
-## Maximal object size that will be stored on the storage
+## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 194560
 
 #--------------------Google Cloud Storage Configuration-----------------------
