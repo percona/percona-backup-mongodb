@@ -217,12 +217,12 @@ func runRestore(
 	}
 
 	if errors.Is(err, restoreFailedError{}) {
-		return restoreRet{err: err.Error()}, nil
+		return restoreRet{err: err.Error()}, err
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		err = errWaitTimeout
 	}
-	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
+	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, err
 }
 
 // We rely on heartbeats in error detection in case of all nodes failed,
