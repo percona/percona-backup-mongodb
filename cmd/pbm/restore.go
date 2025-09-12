@@ -217,12 +217,12 @@ func runRestore(
 	}
 
 	if errors.Is(err, restoreFailedError{}) {
-		return restoreRet{err: err.Error()}, nil
+		return restoreRet{err: err.Error()}, err
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		err = errWaitTimeout
 	}
-	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
+	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, err
 }
 
 // We rely on heartbeats in error detection in case of all nodes failed,
@@ -267,19 +267,24 @@ func waitRestore(
 
 		switch rmeta.Status {
 		case status, defs.StatusDone, defs.StatusPartlyDone:
-			if status != defs.StatusCopyReady &&
-				(m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup) {
-				// apply cleanup waiting logic only for physical/inc backups, and not external
-				alive, err := restore.IsCleanupHbAlive(m.Name, stg, tskew)
+			if status != defs.StatusCopyReady { // do not wait in case of external middle phase
+				wait, err := waitCleanup(stg, m, tskew)
 				if err != nil {
-					return errors.Wrap(err, "checking cleanup hb")
+					return err
 				}
-				if alive {
+				if wait {
 					continue
 				}
 			}
 			return nil
 		case defs.StatusError:
+			wait, err := waitCleanup(stg, m, tskew)
+			if err != nil {
+				return err
+			}
+			if wait {
+				continue
+			}
 			return restoreFailedError{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
 		}
 
@@ -299,6 +304,21 @@ func waitRestore(
 	}
 
 	return nil
+}
+
+// waitCleanup checks if a cleanup is in progress to wait if necessary.
+func waitCleanup(stg storage.Storage, m *restore.RestoreMeta, tskew int64) (bool, error) {
+	if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
+		// apply cleanup waiting logic only for physical/inc backups
+		alive, err := restore.IsCleanupHbAlive(m.Name, stg, tskew)
+		if err != nil {
+			return false, errors.Wrap(err, "checking cleanup hb")
+		}
+		if alive {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type restoreFailedError struct {
