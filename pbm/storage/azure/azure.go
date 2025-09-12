@@ -306,6 +306,10 @@ func (b *Blob) Copy(src, dst string) error {
 	}
 }
 
+func (b *Blob) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
+}
+
 func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
 	o, err := b.c.DownloadStream(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), nil)
 	if err != nil {

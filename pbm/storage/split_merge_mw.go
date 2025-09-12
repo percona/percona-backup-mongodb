@@ -233,6 +233,10 @@ func (sm *SplitMergeMiddleware) Copy(src, dst string) error {
 	return nil
 }
 
+func (sm *SplitMergeMiddleware) DownloadStat() DownloadStat {
+	return sm.s.DownloadStat()
+}
+
 // fileWithParts fetches a list of FileInfo for the base file and all its PBM parts.
 // The base part has always 0 index, and all other parts have the array index the
 // same as pbm part index.

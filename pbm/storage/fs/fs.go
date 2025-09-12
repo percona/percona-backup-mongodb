@@ -242,6 +242,10 @@ func (fs *FS) Copy(src, dst string) error {
 	return writeSync(path.Join(fs.root, dst), from)
 }
 
+func (fs *FS) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
+}
+
 // Delete deletes given file from FS.
 // It returns storage.ErrNotExist if a file isn't exists
 func (fs *FS) Delete(name string) error {

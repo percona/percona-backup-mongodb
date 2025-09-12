@@ -578,6 +578,8 @@ func (*testStorage) FileStat(_ string) (storage.FileInfo, error) {
 
 func (*testStorage) Copy(_, _ string) error { return errNotImp }
 
+func (*testStorage) DownloadStat() storage.DownloadStat { return storage.DownloadStat{} }
+
 func (s *testStorage) SourceReader(_ string) (io.ReadCloser, error) {
 	return io.NopCloser(s.b), nil
 }
