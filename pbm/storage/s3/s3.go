@@ -342,6 +342,46 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	return storage.NewSplitMergeMW(s, opts.GetMaxObjSizeGB()), nil
 }
 
+func NewWithDownloader(opts *Config, node string, l log.LogEvent, cc, bufSizeMb, spanSizeMb int) (storage.Storage, error) {
+	if err := opts.Cast(); err != nil {
+		return nil, errors.Wrap(err, "cast options")
+	}
+
+	if l == nil {
+		l = log.DiscardEvent
+	}
+
+	s := &S3{
+		opts: opts,
+		log:  l,
+		node: node,
+	}
+
+	cli, err := s.s3client()
+	if err != nil {
+		return nil, errors.Wrap(err, "AWS session")
+	}
+	s.s3cli = cli
+
+	arenaSize, spanSize, cc := storage.DownloadOpts(cc, bufSizeMb, spanSizeMb)
+	s.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+
+	var arenas []*storage.Arena
+	for i := 0; i < cc; i++ {
+		arenas = append(arenas, storage.NewArena(arenaSize, spanSize))
+	}
+
+	s.d = &Download{
+		s3:       s,
+		arenas:   arenas,
+		spanSize: spanSize,
+		cc:       cc,
+		stat:     storage.NewDownloadStat(cc, arenaSize, spanSize),
+	}
+
+	return storage.NewSplitMergeMW(s, opts.GetMaxObjSizeGB()), nil
+}
+
 func (*S3) Type() storage.Type {
 	return storage.S3
 }
