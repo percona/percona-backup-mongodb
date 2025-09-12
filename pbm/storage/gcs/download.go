@@ -12,8 +12,6 @@ import (
 )
 
 type Download struct {
-	gcs *GCS
-
 	arenas   []*storage.Arena // mem buffer for downloads
 	spanSize int
 	cc       int // download concurrency

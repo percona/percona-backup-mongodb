@@ -333,7 +333,6 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	s.s3cli = cli
 
 	s.d = &Download{
-		s3:       s,
 		arenas:   []*storage.Arena{storage.NewArena(storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)},
 		spanSize: storage.DownloadChuckSizeDefault,
 		cc:       1,
@@ -377,7 +376,6 @@ func NewWithDownloader(
 	}
 
 	s.d = &Download{
-		s3:       s,
 		arenas:   arenas,
 		spanSize: spanSize,
 		cc:       cc,

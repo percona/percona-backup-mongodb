@@ -45,8 +45,6 @@ import (
 
 // Download is used to concurrently download objects from the storage.
 type Download struct {
-	s3 *S3
-
 	arenas   []*storage.Arena // mem buffer for downloads
 	spanSize int
 	cc       int // download concurrency
