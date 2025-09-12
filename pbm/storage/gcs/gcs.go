@@ -133,7 +133,7 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
