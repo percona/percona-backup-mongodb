@@ -169,6 +169,45 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
 }
 
+func NewWithDownloader(opts *Config, node string, l log.LogEvent, cc, bufSizeMb, spanSizeMb int) (storage.Storage, error) {
+	g := &GCS{
+		opts: opts,
+		log:  l,
+	}
+
+	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
+		hc, err := newHMACClient(g.opts, g.log)
+		if err != nil {
+			return nil, errors.Wrap(err, "new hmac client")
+		}
+		g.client = hc
+	} else {
+		gc, err := newGoogleClient(g.opts, g.log)
+		if err != nil {
+			return nil, errors.Wrap(err, "new google client")
+		}
+		g.client = gc
+	}
+
+	arenaSize, spanSize, cc := storage.DownloadOpts(cc, bufSizeMb, spanSizeMb)
+	g.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+
+	var arenas []*storage.Arena
+	for i := 0; i < cc; i++ {
+		arenas = append(arenas, storage.NewArena(arenaSize, spanSize))
+	}
+
+	g.d = &Download{
+		gcs:      g,
+		arenas:   arenas,
+		spanSize: spanSize,
+		cc:       cc,
+		stat:     storage.NewDownloadStat(cc, arenaSize, spanSize),
+	}
+
+	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
+}
+
 func (*GCS) Type() storage.Type {
 	return storage.GCS
 }

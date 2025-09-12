@@ -21,39 +21,17 @@ type Download struct {
 	stat storage.DownloadStat
 }
 
-func (g *GCS) NewDownload(cc, bufSizeMb, spanSizeMb int) *Download {
-	arenaSize, spanSize, cc := storage.DownloadOpts(cc, bufSizeMb, spanSizeMb)
-	g.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
-
-	var arenas []*storage.Arena
-	for i := 0; i < cc; i++ {
-		arenas = append(arenas, storage.NewArena(arenaSize, spanSize))
+func (g *GCS) DownloadStat() storage.DownloadStat {
+	g.d.stat.Arenas = []storage.ArenaStat{}
+	for _, a := range g.d.arenas {
+		g.d.stat.Arenas = append(g.d.stat.Arenas, a.Stat)
 	}
 
-	return &Download{
-		gcs:      g,
-		arenas:   arenas,
-		spanSize: spanSize,
-		cc:       cc,
-		stat:     storage.NewDownloadStat(cc, arenaSize, spanSize),
-	}
-}
-
-func (d *Download) SourceReader(name string) (io.ReadCloser, error) {
-	return d.gcs.sourceReader(name, d.arenas, d.cc, d.spanSize)
-}
-
-func (d *Download) Stat() storage.DownloadStat {
-	d.stat.Arenas = []storage.ArenaStat{}
-	for _, a := range d.arenas {
-		d.stat.Arenas = append(d.stat.Arenas, a.Stat)
-	}
-
-	return d.stat
+	return g.d.stat
 }
 
 func (g *GCS) SourceReader(name string) (io.ReadCloser, error) {
-	return g.d.SourceReader(name)
+	return g.sourceReader(name, g.d.arenas, g.d.cc, g.d.spanSize)
 }
 
 func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.PartReader {
