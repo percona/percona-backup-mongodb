@@ -41,6 +41,24 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 	}
 }
 
+func StorageWithDownloaderFromConfig(
+	cfg *config.StorageConf,
+	rstCfg *config.RestoreConf,
+	node string,
+	l log.LogEvent,
+) (storage.Storage, error) {
+	switch cfg.Type {
+	case storage.S3:
+		return s3.NewWithDownloader(cfg.S3, node, l,
+			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
+	case storage.GCS:
+		return gcs.NewWithDownloader(cfg.GCS, node, l,
+			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
+	default:
+		return StorageFromConfig(cfg, node, l)
+	}
+}
+
 // GetStorage reads current storage config and creates and
 // returns respective storage.Storage object.
 func GetStorage(ctx context.Context, m connect.Client, node string, l log.LogEvent) (storage.Storage, error) {
