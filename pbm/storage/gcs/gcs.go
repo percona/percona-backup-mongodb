@@ -169,7 +169,12 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
 }
 
-func NewWithDownloader(opts *Config, node string, l log.LogEvent, cc, bufSizeMb, spanSizeMb int) (storage.Storage, error) {
+func NewWithDownloader(
+	opts *Config,
+	node string,
+	l log.LogEvent,
+	cc, bufSizeMb, spanSizeMb int,
+) (storage.Storage, error) {
 	g := &GCS{
 		opts: opts,
 		log:  l,
