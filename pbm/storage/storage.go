@@ -50,6 +50,8 @@ type Storage interface {
 	Delete(name string) error
 	// Copy makes a copy of the src objec/file under dst name
 	Copy(src, dst string) error
+	// Get download stat
+	DownloadStat() DownloadStat
 }
 
 // ParseType parses string and returns storage type

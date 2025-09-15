@@ -51,7 +51,7 @@ func (cfg *Config) Cast() error {
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
@@ -240,6 +240,10 @@ func (fs *FS) Copy(src, dst string) error {
 	}
 
 	return writeSync(path.Join(fs.root, dst), from)
+}
+
+func (fs *FS) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
 }
 
 // Delete deletes given file from FS.

@@ -40,8 +40,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -1449,26 +1447,15 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 
 func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	var stat *storage.DownloadStat
-	readFn := r.bcpStg.SourceReader
-
-	switch t := r.bcpStg.(type) {
-	case *s3.S3:
-		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
-		readFn = d.SourceReader
-		defer func() {
-			s := d.Stat()
-			stat = &s
-			r.log.Debug("download stat: %s", s)
-		}()
-	case *gcs.GCS:
-		d := t.NewDownload(r.confOpts.NumDownloadWorkers, r.confOpts.MaxDownloadBufferMb, r.confOpts.DownloadChunkMb)
-		readFn = d.SourceReader
-		defer func() {
-			s := d.Stat()
-			stat = &s
-			r.log.Debug("download stat: %s", s)
-		}()
-	}
+	defer func() {
+		if r.bcpStg.Type() != storage.S3 || r.bcpStg.Type() != storage.GCS {
+			// currently Downloader is only supported for S3 and GCS
+			return
+		}
+		s := r.bcpStg.DownloadStat()
+		stat = &s
+		r.log.Debug("download stat: %s", s)
+	}()
 
 	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	cpbuf := make([]byte, 32*1024)
@@ -1494,7 +1481,7 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 			}
 
 			r.log.Info("copy <%s> to <%s>", src, dst)
-			sr, err := readFn(src)
+			sr, err := r.bcpStg.SourceReader(src)
 			if err != nil {
 				return stat, errors.Wrapf(err, "create source reader for <%s>", src)
 			}
@@ -2597,7 +2584,8 @@ func (r *PhysRestore) prepareBackup(ctx context.Context, backupName string) erro
 		return errors.Wrap(err, "get backup metadata")
 	}
 
-	r.bcpStg, err = util.StorageFromConfig(&r.bcp.Store.StorageConf, r.nodeInfo.Me, log.LogEventFromContext(ctx))
+	r.bcpStg, err = util.StorageWithDownloaderFromConfig(
+		&r.bcp.Store.StorageConf, r.confOpts, r.nodeInfo.Me, log.LogEventFromContext(ctx))
 	if err != nil {
 		return errors.Wrap(err, "get backup storage")
 	}

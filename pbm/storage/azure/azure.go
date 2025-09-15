@@ -118,7 +118,7 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
@@ -304,6 +304,10 @@ func (b *Blob) Copy(src, dst string) error {
 	default:
 		return errors.Errorf("undefined status")
 	}
+}
+
+func (b *Blob) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
 }
 
 func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {

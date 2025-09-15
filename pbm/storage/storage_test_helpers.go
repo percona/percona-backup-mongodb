@@ -40,13 +40,14 @@ func RunStorageBaseTests(t *testing.T, stg Storage, stgType Type) {
 	})
 
 	t.Run("List", func(t *testing.T) {
+		d := "root" + randomSuffix()
 		filesToSave := []struct {
 			name    string
 			content string
 		}{
-			{"file1.txt", "content1"},
-			{"file2.log", "content1"},
-			{"dir/file3.txt", "content3"},
+			{path.Join(d, "file1.txt"), "content1"},
+			{path.Join(d, "file2.log"), "content1"},
+			{path.Join(d, "dir/file3.txt"), "content3"},
 		}
 
 		for _, f := range filesToSave {
@@ -55,17 +56,17 @@ func RunStorageBaseTests(t *testing.T, stg Storage, stgType Type) {
 			}
 		}
 
-		files, err := stg.List("", ".txt")
+		files, err := stg.List(d, ".txt")
 		if err != nil {
 			t.Fatalf("List failed: %v", err)
 		}
 
 		// expect "file1.txt", "dir/file3.txt" and "test.txt" from previous test to be returned
-		if len(files) != 3 {
+		if len(files) != 2 {
 			t.Errorf("expected 3 .txt files, got %d", len(files))
 		}
 
-		files, err = stg.List("dir", ".txt")
+		files, err = stg.List(path.Join(d, "dir"), ".txt")
 		if err != nil {
 			t.Fatalf("List failed: %v", err)
 		}

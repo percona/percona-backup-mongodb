@@ -45,8 +45,6 @@ import (
 
 // Download is used to concurrently download objects from the storage.
 type Download struct {
-	s3 *S3
-
 	arenas   []*storage.Arena // mem buffer for downloads
 	spanSize int
 	cc       int // download concurrency
@@ -54,39 +52,17 @@ type Download struct {
 	stat storage.DownloadStat
 }
 
-func (s *S3) NewDownload(cc, bufSizeMb, spanSizeMb int) *Download {
-	arenaSize, spanSize, cc := storage.DownloadOpts(cc, bufSizeMb, spanSizeMb)
-	s.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
-
-	var arenas []*storage.Arena
-	for i := 0; i < cc; i++ {
-		arenas = append(arenas, storage.NewArena(arenaSize, spanSize))
+func (s *S3) DownloadStat() storage.DownloadStat {
+	s.d.stat.Arenas = []storage.ArenaStat{}
+	for _, a := range s.d.arenas {
+		s.d.stat.Arenas = append(s.d.stat.Arenas, a.Stat)
 	}
 
-	return &Download{
-		s3:       s,
-		arenas:   arenas,
-		spanSize: spanSize,
-		cc:       cc,
-		stat:     storage.NewDownloadStat(cc, arenaSize, spanSize),
-	}
-}
-
-func (d *Download) SourceReader(name string) (io.ReadCloser, error) {
-	return d.s3.sourceReader(name, d.arenas, d.cc, d.spanSize)
-}
-
-func (d *Download) Stat() storage.DownloadStat {
-	d.stat.Arenas = []storage.ArenaStat{}
-	for _, a := range d.arenas {
-		d.stat.Arenas = append(d.stat.Arenas, a.Stat)
-	}
-
-	return d.stat
+	return s.d.stat
 }
 
 func (s *S3) SourceReader(name string) (io.ReadCloser, error) {
-	return s.d.SourceReader(name)
+	return s.sourceReader(name, s.d.arenas, s.d.cc, s.d.spanSize)
 }
 
 func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *storage.PartReader {
@@ -96,14 +72,14 @@ func (s *S3) newPartReader(fname string, fsize int64, chunkSize int) *storage.Pa
 		ChunkSize: int64(chunkSize),
 		Buf:       make([]byte, 32*1024),
 		L:         s.log,
-		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
+		GetChunk: func(fname string, arena *storage.Arena, cli any, start, end int64) (io.ReadCloser, error) {
 			s3cli, ok := cli.(*s3.Client)
 			if !ok {
 				return nil, errors.Errorf("expected *s3.Client, got %T", cli)
 			}
 			return s.getChunk(fname, arena, s3cli, start, end)
 		},
-		GetSess: func() (interface{}, error) {
+		GetSess: func() (any, error) {
 			cli, err := s.s3client()
 			if err != nil {
 				return nil, err
