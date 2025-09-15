@@ -1448,6 +1448,10 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	var stat *storage.DownloadStat
 	defer func() {
+		if r.bcpStg.Type() != storage.S3 || r.bcpStg.Type() != storage.GCS {
+			// currently Downloader is only supported for S3 and GCS
+			return
+		}
 		s := r.bcpStg.DownloadStat()
 		stat = &s
 		r.log.Debug("download stat: %s", s)
