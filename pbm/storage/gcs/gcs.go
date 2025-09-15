@@ -174,6 +174,10 @@ func NewWithDownloader(
 	l log.LogEvent,
 	cc, bufSizeMb, spanSizeMb int,
 ) (storage.Storage, error) {
+	if l == nil {
+		l = log.DiscardEvent
+	}
+
 	g := &GCS{
 		opts: opts,
 		log:  l,
