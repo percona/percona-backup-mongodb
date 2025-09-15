@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
@@ -121,6 +122,33 @@ func TestIsSameStorage(t *testing.T) {
 		neq.Prefix = "p2"
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different prefix: cfg=%+v, eq=%+v", cfg, neq)
+		}
+	})
+
+	t.Run("FS", func(t *testing.T) {
+		maxObjSizeGB := 5.5
+		cfg := &fs.Config{
+			Path:         "a/b/c",
+			MaxObjSizeGB: &maxObjSizeGB,
+		}
+
+		eq := &fs.Config{
+			Path: "a/b/c",
+		}
+		if !cfg.IsSameStorage(eq) {
+			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v", cfg, eq)
+		}
+
+		maxObjSizeGB = 2.2
+		eq.MaxObjSizeGB = &maxObjSizeGB
+		if !cfg.IsSameStorage(eq) {
+			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v", cfg, eq)
+		}
+
+		neq := cfg.Clone()
+		neq.Path = "z/y/x"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different bucket: cfg=%+v, eq=%+v", cfg, neq)
 		}
 	})
 }

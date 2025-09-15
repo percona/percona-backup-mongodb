@@ -42,6 +42,19 @@ func (cfg *Config) Equal(other *Config) bool {
 	return cfg.Path == other.Path
 }
 
+// IsSameStorage identifies the same instance of the FS storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Path != other.Path {
+		return false
+	}
+
+	return true
+}
+
 func (cfg *Config) Cast() error {
 	if cfg.Path == "" {
 		return errors.New("path can't be empty")
