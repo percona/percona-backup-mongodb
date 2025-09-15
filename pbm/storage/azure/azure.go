@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"path"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -52,6 +53,10 @@ func (cfg *Config) Clone() *Config {
 
 	rv := *cfg
 	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
 	return &rv
 }
 
@@ -78,7 +83,7 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.Credentials.Key != other.Credentials.Key {
 		return false
 	}
-	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
 		return false
 	}
 

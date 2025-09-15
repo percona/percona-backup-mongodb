@@ -168,26 +168,15 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.StorageClass != other.StorageClass {
 		return false
 	}
-	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
 		return false
 	}
-
-	lhs, rhs := true, true
-	if cfg.ForcePathStyle != nil {
-		lhs = *cfg.ForcePathStyle
-	}
-	if other.ForcePathStyle != nil {
-		rhs = *other.ForcePathStyle
-	}
-	if lhs != rhs {
+	if !reflect.DeepEqual(cfg.ForcePathStyle, other.ForcePathStyle) {
 		return false
 	}
-
-	// TODO: check only required fields
 	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
 		return false
 	}
-	// TODO: check only required fields
 	if !reflect.DeepEqual(cfg.ServerSideEncryption, other.ServerSideEncryption) {
 		return false
 	}

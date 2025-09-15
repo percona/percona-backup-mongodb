@@ -88,6 +88,15 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
+	if cfg.Retryer != nil {
+		v := *cfg.Retryer
+		rv.Retryer = &v
+	}
+
 	return &rv
 }
 
@@ -105,10 +114,9 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.ChunkSize != other.ChunkSize {
 		return false
 	}
-	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
 		return false
 	}
-
 	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
 		return false
 	}
