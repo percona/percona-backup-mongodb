@@ -230,7 +230,7 @@ func (f FeatureSupport) PBMSupport() error {
 	}
 
 	// Supported MongoDB major versions for PBM
-	supportedMajors := []int{5, 6, 7, 8}
+	supportedMajors := []int{7, 8}
 
 	// Happy path: supported major within range and minor is 0
 	if (v.Version[0] >= supportedMajors[0] &&
@@ -250,15 +250,20 @@ func (f FeatureSupport) PBMSupport() error {
 	// If MongoDB is older than the minimum supported, suggest upgrading MongoDB
 	if v.Version[0] < supportedMajors[0] {
 		return errors.Errorf(
-			"This PBM works with %s and you are running %s. Please upgrade your MongoDB to a supported version",
+			"This PBM works with MongoDB and PSMDB %s and you are running %s. Please upgrade your MongoDB to a supported version.",
 			strings.Join(supported, ", "),
 			current,
 		)
 	}
 
-	// Otherwise, MongoDB is newer or uses an unsupported minor → suggest upgrading PBM
+	// If MongoDB major is supported but uses an unsupported minor version
+	if v.Version[0] <= supportedMajors[len(supportedMajors)-1] && v.Version[1] != 0 {
+		return errors.Errorf("This PBM works with MongoDB and PSMDB %s and you are running %s. PBM does not support minor versions of MongoDB.", strings.Join(supported, ", "), current)
+	}
+
+	// Otherwise, MongoDB is newer → suggest upgrading PBM
 	return errors.Errorf(
-		"This PBM works with %s and you are running %s. Please upgrade your PBM package",
+		"This PBM works with MongoDB and PSMDB %s and you are running %s. Please upgrade your PBM package.",
 		strings.Join(supported, ", "),
 		current,
 	)

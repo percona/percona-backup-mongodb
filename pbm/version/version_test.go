@@ -127,15 +127,17 @@ func TestPBMSupport(t *testing.T) {
 		wantErr  bool
 		contains string
 	}{
-		{name: "supported 5.0.0", ver: []int{5, 0, 0}, wantErr: false},
-		{name: "supported 5.0.x", ver: []int{5, 0, 14}, wantErr: false},
-		{name: "supported 6.0.x", ver: []int{6, 0, 5}, wantErr: false},
+		{name: "supported 7.0.x", ver: []int{7, 0, 1}, wantErr: false},
 		{name: "supported 8.0.x", ver: []int{8, 0, 1}, wantErr: false},
 
 		{name: "too old 4.4.18", ver: []int{4, 4, 18}, wantErr: true, contains: "upgrade your MongoDB"},
-		{name: "unsupported minor 5.1.0", ver: []int{5, 1, 0}, wantErr: true, contains: "upgrade your PBM"},
-		{name: "newer major 9.0.0", ver: []int{9, 0, 0}, wantErr: true, contains: "upgrade your PBM"},
-		{name: "unsupported minor 7.2.3", ver: []int{7, 2, 3}, wantErr: true, contains: "upgrade your PBM"},
+		{name: "too old 5.0.0", ver: []int{5, 0, 0}, wantErr: true, contains: "upgrade your MongoDB"},
+		{name: "too old 5.0.x", ver: []int{5, 0, 14}, wantErr: true, contains: "upgrade your MongoDB"},
+		{name: "too old 6.0.x", ver: []int{6, 0, 5}, wantErr: true, contains: "upgrade your MongoDB"},
+		{name: "too old 6.1.x", ver: []int{6, 1, 0}, wantErr: true, contains: "upgrade your MongoDB"},
+		{name: "unsupported minor 7.2.3", ver: []int{7, 2, 3}, wantErr: true, contains: "does not support minor versions of MongoDB"},
+		{name: "unsupported minor 8.3.0", ver: []int{8, 3, 0}, wantErr: true, contains: "does not support minor versions of MongoDB"},
+		{name: "newer major 9.0.0", ver: []int{9, 0, 0}, wantErr: true, contains: "upgrade your PBM package"},
 		{name: "incomplete version array", ver: []int{7}, wantErr: true, contains: "incomplete versionArray"},
 	}
 
@@ -150,7 +152,7 @@ func TestPBMSupport(t *testing.T) {
 					t.Fatalf("unexpected error message: %q does not contain %q", err.Error(), tc.contains)
 				}
 				if tc.contains == "" || !strings.Contains(tc.contains, "incomplete versionArray") {
-					if !strings.Contains(err.Error(), "This PBM works with v5.0, v6.0, v7.0, v8.0") {
+					if !strings.Contains(err.Error(), "This PBM works with MongoDB and PSMDB v7.0, v8.0") {
 						t.Fatalf("error should list supported versions, got: %q", err.Error())
 					}
 				}
