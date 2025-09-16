@@ -74,6 +74,14 @@ cp github.com/percona/percona-backup-mongodb/bin/pbm-agent $RPM_BUILD_ROOT/%{_bi
 cp github.com/percona/percona-backup-mongodb/bin/pbm $RPM_BUILD_ROOT/%{_bindir}/
 cp github.com/percona/percona-backup-mongodb/bin/pbm-speed-test $RPM_BUILD_ROOT/%{_bindir}/
 cp github.com/percona/percona-backup-mongodb/bin/pbm-agent-entrypoint $RPM_BUILD_ROOT/%{_bindir}/
+install -m 0755 -d $RPM_BUILD_ROOT/%{_datadir}/bash-completion/completions
+install -m 0755 -d $RPM_BUILD_ROOT/%{_datadir}/zsh/site-functions
+install -m 0644 github.com/percona/percona-backup-mongodb/bin/completions/bash/pbm-agent $RPM_BUILD_ROOT/%{_datadir}/bash-completion/completions/
+install -m 0644 github.com/percona/percona-backup-mongodb/bin/completions/bash/pbm $RPM_BUILD_ROOT/%{_datadir}/bash-completion/completions/
+install -m 0644 github.com/percona/percona-backup-mongodb/bin/completions/bash/pbm-speed-test $RPM_BUILD_ROOT/%{_datadir}/bash-completion/completions/
+install -m 0644 github.com/percona/percona-backup-mongodb/bin/completions/zsh/_pbm-agent $RPM_BUILD_ROOT/%{_datadir}/zsh/site-functions/
+install -m 0644 github.com/percona/percona-backup-mongodb/bin/completions/zsh/_pbm $RPM_BUILD_ROOT/%{_datadir}/zsh/site-functions/
+install -m 0644 github.com/percona/percona-backup-mongodb/bin/completions/zsh/_pbm-speed-test $RPM_BUILD_ROOT/%{_datadir}/zsh/site-functions/
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}
 install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-storage.conf
@@ -149,6 +157,12 @@ esac
 %{_bindir}/pbm
 %{_bindir}/pbm-speed-test
 %{_bindir}/pbm-agent-entrypoint
+%{_datadir}/bash-completion/completions/pbm-agent
+%{_datadir}/bash-completion/completions/pbm
+%{_datadir}/bash-completion/completions/pbm-speed-test
+%{_datadir}/zsh/site-functions/_pbm-agent
+%{_datadir}/zsh/site-functions/_pbm
+%{_datadir}/zsh/site-functions/_pbm-speed-test
 %config(noreplace) %attr(0640,root,root) /%{_sysconfdir}/sysconfig/pbm-agent
 %config(noreplace) %attr(0640,mongod,mongod) /%{_sysconfdir}/pbm-storage.conf
 %{_sysconfdir}/pbm-conf-reference.yml
