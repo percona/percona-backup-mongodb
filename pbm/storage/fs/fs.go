@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -28,6 +29,10 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
 	return &rv
 }
 
@@ -35,11 +40,27 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg == nil || other == nil {
 		return cfg == other
 	}
-	if cfg.MaxObjSizeGB != other.MaxObjSizeGB {
+	if cfg.Path != other.Path {
+		return false
+	}
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
 		return false
 	}
 
-	return cfg.Path == other.Path
+	return true
+}
+
+// IsSameStorage identifies the same instance of the FS storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Path != other.Path {
+		return false
+	}
+
+	return true
 }
 
 func (cfg *Config) Cast() error {
