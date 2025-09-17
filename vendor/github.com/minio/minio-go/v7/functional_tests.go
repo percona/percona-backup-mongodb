@@ -24,13 +24,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
 	"io"
+	"iter"
 	"log/slog"
 	"math/rand"
 	"mime/multipart"
@@ -49,9 +50,9 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
-	"github.com/minio/sha256-simd"
 
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/cors"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 	"github.com/minio/minio-go/v7/pkg/notification"
@@ -83,7 +84,7 @@ func createHTTPTransport() (transport *http.Transport) {
 		return nil
 	}
 
-	if mustParseBool(os.Getenv(skipCERTValidation)) {
+	if mustParseBool(os.Getenv(enableHTTPS)) && mustParseBool(os.Getenv(skipCERTValidation)) {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
@@ -160,12 +161,12 @@ func logError(testName, function string, args map[string]interface{}, startTime 
 	} else {
 		logFailure(testName, function, args, startTime, alert, message, err)
 		if !isRunOnFail() {
-			panic(err)
+			panic(fmt.Sprintf("Test failed with message: %s, err: %v", message, err))
 		}
 	}
 }
 
-// log failed test runs
+// Log failed test runs, do not call this directly, use logError instead, as that correctly stops the test run
 func logFailure(testName, function string, args map[string]interface{}, startTime time.Time, alert, message string, err error) {
 	l := baseLogger(testName, function, args, startTime).With(
 		"status", "FAIL",
@@ -259,7 +260,7 @@ func cleanupVersionedBucket(bucketName string, c *minio.Client) error {
 }
 
 func isErrNotImplemented(err error) bool {
-	return minio.ToErrorResponse(err).Code == "NotImplemented"
+	return minio.ToErrorResponse(err).Code == minio.NotImplemented
 }
 
 func isRunOnFail() bool {
@@ -393,6 +394,42 @@ func getFuncNameLoc(caller int) string {
 	return strings.TrimPrefix(runtime.FuncForPC(pc).Name(), "main.")
 }
 
+type ClientConfig struct {
+	// MinIO client configuration
+	TraceOn         bool // Turn on tracing of HTTP requests and responses to stderr
+	CredsV2         bool // Use V2 credentials if true, otherwise use v4
+	TrailingHeaders bool // Send trailing headers in requests
+}
+
+func NewClient(config ClientConfig) (*minio.Client, error) {
+	// Instantiate new MinIO client
+	var creds *credentials.Credentials
+	if config.CredsV2 {
+		creds = credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), "")
+	} else {
+		creds = credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), "")
+	}
+	opts := &minio.Options{
+		Creds:           creds,
+		Transport:       createHTTPTransport(),
+		Secure:          mustParseBool(os.Getenv(enableHTTPS)),
+		TrailingHeaders: config.TrailingHeaders,
+	}
+	client, err := minio.New(os.Getenv(serverEndpoint), opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.TraceOn {
+		client.TraceOn(os.Stderr)
+	}
+
+	// Set user agent.
+	client.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+
+	return client, nil
+}
+
 // Tests bucket re-create errors.
 func testMakeBucketError() {
 	region := "eu-central-1"
@@ -407,26 +444,11 @@ func testMakeBucketError() {
 		"region":     region,
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-			Transport: createHTTPTransport(),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -444,8 +466,8 @@ func testMakeBucketError() {
 		return
 	}
 	// Verify valid error response from server.
-	if minio.ToErrorResponse(err).Code != "BucketAlreadyExists" &&
-		minio.ToErrorResponse(err).Code != "BucketAlreadyOwnedByYou" {
+	if minio.ToErrorResponse(err).Code != minio.BucketAlreadyExists &&
+		minio.ToErrorResponse(err).Code != minio.BucketAlreadyOwnedByYou {
 		logError(testName, function, args, startTime, "", "Invalid error returned by server", err)
 		return
 	}
@@ -462,20 +484,12 @@ func testMetadataSizeLimit() {
 		"objectName":        "",
 		"opts.UserMetadata": "",
 	}
-	rand.Seed(startTime.Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-			Transport: createHTTPTransport(),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client creation failed", err)
 		return
 	}
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
 	args["bucketName"] = bucketName
@@ -531,26 +545,11 @@ func testMakeBucketRegions() {
 		"region":     region,
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -598,26 +597,11 @@ func testPutObjectReadAt() {
 		"opts":       "objectContentType",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -697,26 +681,11 @@ func testListObjectVersions() {
 		"recursive":  "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -817,26 +786,11 @@ func testStatObjectWithVersioning() {
 	function := "StatObject"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -935,26 +889,11 @@ func testGetObjectWithVersioning() {
 	function := "GetObject()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -1075,26 +1014,11 @@ func testPutObjectWithVersioning() {
 	function := "GetObject()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -1150,7 +1074,7 @@ func testPutObjectWithVersioning() {
 	var results []minio.ObjectInfo
 	for info := range objectsInfo {
 		if info.Err != nil {
-			logError(testName, function, args, startTime, "", "Unexpected error during listing objects", err)
+			logError(testName, function, args, startTime, "", "Unexpected error during listing objects", info.Err)
 			return
 		}
 		results = append(results, info)
@@ -1216,6 +1140,114 @@ func testPutObjectWithVersioning() {
 	logSuccess(testName, function, args, startTime)
 }
 
+func testListMultipartUpload() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "GetObject()"
+	args := map[string]interface{}{}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
+		return
+	}
+	core := minio.Core{Client: c}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	ctx := context.Background()
+	err = c.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: "us-east-1", ObjectLocking: true})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Make bucket failed", err)
+		return
+	}
+	defer func() {
+		if err = cleanupVersionedBucket(bucketName, c); err != nil {
+			logError(testName, function, args, startTime, "", "CleanupBucket failed", err)
+		}
+	}()
+	objName := "prefix/objectName"
+
+	want := minio.ListMultipartUploadsResult{
+		Bucket:             bucketName,
+		KeyMarker:          "",
+		UploadIDMarker:     "",
+		NextKeyMarker:      "",
+		NextUploadIDMarker: "",
+		EncodingType:       "url",
+		MaxUploads:         1000,
+		IsTruncated:        false,
+		Prefix:             "prefix/objectName",
+		Delimiter:          "/",
+		CommonPrefixes:     nil,
+	}
+	for i := 0; i < 5; i++ {
+		uid, err := core.NewMultipartUpload(ctx, bucketName, objName, minio.PutObjectOptions{})
+		if err != nil {
+			logError(testName, function, args, startTime, "", "NewMultipartUpload failed", err)
+			return
+		}
+		want.Uploads = append(want.Uploads, minio.ObjectMultipartInfo{
+			Initiated:    time.Time{},
+			StorageClass: "",
+			Key:          objName,
+			Size:         0,
+			UploadID:     uid,
+			Err:          nil,
+		})
+
+		for j := 0; j < 5; j++ {
+			cmpGot := func(call string, got minio.ListMultipartUploadsResult) bool {
+				for i := range got.Uploads {
+					got.Uploads[i].Initiated = time.Time{}
+				}
+				if !reflect.DeepEqual(want, got) {
+					err := fmt.Errorf("want: %#v\ngot : %#v", want, got)
+					logError(testName, function, args, startTime, "", call+" failed", err)
+				}
+				return true
+			}
+			got, err := core.ListMultipartUploads(ctx, bucketName, objName, "", "", "/", 1000)
+			if err != nil {
+				logError(testName, function, args, startTime, "", "ListMultipartUploads failed", err)
+				return
+			}
+			if !cmpGot("ListMultipartUploads-prefix", got) {
+				return
+			}
+			got, err = core.ListMultipartUploads(ctx, bucketName, objName, objName, "", "/", 1000)
+			got.KeyMarker = ""
+			if err != nil {
+				logError(testName, function, args, startTime, "", "ListMultipartUploads failed", err)
+				return
+			}
+			if !cmpGot("ListMultipartUploads-marker", got) {
+				return
+			}
+		}
+		if i > 2 {
+			err = core.AbortMultipartUpload(ctx, bucketName, objName, uid)
+			if err != nil {
+				logError(testName, function, args, startTime, "", "AbortMultipartUpload failed", err)
+				return
+			}
+			want.Uploads = want.Uploads[:len(want.Uploads)-1]
+		}
+	}
+	for _, up := range want.Uploads {
+		err = core.AbortMultipartUpload(ctx, bucketName, objName, up.UploadID)
+		if err != nil {
+			logError(testName, function, args, startTime, "", "AbortMultipartUpload failed", err)
+			return
+		}
+	}
+	logSuccess(testName, function, args, startTime)
+}
+
 func testCopyObjectWithVersioning() {
 	// initialize logging params
 	startTime := time.Now()
@@ -1223,26 +1255,11 @@ func testCopyObjectWithVersioning() {
 	function := "CopyObject()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -1361,26 +1378,11 @@ func testConcurrentCopyObjectWithVersioning() {
 	function := "CopyObject()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -1522,26 +1524,11 @@ func testComposeObjectWithVersioning() {
 	function := "ComposeObject()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -1663,26 +1650,11 @@ func testRemoveObjectWithVersioning() {
 	function := "DeleteObject()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -1776,26 +1748,11 @@ func testRemoveObjectsWithVersioning() {
 	function := "DeleteObjects()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -1872,26 +1829,11 @@ func testObjectTaggingWithVersioning() {
 	function := "{Get,Set,Remove}ObjectTagging()"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -2028,7 +1970,7 @@ func testPutObjectWithChecksums() {
 	// initialize logging params
 	startTime := time.Now()
 	testName := getFuncName()
-	function := "PutObject(bucketName, objectName, reader,size, opts)"
+	function := "PutObject(bucketName, objectName, reader, size, opts)"
 	args := map[string]interface{}{
 		"bucketName": "",
 		"objectName": "",
@@ -2040,26 +1982,11 @@ func testPutObjectWithChecksums() {
 		return
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -2074,22 +2001,19 @@ func testPutObjectWithChecksums() {
 
 	defer cleanupBucket(bucketName, c)
 	tests := []struct {
-		header string
-		hasher hash.Hash
-
-		// Checksum values
-		ChecksumCRC32  string
-		ChecksumCRC32C string
-		ChecksumSHA1   string
-		ChecksumSHA256 string
+		cs minio.ChecksumType
 	}{
-		{header: "x-amz-checksum-crc32", hasher: crc32.NewIEEE()},
-		{header: "x-amz-checksum-crc32c", hasher: crc32.New(crc32.MakeTable(crc32.Castagnoli))},
-		{header: "x-amz-checksum-sha1", hasher: sha1.New()},
-		{header: "x-amz-checksum-sha256", hasher: sha256.New()},
+		{cs: minio.ChecksumCRC32C},
+		{cs: minio.ChecksumCRC32},
+		{cs: minio.ChecksumSHA1},
+		{cs: minio.ChecksumSHA256},
+		{cs: minio.ChecksumCRC64NVME},
 	}
 
-	for i, test := range tests {
+	for _, test := range tests {
+		if os.Getenv("MINT_NO_FULL_OBJECT") != "" && test.cs.FullObjectRequested() {
+			continue
+		}
 		bufSize := dataFileMap["datafile-10-kB"]
 
 		// Save the data
@@ -2110,29 +2034,31 @@ func testPutObjectWithChecksums() {
 			logError(testName, function, args, startTime, "", "Read failed", err)
 			return
 		}
-		h := test.hasher
+		h := test.cs.Hasher()
 		h.Reset()
-		// Wrong CRC.
-		meta[test.header] = base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+		if test.cs.IsSet() {
+			meta["x-amz-checksum-algorithm"] = test.cs.String()
+		}
+
+		// Test with a bad CRC - we haven't called h.Write(b), so this is a checksum of empty data
+		meta[test.cs.Key()] = base64.StdEncoding.EncodeToString(h.Sum(nil))
 		args["metadata"] = meta
 		args["range"] = "false"
+		args["checksum"] = test.cs.String()
 
 		resp, err := c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader(b), int64(bufSize), minio.PutObjectOptions{
 			DisableMultipart: true,
 			UserMetadata:     meta,
 		})
 		if err == nil {
-			if i == 0 && resp.ChecksumCRC32 == "" {
-				logIgnored(testName, function, args, startTime, "Checksums does not appear to be supported by backend")
-				return
-			}
-			logError(testName, function, args, startTime, "", "PutObject failed", err)
+			logError(testName, function, args, startTime, "", "PutObject did not fail on wrong CRC", err)
 			return
 		}
 
 		// Set correct CRC.
 		h.Write(b)
-		meta[test.header] = base64.StdEncoding.EncodeToString(h.Sum(nil))
+		meta[test.cs.Key()] = base64.StdEncoding.EncodeToString(h.Sum(nil))
 		reader.Close()
 
 		resp, err = c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader(b), int64(bufSize), minio.PutObjectOptions{
@@ -2148,6 +2074,7 @@ func testPutObjectWithChecksums() {
 		cmpChecksum(resp.ChecksumSHA1, meta["x-amz-checksum-sha1"])
 		cmpChecksum(resp.ChecksumCRC32, meta["x-amz-checksum-crc32"])
 		cmpChecksum(resp.ChecksumCRC32C, meta["x-amz-checksum-crc32c"])
+		cmpChecksum(resp.ChecksumCRC64NVME, meta["x-amz-checksum-crc64nvme"])
 
 		// Read the data back
 		gopts := minio.GetObjectOptions{Checksum: true}
@@ -2167,6 +2094,7 @@ func testPutObjectWithChecksums() {
 		cmpChecksum(st.ChecksumSHA1, meta["x-amz-checksum-sha1"])
 		cmpChecksum(st.ChecksumCRC32, meta["x-amz-checksum-crc32"])
 		cmpChecksum(st.ChecksumCRC32C, meta["x-amz-checksum-crc32c"])
+		cmpChecksum(st.ChecksumCRC64NVME, meta["x-amz-checksum-crc64nvme"])
 
 		if st.Size != int64(bufSize) {
 			logError(testName, function, args, startTime, "", "Number of bytes returned by PutObject does not match GetObject, expected "+string(bufSize)+" got "+string(st.Size), err)
@@ -2210,16 +2138,16 @@ func testPutObjectWithChecksums() {
 		cmpChecksum(st.ChecksumSHA1, "")
 		cmpChecksum(st.ChecksumCRC32, "")
 		cmpChecksum(st.ChecksumCRC32C, "")
+		cmpChecksum(st.ChecksumCRC64NVME, "")
 
 		delete(args, "range")
 		delete(args, "metadata")
+		logSuccess(testName, function, args, startTime)
 	}
-
-	logSuccess(testName, function, args, startTime)
 }
 
 // Test PutObject with custom checksums.
-func testPutMultipartObjectWithChecksums() {
+func testPutObjectWithTrailingChecksums() {
 	// initialize logging params
 	startTime := time.Now()
 	testName := getFuncName()
@@ -2227,7 +2155,7 @@ func testPutMultipartObjectWithChecksums() {
 	args := map[string]interface{}{
 		"bucketName": "",
 		"objectName": "",
-		"opts":       "minio.PutObjectOptions{UserMetadata: metadata, Progress: progress}",
+		"opts":       "minio.PutObjectOptions{UserMetadata: metadata, Progress: progress, TrailChecksum: xxx}",
 	}
 
 	if !isFullMode() {
@@ -2235,26 +2163,11 @@ func testPutMultipartObjectWithChecksums() {
 		return
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -2267,14 +2180,198 @@ func testPutMultipartObjectWithChecksums() {
 		return
 	}
 
-	hashMultiPart := func(b []byte, partSize int, hasher hash.Hash) string {
+	defer cleanupBucket(bucketName, c)
+	tests := []struct {
+		cs minio.ChecksumType
+	}{
+		{cs: minio.ChecksumCRC64NVME},
+		{cs: minio.ChecksumCRC32C},
+		{cs: minio.ChecksumCRC32},
+		{cs: minio.ChecksumSHA1},
+		{cs: minio.ChecksumSHA256},
+	}
+	for _, test := range tests {
+		if os.Getenv("MINT_NO_FULL_OBJECT") != "" && test.cs.FullObjectRequested() {
+			continue
+		}
+		function := "PutObject(bucketName, objectName, reader,size, opts)"
+		bufSize := dataFileMap["datafile-10-kB"]
+
+		// Save the data
+		objectName := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+		args["objectName"] = objectName
+
+		cmpChecksum := func(got, want string) {
+			if want != got {
+				logError(testName, function, args, startTime, "", "checksum mismatch", fmt.Errorf("want %s, got %s", want, got))
+				return
+			}
+		}
+
+		meta := map[string]string{}
+		reader := getDataReader("datafile-10-kB")
+		b, err := io.ReadAll(reader)
+		if err != nil {
+			logError(testName, function, args, startTime, "", "Read failed", err)
+			return
+		}
+		h := test.cs.Hasher()
+		h.Reset()
+
+		// Test with Wrong CRC.
+		args["metadata"] = meta
+		args["range"] = "false"
+		args["checksum"] = test.cs.String()
+
+		resp, err := c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader(b), int64(bufSize), minio.PutObjectOptions{
+			DisableMultipart:     true,
+			DisableContentSha256: true,
+			UserMetadata:         meta,
+			Checksum:             test.cs,
+		})
+		if err != nil {
+			logError(testName, function, args, startTime, "", "PutObject failed", err)
+			return
+		}
+
+		h.Write(b)
+		meta[test.cs.Key()] = base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+		cmpChecksum(resp.ChecksumSHA256, meta["x-amz-checksum-sha256"])
+		cmpChecksum(resp.ChecksumSHA1, meta["x-amz-checksum-sha1"])
+		cmpChecksum(resp.ChecksumCRC32, meta["x-amz-checksum-crc32"])
+		cmpChecksum(resp.ChecksumCRC32C, meta["x-amz-checksum-crc32c"])
+		cmpChecksum(resp.ChecksumCRC64NVME, meta["x-amz-checksum-crc64nvme"])
+
+		// Read the data back
+		gopts := minio.GetObjectOptions{Checksum: true}
+
+		function = "GetObject(...)"
+		r, err := c.GetObject(context.Background(), bucketName, objectName, gopts)
+		if err != nil {
+			logError(testName, function, args, startTime, "", "GetObject failed", err)
+			return
+		}
+
+		st, err := r.Stat()
+		if err != nil {
+			logError(testName, function, args, startTime, "", "Stat failed", err)
+			return
+		}
+		cmpChecksum(st.ChecksumSHA256, meta["x-amz-checksum-sha256"])
+		cmpChecksum(st.ChecksumSHA1, meta["x-amz-checksum-sha1"])
+		cmpChecksum(st.ChecksumCRC32, meta["x-amz-checksum-crc32"])
+		cmpChecksum(st.ChecksumCRC32C, meta["x-amz-checksum-crc32c"])
+		cmpChecksum(resp.ChecksumCRC64NVME, meta["x-amz-checksum-crc64nvme"])
+
+		if st.Size != int64(bufSize) {
+			logError(testName, function, args, startTime, "", "Number of bytes returned by PutObject does not match GetObject, expected "+string(bufSize)+" got "+string(st.Size), err)
+			return
+		}
+
+		if err := r.Close(); err != nil {
+			logError(testName, function, args, startTime, "", "Object Close failed", err)
+			return
+		}
+		if err := r.Close(); err == nil {
+			logError(testName, function, args, startTime, "", "Object already closed, should respond with error", err)
+			return
+		}
+
+		function = "GetObject( Range...)"
+		args["range"] = "true"
+		err = gopts.SetRange(100, 1000)
+		if err != nil {
+			logError(testName, function, args, startTime, "", "SetRange failed", err)
+			return
+		}
+		r, err = c.GetObject(context.Background(), bucketName, objectName, gopts)
+		if err != nil {
+			logError(testName, function, args, startTime, "", "GetObject failed", err)
+			return
+		}
+
+		b, err = io.ReadAll(r)
+		if err != nil {
+			logError(testName, function, args, startTime, "", "Read failed", err)
+			return
+		}
+		st, err = r.Stat()
+		if err != nil {
+			logError(testName, function, args, startTime, "", "Stat failed", err)
+			return
+		}
+
+		// Range requests should return empty checksums...
+		cmpChecksum(st.ChecksumSHA256, "")
+		cmpChecksum(st.ChecksumSHA1, "")
+		cmpChecksum(st.ChecksumCRC32, "")
+		cmpChecksum(st.ChecksumCRC32C, "")
+		cmpChecksum(st.ChecksumCRC64NVME, "")
+
+		function = "GetObjectAttributes(...)"
+		s, err := c.GetObjectAttributes(context.Background(), bucketName, objectName, minio.ObjectAttributesOptions{})
+		if err != nil {
+			logError(testName, function, args, startTime, "", "GetObjectAttributes failed", err)
+			return
+		}
+		cmpChecksum(s.Checksum.ChecksumSHA256, meta["x-amz-checksum-sha256"])
+		cmpChecksum(s.Checksum.ChecksumSHA1, meta["x-amz-checksum-sha1"])
+		cmpChecksum(s.Checksum.ChecksumCRC32, meta["x-amz-checksum-crc32"])
+		cmpChecksum(s.Checksum.ChecksumCRC32C, meta["x-amz-checksum-crc32c"])
+
+		delete(args, "range")
+		delete(args, "metadata")
+		logSuccess(testName, function, args, startTime)
+	}
+}
+
+// Test PutObject with custom checksums.
+func testPutMultipartObjectWithChecksums() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "PutObject(bucketName, objectName, reader,size, opts)"
+	args := map[string]interface{}{
+		"bucketName": "",
+		"objectName": "",
+		"opts":       "minio.PutObjectOptions{UserMetadata: metadata, Trailing: true}",
+	}
+
+	if !isFullMode() {
+		logIgnored(testName, function, args, startTime, "Skipping functional tests for short/quick runs")
+		return
+	}
+
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1"})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Make bucket failed", err)
+		return
+	}
+
+	hashMultiPart := func(b []byte, partSize int, cs minio.ChecksumType) string {
 		r := bytes.NewReader(b)
+		hasher := cs.Hasher()
+		if cs.FullObjectRequested() {
+			partSize = len(b)
+		}
 		tmp := make([]byte, partSize)
 		parts := 0
 		var all []byte
 		for {
 			n, err := io.ReadFull(r, tmp)
-			if err != nil && err != io.ErrUnexpectedEOF {
+			if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
 				logError(testName, function, args, startTime, "", "Calc crc failed", err)
 			}
 			if n == 0 {
@@ -2288,36 +2385,42 @@ func testPutMultipartObjectWithChecksums() {
 				break
 			}
 		}
+		if parts == 1 {
+			return base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+		}
 		hasher.Reset()
 		hasher.Write(all)
 		return fmt.Sprintf("%s-%d", base64.StdEncoding.EncodeToString(hasher.Sum(nil)), parts)
 	}
 	defer cleanupBucket(bucketName, c)
 	tests := []struct {
-		header string
-		hasher hash.Hash
-
-		// Checksum values
-		ChecksumCRC32  string
-		ChecksumCRC32C string
-		ChecksumSHA1   string
-		ChecksumSHA256 string
+		cs minio.ChecksumType
 	}{
-		// Currently there is no way to override the checksum type.
-		{header: "x-amz-checksum-crc32c", hasher: crc32.New(crc32.MakeTable(crc32.Castagnoli)), ChecksumCRC32C: "OpEx0Q==-13"},
+		{cs: minio.ChecksumFullObjectCRC32},
+		{cs: minio.ChecksumFullObjectCRC32C},
+		{cs: minio.ChecksumCRC64NVME},
+		{cs: minio.ChecksumCRC32C},
+		{cs: minio.ChecksumCRC32},
+		{cs: minio.ChecksumSHA1},
+		{cs: minio.ChecksumSHA256},
 	}
 
 	for _, test := range tests {
-		bufSize := dataFileMap["datafile-129-MB"]
+		if os.Getenv("MINT_NO_FULL_OBJECT") != "" && test.cs.FullObjectRequested() {
+			continue
+		}
 
+		args["section"] = "prep"
+		bufSize := dataFileMap["datafile-129-MB"]
 		// Save the data
 		objectName := randString(60, rand.NewSource(time.Now().UnixNano()), "")
 		args["objectName"] = objectName
+		args["checksum"] = test.cs.String()
 
 		cmpChecksum := func(got, want string) {
 			if want != got {
-				// logError(testName, function, args, startTime, "", "checksum mismatch", fmt.Errorf("want %s, got %s", want, got))
-				fmt.Printf("want %s, got %s\n", want, got)
+				logError(testName, function, args, startTime, "", "checksum mismatch", fmt.Errorf("want %s, got %s", want, got))
+				// fmt.Printf("want %s, got %s\n", want, got)
 				return
 			}
 		}
@@ -2330,39 +2433,94 @@ func testPutMultipartObjectWithChecksums() {
 			return
 		}
 		reader.Close()
-		h := test.hasher
+		h := test.cs.Hasher()
 		h.Reset()
-		test.ChecksumCRC32C = hashMultiPart(b, partSize, test.hasher)
+		want := hashMultiPart(b, partSize, test.cs)
+
+		rd := bytes.NewReader(b)
+		cs := test.cs
 
 		// Set correct CRC.
-
-		resp, err := c.PutObject(context.Background(), bucketName, objectName, io.NopCloser(bytes.NewReader(b)), int64(bufSize), minio.PutObjectOptions{
+		args["section"] = "PutObject"
+		resp, err := c.PutObject(context.Background(), bucketName, objectName, rd, int64(bufSize), minio.PutObjectOptions{
 			DisableContentSha256: true,
 			DisableMultipart:     false,
 			UserMetadata:         nil,
 			PartSize:             partSize,
+			Checksum:             cs,
 		})
 		if err != nil {
 			logError(testName, function, args, startTime, "", "PutObject failed", err)
 			return
 		}
-		cmpChecksum(resp.ChecksumSHA256, test.ChecksumSHA256)
-		cmpChecksum(resp.ChecksumSHA1, test.ChecksumSHA1)
-		cmpChecksum(resp.ChecksumCRC32, test.ChecksumCRC32)
-		cmpChecksum(resp.ChecksumCRC32C, test.ChecksumCRC32C)
+
+		switch test.cs.Base() {
+		case minio.ChecksumCRC32C:
+			cmpChecksum(resp.ChecksumCRC32C, want)
+		case minio.ChecksumCRC32:
+			cmpChecksum(resp.ChecksumCRC32, want)
+		case minio.ChecksumSHA1:
+			cmpChecksum(resp.ChecksumSHA1, want)
+		case minio.ChecksumSHA256:
+			cmpChecksum(resp.ChecksumSHA256, want)
+		case minio.ChecksumCRC64NVME:
+			cmpChecksum(resp.ChecksumCRC64NVME, want)
+		}
+
+		args["section"] = "HeadObject"
+		st, err := c.StatObject(context.Background(), bucketName, objectName, minio.StatObjectOptions{Checksum: true})
+		if err != nil {
+			logError(testName, function, args, startTime, "", "StatObject failed", err)
+			return
+		}
+		switch test.cs.Base() {
+		case minio.ChecksumCRC32C:
+			cmpChecksum(st.ChecksumCRC32C, want)
+		case minio.ChecksumCRC32:
+			cmpChecksum(st.ChecksumCRC32, want)
+		case minio.ChecksumSHA1:
+			cmpChecksum(st.ChecksumSHA1, want)
+		case minio.ChecksumSHA256:
+			cmpChecksum(st.ChecksumSHA256, want)
+		case minio.ChecksumCRC64NVME:
+			cmpChecksum(st.ChecksumCRC64NVME, want)
+		}
+
+		args["section"] = "GetObjectAttributes"
+		s, err := c.GetObjectAttributes(context.Background(), bucketName, objectName, minio.ObjectAttributesOptions{})
+		if err != nil {
+			logError(testName, function, args, startTime, "", "GetObjectAttributes failed", err)
+			return
+		}
+
+		if strings.ContainsRune(want, '-') {
+			want = want[:strings.IndexByte(want, '-')]
+		}
+		switch test.cs {
+		// Full Object CRC does not return anything with GetObjectAttributes
+		case minio.ChecksumCRC32C:
+			cmpChecksum(s.Checksum.ChecksumCRC32C, want)
+		case minio.ChecksumCRC32:
+			cmpChecksum(s.Checksum.ChecksumCRC32, want)
+		case minio.ChecksumSHA1:
+			cmpChecksum(s.Checksum.ChecksumSHA1, want)
+		case minio.ChecksumSHA256:
+			cmpChecksum(s.Checksum.ChecksumSHA256, want)
+		}
 
 		// Read the data back
 		gopts := minio.GetObjectOptions{Checksum: true}
 		gopts.PartNumber = 2
 
 		// We cannot use StatObject, since it ignores partnumber.
+		args["section"] = "GetObject-Part"
 		r, err := c.GetObject(context.Background(), bucketName, objectName, gopts)
 		if err != nil {
 			logError(testName, function, args, startTime, "", "GetObject failed", err)
 			return
 		}
 		io.Copy(io.Discard, r)
-		st, err := r.Stat()
+		st, err = r.Stat()
 		if err != nil {
 			logError(testName, function, args, startTime, "", "Stat failed", err)
 			return
@@ -2371,24 +2529,29 @@ func testPutMultipartObjectWithChecksums() {
 		// Test part 2 checksum...
 		h.Reset()
 		h.Write(b[partSize : 2*partSize])
-		got := base64.StdEncoding.EncodeToString(h.Sum(nil))
-		if test.ChecksumSHA256 != "" {
-			cmpChecksum(st.ChecksumSHA256, got)
-		}
-		if test.ChecksumSHA1 != "" {
-			cmpChecksum(st.ChecksumSHA1, got)
-		}
-		if test.ChecksumCRC32 != "" {
-			cmpChecksum(st.ChecksumCRC32, got)
-		}
-		if test.ChecksumCRC32C != "" {
-			cmpChecksum(st.ChecksumCRC32C, got)
+		want = base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+		switch test.cs {
+		// Full Object CRC does not return any part CRC for whatever reason.
+		case minio.ChecksumCRC32C:
+			cmpChecksum(st.ChecksumCRC32C, want)
+		case minio.ChecksumCRC32:
+			cmpChecksum(st.ChecksumCRC32, want)
+		case minio.ChecksumSHA1:
+			cmpChecksum(st.ChecksumSHA1, want)
+		case minio.ChecksumSHA256:
+			cmpChecksum(st.ChecksumSHA256, want)
+		case minio.ChecksumCRC64NVME:
+			// AWS doesn't return part checksum, but may in the future.
+			if st.ChecksumCRC64NVME != "" {
+				cmpChecksum(st.ChecksumCRC64NVME, want)
+			}
 		}
 
 		delete(args, "metadata")
+		delete(args, "section")
+		logSuccess(testName, function, args, startTime)
 	}
-
-	logSuccess(testName, function, args, startTime)
 }
 
 // Test PutObject with trailing checksums.
@@ -2408,24 +2571,11 @@ func testTrailingChecksums() {
 		return
 	}
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:           credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport:       createHTTPTransport(),
-			Secure:          mustParseBool(os.Getenv(enableHTTPS)),
-			TrailingHeaders: true,
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -2438,11 +2588,10 @@ func testTrailingChecksums() {
 		return
 	}
 
-	hashMultiPart := func(b []byte, partSize int, hasher hash.Hash) string {
+	hashMultiPart := func(b []byte, partSize int, hasher hash.Hash) (oparts []minio.ObjectPart) {
 		r := bytes.NewReader(b)
 		tmp := make([]byte, partSize)
 		parts := 0
-		var all []byte
 		for {
 			n, err := io.ReadFull(r, tmp)
 			if err != nil && err != io.ErrUnexpectedEOF {
@@ -2454,14 +2603,16 @@ func testTrailingChecksums() {
 			parts++
 			hasher.Reset()
 			hasher.Write(tmp[:n])
-			all = append(all, hasher.Sum(nil)...)
+			oparts = append(oparts, minio.ObjectPart{
+				PartNumber:     parts,
+				Size:           int64(n),
+				ChecksumCRC32C: base64.StdEncoding.EncodeToString(hasher.Sum(nil)),
+			})
 			if err != nil {
 				break
 			}
 		}
-		hasher.Reset()
-		hasher.Write(all)
-		return fmt.Sprintf("%s-%d", base64.StdEncoding.EncodeToString(hasher.Sum(nil)), parts)
+		return oparts
 	}
 	defer cleanupBucket(bucketName, c)
 	tests := []struct {
@@ -2485,6 +2636,7 @@ func testTrailingChecksums() {
 				DisableMultipart:     false,
 				UserMetadata:         nil,
 				PartSize:             5 << 20,
+				Checksum:             minio.ChecksumFullObjectCRC32C,
 			},
 		},
 		{
@@ -2496,6 +2648,7 @@ func testTrailingChecksums() {
 				DisableMultipart:     false,
 				UserMetadata:         nil,
 				PartSize:             6_645_654, // Rather arbitrary size
+				Checksum:             minio.ChecksumFullObjectCRC32C,
 			},
 		},
 		{
@@ -2507,6 +2660,7 @@ func testTrailingChecksums() {
 				DisableMultipart:     false,
 				UserMetadata:         nil,
 				PartSize:             5 << 20,
+				Checksum:             minio.ChecksumFullObjectCRC32C,
 			},
 		},
 		{
@@ -2518,6 +2672,7 @@ func testTrailingChecksums() {
 				DisableMultipart:     false,
 				UserMetadata:         nil,
 				PartSize:             6_645_654, // Rather arbitrary size
+				Checksum:             minio.ChecksumFullObjectCRC32C,
 			},
 		},
 	}
@@ -2545,10 +2700,16 @@ func testTrailingChecksums() {
 		reader.Close()
 		h := test.hasher
 		h.Reset()
-		test.ChecksumCRC32C = hashMultiPart(b, int(test.PO.PartSize), test.hasher)
+
+		parts := hashMultiPart(b, int(test.PO.PartSize), test.hasher)
+		cksum, err := minio.ChecksumFullObjectCRC32C.FullObjectChecksum(parts)
+		if err != nil {
+			logError(testName, function, args, startTime, "", "checksum calculation failed", err)
+			return
+		}
+		test.ChecksumCRC32C = cksum.Encoded()
 
 		// Set correct CRC.
-		// c.TraceOn(os.Stderr)
 		resp, err := c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader(b), int64(bufSize), test.PO)
 		if err != nil {
 			logError(testName, function, args, startTime, "", "PutObject failed", err)
@@ -2599,6 +2760,7 @@ func testTrailingChecksums() {
 		}
 
 		delete(args, "metadata")
+		logSuccess(testName, function, args, startTime)
 	}
 }
 
@@ -2619,24 +2781,11 @@ func testPutObjectWithAutomaticChecksums() {
 		return
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:           credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport:       createHTTPTransport(),
-			Secure:          mustParseBool(os.Getenv(enableHTTPS)),
-			TrailingHeaders: true,
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -2664,8 +2813,6 @@ func testPutObjectWithAutomaticChecksums() {
 		{header: "x-amz-checksum-crc32c", hasher: crc32.New(crc32.MakeTable(crc32.Castagnoli))},
 	}
 
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
 	// defer c.TraceOff()
 
 	for i, test := range tests {
@@ -2775,19 +2922,11 @@ func testGetObjectAttributes() {
 		return
 	}
 
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			TrailingHeaders: true,
-			Creds:           credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport:       createHTTPTransport(),
-			Secure:          mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
 	args["bucketName"] = bucketName
@@ -2847,8 +2986,8 @@ func testGetObjectAttributes() {
 		testFiles[i].UploadInfo, err = c.PutObject(context.Background(), v.Bucket, v.Object, reader, int64(bufSize), minio.PutObjectOptions{
 			ContentType:    v.ContentType,
 			SendContentMd5: v.SendContentMd5,
+			Checksum:       minio.ChecksumCRC32C,
 		})
-
 		if err != nil {
 			logError(testName, function, args, startTime, "", "PutObject failed", err)
 			return
@@ -2929,7 +3068,7 @@ func testGetObjectAttributes() {
 		test: objectAttributesTestOptions{
 			TestFileName:    "file1",
 			StorageClass:    "STANDARD",
-			HasFullChecksum: false,
+			HasFullChecksum: true,
 		},
 	}
 
@@ -2982,19 +3121,12 @@ func testGetObjectAttributesSSECEncryption() {
 		return
 	}
 
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			TrailingHeaders: true,
-			Creds:           credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Secure:          mustParseBool(os.Getenv(enableHTTPS)),
-			Transport:       createHTTPTransport(),
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
 
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
 	args["bucketName"] = bucketName
 	err = c.MakeBucket(
@@ -3018,9 +3150,10 @@ func testGetObjectAttributesSSECEncryption() {
 
 	info, err := c.PutObject(context.Background(), bucketName, objectName, reader, int64(bufSize), minio.PutObjectOptions{
 		ContentType:          "content/custom",
-		SendContentMd5:       true,
+		SendContentMd5:       false,
 		ServerSideEncryption: sse,
 		PartSize:             uint64(bufSize) / 2,
+		Checksum:             minio.ChecksumCRC32C,
 	})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "PutObject failed", err)
@@ -3040,9 +3173,9 @@ func testGetObjectAttributesSSECEncryption() {
 		ETag:             info.ETag,
 		NumberOfParts:    2,
 		ObjectSize:       int(info.Size),
-		HasFullChecksum:  false,
+		HasFullChecksum:  true,
 		HasParts:         true,
-		HasPartChecksums: false,
+		HasPartChecksums: true,
 	})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "Validating GetObjectsAttributes response failed", err)
@@ -3067,19 +3200,12 @@ func testGetObjectAttributesErrorCases() {
 		return
 	}
 
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			TrailingHeaders: true,
-			Creds:           credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport:       createHTTPTransport(),
-			Secure:          mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
 
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 	unknownBucket := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-bucket-")
 	unknownObject := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-object-")
 
@@ -3090,7 +3216,7 @@ func testGetObjectAttributesErrorCases() {
 	}
 
 	errorResponse := err.(minio.ErrorResponse)
-	if errorResponse.Code != "NoSuchBucket" {
+	if errorResponse.Code != minio.NoSuchBucket {
 		logError(testName, function, args, startTime, "", "Invalid error code, expected NoSuchBucket but got "+errorResponse.Code, nil)
 		return
 	}
@@ -3133,8 +3259,8 @@ func testGetObjectAttributesErrorCases() {
 	}
 
 	errorResponse = err.(minio.ErrorResponse)
-	if errorResponse.Code != "NoSuchKey" {
-		logError(testName, function, args, startTime, "", "Invalid error code, expected NoSuchKey but got "+errorResponse.Code, nil)
+	if errorResponse.Code != minio.NoSuchKey {
+		logError(testName, function, args, startTime, "", "Invalid error code, expected "+minio.NoSuchKey+" but got "+errorResponse.Code, nil)
 		return
 	}
 
@@ -3158,8 +3284,8 @@ func testGetObjectAttributesErrorCases() {
 		return
 	}
 	errorResponse = err.(minio.ErrorResponse)
-	if errorResponse.Code != "NoSuchVersion" {
-		logError(testName, function, args, startTime, "", "Invalid error code, expected NoSuchVersion but got "+errorResponse.Code, nil)
+	if errorResponse.Code != minio.NoSuchVersion {
+		logError(testName, function, args, startTime, "", "Invalid error code, expected "+minio.NoSuchVersion+" but got "+errorResponse.Code, nil)
 		return
 	}
 
@@ -3231,16 +3357,10 @@ func validateObjectAttributeRequest(OA *minio.ObjectAttributes, opts *minio.Obje
 		}
 	}
 
-	hasFullObjectChecksum := true
-	if OA.Checksum.ChecksumCRC32 == "" {
-		if OA.Checksum.ChecksumCRC32C == "" {
-			if OA.Checksum.ChecksumSHA1 == "" {
-				if OA.Checksum.ChecksumSHA256 == "" {
-					hasFullObjectChecksum = false
-				}
-			}
-		}
-	}
+	hasFullObjectChecksum := (OA.Checksum.ChecksumCRC32 != "" ||
+		OA.Checksum.ChecksumCRC32C != "" ||
+		OA.Checksum.ChecksumSHA1 != "" ||
+		OA.Checksum.ChecksumSHA256 != "")
 
 	if test.HasFullChecksum {
 		if !hasFullObjectChecksum {
@@ -3329,26 +3449,11 @@ func testPutObjectWithMetadata() {
 		return
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -3436,26 +3541,11 @@ func testPutObjectWithContentLanguage() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -3506,26 +3596,11 @@ func testPutObjectStreaming() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -3578,26 +3653,11 @@ func testGetObjectSeekEnd() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -3701,26 +3761,11 @@ func testGetObjectClosedTwice() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -3792,25 +3837,12 @@ func testRemoveObjectsContext() {
 		"bucketName": "",
 	}
 
-	// Seed random based on current tie.
-	rand.Seed(time.Now().Unix())
-
 	// Instantiate new minio client.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
-	// Enable tracing, write to stdout.
-	// c.TraceOn(os.Stderr)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -3889,26 +3921,11 @@ func testRemoveMultipleObjects() {
 		"bucketName": "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
-
-	// Enable tracing, write to stdout.
-	// c.TraceOn(os.Stderr)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -3923,10 +3940,10 @@ func testRemoveMultipleObjects() {
 
 	defer cleanupBucket(bucketName, c)
 
-	r := bytes.NewReader(bytes.Repeat([]byte("a"), 8))
+	r := bytes.NewReader(bytes.Repeat([]byte("a"), 1))
 
 	// Multi remove of 1100 objects
-	nrObjects := 200
+	nrObjects := 1100
 
 	objectsCh := make(chan minio.ObjectInfo)
 
@@ -3935,7 +3952,7 @@ func testRemoveMultipleObjects() {
 		// Upload objects and send them to objectsCh
 		for i := 0; i < nrObjects; i++ {
 			objectName := "sample" + strconv.Itoa(i) + ".txt"
-			info, err := c.PutObject(context.Background(), bucketName, objectName, r, 8,
+			info, err := c.PutObject(context.Background(), bucketName, objectName, r, 1,
 				minio.PutObjectOptions{ContentType: "application/octet-stream"})
 			if err != nil {
 				logError(testName, function, args, startTime, "", "PutObject failed", err)
@@ -3963,6 +3980,78 @@ func testRemoveMultipleObjects() {
 	logSuccess(testName, function, args, startTime)
 }
 
+// Test removing multiple objects with Remove API as iterator
+func testRemoveMultipleObjectsIter() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "RemoveObjects(bucketName, objectsCh)"
+	args := map[string]interface{}{
+		"bucketName": "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1"})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	defer cleanupBucket(bucketName, c)
+
+	buf := []byte("a")
+
+	// Multi remove of 1100 objects
+	nrObjects := 1100
+
+	objectsIter := func() iter.Seq[minio.ObjectInfo] {
+		return func(yield func(minio.ObjectInfo) bool) {
+			// Upload objects and send them to objectsCh
+			for i := 0; i < nrObjects; i++ {
+				objectName := "sample" + strconv.Itoa(i) + ".txt"
+				info, err := c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader(buf), 1,
+					minio.PutObjectOptions{ContentType: "application/octet-stream"})
+				if err != nil {
+					logError(testName, function, args, startTime, "", "PutObject failed", err)
+					continue
+				}
+				if !yield(minio.ObjectInfo{
+					Key:       info.Key,
+					VersionID: info.VersionID,
+				}) {
+					return
+				}
+			}
+		}
+	}
+
+	// Call RemoveObjects API
+	results, err := c.RemoveObjectsWithIter(context.Background(), bucketName, objectsIter(), minio.RemoveObjectsOptions{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Unexpected error", err)
+		return
+	}
+
+	for result := range results {
+		if result.Err != nil {
+			logError(testName, function, args, startTime, "", "Unexpected error", result.Err)
+			return
+		}
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
 // Test removing multiple objects and check for results
 func testRemoveMultipleObjectsWithResult() {
 	// initialize logging params
@@ -3973,26 +4062,11 @@ func testRemoveMultipleObjectsWithResult() {
 		"bucketName": "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
-
-	// Enable tracing, write to stdout.
-	// c.TraceOn(os.Stderr)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -4007,7 +4081,7 @@ func testRemoveMultipleObjectsWithResult() {
 
 	defer cleanupVersionedBucket(bucketName, c)
 
-	r := bytes.NewReader(bytes.Repeat([]byte("a"), 8))
+	buf := []byte("a")
 
 	nrObjects := 10
 	nrLockedObjects := 5
@@ -4019,7 +4093,7 @@ func testRemoveMultipleObjectsWithResult() {
 		// Upload objects and send them to objectsCh
 		for i := 0; i < nrObjects; i++ {
 			objectName := "sample" + strconv.Itoa(i) + ".txt"
-			info, err := c.PutObject(context.Background(), bucketName, objectName, r, 8,
+			info, err := c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader(buf), 1,
 				minio.PutObjectOptions{ContentType: "application/octet-stream"})
 			if err != nil {
 				logError(testName, function, args, startTime, "", "PutObject failed", err)
@@ -4109,26 +4183,11 @@ func testFPutObjectMultipart() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{TrailingHeaders: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -4215,26 +4274,11 @@ func testFPutObject() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -4385,26 +4429,12 @@ func testFPutObjectContext() {
 		"fileName":   "",
 		"opts":       "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -4486,26 +4516,12 @@ func testFPutObjectContextV2() {
 		"objectName": "",
 		"opts":       "minio.PutObjectOptions{ContentType:objectContentType}",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -4591,23 +4607,11 @@ func testPutObjectContext() {
 		"opts":       "",
 	}
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Make a new bucket.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -4661,26 +4665,11 @@ func testGetObjectS3Zip() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{"x-minio-extract": true}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -4845,26 +4834,11 @@ func testGetObjectReadSeekFunctional() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -5015,26 +4989,11 @@ func testGetObjectReadAtFunctional() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -5193,26 +5152,11 @@ func testGetObjectReadAtWhenEOFWasReached() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -5313,26 +5257,11 @@ func testPresignedPostPolicy() {
 		"policy": "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -5361,50 +5290,22 @@ func testPresignedPostPolicy() {
 		return
 	}
 
-	// Save the data
-	_, err = c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader(buf), int64(len(buf)), minio.PutObjectOptions{ContentType: "binary/octet-stream"})
-	if err != nil {
-		logError(testName, function, args, startTime, "", "PutObject failed", err)
-		return
-	}
-
 	policy := minio.NewPostPolicy()
-
-	if err := policy.SetBucket(""); err == nil {
-		logError(testName, function, args, startTime, "", "SetBucket did not fail for invalid conditions", err)
-		return
-	}
-	if err := policy.SetKey(""); err == nil {
-		logError(testName, function, args, startTime, "", "SetKey did not fail for invalid conditions", err)
-		return
-	}
-	if err := policy.SetExpires(time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)); err == nil {
-		logError(testName, function, args, startTime, "", "SetExpires did not fail for invalid conditions", err)
-		return
-	}
-	if err := policy.SetContentType(""); err == nil {
-		logError(testName, function, args, startTime, "", "SetContentType did not fail for invalid conditions", err)
-		return
-	}
-	if err := policy.SetContentLengthRange(1024*1024, 1024); err == nil {
-		logError(testName, function, args, startTime, "", "SetContentLengthRange did not fail for invalid conditions", err)
-		return
-	}
-	if err := policy.SetUserMetadata("", ""); err == nil {
-		logError(testName, function, args, startTime, "", "SetUserMetadata did not fail for invalid conditions", err)
-		return
-	}
-
 	policy.SetBucket(bucketName)
 	policy.SetKey(objectName)
 	policy.SetExpires(time.Now().UTC().AddDate(0, 0, 10)) // expires in 10 days
 	policy.SetContentType("binary/octet-stream")
 	policy.SetContentLengthRange(10, 1024*1024)
 	policy.SetUserMetadata(metadataKey, metadataValue)
+	policy.SetContentEncoding("gzip")
 
 	// Add CRC32C
 	checksum := minio.ChecksumCRC32C.ChecksumBytes(buf)
-	policy.SetChecksum(checksum)
+	err = policy.SetChecksum(checksum)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetChecksum failed", err)
+		return
+	}
 
 	args["policy"] = policy.String()
 
@@ -5460,18 +5361,12 @@ func testPresignedPostPolicy() {
 	}
 	writer.Close()
 
-	transport, err := minio.DefaultTransport(mustParseBool(os.Getenv(enableHTTPS)))
-	if err != nil {
-		logError(testName, function, args, startTime, "", "DefaultTransport failed", err)
-		return
-	}
-
 	httpClient := &http.Client{
 		// Setting a sensible time out of 30secs to wait for response
 		// headers. Request is pro-actively canceled after 30secs
 		// with no response.
 		Timeout:   30 * time.Second,
-		Transport: transport,
+		Transport: createHTTPTransport(),
 	}
 	args["url"] = presignedPostPolicyURL.String()
 
@@ -5506,7 +5401,7 @@ func testPresignedPostPolicy() {
 	expectedLocation := scheme + os.Getenv(serverEndpoint) + "/" + bucketName + "/" + objectName
 	expectedLocationBucketDNS := scheme + bucketName + "." + os.Getenv(serverEndpoint) + "/" + objectName
 
-	if !strings.Contains(expectedLocation, "s3.amazonaws.com/") {
+	if !strings.Contains(expectedLocation, ".amazonaws.com/") {
 		// Test when not against AWS S3.
 		if val, ok := res.Header["Location"]; ok {
 			if val[0] != expectedLocation && val[0] != expectedLocationBucketDNS {
@@ -5518,10 +5413,340 @@ func testPresignedPostPolicy() {
 			return
 		}
 	}
-	want := checksum.Encoded()
-	if got := res.Header.Get("X-Amz-Checksum-Crc32c"); got != want {
-		logError(testName, function, args, startTime, "", fmt.Sprintf("Want checksum %q, got %q", want, got), nil)
+	wantChecksumCrc32c := checksum.Encoded()
+	if got := res.Header.Get("X-Amz-Checksum-Crc32c"); got != wantChecksumCrc32c {
+		logError(testName, function, args, startTime, "", fmt.Sprintf("Want checksum %q, got %q", wantChecksumCrc32c, got), nil)
 		return
+	}
+
+	// Ensure that when we subsequently GetObject, the checksum is returned
+	gopts := minio.GetObjectOptions{Checksum: true}
+	r, err := c.GetObject(context.Background(), bucketName, objectName, gopts)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "GetObject failed", err)
+		return
+	}
+	st, err := r.Stat()
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Stat failed", err)
+		return
+	}
+	if st.ChecksumCRC32C != wantChecksumCrc32c {
+		logError(testName, function, args, startTime, "", fmt.Sprintf("Want checksum %s, got %s", wantChecksumCrc32c, st.ChecksumCRC32C), nil)
+		return
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
+// testPresignedPostPolicyWrongFile tests that when we have a policy with a checksum, we cannot POST the wrong file
+func testPresignedPostPolicyWrongFile() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "PresignedPostPolicy(policy)"
+	args := map[string]interface{}{
+		"policy": "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+
+	// Make a new bucket in 'us-east-1' (source bucket).
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1"})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	defer cleanupBucket(bucketName, c)
+
+	objectName := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+	// Azure requires the key to not start with a number
+	metadataKey := randString(60, rand.NewSource(time.Now().UnixNano()), "user")
+	metadataValue := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+
+	policy := minio.NewPostPolicy()
+	policy.SetBucket(bucketName)
+	policy.SetKey(objectName)
+	policy.SetExpires(time.Now().UTC().AddDate(0, 0, 10)) // expires in 10 days
+	policy.SetContentType("binary/octet-stream")
+	policy.SetContentLengthRange(10, 1024*1024)
+	policy.SetUserMetadata(metadataKey, metadataValue)
+
+	// Add CRC32C of some data that the policy will explicitly allow.
+	checksum := minio.ChecksumCRC32C.ChecksumBytes([]byte{0x01, 0x02, 0x03})
+	err = policy.SetChecksum(checksum)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetChecksum failed", err)
+		return
+	}
+
+	args["policy"] = policy.String()
+
+	presignedPostPolicyURL, formData, err := c.PresignedPostPolicy(context.Background(), policy)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "PresignedPostPolicy failed", err)
+		return
+	}
+
+	// At this stage, we have a policy that allows us to upload for a specific checksum.
+	// Test that uploading datafile-10-kB, with a different checksum, fails as expected
+	filePath := getMintDataDirFilePath("datafile-10-kB")
+	if filePath == "" {
+		// Make a temp file with 10 KB data.
+		file, err := os.CreateTemp(os.TempDir(), "PresignedPostPolicyTest")
+		if err != nil {
+			logError(testName, function, args, startTime, "", "TempFile creation failed", err)
+			return
+		}
+		if _, err = io.Copy(file, getDataReader("datafile-10-kB")); err != nil {
+			logError(testName, function, args, startTime, "", "Copy failed", err)
+			return
+		}
+		if err = file.Close(); err != nil {
+			logError(testName, function, args, startTime, "", "File Close failed", err)
+			return
+		}
+		filePath = file.Name()
+	}
+	fileReader := getDataReader("datafile-10-kB")
+	defer fileReader.Close()
+	buf10k, err := io.ReadAll(fileReader)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "ReadAll failed", err)
+		return
+	}
+	otherChecksum := minio.ChecksumCRC32C.ChecksumBytes(buf10k)
+
+	var formBuf bytes.Buffer
+	writer := multipart.NewWriter(&formBuf)
+	for k, v := range formData {
+		if k == "x-amz-checksum-crc32c" {
+			v = otherChecksum.Encoded()
+		}
+		writer.WriteField(k, v)
+	}
+
+	// Add file to post request
+	f, err := os.Open(filePath)
+	defer f.Close()
+	if err != nil {
+		logError(testName, function, args, startTime, "", "File open failed", err)
+		return
+	}
+	w, err := writer.CreateFormFile("file", filePath)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "CreateFormFile failed", err)
+		return
+	}
+	_, err = io.Copy(w, f)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Copy failed", err)
+		return
+	}
+	writer.Close()
+
+	httpClient := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: createHTTPTransport(),
+	}
+	args["url"] = presignedPostPolicyURL.String()
+
+	req, err := http.NewRequest(http.MethodPost, presignedPostPolicyURL.String(), bytes.NewReader(formBuf.Bytes()))
+	if err != nil {
+		logError(testName, function, args, startTime, "", "HTTP request failed", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// Make the POST request with the form data.
+	res, err := httpClient.Do(req)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "HTTP request failed", err)
+		return
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		logError(testName, function, args, startTime, "", "HTTP request unexpected status", errors.New(res.Status))
+		return
+	}
+
+	// Read the response body, ensure it has checksum failure message
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "ReadAll failed", err)
+		return
+	}
+
+	// Normalize the response body, because S3 uses quotes around the policy condition components
+	// in the error message, MinIO does not.
+	resBodyStr := strings.ReplaceAll(string(resBody), `"`, "")
+	if !strings.Contains(resBodyStr, "Policy Condition failed: [eq, $x-amz-checksum-crc32c, 8TDyHg=") {
+		logError(testName, function, args, startTime, "", "Unexpected response body", errors.New(resBodyStr))
+		return
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
+// testPresignedPostPolicyEmptyFileName tests that an empty file name in the presigned post policy
+func testPresignedPostPolicyEmptyFileName() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "PresignedPostPolicy(policy)"
+	args := map[string]interface{}{
+		"policy": "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+
+	// Make a new bucket in 'us-east-1' (source bucket).
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1"})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	defer cleanupBucket(bucketName, c)
+
+	// Generate 33K of data.
+	reader := getDataReader("datafile-33-kB")
+	defer reader.Close()
+
+	objectName := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+	// Azure requires the key to not start with a number
+	metadataKey := randString(60, rand.NewSource(time.Now().UnixNano()), "user")
+	metadataValue := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+
+	buf, err := io.ReadAll(reader)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "ReadAll failed", err)
+		return
+	}
+
+	policy := minio.NewPostPolicy()
+	policy.SetBucket(bucketName)
+	policy.SetKey(objectName)
+	policy.SetExpires(time.Now().UTC().AddDate(0, 0, 10)) // expires in 10 days
+	policy.SetContentType("binary/octet-stream")
+	policy.SetContentLengthRange(10, 1024*1024)
+	policy.SetUserMetadata(metadataKey, metadataValue)
+	policy.SetContentEncoding("gzip")
+
+	// Add CRC32C
+	checksum := minio.ChecksumCRC32C.ChecksumBytes(buf)
+	err = policy.SetChecksum(checksum)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetChecksum failed", err)
+		return
+	}
+
+	args["policy"] = policy.String()
+
+	presignedPostPolicyURL, formData, err := c.PresignedPostPolicy(context.Background(), policy)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "PresignedPostPolicy failed", err)
+		return
+	}
+
+	var formBuf bytes.Buffer
+	writer := multipart.NewWriter(&formBuf)
+	for k, v := range formData {
+		writer.WriteField(k, v)
+	}
+
+	// Get a 33KB file to upload and test if set post policy works
+	filePath := getMintDataDirFilePath("datafile-33-kB")
+	if filePath == "" {
+		// Make a temp file with 33 KB data.
+		file, err := os.CreateTemp(os.TempDir(), "PresignedPostPolicyTest")
+		if err != nil {
+			logError(testName, function, args, startTime, "", "TempFile creation failed", err)
+			return
+		}
+		if _, err = io.Copy(file, getDataReader("datafile-33-kB")); err != nil {
+			logError(testName, function, args, startTime, "", "Copy failed", err)
+			return
+		}
+		if err = file.Close(); err != nil {
+			logError(testName, function, args, startTime, "", "File Close failed", err)
+			return
+		}
+		filePath = file.Name()
+	}
+
+	// add file to post request
+	f, err := os.Open(filePath)
+	defer f.Close()
+	if err != nil {
+		logError(testName, function, args, startTime, "", "File open failed", err)
+		return
+	}
+	w, err := writer.CreateFormFile("", filePath)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "CreateFormFile failed", err)
+		return
+	}
+
+	_, err = io.Copy(w, f)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Copy failed", err)
+		return
+	}
+	writer.Close()
+
+	httpClient := &http.Client{
+		// Setting a sensible time out of 30secs to wait for response
+		// headers. Request is pro-actively canceled after 30secs
+		// with no response.
+		Timeout:   30 * time.Second,
+		Transport: createHTTPTransport(),
+	}
+	args["url"] = presignedPostPolicyURL.String()
+
+	req, err := http.NewRequest(http.MethodPost, presignedPostPolicyURL.String(), bytes.NewReader(formBuf.Bytes()))
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Http request failed", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// make post request with correct form data
+	res, err := httpClient.Do(req)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Http request failed", err)
+		return
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		logError(testName, function, args, startTime, "", "Http request failed", errors.New(res.Status))
+		return
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "ReadAll failed", err)
+		return
+	}
+	if !strings.Contains(string(body), "MalformedPOSTRequest") {
+		logError(testName, function, args, startTime, "", "Invalid error from server", errors.New(string(body)))
 	}
 
 	logSuccess(testName, function, args, startTime)
@@ -5535,26 +5760,11 @@ func testCopyObject() {
 	function := "CopyObject(dst, src)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -5730,26 +5940,11 @@ func testSSECEncryptedGetObjectReadSeekFunctional() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -5913,26 +6108,11 @@ func testSSES3EncryptedGetObjectReadSeekFunctional() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -6094,26 +6274,11 @@ func testSSECEncryptedGetObjectReadAtFunctional() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -6278,26 +6443,11 @@ func testSSES3EncryptedGetObjectReadAtFunctional() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -6463,26 +6613,12 @@ func testSSECEncryptionPutGet() {
 		"objectName": "",
 		"sse":        "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -6573,26 +6709,12 @@ func testSSECEncryptionFPut() {
 		"contentType": "",
 		"sse":         "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -6696,26 +6818,12 @@ func testSSES3EncryptionPutGet() {
 		"objectName": "",
 		"sse":        "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -6804,26 +6912,12 @@ func testSSES3EncryptionFPut() {
 		"contentType": "",
 		"sse":         "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -6933,25 +7027,11 @@ func testBucketNotification() {
 		return
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable to debug
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	bucketName := os.Getenv("NOTIFY_BUCKET")
 	args["bucketName"] = bucketName
@@ -7028,25 +7108,11 @@ func testFunctional() {
 	functionAll := ""
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, nil, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable to debug
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -7088,7 +7154,6 @@ func testFunctional() {
 		"bucketName": bucketName,
 	}
 	exists, err = c.BucketExists(context.Background(), bucketName)
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "BucketExists failed", err)
 		return
@@ -7151,7 +7216,6 @@ func testFunctional() {
 		"bucketPolicy": writeOnlyPolicy,
 	}
 	err = c.SetBucketPolicy(context.Background(), bucketName, writeOnlyPolicy)
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "SetBucketPolicy failed", err)
 		return
@@ -7180,7 +7244,6 @@ func testFunctional() {
 		"bucketPolicy": readWritePolicy,
 	}
 	err = c.SetBucketPolicy(context.Background(), bucketName, readWritePolicy)
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "SetBucketPolicy failed", err)
 		return
@@ -7357,7 +7420,6 @@ func testFunctional() {
 		"fileName":   fileName + "-f",
 	}
 	err = c.FGetObject(context.Background(), bucketName, objectName, fileName+"-f", minio.GetObjectOptions{})
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "FGetObject failed", err)
 		return
@@ -7389,7 +7451,7 @@ func testFunctional() {
 		return
 	}
 
-	transport, err := minio.DefaultTransport(mustParseBool(os.Getenv(enableHTTPS)))
+	transport := createHTTPTransport()
 	if err != nil {
 		logError(testName, function, args, startTime, "", "DefaultTransport failed", err)
 		return
@@ -7489,7 +7551,6 @@ func testFunctional() {
 		"reqParams":  reqParams,
 	}
 	presignedGetURL, err = c.PresignedGetObject(context.Background(), bucketName, objectName, 3600*time.Second, reqParams)
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "PresignedGetObject failed", err)
 		return
@@ -7646,14 +7707,12 @@ func testFunctional() {
 		"objectName": objectName,
 	}
 	err = c.RemoveObject(context.Background(), bucketName, objectName, minio.RemoveObjectOptions{})
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "RemoveObject failed", err)
 		return
 	}
 	args["objectName"] = objectName + "-f"
 	err = c.RemoveObject(context.Background(), bucketName, objectName+"-f", minio.RemoveObjectOptions{})
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "RemoveObject failed", err)
 		return
@@ -7661,7 +7720,6 @@ func testFunctional() {
 
 	args["objectName"] = objectName + "-nolength"
 	err = c.RemoveObject(context.Background(), bucketName, objectName+"-nolength", minio.RemoveObjectOptions{})
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "RemoveObject failed", err)
 		return
@@ -7669,7 +7727,6 @@ func testFunctional() {
 
 	args["objectName"] = objectName + "-presigned"
 	err = c.RemoveObject(context.Background(), bucketName, objectName+"-presigned", minio.RemoveObjectOptions{})
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "RemoveObject failed", err)
 		return
@@ -7677,7 +7734,6 @@ func testFunctional() {
 
 	args["objectName"] = objectName + "-presign-custom"
 	err = c.RemoveObject(context.Background(), bucketName, objectName+"-presign-custom", minio.RemoveObjectOptions{})
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "RemoveObject failed", err)
 		return
@@ -7689,7 +7745,6 @@ func testFunctional() {
 		"bucketName": bucketName,
 	}
 	err = c.RemoveBucket(context.Background(), bucketName)
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "RemoveBucket failed", err)
 		return
@@ -7718,23 +7773,11 @@ func testGetObjectModified() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Make a new bucket.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -7785,7 +7828,7 @@ func testGetObjectModified() {
 
 	// Confirm that a Stat() call in between doesn't change the Object's cached etag.
 	_, err = reader.Stat()
-	expectedError := "At least one of the pre-conditions you specified did not hold"
+	expectedError := "At least one of the pre-conditions you specified did not hold."
 	if err.Error() != expectedError {
 		logError(testName, function, args, startTime, "", "Expected Stat to fail with error "+expectedError+", but received "+err.Error(), err)
 		return
@@ -7814,23 +7857,11 @@ func testPutObjectUploadSeekedObject() {
 		"contentType":  "binary/octet-stream",
 	}
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Make a new bucket.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -7934,26 +7965,11 @@ func testMakeBucketErrorV2() {
 		"region":     "eu-west-1",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -7974,8 +7990,8 @@ func testMakeBucketErrorV2() {
 		return
 	}
 	// Verify valid error response from server.
-	if minio.ToErrorResponse(err).Code != "BucketAlreadyExists" &&
-		minio.ToErrorResponse(err).Code != "BucketAlreadyOwnedByYou" {
+	if minio.ToErrorResponse(err).Code != minio.BucketAlreadyExists &&
+		minio.ToErrorResponse(err).Code != minio.BucketAlreadyOwnedByYou {
 		logError(testName, function, args, startTime, "", "Invalid error returned by server", err)
 		return
 	}
@@ -7994,26 +8010,11 @@ func testGetObjectClosedTwiceV2() {
 		"region":     "eu-west-1",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -8085,26 +8086,11 @@ func testFPutObjectV2() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -8246,26 +8232,11 @@ func testMakeBucketRegionsV2() {
 		"region":     "eu-west-1",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -8309,26 +8280,11 @@ func testGetObjectReadSeekFunctionalV2() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -8464,26 +8420,11 @@ func testGetObjectReadAtFunctionalV2() {
 	function := "GetObject(bucketName, objectName)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -8626,26 +8567,11 @@ func testCopyObjectV2() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -8845,13 +8771,7 @@ func testComposeObjectErrorCasesV2() {
 	function := "ComposeObject(destination, sourceList)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -8943,13 +8863,7 @@ func testCompose10KSourcesV2() {
 	function := "ComposeObject(destination, sourceList)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -8965,13 +8879,7 @@ func testEncryptedEmptyObject() {
 	function := "PutObject(bucketName, objectName, reader, objectSize, opts)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
@@ -9119,7 +9027,7 @@ func testEncryptedCopyObjectWrapper(c *minio.Client, bucketName string, sseSrc, 
 		dstEncryption = sseDst
 	}
 	// 3. get copied object and check if content is equal
-	coreClient := minio.Core{c}
+	coreClient := minio.Core{Client: c}
 	reader, _, _, err := coreClient.GetObject(context.Background(), bucketName, "dstObject", minio.GetObjectOptions{ServerSideEncryption: dstEncryption})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "GetObject failed", err)
@@ -9226,13 +9134,7 @@ func testUnencryptedToSSECCopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9241,7 +9143,6 @@ func testUnencryptedToSSECCopyObject() {
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
 
 	sseDst := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"dstObject"))
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, nil, sseDst)
 }
 
@@ -9253,13 +9154,7 @@ func testUnencryptedToSSES3CopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9269,7 +9164,6 @@ func testUnencryptedToSSES3CopyObject() {
 
 	var sseSrc encrypt.ServerSide
 	sseDst := encrypt.NewSSE()
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9281,13 +9175,7 @@ func testUnencryptedToUnencryptedCopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9296,7 +9184,6 @@ func testUnencryptedToUnencryptedCopyObject() {
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
 
 	var sseSrc, sseDst encrypt.ServerSide
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9308,13 +9195,7 @@ func testEncryptedSSECToSSECCopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9324,7 +9205,6 @@ func testEncryptedSSECToSSECCopyObject() {
 
 	sseSrc := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"srcObject"))
 	sseDst := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"dstObject"))
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9336,13 +9216,7 @@ func testEncryptedSSECToSSES3CopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9352,7 +9226,6 @@ func testEncryptedSSECToSSES3CopyObject() {
 
 	sseSrc := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"srcObject"))
 	sseDst := encrypt.NewSSE()
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9364,13 +9237,7 @@ func testEncryptedSSECToUnencryptedCopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9380,7 +9247,6 @@ func testEncryptedSSECToUnencryptedCopyObject() {
 
 	sseSrc := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"srcObject"))
 	var sseDst encrypt.ServerSide
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9392,13 +9258,7 @@ func testEncryptedSSES3ToSSECCopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9408,7 +9268,6 @@ func testEncryptedSSES3ToSSECCopyObject() {
 
 	sseSrc := encrypt.NewSSE()
 	sseDst := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"dstObject"))
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9420,13 +9279,7 @@ func testEncryptedSSES3ToSSES3CopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9436,7 +9289,6 @@ func testEncryptedSSES3ToSSES3CopyObject() {
 
 	sseSrc := encrypt.NewSSE()
 	sseDst := encrypt.NewSSE()
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9448,13 +9300,7 @@ func testEncryptedSSES3ToUnencryptedCopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9464,7 +9310,6 @@ func testEncryptedSSES3ToUnencryptedCopyObject() {
 
 	sseSrc := encrypt.NewSSE()
 	var sseDst encrypt.ServerSide
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9476,13 +9321,7 @@ func testEncryptedCopyObjectV2() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9492,7 +9331,6 @@ func testEncryptedCopyObjectV2() {
 
 	sseSrc := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"srcObject"))
 	sseDst := encrypt.DefaultPBKDF([]byte("correct horse battery staple"), []byte(bucketName+"dstObject"))
-	// c.TraceOn(os.Stderr)
 	testEncryptedCopyObjectWrapper(c, bucketName, sseSrc, sseDst)
 }
 
@@ -9503,13 +9341,7 @@ func testDecryptedCopyObject() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
@@ -9563,26 +9395,14 @@ func testSSECMultipartEncryptedToSSECCopyObjectPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -9761,26 +9581,14 @@ func testSSECEncryptedToSSECCopyObjectPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -9939,26 +9747,14 @@ func testSSECEncryptedToUnencryptedCopyPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -10116,26 +9912,14 @@ func testSSECEncryptedToSSES3CopyObjectPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -10296,26 +10080,14 @@ func testUnencryptedToSSECCopyObjectPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -10471,26 +10243,14 @@ func testUnencryptedToUnencryptedCopyPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -10642,26 +10402,14 @@ func testUnencryptedToSSES3CopyObjectPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -10815,26 +10563,14 @@ func testSSES3EncryptedToSSECCopyObjectPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -10991,26 +10727,14 @@ func testSSES3EncryptedToUnencryptedCopyPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -11163,26 +10887,14 @@ func testSSES3EncryptedToSSES3CopyObjectPart() {
 	function := "CopyObjectPart(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	client, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	client, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
 	}
 
 	// Instantiate new core client object.
-	c := minio.Core{client}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
+	c := minio.Core{Client: client}
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test")
@@ -11337,19 +11049,12 @@ func testUserMetadataCopying() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
 	}
 
-	// c.TraceOn(os.Stderr)
 	testUserMetadataCopyingWrapper(c)
 }
 
@@ -11514,19 +11219,12 @@ func testUserMetadataCopyingV2() {
 	function := "CopyObject(destination, source)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
 		return
 	}
 
-	// c.TraceOn(os.Stderr)
 	testUserMetadataCopyingWrapper(c)
 }
 
@@ -11537,13 +11235,7 @@ func testStorageClassMetadataPutObject() {
 	args := map[string]interface{}{}
 	testName := getFuncName()
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
@@ -11625,13 +11317,7 @@ func testStorageClassInvalidMetadataPutObject() {
 	args := map[string]interface{}{}
 	testName := getFuncName()
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
@@ -11668,13 +11354,7 @@ func testStorageClassMetadataCopyObject() {
 	args := map[string]interface{}{}
 	testName := getFuncName()
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-			Transport: createHTTPTransport(),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO v4 client object creation failed", err)
 		return
@@ -11795,26 +11475,11 @@ func testPutObjectNoLengthV2() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
-		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
+		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -11871,26 +11536,11 @@ func testPutObjectsUnknownV2() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
-		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
+		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -11962,26 +11612,11 @@ func testPutObject0ByteV2() {
 		"opts":       "",
 	}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
-		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
+		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -12019,6 +11654,90 @@ func testPutObject0ByteV2() {
 	logSuccess(testName, function, args, startTime)
 }
 
+// Test put object with 0 byte object with non-US-ASCII characters.
+func testPutObjectMetadataNonUSASCIIV2() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "PutObject(bucketName, objectName, reader, size, opts)"
+	args := map[string]interface{}{
+		"bucketName": "",
+		"objectName": "",
+		"size":       0,
+		"opts":       "",
+	}
+	metadata := map[string]string{
+		"test-zh": "你好",
+		"test-ja": "こんにちは",
+		"test-ko": "안녕하세요",
+		"test-ru": "Здравствуй",
+		"test-de": "Hallo",
+		"test-it": "Ciao",
+		"test-pt": "Olá",
+		"test-ar": "مرحبا",
+		"test-hi": "नमस्ते",
+		"test-hu": "Helló",
+		"test-ro": "Bună",
+		"test-be": "Прывiтанне",
+		"test-sl": "Pozdravljen",
+		"test-sr": "Здраво",
+		"test-bg": "Здравейте",
+		"test-uk": "Привіт",
+	}
+	c, err := NewClient(ClientConfig{CredsV2: true})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1"})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	defer cleanupBucket(bucketName, c)
+
+	objectName := bucketName + "unique"
+	args["objectName"] = objectName
+	args["opts"] = minio.PutObjectOptions{}
+
+	// Upload an object.
+	_, err = c.PutObject(context.Background(), bucketName, objectName, bytes.NewReader([]byte("")), 0, minio.PutObjectOptions{
+		UserMetadata: metadata,
+	})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "PutObjectWithSize failed", err)
+		return
+	}
+	st, err := c.StatObject(context.Background(), bucketName, objectName, minio.StatObjectOptions{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "StatObjectWithSize failed", err)
+		return
+	}
+	if st.Size != 0 {
+		logError(testName, function, args, startTime, "", "Expected upload object size 0 but got "+string(st.Size), err)
+		return
+	}
+
+	for k, v := range metadata {
+		if strings.HasPrefix(strings.ToLower(k), "x-amz-checksum-") {
+			continue
+		}
+		if st.Metadata.Get(http.CanonicalHeaderKey("X-Amz-Meta-"+k)) != v {
+			logError(testName, function, args, startTime, "", "Expected upload object metadata "+k+": "+v+" but got "+st.Metadata.Get(http.CanonicalHeaderKey("X-Amz-Meta-"+k)), err)
+			return
+		}
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
 // Test expected error cases
 func testComposeObjectErrorCases() {
 	// initialize logging params
@@ -12027,13 +11746,7 @@ func testComposeObjectErrorCases() {
 	function := "ComposeObject(destination, sourceList)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
@@ -12050,13 +11763,7 @@ func testCompose10KSources() {
 	function := "ComposeObject(destination, sourceList)"
 	args := map[string]interface{}{}
 
-	// Instantiate new minio client object
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
 		return
@@ -12074,25 +11781,11 @@ func testFunctionalV2() {
 	functionAll := ""
 	args := map[string]interface{}{}
 
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
-
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-			Transport: createHTTPTransport(),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
 		return
 	}
-
-	// Enable to debug
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -12157,7 +11850,6 @@ func testFunctionalV2() {
 		"bucketPolicy": readWritePolicy,
 	}
 	err = c.SetBucketPolicy(context.Background(), bucketName, readWritePolicy)
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "SetBucketPolicy failed", err)
 		return
@@ -12328,18 +12020,12 @@ func testFunctionalV2() {
 		return
 	}
 
-	transport, err := minio.DefaultTransport(mustParseBool(os.Getenv(enableHTTPS)))
-	if err != nil {
-		logError(testName, function, args, startTime, "", "DefaultTransport failed", err)
-		return
-	}
-
 	httpClient := &http.Client{
 		// Setting a sensible time out of 30secs to wait for response
 		// headers. Request is pro-actively canceled after 30secs
 		// with no response.
 		Timeout:   30 * time.Second,
-		Transport: transport,
+		Transport: createHTTPTransport(),
 	}
 
 	req, err := http.NewRequest(http.MethodHead, presignedHeadURL.String(), nil)
@@ -12534,26 +12220,12 @@ func testGetObjectContext() {
 		"bucketName": "",
 		"objectName": "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -12637,26 +12309,12 @@ func testFGetObjectContext() {
 		"objectName": "",
 		"fileName":   "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -12729,23 +12387,11 @@ func testGetObjectRanges() {
 	defer cancel()
 
 	rng := rand.NewSource(time.Now().UnixNano())
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rng, "minio-go-test-")
@@ -12836,26 +12482,12 @@ func testGetObjectACLContext() {
 		"bucketName": "",
 		"objectName": "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -12888,7 +12520,6 @@ func testGetObjectACLContext() {
 			ContentType:  "binary/octet-stream",
 			UserMetadata: metaData,
 		})
-
 	if err != nil {
 		logError(testName, function, args, startTime, "", "PutObject failed", err)
 		return
@@ -13015,23 +12646,11 @@ func testPutObjectContextV2() {
 		"size":       "",
 		"opts":       "",
 	}
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
-		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
+		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Make a new bucket.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -13087,26 +12706,12 @@ func testGetObjectContextV2() {
 		"bucketName": "",
 		"objectName": "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
-		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
+		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -13188,26 +12793,12 @@ func testFGetObjectContextV2() {
 		"objectName": "",
 		"fileName":   "",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV2(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{CredsV2: true})
 	if err != nil {
-		logError(testName, function, args, startTime, "", "MinIO client v2 object creation failed", err)
+		logError(testName, function, args, startTime, "", "MinIO v2 client object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -13277,26 +12868,12 @@ func testListObjects() {
 		"objectPrefix": "",
 		"recursive":    "true",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -13367,6 +12944,820 @@ func testListObjects() {
 	logSuccess(testName, function, args, startTime)
 }
 
+// testCors is runnable against S3 itself.
+// Just provide the env var MINIO_GO_TEST_BUCKET_CORS with bucket that is public and WILL BE DELETED.
+// Recreate this manually each time. Minio-go SDK does not support calling
+// SetPublicBucket (put-public-access-block) on S3, otherwise we could script the whole thing.
+func testCors() {
+	ctx := context.Background()
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "SetBucketCors(bucketName, cors)"
+	args := map[string]interface{}{
+		"bucketName": "",
+		"cors":       "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
+		return
+	}
+
+	// Create or reuse a bucket that will get cors settings applied to it and deleted when done
+	bucketName := os.Getenv("MINIO_GO_TEST_BUCKET_CORS")
+	if bucketName == "" {
+		bucketName = randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+		err = c.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: "us-east-1"})
+		if err != nil {
+			logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+			return
+		}
+	}
+	args["bucketName"] = bucketName
+	defer cleanupBucket(bucketName, c)
+
+	publicPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:*"],"Resource":["arn:aws:s3:::` + bucketName + `", "arn:aws:s3:::` + bucketName + `/*"]}]}`
+	err = c.SetBucketPolicy(ctx, bucketName, publicPolicy)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetBucketPolicy failed", err)
+		return
+	}
+
+	// Upload an object for testing.
+	objectContents := `some-text-file-contents`
+	reader := strings.NewReader(objectContents)
+	bufSize := int64(len(objectContents))
+
+	objectName := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+	args["objectName"] = objectName
+
+	_, err = c.PutObject(ctx, bucketName, objectName, reader, int64(bufSize), minio.PutObjectOptions{ContentType: "binary/octet-stream"})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "PutObject call failed", err)
+		return
+	}
+	bucketURL := c.EndpointURL().String() + "/" + bucketName + "/"
+	objectURL := bucketURL + objectName
+
+	httpClient := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: createHTTPTransport(),
+	}
+
+	errStrAccessForbidden := `<Error><Code>AccessForbidden</Code><Message>CORSResponse: This CORS request is not allowed. This is usually because the evalution of Origin, request method / Access-Control-Request-Method or Access-Control-Request-Headers are not whitelisted`
+	testCases := []struct {
+		name string
+
+		// Cors rules to apply
+		applyCorsRules []cors.Rule
+
+		// Outbound request info
+		method  string
+		url     string
+		headers map[string]string
+
+		// Wanted response
+		wantStatus       int
+		wantHeaders      map[string]string
+		wantBodyContains string
+	}{
+		{
+			name: "apply bucket rules",
+			applyCorsRules: []cors.Rule{
+				{
+					AllowedOrigin: []string{"https"}, // S3 documents 'https' origin, but it does not actually work, see test below.
+					AllowedMethod: []string{"PUT"},
+					AllowedHeader: []string{"*"},
+				},
+				{
+					AllowedOrigin: []string{"http://www.example1.com"},
+					AllowedMethod: []string{"PUT"},
+					AllowedHeader: []string{"*"},
+					ExposeHeader:  []string{"x-amz-server-side-encryption", "x-amz-request-id"},
+					MaxAgeSeconds: 3600,
+				},
+				{
+					AllowedOrigin: []string{"http://www.example2.com"},
+					AllowedMethod: []string{"POST"},
+					AllowedHeader: []string{"X-My-Special-Header"},
+					ExposeHeader:  []string{"X-AMZ-Request-ID"},
+				},
+				{
+					AllowedOrigin: []string{"http://www.example3.com"},
+					AllowedMethod: []string{"PUT"},
+					AllowedHeader: []string{"X-Example-3-Special-Header"},
+					MaxAgeSeconds: 10,
+				},
+				{
+					AllowedOrigin: []string{"*"},
+					AllowedMethod: []string{"GET"},
+					AllowedHeader: []string{"*"},
+					ExposeHeader:  []string{"x-amz-request-id", "X-AMZ-server-side-encryption"},
+					MaxAgeSeconds: 3600,
+				},
+				{
+					AllowedOrigin: []string{"http://multiplemethodstest.com"},
+					AllowedMethod: []string{"POST", "PUT", "DELETE"},
+					AllowedHeader: []string{"x-abc-*", "x-def-*"},
+				},
+				{
+					AllowedOrigin: []string{"http://UPPERCASEEXAMPLE.com"},
+					AllowedMethod: []string{"DELETE"},
+				},
+				{
+					AllowedOrigin: []string{"https://*"},
+					AllowedMethod: []string{"DELETE"},
+					AllowedHeader: []string{"x-abc-*", "x-def-*"},
+				},
+			},
+		},
+		{
+			name:   "preflight to object url matches example1 rule",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "http://www.example1.com",
+				"Access-Control-Request-Method":  "PUT",
+				"Access-Control-Request-Headers": "x-another-header,x-could-be-anything",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Origin":      "http://www.example1.com",
+				"Access-Control-Allow-Methods":     "PUT",
+				"Access-Control-Allow-Headers":     "x-another-header,x-could-be-anything",
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Max-Age":           "3600",
+				"Content-Length":                   "0",
+				// S3 additionally sets the following headers here, MinIO follows fetch spec and does not:
+				// "Access-Control-Expose-Headers":    "",
+			},
+		},
+		{
+			name:   "preflight to bucket url matches example1 rule",
+			method: http.MethodOptions,
+			url:    bucketURL,
+			headers: map[string]string{
+				"Origin":                         "http://www.example1.com",
+				"Access-Control-Request-Method":  "PUT",
+				"Access-Control-Request-Headers": "x-another-header,x-could-be-anything",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Origin":      "http://www.example1.com",
+				"Access-Control-Allow-Methods":     "PUT",
+				"Access-Control-Allow-Headers":     "x-another-header,x-could-be-anything",
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Max-Age":           "3600",
+				"Content-Length":                   "0",
+			},
+		},
+		{
+			name:   "preflight matches example2 rule with header given",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "http://www.example2.com",
+				"Access-Control-Request-Method":  "POST",
+				"Access-Control-Request-Headers": "X-My-Special-Header",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Origin":      "http://www.example2.com",
+				"Access-Control-Allow-Methods":     "POST",
+				"Access-Control-Allow-Headers":     "x-my-special-header",
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Max-Age":           "",
+				"Content-Length":                   "0",
+			},
+		},
+		{
+			name:   "preflight matches example2 rule with no header given",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://www.example2.com",
+				"Access-Control-Request-Method": "POST",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Origin":      "http://www.example2.com",
+				"Access-Control-Allow-Methods":     "POST",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Max-Age":           "",
+				"Content-Length":                   "0",
+			},
+		},
+		{
+			name:   "preflight matches wildcard origin rule",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "http://www.couldbeanything.com",
+				"Access-Control-Request-Method":  "GET",
+				"Access-Control-Request-Headers": "x-custom-header,x-other-custom-header",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Origin":      "*",
+				"Access-Control-Allow-Methods":     "GET",
+				"Access-Control-Allow-Headers":     "x-custom-header,x-other-custom-header",
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Max-Age":           "3600",
+				"Content-Length":                   "0",
+			},
+		},
+		{
+			name:   "preflight does not match any rule",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://www.couldbeanything.com",
+				"Access-Control-Request-Method": "DELETE",
+			},
+			wantStatus:       http.StatusForbidden,
+			wantBodyContains: errStrAccessForbidden,
+		},
+		{
+			name:   "preflight does not match example1 rule because of method",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://www.example1.com",
+				"Access-Control-Request-Method": "POST",
+			},
+			wantStatus:       http.StatusForbidden,
+			wantBodyContains: errStrAccessForbidden,
+		},
+		{
+			name:   "s3 processes cors rules even when request is not preflight if cors headers present test get",
+			method: http.MethodGet,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "http://www.example1.com",
+				"Access-Control-Request-Headers": "x-another-header,x-could-be-anything",
+				"Access-Control-Request-Method":  "PUT",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Origin":      "http://www.example1.com",
+				"Access-Control-Expose-Headers":    "x-amz-server-side-encryption,x-amz-request-id",
+				// S3 additionally sets the following headers here, MinIO follows fetch spec and does not:
+				// "Access-Control-Allow-Headers":     "x-another-header,x-could-be-anything",
+				// "Access-Control-Allow-Methods":     "PUT",
+				// "Access-Control-Max-Age":           "3600",
+			},
+		},
+		{
+			name:   "s3 processes cors rules even when request is not preflight if cors headers present test put",
+			method: http.MethodPut,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://www.example1.com",
+				"Access-Control-Request-Method": "GET",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Allow-Origin":      "*",
+				"Access-Control-Expose-Headers":    "x-amz-request-id,x-amz-server-side-encryption",
+				// S3 additionally sets the following headers here, MinIO follows fetch spec and does not:
+				// "Access-Control-Allow-Headers":     "x-another-header,x-could-be-anything",
+				// "Access-Control-Allow-Methods":     "PUT",
+				// "Access-Control-Max-Age":           "3600",
+			},
+		},
+		{
+			name:   "s3 processes cors rules even when request is not preflight but there is no rule match",
+			method: http.MethodGet,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "http://www.example1.com",
+				"Access-Control-Request-Headers": "x-another-header,x-could-be-anything",
+				"Access-Control-Request-Method":  "DELETE",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Methods":     "",
+				"Access-Control-Allow-Origin":      "",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "get request matches wildcard origin rule and returns cors headers",
+			method: http.MethodGet,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin": "http://www.example1.com",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Allow-Origin":      "*",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "x-amz-request-id,X-AMZ-server-side-encryption",
+				// S3 returns the following headers, MinIO follows fetch spec and does not:
+				// "Access-Control-Max-Age":           "3600",
+				// "Access-Control-Allow-Methods":     "GET",
+			},
+		},
+		{
+			name:   "head request does not match rule and returns no cors headers",
+			method: http.MethodHead,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin": "http://www.nomatchingdomainfound.com",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Allow-Methods":     "",
+				"Access-Control-Allow-Origin":      "",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "put request with origin does not match rule and returns no cors headers",
+			method: http.MethodPut,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin": "http://www.nomatchingdomainfound.com",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Allow-Methods":     "",
+				"Access-Control-Allow-Origin":      "",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:       "put request with no origin does not match rule and returns no cors headers",
+			method:     http.MethodPut,
+			url:        objectURL,
+			headers:    map[string]string{},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Allow-Methods":     "",
+				"Access-Control-Allow-Origin":      "",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "preflight for delete request with wildcard origin does not match",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://www.notsecureexample.com",
+				"Access-Control-Request-Method": "DELETE",
+			},
+			wantStatus:       http.StatusForbidden,
+			wantBodyContains: errStrAccessForbidden,
+		},
+		{
+			name:   "preflight for delete request with wildcard https origin matches secureexample",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "https://www.secureexample.com",
+				"Access-Control-Request-Method": "DELETE",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Methods":     "DELETE",
+				"Access-Control-Allow-Origin":      "https://www.secureexample.com",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "preflight for delete request matches secureexample with wildcard https origin and request headers",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "https://www.secureexample.com",
+				"Access-Control-Request-Method":  "DELETE",
+				"Access-Control-Request-Headers": "x-abc-1,x-abc-second,x-def-1",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Methods":     "DELETE",
+				"Access-Control-Allow-Origin":      "https://www.secureexample.com",
+				"Access-Control-Allow-Headers":     "x-abc-1,x-abc-second,x-def-1",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "preflight for delete request matches secureexample rejected because request header does not match",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "https://www.secureexample.com",
+				"Access-Control-Request-Method":  "DELETE",
+				"Access-Control-Request-Headers": "x-abc-1,x-abc-second,x-def-1,x-does-not-match",
+			},
+			wantStatus:       http.StatusForbidden,
+			wantBodyContains: errStrAccessForbidden,
+		},
+		{
+			name:   "preflight with https origin is documented by s3 as matching but it does not match",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "https://www.securebutdoesnotmatch.com",
+				"Access-Control-Request-Method": "PUT",
+			},
+			wantStatus:       http.StatusForbidden,
+			wantBodyContains: errStrAccessForbidden,
+		},
+		{
+			name:       "put no origin no match returns no cors headers",
+			method:     http.MethodPut,
+			url:        objectURL,
+			headers:    map[string]string{},
+			wantStatus: http.StatusOK,
+
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Allow-Methods":     "",
+				"Access-Control-Allow-Origin":      "",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "put with origin match example1 returns cors headers",
+			method: http.MethodPut,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin": "http://www.example1.com",
+			},
+			wantStatus: http.StatusOK,
+
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Origin":      "http://www.example1.com",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "x-amz-server-side-encryption,x-amz-request-id",
+				// S3 returns the following headers, MinIO follows fetch spec and does not:
+				// "Access-Control-Max-Age":           "3600",
+				// "Access-Control-Allow-Methods":     "PUT",
+			},
+		},
+		{
+			name:   "put with origin and header match example1 returns cors headers",
+			method: http.MethodPut,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":              "http://www.example1.com",
+				"x-could-be-anything": "myvalue",
+			},
+			wantStatus: http.StatusOK,
+
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Origin":      "http://www.example1.com",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "x-amz-server-side-encryption,x-amz-request-id",
+				// S3 returns the following headers, MinIO follows fetch spec and does not:
+				// "Access-Control-Max-Age":           "3600",
+				// "Access-Control-Allow-Methods":     "PUT",
+			},
+		},
+		{
+			name:   "put no match found returns no cors headers",
+			method: http.MethodPut,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin": "http://www.unmatchingdomain.com",
+			},
+			wantStatus: http.StatusOK,
+
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "",
+				"Access-Control-Allow-Methods":     "",
+				"Access-Control-Allow-Origin":      "",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "put with origin match example3 returns cors headers",
+			method: http.MethodPut,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":              "http://www.example3.com",
+				"X-My-Special-Header": "myvalue",
+			},
+			wantStatus: http.StatusOK,
+
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Origin":      "http://www.example3.com",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				// S3 returns the following headers, MinIO follows fetch spec and does not:
+				// "Access-Control-Max-Age":           "10",
+				// "Access-Control-Allow-Methods":     "PUT",
+			},
+		},
+		{
+			name:   "preflight matches example1 rule headers case is incorrect",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://www.example1.com",
+				"Access-Control-Request-Method": "PUT",
+				// Fetch standard guarantees that these are sent lowercase, here we test what happens when they are not.
+				"Access-Control-Request-Headers": "X-Another-Header,X-Could-Be-Anything",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Origin":      "http://www.example1.com",
+				"Access-Control-Allow-Methods":     "PUT",
+				"Access-Control-Allow-Headers":     "x-another-header,x-could-be-anything",
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Max-Age":           "3600",
+				"Content-Length":                   "0",
+				// S3 returns the following headers, MinIO follows fetch spec and does not:
+				// "Access-Control-Expose-Headers":    "x-amz-server-side-encryption,x-amz-request-id",
+			},
+		},
+		{
+			name:   "preflight matches example1 rule headers are not sorted",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://www.example1.com",
+				"Access-Control-Request-Method": "PUT",
+				// Fetch standard guarantees that these are sorted, test what happens when they are not.
+				"Access-Control-Request-Headers": "a-customer-header,b-should-be-last",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Origin":      "http://www.example1.com",
+				"Access-Control-Allow-Methods":     "PUT",
+				"Access-Control-Allow-Headers":     "a-customer-header,b-should-be-last",
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Max-Age":           "3600",
+				"Content-Length":                   "0",
+				// S3 returns the following headers, MinIO follows fetch spec and does not:
+				// "Access-Control-Expose-Headers":    "x-amz-server-side-encryption,x-amz-request-id",
+			},
+		},
+		{
+			name:   "preflight with case sensitivity in origin matches uppercase",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://UPPERCASEEXAMPLE.com",
+				"Access-Control-Request-Method": "DELETE",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Methods":     "DELETE",
+				"Access-Control-Allow-Origin":      "http://UPPERCASEEXAMPLE.com",
+				"Access-Control-Allow-Headers":     "",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+			},
+		},
+		{
+			name:   "preflight with case sensitivity in origin does not match when lowercase",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                        "http://uppercaseexample.com",
+				"Access-Control-Request-Method": "DELETE",
+			},
+			wantStatus:       http.StatusForbidden,
+			wantBodyContains: errStrAccessForbidden,
+		},
+		{
+			name:   "preflight match upper case with unknown header but no header restrictions",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "http://UPPERCASEEXAMPLE.com",
+				"Access-Control-Request-Method":  "DELETE",
+				"Access-Control-Request-Headers": "x-unknown-1",
+			},
+			wantStatus:       http.StatusForbidden,
+			wantBodyContains: errStrAccessForbidden,
+		},
+		{
+			name:   "preflight for delete request matches multiplemethodstest.com origin and request headers",
+			method: http.MethodOptions,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin":                         "http://multiplemethodstest.com",
+				"Access-Control-Request-Method":  "DELETE",
+				"Access-Control-Request-Headers": "x-abc-1",
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Access-Control-Allow-Credentials": "true",
+				"Access-Control-Allow-Origin":      "http://multiplemethodstest.com",
+				"Access-Control-Allow-Headers":     "x-abc-1",
+				"Access-Control-Expose-Headers":    "",
+				"Access-Control-Max-Age":           "",
+				// S3 returns POST, PUT, DELETE here, MinIO does not as spec does not require it.
+				// "Access-Control-Allow-Methods":     "DELETE",
+			},
+		},
+		{
+			name:   "delete request goes ahead because cors is only for browsers and does not block on the server side",
+			method: http.MethodDelete,
+			url:    objectURL,
+			headers: map[string]string{
+				"Origin": "http://www.justrandom.com",
+			},
+			wantStatus: http.StatusNoContent,
+		},
+	}
+
+	for i, test := range testCases {
+		testName := fmt.Sprintf("%s_%d_%s", testName, i+1, strings.ReplaceAll(test.name, " ", "_"))
+
+		// Apply the CORS rules
+		if test.applyCorsRules != nil {
+			corsConfig := &cors.Config{
+				CORSRules: test.applyCorsRules,
+			}
+			err = c.SetBucketCors(ctx, bucketName, corsConfig)
+			if err != nil {
+				logError(testName, function, args, startTime, "", "SetBucketCors failed to apply", err)
+				return
+			}
+		}
+
+		// Make request
+		if test.method != "" && test.url != "" {
+			req, err := http.NewRequestWithContext(ctx, test.method, test.url, nil)
+			if err != nil {
+				logError(testName, function, args, startTime, "", "HTTP request creation failed", err)
+				return
+			}
+			req.Header.Set("User-Agent", "MinIO-go-FunctionalTest/"+appVersion)
+
+			for k, v := range test.headers {
+				req.Header.Set(k, v)
+			}
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				logError(testName, function, args, startTime, "", "HTTP request failed", err)
+				return
+			}
+			defer resp.Body.Close()
+
+			// Check returned status code
+			if resp.StatusCode != test.wantStatus {
+				errStr := fmt.Sprintf(" incorrect status code in response, want: %d, got: %d", test.wantStatus, resp.StatusCode)
+				logError(testName, function, args, startTime, "", errStr, nil)
+				return
+			}
+
+			// Check returned body
+			if test.wantBodyContains != "" {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					logError(testName, function, args, startTime, "", "Failed to read response body", err)
+					return
+				}
+				if !strings.Contains(string(body), test.wantBodyContains) {
+					errStr := fmt.Sprintf(" incorrect body in response, want: %s, in got: %s", test.wantBodyContains, string(body))
+					logError(testName, function, args, startTime, "", errStr, nil)
+					return
+				}
+			}
+
+			// Check returned response headers
+			for k, v := range test.wantHeaders {
+				gotVal := resp.Header.Get(k)
+				if k == "Access-Control-Expose-Headers" {
+					// MinIO returns this in canonical form, S3 does not.
+					gotVal = strings.ToLower(gotVal)
+					v = strings.ToLower(v)
+				}
+				// Remove all spaces, S3 adds spaces after CSV values in headers, MinIO does not.
+				gotVal = strings.ReplaceAll(gotVal, " ", "")
+				if gotVal != v {
+					errStr := fmt.Sprintf(" incorrect header in response, want: %s: '%s', got: '%s'", k, v, gotVal)
+					logError(testName, function, args, startTime, "", errStr, nil)
+					return
+				}
+			}
+		}
+		logSuccess(testName, function, args, startTime)
+	}
+	logSuccess(testName, function, args, startTime)
+}
+
+func testCorsSetGetDelete() {
+	ctx := context.Background()
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "SetBucketCors(bucketName, cors)"
+	args := map[string]interface{}{
+		"bucketName": "",
+		"cors":       "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	err = c.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: "us-east-1"})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+	defer cleanupBucket(bucketName, c)
+
+	// Set the CORS rules on the new bucket
+	corsRules := []cors.Rule{
+		{
+			AllowedOrigin: []string{"http://www.example1.com"},
+			AllowedMethod: []string{"PUT"},
+			AllowedHeader: []string{"*"},
+		},
+		{
+			AllowedOrigin: []string{"http://www.example2.com"},
+			AllowedMethod: []string{"POST"},
+			AllowedHeader: []string{"X-My-Special-Header"},
+		},
+		{
+			AllowedOrigin: []string{"*"},
+			AllowedMethod: []string{"GET"},
+			AllowedHeader: []string{"*"},
+		},
+	}
+	corsConfig := cors.NewConfig(corsRules)
+	err = c.SetBucketCors(ctx, bucketName, corsConfig)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetBucketCors failed to apply", err)
+		return
+	}
+
+	// Get the rules and check they match what we set
+	gotCorsConfig, err := c.GetBucketCors(ctx, bucketName)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "GetBucketCors failed", err)
+		return
+	}
+	if !reflect.DeepEqual(corsConfig, gotCorsConfig) {
+		msg := fmt.Sprintf("GetBucketCors returned unexpected rules, expected: %+v, got: %+v", corsConfig, gotCorsConfig)
+		logError(testName, function, args, startTime, "", msg, nil)
+		return
+	}
+
+	// Delete the rules
+	err = c.SetBucketCors(ctx, bucketName, nil)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetBucketCors failed to delete", err)
+		return
+	}
+
+	// Get the rules and check they are now empty
+	gotCorsConfig, err = c.GetBucketCors(ctx, bucketName)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "GetBucketCors failed", err)
+		return
+	}
+	if gotCorsConfig != nil {
+		logError(testName, function, args, startTime, "", "GetBucketCors returned unexpected rules", nil)
+		return
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
 // Test deleting multiple objects with object retention set in Governance mode
 func testRemoveObjects() {
 	// initialize logging params
@@ -13378,26 +13769,12 @@ func testRemoveObjects() {
 		"objectPrefix": "",
 		"recursive":    "true",
 	}
-	// Seed random based on current time.
-	rand.Seed(time.Now().Unix())
 
-	// Instantiate new minio client object.
-	c, err := minio.New(os.Getenv(serverEndpoint),
-		&minio.Options{
-			Creds:     credentials.NewStaticV4(os.Getenv(accessKey), os.Getenv(secretKey), ""),
-			Transport: createHTTPTransport(),
-			Secure:    mustParseBool(os.Getenv(enableHTTPS)),
-		})
+	c, err := NewClient(ClientConfig{})
 	if err != nil {
 		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
 		return
 	}
-
-	// Enable tracing, write to stderr.
-	// c.TraceOn(os.Stderr)
-
-	// Set user agent.
-	c.SetAppInfo("MinIO-go-FunctionalTest", appVersion)
 
 	// Generate a new random bucket name.
 	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
@@ -13503,6 +13880,312 @@ func testRemoveObjects() {
 	logSuccess(testName, function, args, startTime)
 }
 
+// Test deleting multiple objects with object retention set in Governance mode, via iterators
+func testRemoveObjectsIter() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "RemoveObjects(bucketName, objectsCh, opts)"
+	args := map[string]interface{}{
+		"bucketName":   "",
+		"objectPrefix": "",
+		"recursive":    "true",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+	objectName := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+	args["objectName"] = objectName
+
+	// Make a new bucket.
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1", ObjectLocking: true})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	bufSize := dataFileMap["datafile-129-MB"]
+	reader := getDataReader("datafile-129-MB")
+	defer reader.Close()
+
+	_, err = c.PutObject(context.Background(), bucketName, objectName, reader, int64(bufSize), minio.PutObjectOptions{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Error uploading object", err)
+		return
+	}
+
+	// Replace with smaller...
+	bufSize = dataFileMap["datafile-10-kB"]
+	reader = getDataReader("datafile-10-kB")
+	defer reader.Close()
+
+	_, err = c.PutObject(context.Background(), bucketName, objectName, reader, int64(bufSize), minio.PutObjectOptions{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Error uploading object", err)
+	}
+
+	t := time.Date(2030, time.April, 25, 14, 0, 0, 0, time.UTC)
+	m := minio.RetentionMode(minio.Governance)
+	opts := minio.PutObjectRetentionOptions{
+		GovernanceBypass: false,
+		RetainUntilDate:  &t,
+		Mode:             &m,
+	}
+	err = c.PutObjectRetention(context.Background(), bucketName, objectName, opts)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Error setting retention", err)
+		return
+	}
+
+	objectsIter := c.ListObjectsIter(context.Background(), bucketName, minio.ListObjectsOptions{
+		WithVersions: true,
+		Recursive:    true,
+	})
+	results, err := c.RemoveObjectsWithIter(context.Background(), bucketName, objectsIter, minio.RemoveObjectsOptions{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Error sending delete request", err)
+		return
+	}
+	for result := range results {
+		if result.Err != nil {
+			// Error is expected here because Retention is set on the object
+			// and RemoveObjects is called without Bypass Governance
+			break
+		}
+		logError(testName, function, args, startTime, "", "Expected error during deletion", nil)
+		return
+	}
+
+	objectsIter = c.ListObjectsIter(context.Background(), bucketName, minio.ListObjectsOptions{UseV1: true, Recursive: true})
+	results, err = c.RemoveObjectsWithIter(context.Background(), bucketName, objectsIter, minio.RemoveObjectsOptions{
+		GovernanceBypass: true,
+	})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "Error sending delete request", err)
+		return
+	}
+	for result := range results {
+		if result.Err != nil {
+			// Error is not expected here because Retention is set on the object
+			// and RemoveObjects is called with Bypass Governance
+			logError(testName, function, args, startTime, "", "Error detected during deletion", result.Err)
+			return
+		}
+	}
+
+	// Delete all objects and buckets
+	if err = cleanupVersionedBucket(bucketName, c); err != nil {
+		logError(testName, function, args, startTime, "", "CleanupBucket failed", err)
+		return
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
+// Test get bucket tags
+func testGetBucketTagging() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "GetBucketTagging(bucketName)"
+	args := map[string]interface{}{
+		"bucketName": "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1", ObjectLocking: true})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	_, err = c.GetBucketTagging(context.Background(), bucketName)
+	if minio.ToErrorResponse(err).Code != minio.NoSuchTagSet {
+		logError(testName, function, args, startTime, "", "Invalid error from server failed", err)
+		return
+	}
+
+	if err = cleanupVersionedBucket(bucketName, c); err != nil {
+		logError(testName, function, args, startTime, "", "CleanupBucket failed", err)
+		return
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
+// Test setting tags for bucket
+func testSetBucketTagging() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "SetBucketTagging(bucketName, tags)"
+	args := map[string]interface{}{
+		"bucketName": "",
+		"tags":       "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1", ObjectLocking: true})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	_, err = c.GetBucketTagging(context.Background(), bucketName)
+	if minio.ToErrorResponse(err).Code != minio.NoSuchTagSet {
+		logError(testName, function, args, startTime, "", "Invalid error from server", err)
+		return
+	}
+
+	tag := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+	expectedValue := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+
+	t, err := tags.MapToBucketTags(map[string]string{
+		tag: expectedValue,
+	})
+	args["tags"] = t.String()
+	if err != nil {
+		logError(testName, function, args, startTime, "", "tags.MapToBucketTags failed", err)
+		return
+	}
+
+	err = c.SetBucketTagging(context.Background(), bucketName, t)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetBucketTagging failed", err)
+		return
+	}
+
+	tagging, err := c.GetBucketTagging(context.Background(), bucketName)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "GetBucketTagging failed", err)
+		return
+	}
+
+	if tagging.ToMap()[tag] != expectedValue {
+		msg := fmt.Sprintf("Tag %s; got value %s; wanted %s", tag, tagging.ToMap()[tag], expectedValue)
+		logError(testName, function, args, startTime, "", msg, err)
+		return
+	}
+
+	// Delete all objects and buckets
+	if err = cleanupVersionedBucket(bucketName, c); err != nil {
+		logError(testName, function, args, startTime, "", "CleanupBucket failed", err)
+		return
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
+// Test removing bucket tags
+func testRemoveBucketTagging() {
+	// initialize logging params
+	startTime := time.Now()
+	testName := getFuncName()
+	function := "RemoveBucketTagging(bucketName)"
+	args := map[string]interface{}{
+		"bucketName": "",
+	}
+
+	c, err := NewClient(ClientConfig{})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MinIO client v4 object creation failed", err)
+		return
+	}
+
+	// Generate a new random bucket name.
+	bucketName := randString(60, rand.NewSource(time.Now().UnixNano()), "minio-go-test-")
+	args["bucketName"] = bucketName
+
+	// Make a new bucket.
+	err = c.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: "us-east-1", ObjectLocking: true})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "MakeBucket failed", err)
+		return
+	}
+
+	_, err = c.GetBucketTagging(context.Background(), bucketName)
+	if minio.ToErrorResponse(err).Code != minio.NoSuchTagSet {
+		logError(testName, function, args, startTime, "", "Invalid error from server", err)
+		return
+	}
+
+	tag := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+	expectedValue := randString(60, rand.NewSource(time.Now().UnixNano()), "")
+
+	t, err := tags.MapToBucketTags(map[string]string{
+		tag: expectedValue,
+	})
+	if err != nil {
+		logError(testName, function, args, startTime, "", "tags.MapToBucketTags failed", err)
+		return
+	}
+
+	err = c.SetBucketTagging(context.Background(), bucketName, t)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "SetBucketTagging failed", err)
+		return
+	}
+
+	tagging, err := c.GetBucketTagging(context.Background(), bucketName)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "GetBucketTagging failed", err)
+		return
+	}
+
+	if tagging.ToMap()[tag] != expectedValue {
+		msg := fmt.Sprintf("Tag %s; got value %s; wanted %s", tag, tagging.ToMap()[tag], expectedValue)
+		logError(testName, function, args, startTime, "", msg, err)
+		return
+	}
+
+	err = c.RemoveBucketTagging(context.Background(), bucketName)
+	if err != nil {
+		logError(testName, function, args, startTime, "", "RemoveBucketTagging failed", err)
+		return
+	}
+
+	_, err = c.GetBucketTagging(context.Background(), bucketName)
+	if minio.ToErrorResponse(err).Code != minio.NoSuchTagSet {
+		logError(testName, function, args, startTime, "", "Invalid error from server", err)
+		return
+	}
+
+	// Delete all objects and buckets
+	if err = cleanupVersionedBucket(bucketName, c); err != nil {
+		logError(testName, function, args, startTime, "", "CleanupBucket failed", err)
+		return
+	}
+
+	logSuccess(testName, function, args, startTime)
+}
+
 // Convert string to bool and always return false if any error
 func mustParseBool(str string) bool {
 	b, err := strconv.ParseBool(str)
@@ -13536,6 +14219,9 @@ func main() {
 
 	// execute tests
 	if isFullMode() {
+		testCorsSetGetDelete()
+		testCors()
+		testListMultipartUpload()
 		testGetObjectAttributes()
 		testGetObjectAttributesErrorCases()
 		testMakeBucketErrorV2()
@@ -13551,8 +14237,10 @@ func main() {
 		testCompose10KSourcesV2()
 		testUserMetadataCopyingV2()
 		testPutObjectWithChecksums()
+		testPutObjectWithTrailingChecksums()
 		testPutMultipartObjectWithChecksums()
 		testPutObject0ByteV2()
+		testPutObjectMetadataNonUSASCIIV2()
 		testPutObjectNoLengthV2()
 		testPutObjectsUnknownV2()
 		testGetObjectContextV2()
@@ -13570,12 +14258,15 @@ func main() {
 		testGetObjectS3Zip()
 		testRemoveMultipleObjects()
 		testRemoveMultipleObjectsWithResult()
+		testRemoveMultipleObjectsIter()
 		testFPutObjectMultipart()
 		testFPutObject()
 		testGetObjectReadSeekFunctional()
 		testGetObjectReadAtFunctional()
 		testGetObjectReadAtWhenEOFWasReached()
 		testPresignedPostPolicy()
+		testPresignedPostPolicyWrongFile()
+		testPresignedPostPolicyEmptyFileName()
 		testCopyObject()
 		testComposeObjectErrorCases()
 		testCompose10KSources()
@@ -13595,6 +14286,7 @@ func main() {
 		testPutObjectWithContentLanguage()
 		testListObjects()
 		testRemoveObjects()
+		testRemoveObjectsIter()
 		testListObjectVersions()
 		testStatObjectWithVersioning()
 		testGetObjectWithVersioning()
@@ -13606,6 +14298,9 @@ func main() {
 		testObjectTaggingWithVersioning()
 		testTrailingChecksums()
 		testPutObjectWithAutomaticChecksums()
+		testGetBucketTagging()
+		testSetBucketTagging()
+		testRemoveBucketTagging()
 
 		// SSE-C tests will only work over TLS connection.
 		if tls {

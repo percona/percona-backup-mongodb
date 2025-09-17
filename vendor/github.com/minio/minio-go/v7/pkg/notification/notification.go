@@ -50,6 +50,7 @@ const (
 	ObjectRemovedAll                                   EventType = "s3:ObjectRemoved:*"
 	ObjectRemovedDelete                                EventType = "s3:ObjectRemoved:Delete"
 	ObjectRemovedDeleteMarkerCreated                   EventType = "s3:ObjectRemoved:DeleteMarkerCreated"
+	ILMDelMarkerExpirationDelete                       EventType = "s3:LifecycleDelMarkerExpiration:Delete"
 	ObjectReducedRedundancyLostObject                  EventType = "s3:ReducedRedundancyLostObject"
 	ObjectTransitionAll                                EventType = "s3:ObjectTransition:*"
 	ObjectTransitionFailed                             EventType = "s3:ObjectTransition:Failed"
@@ -282,7 +283,6 @@ func (b *Configuration) AddTopic(topicConfig Config) bool {
 	for _, n := range b.TopicConfigs {
 		// If new config matches existing one
 		if n.Topic == newTopicConfig.Arn.String() && newTopicConfig.Filter == n.Filter {
-
 			existingConfig := set.NewStringSet()
 			for _, v := range n.Events {
 				existingConfig.Add(string(v))
@@ -307,7 +307,6 @@ func (b *Configuration) AddQueue(queueConfig Config) bool {
 	newQueueConfig := QueueConfig{Config: queueConfig, Queue: queueConfig.Arn.String()}
 	for _, n := range b.QueueConfigs {
 		if n.Queue == newQueueConfig.Arn.String() && newQueueConfig.Filter == n.Filter {
-
 			existingConfig := set.NewStringSet()
 			for _, v := range n.Events {
 				existingConfig.Add(string(v))
@@ -332,7 +331,6 @@ func (b *Configuration) AddLambda(lambdaConfig Config) bool {
 	newLambdaConfig := LambdaConfig{Config: lambdaConfig, Lambda: lambdaConfig.Arn.String()}
 	for _, n := range b.LambdaConfigs {
 		if n.Lambda == newLambdaConfig.Arn.String() && newLambdaConfig.Filter == n.Filter {
-
 			existingConfig := set.NewStringSet()
 			for _, v := range n.Events {
 				existingConfig.Add(string(v))
@@ -371,7 +369,7 @@ func (b *Configuration) RemoveTopicByArnEventsPrefixSuffix(arn Arn, events []Eve
 	removeIndex := -1
 	for i, v := range b.TopicConfigs {
 		// if it matches events and filters, mark the index for deletion
-		if v.Topic == arn.String() && v.Config.Equal(events, prefix, suffix) {
+		if v.Topic == arn.String() && v.Equal(events, prefix, suffix) {
 			removeIndex = i
 			break // since we have at most one matching config
 		}
@@ -399,7 +397,7 @@ func (b *Configuration) RemoveQueueByArnEventsPrefixSuffix(arn Arn, events []Eve
 	removeIndex := -1
 	for i, v := range b.QueueConfigs {
 		// if it matches events and filters, mark the index for deletion
-		if v.Queue == arn.String() && v.Config.Equal(events, prefix, suffix) {
+		if v.Queue == arn.String() && v.Equal(events, prefix, suffix) {
 			removeIndex = i
 			break // since we have at most one matching config
 		}
@@ -427,7 +425,7 @@ func (b *Configuration) RemoveLambdaByArnEventsPrefixSuffix(arn Arn, events []Ev
 	removeIndex := -1
 	for i, v := range b.LambdaConfigs {
 		// if it matches events and filters, mark the index for deletion
-		if v.Lambda == arn.String() && v.Config.Equal(events, prefix, suffix) {
+		if v.Lambda == arn.String() && v.Equal(events, prefix, suffix) {
 			removeIndex = i
 			break // since we have at most one matching config
 		}

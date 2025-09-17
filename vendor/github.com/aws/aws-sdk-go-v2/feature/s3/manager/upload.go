@@ -121,6 +121,9 @@ type UploadOutput struct {
 	// The base64-encoded, 32-bit CRC32C checksum of the object.
 	ChecksumCRC32C *string
 
+	// The base64-encoded, 64-bit CRC64NVME checksum of the object.
+	ChecksumCRC64NVME *string
+
 	// The base64-encoded, 160-bit SHA-1 digest of the object.
 	ChecksumSHA1 *string
 
@@ -242,6 +245,21 @@ type Uploader struct {
 	// Defines the buffer strategy used when uploading a part
 	BufferProvider ReadSeekerWriteToProvider
 
+	// RequestChecksumCalculation determines when request checksum calculation is performed
+	// for multipart uploads.
+	//
+	// There are two possible values for this setting:
+	//
+	// 1. RequestChecksumCalculationWhenSupported (default): The checksum is always calculated
+	//    if the operation supports it, regardless of whether the user sets an algorithm in the request.
+	//
+	// 2. RequestChecksumCalculationWhenRequired: The checksum is only calculated if the user
+	//    explicitly sets a checksum algorithm in the request. This preserves backwards compatibility
+	//    for applications that don't want automatic checksum calculation.
+	//
+	// Note: S3 Express buckets always require CRC32 checksums regardless of this setting.
+	RequestChecksumCalculation aws.RequestChecksumCalculation
+
 	// partPool allows for the re-usage of streaming payload part buffers between upload calls
 	partPool byteSlicePool
 }
@@ -271,12 +289,13 @@ type Uploader struct {
 //	})
 func NewUploader(client UploadAPIClient, options ...func(*Uploader)) *Uploader {
 	u := &Uploader{
-		S3:                client,
-		PartSize:          DefaultUploadPartSize,
-		Concurrency:       DefaultUploadConcurrency,
-		LeavePartsOnError: false,
-		MaxUploadParts:    MaxUploadParts,
-		BufferProvider:    defaultUploadBufferProvider(),
+		S3:                         client,
+		PartSize:                   DefaultUploadPartSize,
+		Concurrency:                DefaultUploadConcurrency,
+		LeavePartsOnError:          false,
+		MaxUploadParts:             MaxUploadParts,
+		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenSupported,
+		BufferProvider:             defaultUploadBufferProvider(),
 	}
 
 	for _, option := range options {
@@ -511,6 +530,7 @@ func (u *uploader) singlePart(r io.ReadSeeker, cleanup func()) (*UploadOutput, e
 		BucketKeyEnabled:     aws.ToBool(out.BucketKeyEnabled),
 		ChecksumCRC32:        out.ChecksumCRC32,
 		ChecksumCRC32C:       out.ChecksumCRC32C,
+		ChecksumCRC64NVME:    out.ChecksumCRC64NVME,
 		ChecksumSHA1:         out.ChecksumSHA1,
 		ChecksumSHA256:       out.ChecksumSHA256,
 		ETag:                 out.ETag,
@@ -653,6 +673,7 @@ func (u *multiuploader) upload(firstBuf io.ReadSeeker, cleanup func()) (*UploadO
 		BucketKeyEnabled:     aws.ToBool(completeOut.BucketKeyEnabled),
 		ChecksumCRC32:        completeOut.ChecksumCRC32,
 		ChecksumCRC32C:       completeOut.ChecksumCRC32C,
+		ChecksumCRC64NVME:    completeOut.ChecksumCRC64NVME,
 		ChecksumSHA1:         completeOut.ChecksumSHA1,
 		ChecksumSHA256:       completeOut.ChecksumSHA256,
 		ETag:                 completeOut.ETag,
@@ -764,12 +785,16 @@ func (u *multiuploader) initChecksumAlgorithm() {
 		u.in.ChecksumAlgorithm = types.ChecksumAlgorithmCrc32
 	case u.in.ChecksumCRC32C != nil:
 		u.in.ChecksumAlgorithm = types.ChecksumAlgorithmCrc32c
+	case u.in.ChecksumCRC64NVME != nil:
+		u.in.ChecksumAlgorithm = types.ChecksumAlgorithmCrc64nvme
 	case u.in.ChecksumSHA1 != nil:
 		u.in.ChecksumAlgorithm = types.ChecksumAlgorithmSha1
 	case u.in.ChecksumSHA256 != nil:
 		u.in.ChecksumAlgorithm = types.ChecksumAlgorithmSha256
 	default:
-		u.in.ChecksumAlgorithm = types.ChecksumAlgorithmCrc32
+		if u.cfg.RequestChecksumCalculation != aws.RequestChecksumCalculationWhenRequired {
+			u.in.ChecksumAlgorithm = types.ChecksumAlgorithmCrc32
+		}
 	}
 }
 
