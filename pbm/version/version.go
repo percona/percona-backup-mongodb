@@ -258,8 +258,8 @@ func (f FeatureSupport) PBMSupport() error {
 
 	// If MongoDB major is supported but uses an unsupported minor version
 	if v.Version[0] <= supportedMajors[len(supportedMajors)-1] && v.Version[1] != 0 {
-		return errors.Errorf("This PBM works with MongoDB and PSMDB %s and you are running %s.
-		PBM does not support minor versions of MongoDB.",
+		return errors.Errorf("This PBM works with MongoDB and PSMDB %s and you are running %s."+
+			"PBM does not support minor versions of MongoDB.",
 		strings.Join(supported, ", "), current)
 	}
 
