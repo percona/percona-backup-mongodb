@@ -303,7 +303,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 	}
 	defer container.Close()
 
-	tmr := time.NewTimer(time.Duration(float64(defs.WaitBackupStart) * 1.5))
+	tmr := time.NewTimer(time.Duration(float64(defs.WaitBackupStart) * 3))
 	tkr := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
