@@ -130,24 +130,42 @@ func TestPBMSupport(t *testing.T) {
 		{name: "supported 7.0.x", ver: []int{7, 0, 1}, wantErr: false},
 		{name: "supported 8.0.x", ver: []int{8, 0, 1}, wantErr: false},
 
-		{name: "too old 4.4.18", ver: []int{4, 4, 18},
-			wantErr: true, contains: "upgrade your MongoDB"},
-		{name: "too old 5.0.0", ver: []int{5, 0, 0},
-			wantErr: true, contains: "upgrade your MongoDB"},
-		{name: "too old 5.0.x", ver: []int{5, 0, 14},
-			wantErr: true, contains: "upgrade your MongoDB"},
-		{name: "too old 6.0.x", ver: []int{6, 0, 5},
-			wantErr: true, contains: "upgrade your MongoDB"},
-		{name: "too old 6.1.x", ver: []int{6, 1, 0},
-			wantErr: true, contains: "upgrade your MongoDB"},
-		{name: "unsupported minor 7.2.3", ver: []int{7, 2, 3},
-			wantErr: true, contains: "does not support minor versions of MongoDB"},
-		{name: "unsupported minor 8.3.0", ver: []int{8, 3, 0},
-			wantErr: true, contains: "does not support minor versions of MongoDB"},
-		{name: "newer major 9.0.0", ver: []int{9, 0, 0},
-			wantErr: true, contains: "upgrade your PBM package"},
-		{name: "incomplete version array", ver: []int{7},
-			wantErr: true, contains: "incomplete versionArray"},
+		{
+			name: "too old 4.4.18", ver: []int{4, 4, 18},
+			wantErr: true, contains: "upgrade your MongoDB",
+		},
+		{
+			name: "too old 5.0.0", ver: []int{5, 0, 0},
+			wantErr: true, contains: "upgrade your MongoDB",
+		},
+		{
+			name: "too old 5.0.x", ver: []int{5, 0, 14},
+			wantErr: true, contains: "upgrade your MongoDB",
+		},
+		{
+			name: "too old 6.0.x", ver: []int{6, 0, 5},
+			wantErr: true, contains: "upgrade your MongoDB",
+		},
+		{
+			name: "too old 6.1.x", ver: []int{6, 1, 0},
+			wantErr: true, contains: "upgrade your MongoDB",
+		},
+		{
+			name: "unsupported minor 7.2.3", ver: []int{7, 2, 3},
+			wantErr: true, contains: "does not support minor versions of MongoDB",
+		},
+		{
+			name: "unsupported minor 8.3.0", ver: []int{8, 3, 0},
+			wantErr: true, contains: "does not support minor versions of MongoDB",
+		},
+		{
+			name: "newer major 9.0.0", ver: []int{9, 0, 0},
+			wantErr: true, contains: "upgrade your PBM package",
+		},
+		{
+			name: "incomplete version array", ver: []int{7},
+			wantErr: true, contains: "incomplete versionArray",
+		},
 	}
 
 	for _, tc := range cases {
