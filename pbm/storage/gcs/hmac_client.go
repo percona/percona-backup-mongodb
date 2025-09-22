@@ -42,7 +42,7 @@ func newHMACClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "create minio client for GCS HMAC")
 	}
-	minioClient.TraceErrorsOnlyOn(nil)
+	minioClient.TraceOn(nil)
 
 	return &hmacClient{
 		client: minioClient,
