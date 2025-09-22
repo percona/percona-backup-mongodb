@@ -63,6 +63,7 @@ override_dh_auto_install:
 	cd build/src/github.com/percona/percona-backup-mongodb/bin && cp pbm-agent $(TMP)/pbm-agent
 	cd build/src/github.com/percona/percona-backup-mongodb/bin && cp pbm $(TMP)/pbm
 	cd build/src/github.com/percona/percona-backup-mongodb/bin && cp pbm-speed-test $(TMP)/pbm-speed-test
+	cd build/src/github.com/percona/percona-backup-mongodb/bin && cp pbm-agent-entrypoint $(TMP)/pbm-agent-entrypoint
 	cd build/src/github.com/percona/percona-backup-mongodb/bin && cp completions/bash/pbm-agent $(TMP)/completions/bash/pbm-agent
 	cd build/src/github.com/percona/percona-backup-mongodb/bin && cp completions/bash/pbm $(TMP)/completions/bash/pbm
 	cd build/src/github.com/percona/percona-backup-mongodb/bin && cp completions/bash/pbm-speed-test $(TMP)/completions/bash/pbm-speed-test
