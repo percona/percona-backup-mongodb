@@ -234,3 +234,7 @@ func (o *OSS) Copy(src, dst string) error {
 	_, err := copier.Copy(context.Background(), req)
 	return errors.Wrap(err, "copy object")
 }
+
+func (o *OSS) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
+}
