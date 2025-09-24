@@ -22,7 +22,7 @@ const (
 	ServerSideEncryptionSM4    = "SM4"
 )
 
-func New(cfg *Config, node string, l log.LogEvent) (*OSS, error) {
+func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	if err := cfg.Cast(); err != nil {
 		return nil, fmt.Errorf("cast config: %w", err)
 	}
@@ -38,8 +38,8 @@ func New(cfg *Config, node string, l log.LogEvent) (*OSS, error) {
 		log:    l,
 		ossCli: client,
 	}
-
-	return o, nil
+	
+	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
 }
 
 type OSS struct {

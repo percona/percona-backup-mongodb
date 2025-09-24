@@ -20,6 +20,7 @@ const (
 	defaultRetryerMaxBackoff      = 300 * time.Second
 	defaultSessionDurationSeconds = 3600
 	defaultConnectTimeout         = 5 * time.Second
+	defaultMaxObjSizeGB = 48800 // 48.8 TB
 )
 
 //nolint:lll
@@ -36,6 +37,7 @@ type Config struct {
 	ConnectTimeout time.Duration `bson:"connectTimeout" json:"connectTimeout" yaml:"connectTimeout"`
 	UploadPartSize int64         `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts int32         `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
+	MaxObjSizeGB   *float64      `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	ServerSideEncryption *SSE `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 }
@@ -99,7 +101,22 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
+	if cfg.Retryer != nil {
+		v := *cfg.Retryer
+		rv.Retryer = &v
+	}
 	return &rv
+}
+
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+		return *cfg.MaxObjSizeGB
+	}
+	return defaultMaxObjSizeGB
 }
 
 func newCred(config *Config) (*cred, error) {
