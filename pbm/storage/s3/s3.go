@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/logging"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -39,6 +40,8 @@ const (
 
 	defaultRetryerMinRetryDelay = 30 * time.Millisecond
 	defaultRetryerMaxRetryDelay = 300 * time.Second
+
+	defaultMaxObjSizeGB = 5018 // 4.9 TB
 )
 
 //nolint:lll
@@ -55,6 +58,7 @@ type Config struct {
 	UploadPartSize       int               `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts       int32             `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 	StorageClass         string            `bson:"storageClass,omitempty" json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
+	MaxObjSizeGB         *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
@@ -164,23 +168,15 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.StorageClass != other.StorageClass {
 		return false
 	}
-
-	lhs, rhs := true, true
-	if cfg.ForcePathStyle != nil {
-		lhs = *cfg.ForcePathStyle
-	}
-	if other.ForcePathStyle != nil {
-		rhs = *other.ForcePathStyle
-	}
-	if lhs != rhs {
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
 		return false
 	}
-
-	// TODO: check only required fields
+	if !reflect.DeepEqual(cfg.ForcePathStyle, other.ForcePathStyle) {
+		return false
+	}
 	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
 		return false
 	}
-	// TODO: check only required fields
 	if !reflect.DeepEqual(cfg.ServerSideEncryption, other.ServerSideEncryption) {
 		return false
 	}
@@ -243,6 +239,13 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 	return ep
 }
 
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+		return *cfg.MaxObjSizeGB
+	}
+	return defaultMaxObjSizeGB
+}
+
 // SDKLogLevel returns AWS SDK log level value from comma-separated
 // SDKDebugLogLevel values string. If the string does not contain a valid value,
 // returns 0 (logging is disabled).
@@ -297,7 +300,7 @@ type S3 struct {
 	d *Download // default downloader for small files
 }
 
-func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
+func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	if err := opts.Cast(); err != nil {
 		return nil, errors.Wrap(err, "cast options")
 	}
@@ -319,13 +322,56 @@ func New(opts *Config, node string, l log.LogEvent) (*S3, error) {
 	s.s3cli = cli
 
 	s.d = &Download{
-		s3:       s,
 		arenas:   []*storage.Arena{storage.NewArena(storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)},
 		spanSize: storage.DownloadChuckSizeDefault,
 		cc:       1,
 	}
 
-	return s, nil
+	return storage.NewSplitMergeMW(s, opts.GetMaxObjSizeGB()), nil
+}
+
+func NewWithDownloader(
+	opts *Config,
+	node string,
+	l log.LogEvent,
+	cc, bufSizeMb, spanSizeMb int,
+) (storage.Storage, error) {
+	if err := opts.Cast(); err != nil {
+		return nil, errors.Wrap(err, "cast options")
+	}
+
+	if l == nil {
+		l = log.DiscardEvent
+	}
+
+	s := &S3{
+		opts: opts,
+		log:  l,
+		node: node,
+	}
+
+	cli, err := s.s3client()
+	if err != nil {
+		return nil, errors.Wrap(err, "AWS session")
+	}
+	s.s3cli = cli
+
+	arenaSize, spanSize, cc := storage.DownloadOpts(cc, bufSizeMb, spanSizeMb)
+	s.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+
+	var arenas []*storage.Arena
+	for i := 0; i < cc; i++ {
+		arenas = append(arenas, storage.NewArena(arenaSize, spanSize))
+	}
+
+	s.d = &Download{
+		arenas:   arenas,
+		spanSize: spanSize,
+		cc:       cc,
+		stat:     storage.NewDownloadStat(cc, arenaSize, spanSize),
+	}
+
+	return storage.NewSplitMergeMW(s, opts.GetMaxObjSizeGB()), nil
 }
 
 func (*S3) Type() storage.Type {
@@ -473,8 +519,20 @@ func (s *S3) Copy(src, dst string) error {
 	}
 
 	_, err := s.s3cli.CopyObject(context.Background(), copyOpts)
+	if err != nil {
+		var noSuchKeyErr *types.NoSuchKey
+		if errors.As(err, &noSuchKeyErr) {
+			return storage.ErrNotExist
+		}
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) {
+			if apiErr.ErrorCode() == "NoSuchKey" {
+				return storage.ErrNotExist
+			}
+		}
+	}
 
-	return err
+	return errors.Wrapf(err, "copy '%s/%s' to %q file from S3", s.opts.Bucket, src, dst)
 }
 
 func (s *S3) FileStat(name string) (storage.FileInfo, error) {
@@ -529,6 +587,10 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file isn't exists
 func (s *S3) Delete(name string) error {
+	if _, err := s.FileStat(name); err == storage.ErrNotExist {
+		return err
+	}
+
 	_, err := s.s3cli.DeleteObject(context.Background(), &s3.DeleteObjectInput{
 		Bucket: aws.String(s.opts.Bucket),
 		Key:    aws.String(path.Join(s.opts.Prefix, name)),

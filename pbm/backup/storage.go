@@ -11,7 +11,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	sfs "github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
@@ -201,8 +200,8 @@ func checkFile(stg storage.Storage, filename string) error {
 
 // DeleteBackupFiles removes backup's artifacts from storage
 func DeleteBackupFiles(stg storage.Storage, backupName string) error {
-	if fs, ok := stg.(*sfs.FS); ok {
-		return deleteBackupFromFS(fs, backupName)
+	if stg.Type() == storage.Filesystem {
+		return deleteBackupFromFS(stg, backupName)
 	}
 
 	files, err := stg.List(backupName, "")
@@ -254,7 +253,7 @@ func DeleteBackupFiles(stg storage.Storage, backupName string) error {
 	return errors.Join(errs...)
 }
 
-func deleteBackupFromFS(stg *sfs.FS, backupName string) error {
+func deleteBackupFromFS(stg storage.Storage, backupName string) error {
 	err1 := stg.Delete(backupName)
 	if err1 != nil && !errors.Is(err1, storage.ErrNotExist) {
 		err1 = errors.Wrapf(err1, "delete %s", backupName)

@@ -1,7 +1,6 @@
 package util
 
 import (
-	"bytes"
 	"context"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -45,6 +44,24 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 	}
 }
 
+func StorageWithDownloaderFromConfig(
+	cfg *config.StorageConf,
+	rstCfg *config.RestoreConf,
+	node string,
+	l log.LogEvent,
+) (storage.Storage, error) {
+	switch cfg.Type {
+	case storage.S3:
+		return s3.NewWithDownloader(cfg.S3, node, l,
+			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
+	case storage.GCS:
+		return gcs.NewWithDownloader(cfg.GCS, node, l,
+			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
+	default:
+		return StorageFromConfig(cfg, node, l)
+	}
+}
+
 // GetStorage reads current storage config and creates and
 // returns respective storage.Storage object.
 func GetStorage(ctx context.Context, m connect.Client, node string, l log.LogEvent) (storage.Storage, error) {
@@ -60,7 +77,7 @@ func GetStorage(ctx context.Context, m connect.Client, node string, l log.LogEve
 //
 // It does not handle "file already exists" error.
 func Initialize(ctx context.Context, stg storage.Storage) error {
-	err := RetryableWrite(stg, defs.StorInitFile, []byte(version.Current().Version))
+	err := storage.RetryableWrite(stg, defs.StorInitFile, []byte(version.Current().Version))
 	if err != nil {
 		return errors.Wrap(err, "write init file")
 	}
@@ -78,15 +95,4 @@ func Reinitialize(ctx context.Context, stg storage.Storage) error {
 	}
 
 	return Initialize(ctx, stg)
-}
-
-func RetryableWrite(stg storage.Storage, name string, data []byte) error {
-	err := stg.Save(name, bytes.NewBuffer(data), storage.Size(int64(len(data))))
-	if err != nil && stg.Type() == storage.Filesystem {
-		if fs.IsRetryableError(err) {
-			err = stg.Save(name, bytes.NewBuffer(data), storage.Size(int64(len(data))))
-		}
-	}
-
-	return err
 }

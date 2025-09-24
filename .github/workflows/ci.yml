@@ -45,7 +45,7 @@ jobs:
         test: [logical, physical, incremental, external]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || github.ref_name }}
-      GO_VER: ${{ github.event.inputs.go_ver || '1.23-bullseye' }}
+      GO_VER: ${{ github.event.inputs.go_ver || '1.25-bookworm' }}
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
       MAKE_TARGET: 'build-cover'
     steps:

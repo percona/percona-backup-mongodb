@@ -306,8 +306,7 @@ func (s *StorageConf) IsSameStorage(other *StorageConf) bool {
 	case storage.GCS:
 		return s.GCS.IsSameStorage(other.GCS)
 	case storage.Filesystem:
-		// FS is the same if it's equal
-		return s.Filesystem.Equal(other.Filesystem)
+		return s.Filesystem.IsSameStorage(other.Filesystem)
 	case storage.Blackhole:
 		return true
 	}

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"path"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -30,6 +31,8 @@ const (
 	defaultRetries = 10
 
 	maxBlocks = 50_000
+
+	defaultMaxObjSizeGB = 194560 // 190 TB
 )
 
 //nolint:lll
@@ -40,6 +43,7 @@ type Config struct {
 	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
 	Prefix         string            `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	MaxObjSizeGB   *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -49,6 +53,10 @@ func (cfg *Config) Clone() *Config {
 
 	rv := *cfg
 	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
 	return &rv
 }
 
@@ -73,6 +81,9 @@ func (cfg *Config) Equal(other *Config) bool {
 		return false
 	}
 	if cfg.Credentials.Key != other.Credentials.Key {
+		return false
+	}
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
 		return false
 	}
 
@@ -111,6 +122,13 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 	return ep
 }
 
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+		return *cfg.MaxObjSizeGB
+	}
+	return defaultMaxObjSizeGB
+}
+
 type Credentials struct {
 	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }
@@ -123,7 +141,7 @@ type Blob struct {
 	c *azblob.Client
 }
 
-func New(opts *Config, node string, l log.LogEvent) (*Blob, error) {
+func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	if l == nil {
 		l = log.DiscardEvent
 	}
@@ -139,7 +157,7 @@ func New(opts *Config, node string, l log.LogEvent) (*Blob, error) {
 		return nil, errors.Wrap(err, "init container")
 	}
 
-	return b, b.ensureContainer()
+	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeGB()), b.ensureContainer()
 }
 
 func (*Blob) Type() storage.Type {
@@ -291,6 +309,10 @@ func (b *Blob) Copy(src, dst string) error {
 	default:
 		return errors.Errorf("undefined status")
 	}
+}
+
+func (b *Blob) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
 }
 
 func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {

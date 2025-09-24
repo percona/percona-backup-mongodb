@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -50,6 +51,8 @@ type Storage interface {
 	Delete(name string) error
 	// Copy makes a copy of the src objec/file under dst name
 	Copy(src, dst string) error
+	// Get download stat
+	DownloadStat() DownloadStat
 }
 
 // ParseType parses string and returns storage type
@@ -300,9 +303,7 @@ func ComputePartSize(fileSize, defaultSize, minSize, maxParts, userSize int64) i
 
 	if userSize > 0 {
 		partSize = userSize
-		if partSize < minSize {
-			partSize = minSize
-		}
+		partSize = max(partSize, minSize)
 	}
 
 	if fileSize > 0 {
@@ -341,4 +342,28 @@ func PrettySize(size int64) string {
 		return fmt.Sprintf("%.2fKB", s/KB)
 	}
 	return fmt.Sprintf("%.2fB", s)
+}
+
+type RetryableError struct {
+	Err error
+}
+
+func (e *RetryableError) Error() string {
+	return e.Err.Error()
+}
+
+func IsRetryableError(err error) bool {
+	var e *RetryableError
+	return errors.As(err, &e)
+}
+
+func RetryableWrite(stg Storage, name string, data []byte) error {
+	err := stg.Save(name, bytes.NewBuffer(data), Size(int64(len(data))))
+	if err != nil && stg.Type() == Filesystem {
+		if IsRetryableError(err) {
+			err = stg.Save(name, bytes.NewBuffer(data), Size(int64(len(data))))
+		}
+	}
+
+	return err
 }

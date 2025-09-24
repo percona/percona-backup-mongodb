@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
@@ -67,6 +70,17 @@ func replayOplog(
 		return nil, err
 	}
 
+	ep, err := config.GetEpoch(ctx, conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get epoch")
+	}
+	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), "", "", ep.TS())
+
+	stg, err := util.GetStorage(ctx, conn, node, l)
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage")
+	}
+
 	name := time.Now().UTC().Format(time.RFC3339Nano)
 	cmd := ctrl.Cmd{
 		Cmd: ctrl.CmdReplay,
@@ -106,7 +120,7 @@ func replayOplog(
 	}
 
 	fmt.Print("Started.\nWaiting to finish")
-	err = waitRestore(ctx, conn, m, node, defs.StatusDone, 0)
+	err = waitRestore(ctx, conn, stg, l, m, defs.StatusDone, 0)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = errWaitTimeout

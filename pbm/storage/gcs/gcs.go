@@ -12,6 +12,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
+const (
+	defaultMaxObjSizeGB = 5018 // 4.9 TB
+)
+
 type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
@@ -19,7 +23,8 @@ type Config struct {
 
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
-	ChunkSize int `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	ChunkSize    int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
@@ -83,6 +88,15 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
+	if cfg.Retryer != nil {
+		v := *cfg.Retryer
+		rv.Retryer = &v
+	}
+
 	return &rv
 }
 
@@ -100,7 +114,9 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.ChunkSize != other.ChunkSize {
 		return false
 	}
-
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
+		return false
+	}
 	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
 		return false
 	}
@@ -124,7 +140,14 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 	return true
 }
 
-func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+		return *cfg.MaxObjSizeGB
+	}
+	return defaultMaxObjSizeGB
+}
+
+func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	g := &GCS{
 		opts: opts,
 		log:  l,
@@ -145,13 +168,59 @@ func New(opts *Config, node string, l log.LogEvent) (*GCS, error) {
 	}
 
 	g.d = &Download{
-		gcs:      g,
 		arenas:   []*storage.Arena{storage.NewArena(storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)},
 		spanSize: storage.DownloadChuckSizeDefault,
 		cc:       1,
 	}
 
-	return g, nil
+	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
+}
+
+func NewWithDownloader(
+	opts *Config,
+	node string,
+	l log.LogEvent,
+	cc, bufSizeMb, spanSizeMb int,
+) (storage.Storage, error) {
+	if l == nil {
+		l = log.DiscardEvent
+	}
+
+	g := &GCS{
+		opts: opts,
+		log:  l,
+	}
+
+	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
+		hc, err := newHMACClient(g.opts, g.log)
+		if err != nil {
+			return nil, errors.Wrap(err, "new hmac client")
+		}
+		g.client = hc
+	} else {
+		gc, err := newGoogleClient(g.opts, g.log)
+		if err != nil {
+			return nil, errors.Wrap(err, "new google client")
+		}
+		g.client = gc
+	}
+
+	arenaSize, spanSize, cc := storage.DownloadOpts(cc, bufSizeMb, spanSizeMb)
+	g.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+
+	var arenas []*storage.Arena
+	for i := 0; i < cc; i++ {
+		arenas = append(arenas, storage.NewArena(arenaSize, spanSize))
+	}
+
+	g.d = &Download{
+		arenas:   arenas,
+		spanSize: spanSize,
+		cc:       cc,
+		stat:     storage.NewDownloadStat(cc, arenaSize, spanSize),
+	}
+
+	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
 }
 
 func (*GCS) Type() storage.Type {

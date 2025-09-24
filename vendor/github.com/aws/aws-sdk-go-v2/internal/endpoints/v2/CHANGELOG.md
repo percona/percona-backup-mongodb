@@ -1,3 +1,76 @@
+# v2.7.7 (2025-09-08)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.7.6 (2025-08-29)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.7.5 (2025-08-27)
+
+* **Dependency Update**: Update to smithy-go v1.23.0.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.7.4 (2025-08-21)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.7.3 (2025-08-11)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.7.2 (2025-08-04)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.7.1 (2025-07-30)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.7.0 (2025-07-28)
+
+* **Feature**: Add support for HTTP interceptors.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.37 (2025-07-19)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.36 (2025-06-17)
+
+* **Dependency Update**: Update to smithy-go v1.22.4.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.35 (2025-06-10)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.34 (2025-02-27)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.33 (2025-02-18)
+
+* **Bug Fix**: Bump go version to 1.22
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.32 (2025-02-05)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.31 (2025-01-31)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.30 (2025-01-30)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v2.6.29 (2025-01-24)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+* **Dependency Update**: Upgrade to smithy-go v1.22.2.
+
 # v2.6.28 (2025-01-15)
 
 * **Dependency Update**: Updated to the latest SDK module versions
