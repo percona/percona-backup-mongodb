@@ -26,8 +26,8 @@ const (
 
 const maxBulkWriteCount = 500
 
-// configsvrRestore restores for selected namespaces
-func (r *Restore) configsvrRestore(
+// configsvrSelRestore restores for selected namespaces
+func (r *Restore) configsvrSelRestore(
 	ctx context.Context,
 	bcp *backup.BackupMeta,
 	nss []string,

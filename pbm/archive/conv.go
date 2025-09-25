@@ -74,6 +74,7 @@ func convertMetaToV1(metaV2 *ArchiveMetaV2) (*archiveMeta, error) {
 	for _, coll := range metaV2.Namespaces {
 		if coll.DB != "admin" && coll.DB != "config" &&
 			coll.IsSystemCollection() && coll.Name != "system.js" {
+			// in case of user db (non admin/config) skip sys collections
 			continue
 		}
 
@@ -84,10 +85,10 @@ func convertMetaToV1(metaV2 *ArchiveMetaV2) (*archiveMeta, error) {
 
 		if coll.IsTimeseries() {
 			bucketName := "system.buckets." + coll.Name
-			for _, coll := range metaV2.Namespaces {
-				if coll.Name == bucketName {
-					ns.CRC = coll.CRC
-					ns.Size = coll.Size
+			for _, fColl := range metaV2.Namespaces {
+				if fColl.DB == coll.DB && fColl.Name == bucketName {
+					ns.CRC = fColl.CRC
+					ns.Size = fColl.Size
 					break
 				}
 			}

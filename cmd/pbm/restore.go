@@ -164,12 +164,24 @@ func runRestore(
 	}
 	tdiff := time.Now().Unix() - int64(clusterTime.T)
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap, node, outf)
+	ep, err := config.GetEpoch(ctx, conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get epoch")
+	}
+	l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), "", "", ep.TS())
+
+	stg, err := util.GetStorage(ctx, conn, node, l)
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage")
+	}
+
+	m, err := doRestore(ctx, conn, stg, l, o, numParallelColls, numInsertionWorkers,
+		nss, o.nsFrom, o.nsTo, rsMap, outf)
 	if err != nil {
 		return nil, err
 	}
 	if o.extern && outf == outText {
-		err = waitRestore(ctx, conn, m, node, defs.StatusCopyReady, tdiff)
+		err = waitRestore(ctx, conn, stg, l, m, defs.StatusCopyReady, tdiff)
 		if err != nil {
 			return nil, errors.Wrap(err, "waiting for the `copyReady` status")
 		}
@@ -195,7 +207,7 @@ func runRestore(
 		typ = " physical restore.\nWaiting to finish"
 	}
 	fmt.Printf("Started%s", typ)
-	err = waitRestore(ctx, conn, m, node, defs.StatusDone, tdiff)
+	err = waitRestore(ctx, conn, stg, l, m, defs.StatusDone, tdiff)
 	if err == nil {
 		return restoreRet{
 			Name:     m.Name,
@@ -205,12 +217,12 @@ func runRestore(
 	}
 
 	if errors.Is(err, restoreFailedError{}) {
-		return restoreRet{err: err.Error()}, nil
+		return restoreRet{err: err.Error()}, err
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		err = errWaitTimeout
 	}
-	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, nil
+	return restoreRet{err: fmt.Sprintf("%s.\n Try to check logs on node %s", err.Error(), m.Leader)}, err
 }
 
 // We rely on heartbeats in error detection in case of all nodes failed,
@@ -221,24 +233,12 @@ func runRestore(
 func waitRestore(
 	ctx context.Context,
 	conn connect.Client,
+	stg storage.Storage,
+	l log.LogEvent,
 	m *restore.RestoreMeta,
-	node string,
 	status defs.Status,
 	tskew int64,
 ) error {
-	ep, _ := config.GetEpoch(ctx, conn)
-	l := log.FromContext(ctx).
-		NewEvent(string(ctrl.CmdRestore), m.Backup, m.OPID, ep.TS())
-	stg, err := util.GetStorage(ctx, conn, node, l)
-	if err != nil {
-		return errors.Wrap(err, "get storage")
-	}
-
-	tk := time.NewTicker(time.Second * 1)
-	defer tk.Stop()
-
-	var rmeta *restore.RestoreMeta
-
 	getMeta := restore.GetRestoreMeta
 	if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
 		getMeta = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
@@ -251,9 +251,13 @@ func waitRestore(
 	if m.Type != defs.LogicalBackup {
 		frameSec = 60 * 3
 	}
+
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+
 	for range tk.C {
 		fmt.Print(".")
-		rmeta, err = getMeta(ctx, conn, m.Name)
+		rmeta, err := getMeta(ctx, conn, m.Name)
 		if errors.Is(err, errors.ErrNotFound) {
 			continue
 		}
@@ -263,8 +267,24 @@ func waitRestore(
 
 		switch rmeta.Status {
 		case status, defs.StatusDone, defs.StatusPartlyDone:
+			if status != defs.StatusCopyReady { // do not wait in case of external middle phase
+				wait, err := waitCleanup(stg, m, tskew)
+				if err != nil {
+					return err
+				}
+				if wait {
+					continue
+				}
+			}
 			return nil
 		case defs.StatusError:
+			wait, err := waitCleanup(stg, m, tskew)
+			if err != nil {
+				return err
+			}
+			if wait {
+				continue
+			}
 			return restoreFailedError{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
 		}
 
@@ -284,6 +304,21 @@ func waitRestore(
 	}
 
 	return nil
+}
+
+// waitCleanup checks if a cleanup is in progress to wait if necessary.
+func waitCleanup(stg storage.Storage, m *restore.RestoreMeta, tskew int64) (bool, error) {
+	if m.Type == defs.PhysicalBackup || m.Type == defs.IncrementalBackup {
+		// apply cleanup waiting logic only for physical/inc backups
+		alive, err := restore.IsCleanupHbAlive(m.Name, stg, tskew)
+		if err != nil {
+			return false, errors.Wrap(err, "checking cleanup hb")
+		}
+		if alive {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type restoreFailedError struct {
@@ -383,6 +418,8 @@ func nsIsTaken(
 func doRestore(
 	ctx context.Context,
 	conn connect.Client,
+	stg storage.Storage,
+	l log.LogEvent,
 	o *restoreOpts,
 	numParallelColls *int32,
 	numInsertionWorkers *int32,
@@ -390,7 +427,6 @@ func doRestore(
 	nsFrom string,
 	nsTo string,
 	rsMapping map[string]string,
-	node string,
 	outf outFormat,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
@@ -491,14 +527,6 @@ func doRestore(
 		fn = restore.GetRestoreMeta
 		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
 	} else {
-		ep, _ := config.GetEpoch(ctx, conn)
-		l := log.FromContext(ctx).NewEvent(string(ctrl.CmdRestore), bcp, "", ep.TS())
-
-		stg, err := util.GetStorage(ctx, conn, node, l)
-		if err != nil {
-			return nil, errors.Wrap(err, "get storage")
-		}
-
 		fn = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
 			meta, err := restore.GetRestoreMeta(ctx, conn, name)
 			if err == nil {

@@ -3,6 +3,7 @@ package snapshot
 import (
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/mongodb/mongo-tools/common/options"
@@ -107,16 +108,14 @@ func NewRestore(uri string,
 		numParallelColls = 1
 	}
 
-	nsExclude := ExcludeFromRestore
+	nsExclude := slices.Clone(ExcludeFromRestore)
 	if excludeRouterCollections {
 		configColls := []string{
-			"config.databases",
-			"config.collections",
-			"config.chunks",
+			defs.ConfigDatabasesNS,
+			defs.ConfigCollectionsNS,
+			defs.ConfigChunksNS,
 		}
-		nsExclude = make([]string, len(ExcludeFromRestore)+len(configColls))
-		n := copy(nsExclude, ExcludeFromRestore)
-		copy(nsExclude[n:], configColls)
+		nsExclude = append(nsExclude, configColls...)
 	}
 
 	mopts := mongorestore.Options{}

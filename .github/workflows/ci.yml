@@ -45,7 +45,7 @@ jobs:
         test: [logical, physical, incremental, external]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || github.ref_name }}
-      GO_VER: ${{ github.event.inputs.go_ver || '1.23-bullseye' }}
+      GO_VER: ${{ github.event.inputs.go_ver || '1.25-bookworm' }}
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
       MAKE_TARGET: 'build-cover'
     steps:
@@ -58,6 +58,7 @@ jobs:
 
       - name: Setup environment with PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
         run: |
+          PSMDB=perconalab/percona-server-mongodb:${{ matrix.psmdb }} docker compose build easyrsa
           PSMDB=perconalab/percona-server-mongodb:${{ matrix.psmdb }} docker compose build
           docker compose up -d
         working-directory: psmdb-testing/pbm-functional/pytest

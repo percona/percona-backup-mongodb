@@ -5,29 +5,22 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-type RetryableError struct {
-	Err error
-}
+const (
+	defaultMaxObjSizeGB = 5018 // 4.9 TB
 
-func (e *RetryableError) Error() string {
-	return e.Err.Error()
-}
-
-func IsRetryableError(err error) bool {
-	var e *RetryableError
-	return errors.As(err, &e)
-}
-
-const tmpFileSuffix = ".tmp"
+	tmpFileSuffix = ".tmp"
+)
 
 type Config struct {
-	Path string `bson:"path" json:"path" yaml:"path"`
+	Path         string   `bson:"path" json:"path" yaml:"path"`
+	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -35,15 +28,39 @@ func (cfg *Config) Clone() *Config {
 		return nil
 	}
 
-	return &Config{Path: cfg.Path}
+	rv := *cfg
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
+	return &rv
 }
 
 func (cfg *Config) Equal(other *Config) bool {
 	if cfg == nil || other == nil {
 		return cfg == other
 	}
+	if cfg.Path != other.Path {
+		return false
+	}
+	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
+		return false
+	}
 
-	return cfg.Path == other.Path
+	return true
+}
+
+// IsSameStorage identifies the same instance of the FS storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Path != other.Path {
+		return false
+	}
+
+	return true
 }
 
 func (cfg *Config) Cast() error {
@@ -54,11 +71,18 @@ func (cfg *Config) Cast() error {
 	return nil
 }
 
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+		return *cfg.MaxObjSizeGB
+	}
+	return defaultMaxObjSizeGB
+}
+
 type FS struct {
 	root string
 }
 
-func New(opts *Config) (*FS, error) {
+func New(opts *Config) (storage.Storage, error) {
 	info, err := os.Lstat(opts.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -87,7 +111,8 @@ func New(opts *Config) (*FS, error) {
 		return nil, errors.Errorf("%s is not directory", root)
 	}
 
-	return &FS{root}, nil
+	fs := &FS{root}
+	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 }
 
 func (*FS) Type() storage.Type {
@@ -114,7 +139,7 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 			}
 
 			if os.IsNotExist(err) {
-				err = &RetryableError{Err: err}
+				err = &storage.RetryableError{Err: err}
 			} else {
 				os.Remove(filepath)
 			}
@@ -174,12 +199,12 @@ func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
 	if err != nil {
 		return inf, err
 	}
-
-	inf.Size = f.Size()
-
-	if inf.Size == 0 {
+	if f.Size() == 0 {
 		return inf, storage.ErrEmpty
 	}
+
+	inf.Name = name
+	inf.Size = f.Size()
 
 	return inf, nil
 }
@@ -236,6 +261,10 @@ func (fs *FS) Copy(src, dst string) error {
 	}
 
 	return writeSync(path.Join(fs.root, dst), from)
+}
+
+func (fs *FS) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
 }
 
 // Delete deletes given file from FS.

@@ -31,7 +31,7 @@ test:
 	MONGODB_VERSION=$(MONGO_TEST_VERSION) e2e-tests/run-all
 
 build: build-pbm build-agent build-stest
-build-all: build build-entrypoint
+build-all: build build-entrypoint completion
 build-k8s: build-all
 build-pbm:
 	$(ENVS) go build -ldflags="$(LDFLAGS)" $(BUILD_FLAGS) -o ./bin/pbm ./cmd/pbm

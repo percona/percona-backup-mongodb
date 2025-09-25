@@ -146,7 +146,7 @@ install_golang() {
     elif [ x"$ARCH" = "xaarch64" ]; then
         GO_ARCH="arm64"
     fi
-    GO_VERSION="1.23.8"
+    GO_VERSION="1.25.1"
     GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
     GO_URL="https://downloads.percona.com/downloads/packaging/go/${GO_TAR}"
     DL_PATH="/tmp/${GO_TAR}"
@@ -174,8 +174,11 @@ install_deps() {
 
     if [ "x$OS" = "xrpm" ]; then
         yum clean all
+        if [ "x$RHEL" = "x10" ]; then
+            yum -y install oracle-epel-release-el10
+        fi
         INSTALL_LIST="epel-release git wget"
-        if [ "x$RHEL" = "x2023" ]; then
+        if [ "x$RHEL" = "x2023" -o "x$RHEL" = "x10" ]; then
             INSTALL_LIST="git wget"
         fi
         yum -y install ${INSTALL_LIST}
