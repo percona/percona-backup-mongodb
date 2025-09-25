@@ -114,6 +114,22 @@ github.com/Microsoft/go-winio/internal/fs
 github.com/Microsoft/go-winio/internal/socket
 github.com/Microsoft/go-winio/internal/stringbuffer
 github.com/Microsoft/go-winio/pkg/guid
+# github.com/alibabacloud-go/debug v1.0.1
+## explicit; go 1.18
+github.com/alibabacloud-go/debug/debug
+# github.com/aliyun/alibabacloud-oss-go-sdk-v2 v1.2.3
+## explicit; go 1.18
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/crypto
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/retry
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/signer
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/transport
+# github.com/aliyun/credentials-go v1.4.7
+## explicit; go 1.14
+github.com/aliyun/credentials-go/credentials/internal/http
+github.com/aliyun/credentials-go/credentials/internal/utils
+github.com/aliyun/credentials-go/credentials/providers
 # github.com/aws/aws-sdk-go-v2 v1.39.0
 ## explicit; go 1.22
 github.com/aws/aws-sdk-go-v2/aws
@@ -1123,6 +1139,9 @@ google.golang.org/protobuf/types/known/fieldmaskpb
 google.golang.org/protobuf/types/known/structpb
 google.golang.org/protobuf/types/known/timestamppb
 google.golang.org/protobuf/types/known/wrapperspb
+# gopkg.in/ini.v1 v1.67.0
+## explicit
+gopkg.in/ini.v1
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit; go 1.15
 gopkg.in/yaml.v2

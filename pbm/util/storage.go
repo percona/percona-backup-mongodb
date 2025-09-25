@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
@@ -34,6 +35,8 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 		return blackhole.New(), nil
 	case storage.GCS:
 		return gcs.New(cfg.GCS, node, l)
+	case storage.OSS:
+		return oss.New(cfg.OSS, node, l)
 	case storage.Undefined:
 		return nil, ErrStorageUndefined
 	default:
