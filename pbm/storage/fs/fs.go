@@ -64,6 +64,9 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 }
 
 func (cfg *Config) Cast() error {
+	if cfg == nil {
+		return errors.New("Missing blackhole configuration with blackhole storage type.")
+	}
 	if cfg.Path == "" {
 		return errors.New("path can't be empty")
 	}
