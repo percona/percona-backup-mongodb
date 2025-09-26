@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"io"
 	"os"
 	"strings"
@@ -59,7 +59,7 @@ func deleteBackup(
 		cid, err = deleteManyBackup(ctx, pbm, d)
 	}
 	if err != nil {
-		if errors.Is(err, errUserCanceled) {
+		if errors.Is(err, errors.ErrUserCanceled) {
 			return outMsg{err.Error()}, nil
 		}
 		return nil, err
@@ -109,7 +109,7 @@ func deleteBackupByName(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) 
 		return sdk.NoOpID, nil
 	}
 	if !d.yes {
-		err := askConfirmation("Are you sure you want to delete backup?")
+		err := util.AskConfirmation("Are you sure you want to delete this backup?")
 		if err != nil {
 			return sdk.NoOpID, err
 		}
@@ -146,7 +146,7 @@ func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (s
 		return sdk.NoOpID, nil
 	}
 	if !d.yes {
-		if err := askConfirmation("Are you sure you want to delete backups?"); err != nil {
+		if err := util.AskConfirmation("Are you sure you want to delete backups?"); err != nil {
 			return sdk.NoOpID, err
 		}
 	}
@@ -219,8 +219,8 @@ func deletePITR(
 		if d.all {
 			q = "Are you sure you want to delete ALL chunks?"
 		}
-		if err := askConfirmation(q); err != nil {
-			if errors.Is(err, errUserCanceled) {
+		if err := util.AskConfirmation(q); err != nil {
+			if errors.Is(err, errors.ErrUserCanceled) {
 				return outMsg{err.Error()}, nil
 			}
 			return nil, err
@@ -288,8 +288,8 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		return &outMsg{""}, nil
 	}
 	if !d.yes {
-		if err := askConfirmation("Are you sure you want to delete?"); err != nil {
-			if errors.Is(err, errUserCanceled) {
+		if err := util.AskConfirmation("Are you sure you want to delete?"); err != nil {
+			if errors.Is(err, errors.ErrUserCanceled) {
 				return outMsg{err.Error()}, nil
 			}
 			return nil, err
@@ -412,33 +412,6 @@ func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.
 			fmt.Fprintf(w, " - %s - %s\n", fmtTS(int64(r.Start.T)), fmtTS(int64(r.End.T)))
 		}
 	}
-}
-
-var errUserCanceled = errors.New("canceled")
-
-func askConfirmation(question string) error {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return errors.Wrap(err, "stat stdin")
-	}
-	if (fi.Mode() & os.ModeCharDevice) == 0 {
-		return errors.New("no tty")
-	}
-
-	fmt.Printf("%s [y/N] ", question)
-
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Scan()
-	if err := scanner.Err(); err != nil {
-		return errors.Wrap(err, "read stdin")
-	}
-
-	switch strings.TrimSpace(scanner.Text()) {
-	case "yes", "Yes", "YES", "Y", "y":
-		return nil
-	}
-
-	return errUserCanceled
 }
 
 func waitForDelete(

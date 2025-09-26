@@ -49,6 +49,7 @@ type restoreOpts struct {
 	nsFrom          string
 	nsTo            string
 	usersAndRoles   bool
+	confirmYes      bool
 	rsMap           string
 	conf            string
 	ts              string
@@ -91,10 +92,9 @@ No other pbm command is available while the restore is running!
 `,
 				r.Snapshot, r.Name)
 		}
-		return fmt.Sprintf("Restore of the snapshot from '%s' has started", r.Snapshot)
+		return fmt.Sprintf("\nRestore of the snapshot from '%s' has started", r.Snapshot)
 	case r.PITR != "":
-		return fmt.Sprintf("Restore to the point in time '%s' has started", r.PITR)
-
+		return fmt.Sprintf("\nRestore to the point in time '%s' has started", r.PITR)
 	default:
 		return ""
 	}
@@ -485,13 +485,8 @@ func doRestore(
 		}
 		err = yaml.UnmarshalStrict(buf, &cmd.Restore.ExtConf)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+			return nil, errors.Wrap(err, "unable to unmarshal config file")
 		}
-	}
-
-	err = sendCmd(ctx, conn, cmd)
-	if err != nil {
-		return nil, errors.Wrap(err, "send command")
 	}
 
 	if outf != outText {
@@ -513,7 +508,23 @@ func doRestore(
 	if o.pitr != "" {
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
-	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
+
+	fmt.Println("Restore:")
+	fmt.Printf(" - %s%s%s\n", name, pitrs, bcpName)
+
+	if !o.confirmYes {
+		err := util.AskConfirmation("Are you sure you want to restore this backup?")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = sendCmd(ctx, conn, cmd)
+	if err != nil {
+		return nil, errors.Wrap(err, "send command")
+	}
+
+	fmt.Printf("Starting restore")
 
 	var (
 		fn     getRestoreMetaFn
