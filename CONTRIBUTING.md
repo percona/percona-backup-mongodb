@@ -104,7 +104,7 @@ To save time on tests execution during development, we recommend running  genera
 $ MONGODB_VERSION=8.0 ./run-sharded
 ```
 
-``$ MONGODB_VERSION`` stands for the Percona Server for MongoDB version Percona Backup for MongoDB is running with. Default is 5.0.
+``$ MONGODB_VERSION`` stands for the Percona Server for MongoDB version Percona Backup for MongoDB is running with. Default is 8.0.
 
 After the development is complete and you are ready to submit a pull request, run all tests using the following command:
 
