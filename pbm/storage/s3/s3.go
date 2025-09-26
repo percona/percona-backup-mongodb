@@ -33,8 +33,6 @@ import (
 )
 
 const (
-	// GCSEndpointURL is the endpoint url for Google Clound Strage service
-	GCSEndpointURL        = "storage.googleapis.com"
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 	defaultS3Region       = "us-east-1"
 
