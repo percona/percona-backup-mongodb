@@ -324,7 +324,14 @@ func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
 		return nil, errors.Wrap(err, "download object")
 	}
 
-	return o.Body, nil
+	rr := o.NewRetryReader(context.TODO(), &azblob.RetryReaderOptions{
+		EarlyCloseAsError: true,
+		OnFailedRead: func(failureCount int32, lastError error, rnge azblob.HTTPRange, willRetry bool) {
+			// failureCount is reset on each call to Read(), so repeats of "attempt 1" are expected
+			b.log.Debug("Read from Azure failed (attempt %d): %v, retrying: %v", failureCount, lastError, willRetry)
+		},
+	})
+	return rr, nil
 }
 
 func (b *Blob) Delete(name string) error {
