@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultS3Region       = "ap-southeast-5"
+	defaultS3Region       = "us-east-1"
 	maxPart         int32 = 10000
 
 	defaultRetryMaxAttempts       = 5
@@ -20,7 +20,7 @@ const (
 	defaultRetryerMaxBackoff      = 300 * time.Second
 	defaultSessionDurationSeconds = 3600
 	defaultConnectTimeout         = 5 * time.Second
-	defaultMaxObjSizeGB = 48800 // 48.8 TB
+	defaultMaxObjSizeGB           = 48700 // 48.8 TB
 )
 
 //nolint:lll
@@ -108,6 +108,10 @@ func (cfg *Config) Clone() *Config {
 	if cfg.Retryer != nil {
 		v := *cfg.Retryer
 		rv.Retryer = &v
+	}
+	if cfg.ServerSideEncryption != nil {
+		a := *cfg.ServerSideEncryption
+		rv.ServerSideEncryption = &a
 	}
 	return &rv
 }

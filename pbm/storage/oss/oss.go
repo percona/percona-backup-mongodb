@@ -38,7 +38,7 @@ func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 		log:    l,
 		ossCli: client,
 	}
-	
+
 	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
 }
 
@@ -59,12 +59,6 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 		if err := opt(opts); err != nil {
 			return errors.Wrap(err, "processing options for save")
 		}
-	}
-
-	if opts.Size > 0 {
-		o.log.Debug("uploading %s with size %d", name, opts.Size)
-	} else {
-		o.log.Debug("uploading %s", name)
 	}
 
 	req := &oss.PutObjectRequest{
@@ -88,11 +82,20 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 
 	partSize := storage.ComputePartSize(
 		opts.Size,
-		o.cfg.UploadPartSize,
+		oss.DefaultUploadPartSize,
 		oss.MinPartSize,
 		int64(o.cfg.MaxUploadParts),
 		int64(o.cfg.UploadPartSize),
 	)
+
+	if o.log != nil && opts.UseLogger {
+		o.log.Debug("uploading %q [size hint: %v (%v); part size: %v (%v)]",
+			name,
+			opts.Size,
+			storage.PrettySize(opts.Size),
+			partSize,
+			storage.PrettySize(partSize))
+	}
 
 	uploader := oss.NewUploader(o.ossCli, func(uo *oss.UploaderOptions) {
 		uo.PartSize = partSize
