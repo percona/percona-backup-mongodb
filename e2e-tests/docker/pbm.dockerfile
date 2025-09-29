@@ -1,4 +1,4 @@
-ARG MONGODB_VERSION=6.0
+ARG MONGODB_VERSION=8.0
 ARG MONGODB_IMAGE=perconalab/percona-server-mongodb
 
 FROM ${MONGODB_IMAGE}:${MONGODB_VERSION} AS mongo_image
