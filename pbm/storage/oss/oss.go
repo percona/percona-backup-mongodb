@@ -200,6 +200,10 @@ func (o *OSS) List(prefix, suffix string) ([]storage.FileInfo, error) {
 // Delete deletes given file.
 // It returns storage.ErrNotExist if a file doesn't exists.
 func (o *OSS) Delete(name string) error {
+	if _, err := o.FileStat(name); err == storage.ErrNotExist {
+		return err
+	}
+
 	key := path.Join(o.cfg.Prefix, name)
 	_, err := o.ossCli.DeleteObject(context.Background(), &oss.DeleteObjectRequest{
 		Bucket: oss.Ptr(o.cfg.Bucket),
