@@ -28,7 +28,7 @@ services:
       dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
@@ -41,7 +41,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     hostname: rs101
     labels:
@@ -51,7 +51,7 @@ services:
       - MONGO_USER=dba
       - BACKUP_USER=bcp
       - MONGO_PASS=test1234
-      - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+      - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
     command: mongod --replSet rs1 --directoryperdb --port 27017 --dbpath=/data/db/ --storageEngine wiredTiger --keyFile /opt/keyFile --wiredTigerCacheSizeGB 1
     volumes:
       - data-rs101:/data/db
@@ -61,7 +61,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     hostname: rs102
     labels:
@@ -74,7 +74,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     hostname: rs103
     labels:
@@ -98,7 +98,7 @@ services:
       dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
@@ -123,7 +123,7 @@ services:
       dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     command: pbm-agent
     cap_add:
@@ -147,7 +147,7 @@ services:
       dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     command: pbm-agent
     cap_add:

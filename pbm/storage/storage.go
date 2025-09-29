@@ -30,6 +30,7 @@ const (
 	Blackhole  Type = "blackhole"
 	GCS        Type = "gcs"
 	Minio      Type = "minio"
+	OSS        Type = "oss"
 )
 
 type FileInfo struct {
@@ -70,6 +71,8 @@ func ParseType(s string) Type {
 		return GCS
 	case string(Minio):
 		return Minio
+	case string(OSS):
+		return OSS
 	default:
 		return Undefined
 	}
