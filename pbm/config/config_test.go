@@ -3,9 +3,11 @@ package config
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/mio"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
@@ -149,6 +151,57 @@ func TestIsSameStorage(t *testing.T) {
 		neq.Path = "z/y/x"
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different bucket: cfg=%+v, eq=%+v", cfg, neq)
+		}
+	})
+
+	t.Run("minio", func(t *testing.T) {
+		cfg := &mio.Config{
+			Region:      "eu",
+			EndpointURL: "ep.com",
+			Bucket:      "b1",
+			Prefix:      "p1",
+			Credentials: mio.Credentials{
+				AccessKeyID:     "k1",
+				SecretAccessKey: "k2",
+				SessionToken:    "sess",
+			},
+			Secure:    true,
+			ChunkSize: 6 << 20,
+			Retryer:   &mio.Retryer{},
+		}
+		eq := &mio.Config{
+			Region:      "eu",
+			EndpointURL: "ep.com",
+			Bucket:      "b1",
+			Prefix:      "p1",
+		}
+		if !cfg.IsSameStorage(eq) {
+			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v, diff=%s",
+				cfg, eq, cmp.Diff(*cfg, *eq))
+		}
+
+		neq := cfg.Clone()
+		neq.Region = "us"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different region: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.EndpointURL = "ep2.com"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different EndpointURL: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.Bucket = "b2"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different bucket: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.Prefix = "p2"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different prefix: cfg=%+v, eq=%+v", cfg, neq)
 		}
 	})
 }

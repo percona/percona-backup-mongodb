@@ -2,6 +2,8 @@ package mio
 
 import (
 	"errors"
+	"maps"
+	"reflect"
 	"time"
 )
 
@@ -38,7 +40,52 @@ type Retryer struct {
 	MaxRetryDelay time.Duration `bson:"maxRetryDelay,omitempty" json:"maxRetryDelay,omitempty" yaml:"maxRetryDelay,omitempty"`
 }
 
+func (cfg *Config) Clone() *Config {
+	if cfg == nil {
+		return nil
+	}
 
+	c := *cfg
+	c.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		c.MaxObjSizeGB = &v
+	}
+	if cfg.Retryer != nil {
+		v := *cfg.Retryer
+		c.Retryer = &v
+	}
+
+	return &c
+}
+
+func (cfg *Config) Equal(other *Config) bool {
+	return reflect.DeepEqual(cfg, other)
+}
+
+// IsSameStorage identifies the same instance of the minio storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Region != other.Region {
+		return false
+	}
+	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
+		return false
+	}
+	if cfg.Bucket != other.Bucket {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	return true
+}
 
 func (cfg *Config) Cast() error {
 	if cfg.EndpointURL == "" {
