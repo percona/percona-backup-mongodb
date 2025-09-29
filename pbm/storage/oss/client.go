@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	defaultS3Region       = "us-east-1"
-	maxPart         int32 = 10000
+	defaultOSSRegion       = "us-east-1"
+	maxPart          int32 = 10000
 
 	defaultRetryMaxAttempts       = 5
 	defaultRetryBaseDelay         = 30 * time.Millisecond
@@ -64,7 +64,7 @@ type Credentials struct {
 
 func (cfg *Config) Cast() error {
 	if cfg.Region == "" {
-		cfg.Region = defaultS3Region
+		cfg.Region = defaultOSSRegion
 	}
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = defaultConnectTimeout
