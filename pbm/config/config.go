@@ -26,6 +26,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/mio"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -142,6 +143,17 @@ func (c *Config) String() string {
 			c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
 		}
 	}
+	if c.Storage.Minio != nil {
+		if c.Storage.Minio.Credentials.AccessKeyID != "" {
+			c.Storage.Minio.Credentials.AccessKeyID = "***"
+		}
+		if c.Storage.Minio.Credentials.SecretAccessKey != "" {
+			c.Storage.Minio.Credentials.SecretAccessKey = "***"
+		}
+		if c.Storage.Minio.Credentials.SessionToken != "" {
+			c.Storage.Minio.Credentials.SessionToken = "***"
+		}
+	}
 	if c.Storage.Azure != nil {
 		if c.Storage.Azure.Credentials.Key != "" {
 			c.Storage.Azure.Credentials.Key = "***"
@@ -236,6 +248,7 @@ func (cfg *PITRConf) Clone() *PITRConf {
 type StorageConf struct {
 	Type       storage.Type  `bson:"type" json:"type" yaml:"type"`
 	S3         *s3.Config    `bson:"s3,omitempty" json:"s3,omitempty" yaml:"s3,omitempty"`
+	Minio      *mio.Config   `bson:"minio,omitempty" json:"minio,omitempty" yaml:"minio,omitempty"`
 	GCS        *gcs.Config   `bson:"gcs,omitempty" json:"gcs,omitempty" yaml:"gcs,omitempty"`
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
@@ -256,6 +269,8 @@ func (s *StorageConf) Clone() *StorageConf {
 		rv.Filesystem = s.Filesystem.Clone()
 	case storage.S3:
 		rv.S3 = s.S3.Clone()
+	case storage.Minio:
+		rv.Minio = s.Minio.Clone()
 	case storage.Azure:
 		rv.Azure = s.Azure.Clone()
 	case storage.GCS:
@@ -276,6 +291,8 @@ func (s *StorageConf) Equal(other *StorageConf) bool {
 	switch s.Type {
 	case storage.S3:
 		return s.S3.Equal(other.S3)
+	case storage.Minio:
+		return s.Minio.Equal(other.Minio)
 	case storage.Azure:
 		return s.Azure.Equal(other.Azure)
 	case storage.GCS:
@@ -301,6 +318,8 @@ func (s *StorageConf) IsSameStorage(other *StorageConf) bool {
 	switch s.Type {
 	case storage.S3:
 		return s.S3.IsSameStorage(other.S3)
+	case storage.Minio:
+		return s.Minio.IsSameStorage(other.Minio)
 	case storage.Azure:
 		return s.Azure.IsSameStorage(other.Azure)
 	case storage.GCS:
@@ -320,6 +339,8 @@ func (s *StorageConf) Cast() error {
 		return s.Filesystem.Cast()
 	case storage.S3:
 		return s.S3.Cast()
+	case storage.Minio:
+		return s.Minio.Cast()
 	case storage.OSS:
 		return s.OSS.Cast()
 	case storage.GCS:
@@ -337,6 +358,8 @@ func (s *StorageConf) Typ() string {
 	switch s.Type {
 	case storage.S3:
 		return "S3"
+	case storage.Minio:
+		return "Minio"
 	case storage.Azure:
 		return "Azure"
 	case storage.GCS:
@@ -367,6 +390,19 @@ func (s *StorageConf) Path() string {
 		}
 		if s.S3.Prefix != "" {
 			path += "/" + s.S3.Prefix
+		}
+	case storage.Minio:
+		path = s.Minio.EndpointURL
+		if path == "" {
+			path = "minio://" + s.Minio.Bucket
+		} else {
+			if !strings.Contains(path, "://") {
+				path = "minio://" + path
+			}
+			path += "/" + s.Minio.Bucket
+		}
+		if s.Minio.Prefix != "" {
+			path += "/" + s.Minio.Prefix
 		}
 	case storage.Azure:
 		epURL := s.Azure.EndpointURL
