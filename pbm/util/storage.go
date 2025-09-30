@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/mio"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -27,6 +28,8 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 	switch cfg.Type {
 	case storage.S3:
 		return s3.New(cfg.S3, node, l)
+	case storage.Minio:
+		return mio.New(cfg.Minio, node, l)
 	case storage.Azure:
 		return azure.New(cfg.Azure, node, l)
 	case storage.Filesystem:
@@ -53,6 +56,9 @@ func StorageWithDownloaderFromConfig(
 	switch cfg.Type {
 	case storage.S3:
 		return s3.NewWithDownloader(cfg.S3, node, l,
+			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
+	case storage.Minio:
+		return mio.NewWithDownloader(cfg.Minio, node, l,
 			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
 	case storage.GCS:
 		return gcs.NewWithDownloader(cfg.GCS, node, l,
