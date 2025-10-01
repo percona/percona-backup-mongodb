@@ -207,17 +207,21 @@ func (m *Minio) FileStat(name string) (storage.FileInfo, error) {
 func (m *Minio) List(prefix, suffix string) ([]storage.FileInfo, error) {
 	ctx := context.Background()
 
-	var files []storage.FileInfo
+	prfx := path.Join(m.cfg.Prefix, prefix)
+	if prfx != "" && !strings.HasSuffix(prfx, "/") {
+		prfx += "/"
+	}
 
+	var files []storage.FileInfo
 	for obj := range m.cl.ListObjects(ctx, m.cfg.Bucket, minio.ListObjectsOptions{
-		Prefix:    prefix,
+		Prefix:    prfx,
 		Recursive: true,
 	}) {
 		if obj.Err != nil {
 			return nil, errors.Wrap(obj.Err, "list using minio")
 		}
 
-		name := strings.TrimPrefix(obj.Key, prefix)
+		name := strings.TrimPrefix(obj.Key, prfx)
 		if len(name) > 0 && name[0] == '/' {
 			name = name[1:]
 		}
@@ -236,6 +240,10 @@ func (m *Minio) List(prefix, suffix string) ([]storage.FileInfo, error) {
 }
 
 func (m *Minio) Delete(name string) error {
+	if _, err := m.FileStat(name); err == storage.ErrNotExist {
+		return err
+	}
+
 	ctx := context.Background()
 	objName := path.Join(m.cfg.Prefix, name)
 
@@ -253,8 +261,11 @@ func (m *Minio) Delete(name string) error {
 }
 
 func (m *Minio) Copy(src, dst string) error {
-	ctx := context.Background()
+	if _, err := m.FileStat(src); err == storage.ErrNotExist {
+		return err
+	}
 
+	ctx := context.Background()
 	_, err := m.cl.CopyObject(ctx,
 		minio.CopyDestOptions{
 			Bucket: m.cfg.Bucket,
