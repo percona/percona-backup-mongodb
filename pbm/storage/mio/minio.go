@@ -116,10 +116,13 @@ func new(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
 		Secure:     cfg.Secure,
 		Region:     cfg.Region,
 		MaxRetries: cfg.Retryer.NumMaxRetries,
-		// Trace: *httptrace.ClientTrace,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "minio session")
+	}
+
+	if cfg.DebugTrace {
+		cl.TraceOn(l.GetLogger())
 	}
 
 	return &Minio{

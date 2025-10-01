@@ -15,6 +15,7 @@ type Config struct {
 	Prefix         string            `bson:"prefix" json:"prefix" yaml:"prefix"`
 	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
 	Secure         bool              `bson:"secure" json:"secure" yaml:"secure"`
+	DebugTrace     bool              `bson:"debugTrace,omitempty" json:"debugTrace,omitempty" yaml:"debugTrace,omitempty"`
 
 	ChunkSize    int64    `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
 	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
