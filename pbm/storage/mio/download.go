@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/v7"
+
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -35,7 +36,7 @@ func (m *Minio) SourceReader(name string) (io.ReadCloser, error) {
 
 func (m *Minio) sourceReader(fname string, arenas []*storage.Arena, cc, downloadChuckSize int) (io.ReadCloser, error) {
 	if cc < 1 {
-		return nil, errors.Errorf("num of workers shuld be at least 1 (got %d)", cc)
+		return nil, errors.Errorf("num of workers should be at least 1 (got %d)", cc)
 	}
 	if len(arenas) < cc {
 		return nil, errors.Errorf("num of arenas (%d) less then workers (%d)", len(arenas), cc)
@@ -77,7 +78,7 @@ func (m *Minio) sourceReader(fname string, arenas []*storage.Arena, cc, download
 
 				err := pr.WriteChunk(&rs, w)
 				if err != nil {
-					exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse", rs.Meta.Start, rs.Meta.End)
+					exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from response", rs.Meta.Start, rs.Meta.End)
 					return
 				}
 
@@ -86,7 +87,7 @@ func (m *Minio) sourceReader(fname string, arenas []*storage.Arena, cc, download
 					r := heap.Pop(cqueue).(*storage.Chunk)
 					err := pr.WriteChunk(r, w)
 					if err != nil {
-						exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from resoponse buffer", r.Meta.Start, r.Meta.End)
+						exitErr = errors.Wrapf(err, "SourceReader: copy bytes %d-%d from response buffer", r.Meta.Start, r.Meta.End)
 						return
 					}
 				}

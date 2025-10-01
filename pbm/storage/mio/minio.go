@@ -27,9 +27,6 @@ const (
 	defaultMaxRetries = 10
 )
 
-//todo:
-// update docs
-
 type Minio struct {
 	cfg  *Config
 	node string
@@ -40,7 +37,7 @@ type Minio struct {
 }
 
 func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
-	m, err := new(cfg, node, l)
+	m, err := newMinio(cfg, node, l)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +58,7 @@ func NewWithDownloader(
 	cfg *Config, node string, l log.LogEvent,
 	cc, bufSizeMb, spanSizeMb int,
 ) (storage.Storage, error) {
-	m, err := new(cfg, node, l)
+	m, err := newMinio(cfg, node, l)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +82,7 @@ func NewWithDownloader(
 	return storage.NewSplitMergeMW(m, cfg.GetMaxObjSizeGB()), nil
 }
 
-func new(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
+func newMinio(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
 	if err := cfg.Cast(); err != nil {
 		return nil, errors.Wrap(err, "set defaults")
 	}

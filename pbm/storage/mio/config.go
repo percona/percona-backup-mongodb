@@ -6,6 +6,7 @@ import (
 	"reflect"
 )
 
+//nolint:lll
 type Config struct {
 	Region         string            `bson:"region" json:"region" yaml:"region"`
 	EndpointURL    string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`

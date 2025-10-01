@@ -27,7 +27,6 @@ func TestMinio(t *testing.T) {
 	}
 
 	bucketName := "test-bucket-mio"
-	//todo: add https test
 	epTC, err := minioContainer.Endpoint(ctx, "http")
 	if err != nil {
 		t.Fatalf("failed to get endpoint: %s", err)
