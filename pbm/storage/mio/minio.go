@@ -6,7 +6,6 @@ import (
 	"path"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -25,10 +24,11 @@ const (
 	// minio allows 50TiB, sensibile default is aligned with S3
 	defaultMaxObjSizeGB = 5018 // 4.9 TB
 
-	defaultMaxRetries           = 10
-	defaultRetryerMinRetryDelay = 200 * time.Millisecond
-	defaultRetryerMaxRetryDelay = 1 * time.Second
+	defaultMaxRetries = 10
 )
+
+//todo:
+// update docs
 
 type Minio struct {
 	cfg  *Config
@@ -107,9 +107,6 @@ func new(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
 			cfg.Credentials.SessionToken,
 		)
 	}
-
-	minio.DefaultRetryUnit = cfg.Retryer.MinRetryDelay
-	minio.DefaultRetryCap = cfg.Retryer.MaxRetryDelay
 
 	cl, err := minio.New(cfg.resolveEndpointURL(n), &minio.Options{
 		Creds:      creds,

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"maps"
 	"reflect"
-	"time"
 )
 
 type Config struct {
@@ -33,12 +32,6 @@ type Credentials struct {
 type Retryer struct {
 	// Num max Retries is the number of max retries that will be performed.
 	NumMaxRetries int `bson:"numMaxRetries,omitempty" json:"numMaxRetries,omitempty" yaml:"numMaxRetries,omitempty"`
-
-	// MinRetryDelay is the minimum retry delay after which retry will be performed.
-	MinRetryDelay time.Duration `bson:"minRetryDelay,omitempty" json:"minRetryDelay,omitempty" yaml:"minRetryDelay,omitempty"`
-
-	// MaxRetryDelay is the maximum retry delay before which retry must be performed.
-	MaxRetryDelay time.Duration `bson:"maxRetryDelay,omitempty" json:"maxRetryDelay,omitempty" yaml:"maxRetryDelay,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -100,18 +93,10 @@ func (cfg *Config) Cast() error {
 	if cfg.Retryer == nil {
 		cfg.Retryer = &Retryer{
 			NumMaxRetries: defaultMaxRetries,
-			MinRetryDelay: defaultRetryerMinRetryDelay,
-			MaxRetryDelay: defaultRetryerMaxRetryDelay,
 		}
 	} else {
 		if cfg.Retryer.NumMaxRetries == 0 {
 			cfg.Retryer.NumMaxRetries = defaultMaxRetries
-		}
-		if cfg.Retryer.MinRetryDelay == 0 {
-			cfg.Retryer.MinRetryDelay = defaultRetryerMinRetryDelay
-		}
-		if cfg.Retryer.MaxRetryDelay == 0 {
-			cfg.Retryer.MaxRetryDelay = defaultRetryerMaxRetryDelay
 		}
 	}
 

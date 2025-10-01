@@ -3,7 +3,6 @@ package mio
 import (
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 )
@@ -26,8 +25,6 @@ func TestClone(t *testing.T) {
 		MaxObjSizeGB: &f,
 		Retryer: &Retryer{
 			NumMaxRetries: 1,
-			MinRetryDelay: time.Second,
-			MaxRetryDelay: time.Minute,
 		},
 	}
 
@@ -61,8 +58,6 @@ func TestEqual(t *testing.T) {
 		MaxObjSizeGB: &f,
 		Retryer: &Retryer{
 			NumMaxRetries: 1,
-			MinRetryDelay: time.Second,
-			MaxRetryDelay: time.Minute,
 		},
 	}
 
@@ -90,8 +85,6 @@ func TestCast(t *testing.T) {
 		ChunkSize:   defaultPartSize,
 		Retryer: &Retryer{
 			NumMaxRetries: defaultMaxRetries,
-			MinRetryDelay: defaultRetryerMinRetryDelay,
-			MaxRetryDelay: defaultRetryerMaxRetryDelay,
 		},
 	}
 
