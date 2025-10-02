@@ -227,7 +227,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "oplog")
 	}
 
-  l.Info("checking last write timestamp on this node")
+	l.Info("checking last write timestamp on this node")
 	err = SetRSLastWrite(b.leadConn, bcp.Name, rsMeta.Name, lastSavedTS)
 	if err != nil {
 		return errors.Wrap(err, "set shard's last write ts")
