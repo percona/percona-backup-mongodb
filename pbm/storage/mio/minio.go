@@ -144,7 +144,7 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 		defaultPartSize,
 		minPartSize,
 		maxUploadParts,
-		m.cfg.ChunkSize,
+		m.cfg.PartSize,
 	)
 
 	if m.log != nil && opts.UseLogger {

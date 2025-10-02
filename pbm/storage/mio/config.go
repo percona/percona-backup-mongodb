@@ -17,7 +17,7 @@ type Config struct {
 	Secure         bool              `bson:"secure" json:"secure" yaml:"secure"`
 	DebugTrace     bool              `bson:"debugTrace,omitempty" json:"debugTrace,omitempty" yaml:"debugTrace,omitempty"`
 
-	ChunkSize    int64    `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	PartSize     int64    `bson:"partSize,omitempty" json:"partSize,omitempty" yaml:"partSize,omitempty"`
 	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
@@ -87,8 +87,8 @@ func (cfg *Config) Cast() error {
 		return errors.New("endpointURL cannot be empty")
 	}
 
-	if cfg.ChunkSize == 0 {
-		cfg.ChunkSize = defaultPartSize
+	if cfg.PartSize == 0 {
+		cfg.PartSize = defaultPartSize
 	}
 
 	if cfg.Retryer == nil {

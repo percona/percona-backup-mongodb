@@ -21,7 +21,7 @@ func TestClone(t *testing.T) {
 			SessionToken:    "sess",
 		},
 		Secure:       true,
-		ChunkSize:    6 << 20,
+		PartSize:     6 << 20,
 		MaxObjSizeGB: &f,
 		Retryer: &Retryer{
 			NumMaxRetries: 1,
@@ -54,7 +54,7 @@ func TestEqual(t *testing.T) {
 			SessionToken:    "sess",
 		},
 		Secure:       true,
-		ChunkSize:    6 << 20,
+		PartSize:     6 << 20,
 		MaxObjSizeGB: &f,
 		Retryer: &Retryer{
 			NumMaxRetries: 1,
@@ -82,7 +82,7 @@ func TestCast(t *testing.T) {
 	}
 	want := &Config{
 		EndpointURL: "url",
-		ChunkSize:   defaultPartSize,
+		PartSize:    defaultPartSize,
 		Retryer: &Retryer{
 			NumMaxRetries: defaultMaxRetries,
 		},

@@ -167,7 +167,7 @@ func TestIsSameStorage(t *testing.T) {
 				SessionToken:    "sess",
 			},
 			Secure:    true,
-			ChunkSize: 6 << 20,
+			PartSize: 6 << 20,
 			Retryer:   &mio.Retryer{},
 		}
 		eq := &mio.Config{
