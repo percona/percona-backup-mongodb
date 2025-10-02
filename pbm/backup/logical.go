@@ -233,7 +233,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "set shard's last write ts")
 	}
 
-  l.Info("checking last common write timestamp across all nodes")
+	l.Info("checking last common write timestamp across all nodes")
 	if inf.IsLeader() {
 		err = b.setClusterLastWrite(ctx, bcp.Name)
 		if err != nil {
