@@ -214,7 +214,7 @@ func (b *Backup) doLogical(
 			return errors.Wrap(err, "check cluster for dump done")
 		}
 	} else {
-	  l.Info("waiting for leader to validate dump done on all nodes")
+		l.Info("waiting for leader to validate dump done on all nodes")
 		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "waiting for dump done")
