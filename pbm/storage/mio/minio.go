@@ -2,7 +2,9 @@ package mio
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
+	"net/http"
 	"path"
 	"runtime"
 	"strings"
@@ -83,7 +85,8 @@ func NewWithDownloader(
 }
 
 func newMinio(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
-	if err := cfg.Cast(); err != nil {
+	err := cfg.Cast()
+	if err != nil {
 		return nil, errors.Wrap(err, "set defaults")
 	}
 	if l == nil {
@@ -105,11 +108,22 @@ func newMinio(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
 		)
 	}
 
+	var transport http.RoundTripper
+	if cfg.InsecureSkipTLSVerify {
+		tr, err := minio.DefaultTransport(cfg.Secure)
+		if err != nil {
+			return nil, errors.Wrap(err, "transport for InsecureSkipTLSVerify")
+		}
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		transport = tr
+	}
+
 	cl, err := minio.New(cfg.resolveEndpointURL(n), &minio.Options{
 		Creds:      creds,
 		Secure:     cfg.Secure,
 		Region:     cfg.Region,
 		MaxRetries: cfg.Retryer.NumMaxRetries,
+		Transport:  transport,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "minio session")
