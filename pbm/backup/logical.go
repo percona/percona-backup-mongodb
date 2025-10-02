@@ -208,7 +208,7 @@ func (b *Backup) doLogical(
 	}
 
 	if inf.IsLeader() {
-	  l.Info("checking status of dump on other nodes")
+		l.Info("checking status of dump on other nodes")
 		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDumpDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
