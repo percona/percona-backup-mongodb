@@ -221,7 +221,7 @@ func (b *Backup) doLogical(
 		}
 	}
 
-  l.Info("stopping oplog slicer on this node")
+	l.Info("stopping oplog slicer on this node")
 	lastSavedTS, oplogSize, err := stopOplogSlicer()
 	if err != nil {
 		return errors.Wrap(err, "oplog")
