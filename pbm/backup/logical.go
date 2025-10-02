@@ -200,7 +200,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "generate archive meta v1")
 	}
 
-	l.Info("dump finished, waiting for the oplog")
+	l.Info("dump finished on this node")
 
 	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
 	if err != nil {
@@ -208,27 +208,32 @@ func (b *Backup) doLogical(
 	}
 
 	if inf.IsLeader() {
+	  l.Info("checking status of dump on other nodes")
 		err := b.reconcileStatus(ctx, bcp.Name, opid.String(), defs.StatusDumpDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "check cluster for dump done")
 		}
 	} else {
+	  l.Info("waiting for leader to validate dump done on all nodes")
 		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDumpDone, nil)
 		if err != nil {
 			return errors.Wrap(err, "waiting for dump done")
 		}
 	}
 
+  l.Info("stopping oplog slicer on this node")
 	lastSavedTS, oplogSize, err := stopOplogSlicer()
 	if err != nil {
 		return errors.Wrap(err, "oplog")
 	}
 
+  l.Info("checking last write timestamp on this node")
 	err = SetRSLastWrite(b.leadConn, bcp.Name, rsMeta.Name, lastSavedTS)
 	if err != nil {
 		return errors.Wrap(err, "set shard's last write ts")
 	}
 
+  l.Info("checking last common write timestamp across all nodes")
 	if inf.IsLeader() {
 		err = b.setClusterLastWrite(ctx, bcp.Name)
 		if err != nil {
