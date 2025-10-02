@@ -425,6 +425,19 @@ func (s *StorageConf) Path() string {
 	return path
 }
 
+func (s *StorageConf) Region() string {
+	region := ""
+
+	switch s.Type {
+	case storage.S3:
+		region = s.S3.Region
+	case storage.Minio:
+		region = s.Minio.Region
+	}
+
+	return region
+}
+
 // RestoreConf is config options for the restore
 //
 //nolint:lll
