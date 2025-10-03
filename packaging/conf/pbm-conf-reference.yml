@@ -10,7 +10,12 @@
 
 #storage:
 
-##  Remote backup storage type. Supported types: S3, GCS, shared filesystem, Azure
+##  Remote backup storage type. Supported types:
+##  - S3,
+##  - GCS,
+##  - Minio (for S3 compatible storage),
+##  - shared filesystem,
+##  - Azure
 
 
 #---------------------S3 Storage Configuration--------------------------
@@ -66,6 +71,53 @@
 #        numMaxRetries: 3
 #        minRetryDelay: 30
 #        maxRetryDelay: 5
+#
+## The maximum object size that will be stored on the storage
+#      maxObjSizeGB: 5018
+#
+
+#---------------------Minio Storage Configuration--------------------------
+#  type:
+#    minio:
+
+## Specify the location and name of the bucket that you have configured on the storage
+#      region:
+#      bucket:
+
+## The data directory to store backups in.
+## When undefined, backups are saved at the root of the bucket.
+#      prefix:
+
+## An optional custom URL to access the bucket. Useful for S3-compatible storage (e.g. MinIO)
+#      endpointUrl:
+
+#
+##  Use https
+#      secure: true
+
+## Allow PBM to upload data to storage with self-issued TLS certificates.
+## Use it with caution as it might leave a hole for man-in-the-middle attacks.
+#      insecureSkipTLSVerify: false
+
+## Enable path-style URL, by default it uses virtual-hosted style
+#      forcePathStyle: false
+
+## Access credentials
+#      credentials:
+#        access-key-id:
+#        secret-access-key:
+#        session-token:
+#        signature-ver: V4
+
+## The size of data chunks in bytes to be uploaded to the storage bucket in a single request.
+#      partSize: 10485760
+
+## Enable debug trace of HTTP communication
+#      debugTrace: true
+
+## Retry upload configuration options.
+#      retryer:
+#        numMaxRetries: 3
 #
 ## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 5018
