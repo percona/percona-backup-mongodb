@@ -24,7 +24,8 @@ type Config struct {
 
 	// InsecureSkipTLSVerify disables client verification of the server's
 	// certificate chain and host name
-	InsecureSkipTLSVerify bool `bson:"insecureSkipTLSVerify" json:"insecureSkipTLSVerify" yaml:"insecureSkipTLSVerify"`
+	InsecureSkipTLSVerify bool  `bson:"insecureSkipTLSVerify" json:"insecureSkipTLSVerify" yaml:"insecureSkipTLSVerify"`
+	ForcePathStyle        *bool `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
 }
 
 type Credentials struct {
@@ -49,6 +50,10 @@ func (cfg *Config) Clone() *Config {
 	if cfg.MaxObjSizeGB != nil {
 		v := *cfg.MaxObjSizeGB
 		c.MaxObjSizeGB = &v
+	}
+	if cfg.ForcePathStyle != nil {
+		v := *cfg.ForcePathStyle
+		c.ForcePathStyle = &v
 	}
 	if cfg.Retryer != nil {
 		v := *cfg.Retryer

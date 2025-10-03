@@ -118,12 +118,22 @@ func newMinio(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
 		transport = tr
 	}
 
+	bucketLookup := minio.BucketLookupAuto
+	if cfg.ForcePathStyle != nil {
+		if *cfg.ForcePathStyle {
+			bucketLookup = minio.BucketLookupPath
+		} else {
+			bucketLookup = minio.BucketLookupDNS
+		}
+	}
+
 	cl, err := minio.New(cfg.resolveEndpointURL(n), &minio.Options{
-		Creds:      creds,
-		Secure:     cfg.Secure,
-		Region:     cfg.Region,
-		MaxRetries: cfg.Retryer.NumMaxRetries,
-		Transport:  transport,
+		Creds:        creds,
+		Secure:       cfg.Secure,
+		Region:       cfg.Region,
+		MaxRetries:   cfg.Retryer.NumMaxRetries,
+		Transport:    transport,
+		BucketLookup: bucketLookup,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "minio session")
