@@ -91,10 +91,16 @@
 ## An optional custom URL to access the bucket. Useful for S3-compatible storage (e.g. MinIO)
 #      endpointUrl:
 
-# add url map
 #
 ##  Use https
 #      secure: true
+
+## Allow PBM to upload data to storage with self-issued TLS certificates.
+## Use it with caution as it might leave a hole for man-in-the-middle attacks.
+#      insecureSkipTLSVerify: false
+
+## Enable path-style URL, by default it uses virtual-hosted style
+#      forcePathStyle: false
 
 ## Access credentials
 #      credentials:
@@ -105,9 +111,6 @@
 
 ## The size of data chunks in bytes to be uploaded to the storage bucket in a single request.
 #      partSize: 10485760
-
-## Data upload configuration
-#      maxUploadParts: 10,000
 
 ## Enable debug trace of HTTP communication
 #      debugTrace: true
