@@ -200,7 +200,7 @@ func (b *Backup) doLogical(
 		return errors.Wrap(err, "generate archive meta v1")
 	}
 
-    l.Info("dump finished for RS: %s", b.brief.SetName)
+	l.Info("dump finished for RS: %s", b.brief.SetName)
 
 	err = ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, defs.StatusDumpDone, "")
 	if err != nil {
