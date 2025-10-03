@@ -392,7 +392,7 @@ func (s *StorageConf) Path() string {
 			path += "/" + s.S3.Prefix
 		}
 	case storage.Minio:
-		path = s.Minio.EndpointURL
+		path = s.Minio.Endpoint
 		if path == "" {
 			path = "minio://" + s.Minio.Bucket
 		} else {

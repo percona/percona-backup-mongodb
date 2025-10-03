@@ -157,24 +157,24 @@ func TestIsSameStorage(t *testing.T) {
 
 	t.Run("minio", func(t *testing.T) {
 		cfg := &mio.Config{
-			Region:      "eu",
-			EndpointURL: "ep.com",
-			Bucket:      "b1",
-			Prefix:      "p1",
+			Region:   "eu",
+			Endpoint: "ep.com",
+			Bucket:   "b1",
+			Prefix:   "p1",
 			Credentials: mio.Credentials{
 				AccessKeyID:     "k1",
 				SecretAccessKey: "k2",
 				SessionToken:    "sess",
 			},
-			Secure:    true,
+			Secure:   true,
 			PartSize: 6 << 20,
-			Retryer:   &mio.Retryer{},
+			Retryer:  &mio.Retryer{},
 		}
 		eq := &mio.Config{
-			Region:      "eu",
-			EndpointURL: "ep.com",
-			Bucket:      "b1",
-			Prefix:      "p1",
+			Region:   "eu",
+			Endpoint: "ep.com",
+			Bucket:   "b1",
+			Prefix:   "p1",
 		}
 		if !cfg.IsSameStorage(eq) {
 			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v, diff=%s",
@@ -188,7 +188,7 @@ func TestIsSameStorage(t *testing.T) {
 		}
 
 		neq = cfg.Clone()
-		neq.EndpointURL = "ep2.com"
+		neq.Endpoint = "ep2.com"
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different EndpointURL: cfg=%+v, eq=%+v", cfg, neq)
 		}

@@ -38,17 +38,17 @@ func TestMinio(t *testing.T) {
 	epMinio := u.Host
 
 	cfg := &Config{
-		EndpointURL: epMinio,
-		Bucket:      bucketName,
-		Prefix:      "p1",
-		Secure:      false,
+		Endpoint: epMinio,
+		Bucket:   bucketName,
+		Prefix:   "p1",
+		Secure:   false,
 		Credentials: Credentials{
 			SigVer:          "V4",
 			AccessKeyID:     "minioadmin",
 			SecretAccessKey: "minioadmin",
 		},
 	}
-	minioCl, err := minio.New(cfg.EndpointURL, &minio.Options{
+	minioCl, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.Credentials.AccessKeyID, cfg.Credentials.SecretAccessKey, ""),
 		Secure: false,
 	})
@@ -72,7 +72,7 @@ func TestMinio(t *testing.T) {
 	t.Run("with downloader", func(t *testing.T) {
 		stg, err := NewWithDownloader(cfg, "node", nil, 0, 0, 0)
 		if err != nil {
-			t.Fatalf("failed to create s3 storage: %s", err)
+			t.Fatalf("failed to create minio storage: %s", err)
 		}
 
 		storage.RunStorageBaseTests(t, stg, storage.Minio)

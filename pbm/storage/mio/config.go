@@ -8,14 +8,14 @@ import (
 
 //nolint:lll
 type Config struct {
-	Region         string            `bson:"region" json:"region" yaml:"region"`
-	EndpointURL    string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
-	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
-	Bucket         string            `bson:"bucket" json:"bucket" yaml:"bucket"`
-	Prefix         string            `bson:"prefix" json:"prefix" yaml:"prefix"`
-	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
-	Secure         bool              `bson:"secure" json:"secure" yaml:"secure"`
-	DebugTrace     bool              `bson:"debugTrace,omitempty" json:"debugTrace,omitempty" yaml:"debugTrace,omitempty"`
+	Region      string            `bson:"region" json:"region" yaml:"region"`
+	Endpoint    string            `bson:"endpoint,omitempty" json:"endpoint" yaml:"endpoint,omitempty"`
+	EndpointMap map[string]string `bson:"endpointMap,omitempty" json:"endpointMap,omitempty" yaml:"endpointMap,omitempty"`
+	Bucket      string            `bson:"bucket" json:"bucket" yaml:"bucket"`
+	Prefix      string            `bson:"prefix" json:"prefix" yaml:"prefix"`
+	Credentials Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	Secure      bool              `bson:"secure" json:"secure" yaml:"secure"`
+	DebugTrace  bool              `bson:"debugTrace,omitempty" json:"debugTrace,omitempty" yaml:"debugTrace,omitempty"`
 
 	PartSize     int64    `bson:"partSize,omitempty" json:"partSize,omitempty" yaml:"partSize,omitempty"`
 	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
@@ -35,7 +35,7 @@ type Credentials struct {
 }
 
 type Retryer struct {
-	// Num max Retries is the number of max retries that will be performed.
+	// NumMaxRetries is the number of max retries that will be performed.
 	NumMaxRetries int `bson:"numMaxRetries,omitempty" json:"numMaxRetries,omitempty" yaml:"numMaxRetries,omitempty"`
 }
 
@@ -45,7 +45,7 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	c := *cfg
-	c.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
+	c.EndpointMap = maps.Clone(cfg.EndpointMap)
 	if cfg.MaxObjSizeGB != nil {
 		v := *cfg.MaxObjSizeGB
 		c.MaxObjSizeGB = &v
@@ -71,10 +71,10 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 	if cfg.Region != other.Region {
 		return false
 	}
-	if cfg.EndpointURL != other.EndpointURL {
+	if cfg.Endpoint != other.Endpoint {
 		return false
 	}
-	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
+	if !maps.Equal(cfg.EndpointMap, other.EndpointMap) {
 		return false
 	}
 	if cfg.Bucket != other.Bucket {
@@ -87,7 +87,7 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 }
 
 func (cfg *Config) Cast() error {
-	if cfg.EndpointURL == "" {
+	if cfg.Endpoint == "" {
 		return errors.New("endpointURL cannot be empty")
 	}
 
@@ -112,8 +112,8 @@ func (cfg *Config) Cast() error {
 // EndpointURL or associated EndpointURLMap configuration fields.
 // If specified EndpointURLMap overrides EndpointURL field.
 func (cfg *Config) resolveEndpointURL(node string) string {
-	ep := cfg.EndpointURL
-	if epm, ok := cfg.EndpointURLMap[node]; ok {
+	ep := cfg.Endpoint
+	if epm, ok := cfg.EndpointMap[node]; ok {
 		ep = epm
 	}
 	return ep

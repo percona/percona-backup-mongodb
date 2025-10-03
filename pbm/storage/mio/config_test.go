@@ -10,11 +10,11 @@ import (
 func TestClone(t *testing.T) {
 	f := 1.1
 	c1 := &Config{
-		Region:         "eu",
-		EndpointURL:    "ep.com",
-		EndpointURLMap: map[string]string{"n1": "ep1", "n2": "ep2"},
-		Bucket:         "b1",
-		Prefix:         "p1",
+		Region:      "eu",
+		Endpoint:    "ep.com",
+		EndpointMap: map[string]string{"n1": "ep1", "n2": "ep2"},
+		Bucket:      "b1",
+		Prefix:      "p1",
 		Credentials: Credentials{
 			AccessKeyID:     "k1",
 			SecretAccessKey: "k2",
@@ -30,7 +30,7 @@ func TestClone(t *testing.T) {
 
 	c2 := c1.Clone()
 
-	if &c1.EndpointURLMap == &c2.EndpointURLMap ||
+	if &c1.EndpointMap == &c2.EndpointMap ||
 		c1.MaxObjSizeGB == c2.MaxObjSizeGB ||
 		c1.Retryer == c2.Retryer {
 		t.Fatal("Deep copy of pointer fields is missing")
@@ -43,11 +43,11 @@ func TestClone(t *testing.T) {
 func TestEqual(t *testing.T) {
 	f := 1.1
 	c1 := &Config{
-		Region:         "eu",
-		EndpointURL:    "ep.com",
-		EndpointURLMap: map[string]string{"n1": "ep1", "n2": "ep2"},
-		Bucket:         "b1",
-		Prefix:         "p1",
+		Region:      "eu",
+		Endpoint:    "ep.com",
+		EndpointMap: map[string]string{"n1": "ep1", "n2": "ep2"},
+		Bucket:      "b1",
+		Prefix:      "p1",
 		Credentials: Credentials{
 			AccessKeyID:     "k1",
 			SecretAccessKey: "k2",
@@ -75,14 +75,14 @@ func TestCast(t *testing.T) {
 		t.Fatal("want error when EndpointURL is not specified")
 	}
 
-	c.EndpointURL = "url"
+	c.Endpoint = "url"
 	err := c.Cast()
 	if err != nil {
 		t.Fatalf("got error during Cast: %v", err)
 	}
 	want := &Config{
-		EndpointURL: "url",
-		PartSize:    defaultPartSize,
+		Endpoint: "url",
+		PartSize: defaultPartSize,
 		Retryer: &Retryer{
 			NumMaxRetries: defaultMaxRetries,
 		},

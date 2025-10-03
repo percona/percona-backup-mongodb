@@ -23,7 +23,7 @@ const (
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 	minPartSize     int64 = 1024 * 1024 * 5  // 5Mb
 
-	// minio allows 50TiB, sensibile default is aligned with S3
+	// minio allows 50TiB, sensible default is aligned with S3
 	defaultMaxObjSizeGB = 5018 // 4.9 TB
 
 	defaultMaxRetries = 10
