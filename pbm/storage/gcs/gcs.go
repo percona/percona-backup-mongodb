@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	GCSEndpointURL      = "storage.googleapis.com"
+	gcsEndpointURL      = "storage.googleapis.com"
 	defaultMaxObjSizeGB = 5018 // 4.9 TB
 )
 

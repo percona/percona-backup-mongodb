@@ -36,7 +36,7 @@ func newHMACClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
 		}
 	}
 
-	minioClient, err := minio.New(GCSEndpointURL, &minio.Options{
+	minioClient, err := minio.New(gcsEndpointURL, &minio.Options{
 		Creds: credentials.NewStaticV2(opts.Credentials.HMACAccessKey, opts.Credentials.HMACSecret, ""),
 	})
 	if err != nil {
