@@ -33,8 +33,6 @@ import (
 )
 
 const (
-	// GCSEndpointURL is the endpoint url for Google Clound Strage service
-	GCSEndpointURL        = "storage.googleapis.com"
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 	defaultS3Region       = "us-east-1"
 
@@ -46,7 +44,6 @@ const (
 
 //nolint:lll
 type Config struct {
-	Provider             string            `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
 	Region               string            `bson:"region,omitempty" json:"region,omitempty" yaml:"region,omitempty"`
 	EndpointURL          string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
 	EndpointURLMap       map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
