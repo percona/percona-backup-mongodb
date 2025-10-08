@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
@@ -204,6 +205,18 @@ func TestIsSameStorage(t *testing.T) {
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different prefix: cfg=%+v, eq=%+v", cfg, neq)
 		}
+	})
+}
+
+func TestCastError(t *testing.T) {
+	t.Run("S3", func(t *testing.T) {
+		cfg := StorageConf{Type: storage.S3}
+
+		err := cfg.Cast()
+		if err == nil {
+			t.Errorf("Cast did not raise an error")
+		}
+
 	})
 }
 

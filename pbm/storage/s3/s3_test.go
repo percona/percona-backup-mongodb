@@ -162,6 +162,17 @@ func TestConfig(t *testing.T) {
 			t.Error("expected not to be equal when updating credentials")
 		}
 	})
+
+	t.Run("Cast succeeds", func(t *testing.T) {
+		if opts.Region != "" {
+			t.Error("Start value is not ''")
+		}
+		opts.Cast()
+
+		if opts.Region != "us-east-1" {
+			t.Error("Default value should be set on Cast")
+		}
+	})
 }
 
 func TestRetryer(t *testing.T) {

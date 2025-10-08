@@ -44,7 +44,7 @@ const (
 
 //nolint:lll
 type Config struct {
-	Region               string            `bson:"region" json:"region" yaml:"region"`
+	Region               string            `bson:"region,omitempty" json:"region,omitempty" yaml:"region,omitempty"`
 	EndpointURL          string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
 	EndpointURLMap       map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
 	ForcePathStyle       *bool             `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
@@ -200,6 +200,9 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 }
 
 func (cfg *Config) Cast() error {
+	if cfg == nil {
+		return errors.New("missing S3 configuration with S3 storage type")
+	}
 	if cfg.Region == "" {
 		cfg.Region = defaultS3Region
 	}
