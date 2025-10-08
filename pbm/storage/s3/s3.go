@@ -201,7 +201,7 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 
 func (cfg *Config) Cast() error {
 	if cfg == nil {
-		return errors.New("Missing S3 configuration with S3 storage type.")
+		return errors.New("missing S3 configuration with S3 storage type")
 	}
 	if cfg.Region == "" {
 		cfg.Region = defaultS3Region
