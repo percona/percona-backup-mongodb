@@ -65,7 +65,7 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 
 func (cfg *Config) Cast() error {
 	if cfg == nil {
-		return errors.New("missing filesystem configuration with filesystem storage type.")
+		return errors.New("missing filesystem configuration with filesystem storage type")
 	}
 	if cfg.Path == "" {
 		return errors.New("path can't be empty")
