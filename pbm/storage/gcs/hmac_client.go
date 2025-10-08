@@ -2,6 +2,9 @@ package gcs
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
+	"hash/crc32"
 	"io"
 	"path"
 	"runtime"
@@ -73,22 +76,30 @@ func (h hmacClient) save(name string, data io.Reader, options ...storage.Option)
 			partSize, storage.PrettySize(partSize))
 	}
 
+	crc := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	dataWithCRC := io.TeeReader(data, crc)
+
 	putOpts := minio.PutObjectOptions{
 		PartSize:   uint64(partSize),
 		NumThreads: uint(max(runtime.NumCPU()/2, 1)),
 	}
-
-	_, err := h.client.PutObject(
+	putInfo, err := h.client.PutObject(
 		context.Background(),
 		h.opts.Bucket,
 		path.Join(h.opts.Prefix, name),
-		data,
+		dataWithCRC,
 		-1,
 		putOpts,
 	)
 	if err != nil {
 		return errors.Wrap(err, "PutObject")
 	}
+
+	localCRC := crcToBase64(crc.Sum32())
+	if putInfo.ChecksumCRC32C != localCRC {
+		return errors.Errorf("wrong CRC after uploading %s", name)
+	}
+
 	return nil
 }
 
@@ -214,4 +225,10 @@ func (h hmacClient) getPartialObject(name string, buf *storage.Arena, start, len
 	}
 
 	return ch, nil
+}
+
+func crcToBase64(v uint32) string {
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, v)
+	return base64.StdEncoding.EncodeToString(buf)
 }
