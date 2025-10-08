@@ -92,6 +92,10 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 }
 
 func (cfg *Config) Cast() error {
+	if cfg == nil {
+		return errors.New("missing minio configuration with minio storage type")
+	}
+
 	if cfg.Endpoint == "" {
 		return errors.New("endpointURL cannot be empty")
 	}

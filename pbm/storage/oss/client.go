@@ -2,6 +2,7 @@ package oss
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -63,6 +64,9 @@ type Credentials struct {
 }
 
 func (cfg *Config) Cast() error {
+	if cfg == nil {
+		return errors.New("missing oss configuration with oss storage type")
+	}
 	if cfg.Region == "" {
 		cfg.Region = defaultOSSRegion
 	}

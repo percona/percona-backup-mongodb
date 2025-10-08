@@ -69,14 +69,19 @@ func TestEqual(t *testing.T) {
 }
 
 func TestCast(t *testing.T) {
-	c := &Config{}
+	var c *Config
+	err := c.Cast()
+	if err == nil {
+		t.Fatal("sigsegv should have happened instead")
+	}
 
+	c = &Config{}
 	if err := c.Cast(); err == nil {
 		t.Fatal("want error when EndpointURL is not specified")
 	}
 
 	c.Endpoint = "url"
-	err := c.Cast()
+	err = c.Cast()
 	if err != nil {
 		t.Fatalf("got error during Cast: %v", err)
 	}
