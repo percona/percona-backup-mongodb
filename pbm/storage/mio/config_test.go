@@ -72,7 +72,7 @@ func TestCast(t *testing.T) {
 	var c *Config
 	err := c.Cast()
 	if err == nil {
-		t.Fatal("sigsegv should happened instead")
+		t.Fatal("sigsegv should have happened instead")
 	}
 
 	c = &Config{}
