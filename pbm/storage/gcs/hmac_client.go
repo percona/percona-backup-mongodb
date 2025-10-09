@@ -97,7 +97,8 @@ func (h hmacClient) save(name string, data io.Reader, options ...storage.Option)
 
 	localCRC := crcToBase64(crc.Sum32())
 	if putInfo.ChecksumCRC32C != localCRC {
-		return errors.Errorf("wrong CRC after uploading %s", name)
+		return errors.Errorf("wrong CRC after uploading %s, GCS: %s, PBM: %s",
+			name, putInfo.ChecksumCRC32C, localCRC)
 	}
 
 	return nil
