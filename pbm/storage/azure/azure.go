@@ -25,8 +25,7 @@ import (
 const (
 	BlobURL = "https://%s.blob.core.windows.net"
 
-	defaultUploadBuff    = 10 << 20 // 10Mb
-	defaultUploadMaxBuff = 5
+	defaultUploadBuff = 10 << 20 // 10Mb
 
 	defaultRetries = 10
 
@@ -180,10 +179,7 @@ func (b *Blob) Save(name string, data io.Reader, options ...storage.Option) erro
 		}
 	}
 
-	cc := runtime.NumCPU() / 2
-	if cc == 0 {
-		cc = 1
-	}
+	cc := max(runtime.NumCPU()/2, 1)
 
 	if b.log != nil && opts.UseLogger {
 		b.log.Debug("BufferSize is set to %d (~%dMb) | %d", bufsz, bufsz>>20, opts.Size)
