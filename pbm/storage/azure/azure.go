@@ -156,7 +156,7 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 		return nil, errors.Wrap(err, "init container")
 	}
 
-	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeGB()), b.ensureContainer()
+	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeGB()), nil
 }
 
 func (*Blob) Type() storage.Type {
@@ -340,22 +340,6 @@ func (b *Blob) Delete(name string) error {
 	}
 
 	return nil
-}
-
-func (b *Blob) ensureContainer() error {
-	_, err := b.c.ServiceClient().NewContainerClient(b.opts.Container).GetProperties(context.TODO(), nil)
-	// container already exists
-	if err == nil {
-		return nil
-	}
-
-	var stgErr *azcore.ResponseError
-	if errors.As(err, &stgErr) && stgErr.StatusCode != http.StatusNotFound {
-		return errors.Wrap(err, "check container")
-	}
-
-	_, err = b.c.CreateContainer(context.TODO(), b.opts.Container, nil)
-	return err
 }
 
 func (b *Blob) client() (*azblob.Client, error) {
