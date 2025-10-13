@@ -2,12 +2,9 @@ package azure
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"path"
-	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -34,110 +31,11 @@ const (
 	defaultMaxObjSizeGB = 194560 // 190 TB
 )
 
-//nolint:lll
-type Config struct {
-	Account        string            `bson:"account" json:"account,omitempty" yaml:"account,omitempty"`
-	Container      string            `bson:"container" json:"container,omitempty" yaml:"container,omitempty"`
-	EndpointURL    string            `bson:"endpointUrl" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
-	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
-	Prefix         string            `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
-	MaxObjSizeGB   *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
-}
-
-func (cfg *Config) Clone() *Config {
-	if cfg == nil {
-		return nil
-	}
-
-	rv := *cfg
-	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
-	if cfg.MaxObjSizeGB != nil {
-		v := *cfg.MaxObjSizeGB
-		rv.MaxObjSizeGB = &v
-	}
-	return &rv
-}
-
-func (cfg *Config) Equal(other *Config) bool {
-	if cfg == nil || other == nil {
-		return cfg == other
-	}
-
-	if cfg.Account != other.Account {
-		return false
-	}
-	if cfg.Container != other.Container {
-		return false
-	}
-	if cfg.EndpointURL != other.EndpointURL {
-		return false
-	}
-	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
-		return false
-	}
-	if cfg.Prefix != other.Prefix {
-		return false
-	}
-	if cfg.Credentials.Key != other.Credentials.Key {
-		return false
-	}
-	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
-		return false
-	}
-
-	return true
-}
-
-// IsSameStorage identifies the same instance of the Azure storage.
-func (cfg *Config) IsSameStorage(other *Config) bool {
-	if cfg == nil || other == nil {
-		return cfg == other
-	}
-
-	if cfg.Account != other.Account {
-		return false
-	}
-	if cfg.Container != other.Container {
-		return false
-	}
-	if cfg.Prefix != other.Prefix {
-		return false
-	}
-	return true
-}
-
-// resolveEndpointURL returns endpoint url based on provided
-// EndpointURL or associated EndpointURLMap configuration fields.
-// If specified EndpointURLMap overrides EndpointURL field.
-func (cfg *Config) resolveEndpointURL(node string) string {
-	ep := cfg.EndpointURL
-	if epm, ok := cfg.EndpointURLMap[node]; ok {
-		ep = epm
-	}
-	if ep == "" {
-		ep = fmt.Sprintf(BlobURL, cfg.Account)
-	}
-	return ep
-}
-
-func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
-		return *cfg.MaxObjSizeGB
-	}
-	return defaultMaxObjSizeGB
-}
-
-type Credentials struct {
-	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
-}
-
 type Blob struct {
 	opts *Config
 	node string
 	log  log.LogEvent
-	// url  *url.URL
-	c *azblob.Client
+	c    *azblob.Client
 }
 
 func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
@@ -157,6 +55,20 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	}
 
 	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeGB()), nil
+}
+
+func (b *Blob) client() (*azblob.Client, error) {
+	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
+	if err != nil {
+		return nil, errors.Wrap(err, "create credentials")
+	}
+
+	opts := &azblob.ClientOptions{}
+	opts.Retry = policy.RetryOptions{
+		MaxRetries: defaultRetries,
+	}
+	epURL := b.opts.resolveEndpointURL(b.node)
+	return azblob.NewClientWithSharedKeyCredential(epURL, cred, opts)
 }
 
 func (*Blob) Type() storage.Type {
@@ -340,20 +252,6 @@ func (b *Blob) Delete(name string) error {
 	}
 
 	return nil
-}
-
-func (b *Blob) client() (*azblob.Client, error) {
-	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
-	if err != nil {
-		return nil, errors.Wrap(err, "create credentials")
-	}
-
-	opts := &azblob.ClientOptions{}
-	opts.Retry = policy.RetryOptions{
-		MaxRetries: defaultRetries,
-	}
-	epURL := b.opts.resolveEndpointURL(b.node)
-	return azblob.NewClientWithSharedKeyCredential(epURL, cred, opts)
 }
 
 func isNotFound(err error) bool {
