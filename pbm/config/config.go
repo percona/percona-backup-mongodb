@@ -343,9 +343,9 @@ func (s *StorageConf) Cast() error {
 		return s.Minio.Cast()
 	case storage.OSS:
 		return s.OSS.Cast()
+	case storage.Azure:
+		return s.Azure.Cast()
 	case storage.GCS:
-		return nil
-	case storage.Azure: // noop
 		return nil
 	case storage.Blackhole: // noop
 		return nil

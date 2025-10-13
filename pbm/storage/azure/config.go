@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"time"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 //nolint:lll
@@ -14,11 +17,18 @@ type Config struct {
 	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
 	Prefix         string            `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	Retryer        *Retryer          `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 	MaxObjSizeGB   *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 }
 
 type Credentials struct {
 	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
+}
+
+type Retryer struct {
+	NumMaxRetries int32         `bson:"numMaxRetries" json:"numMaxRetries" yaml:"numMaxRetries"`
+	MinRetryDelay time.Duration `bson:"minRetryDelay" json:"minRetryDelay" yaml:"minRetryDelay"`
+	MaxRetryDelay time.Duration `bson:"maxRetryDelay" json:"maxRetryDelay" yaml:"maxRetryDelay"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -81,6 +91,28 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 		return false
 	}
 	return true
+}
+
+func (cfg *Config) Cast() error {
+	if cfg == nil {
+		return errors.New("missing azure configuration with azure storage type")
+	}
+
+	if cfg.Retryer == nil {
+		cfg.Retryer = &Retryer{
+			NumMaxRetries: defaultMaxRetries,
+			MaxRetryDelay: defaultMaxRetryDelay,
+		}
+	} else {
+		if cfg.Retryer.NumMaxRetries == 0 {
+			cfg.Retryer.NumMaxRetries = defaultMaxRetries
+		}
+		if cfg.Retryer.MaxRetryDelay == 0 {
+			cfg.Retryer.MaxRetryDelay = defaultMaxRetryDelay
+		}
+	}
+
+	return nil
 }
 
 // resolveEndpointURL returns endpoint url based on provided

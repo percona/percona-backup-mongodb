@@ -24,7 +24,8 @@ const (
 
 	defaultUploadBuff = 10 << 20 // 10Mb
 
-	defaultRetries = 10
+	defaultMaxRetries    = 3
+	defaultMaxRetryDelay = 60 * time.Second
 
 	maxBlocks = 50_000
 
@@ -32,42 +33,47 @@ const (
 )
 
 type Blob struct {
-	opts *Config
+	cfg  *Config
 	node string
 	log  log.LogEvent
 	c    *azblob.Client
 }
 
-func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
+func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
+	err := cfg.Cast()
+	if err != nil {
+		return nil, errors.Wrap(err, "set defaults")
+	}
 	if l == nil {
 		l = log.DiscardEvent
 	}
 	b := &Blob{
-		opts: opts,
+		cfg:  cfg,
 		node: node,
 		log:  l,
 	}
 
-	var err error
 	b.c, err = b.client()
 	if err != nil {
 		return nil, errors.Wrap(err, "init container")
 	}
 
-	return storage.NewSplitMergeMW(b, opts.GetMaxObjSizeGB()), nil
+	return storage.NewSplitMergeMW(b, cfg.GetMaxObjSizeGB()), nil
 }
 
 func (b *Blob) client() (*azblob.Client, error) {
-	cred, err := azblob.NewSharedKeyCredential(b.opts.Account, b.opts.Credentials.Key)
+	cred, err := azblob.NewSharedKeyCredential(b.cfg.Account, b.cfg.Credentials.Key)
 	if err != nil {
 		return nil, errors.Wrap(err, "create credentials")
 	}
 
 	opts := &azblob.ClientOptions{}
 	opts.Retry = policy.RetryOptions{
-		MaxRetries: defaultRetries,
+		MaxRetries:    b.cfg.Retryer.NumMaxRetries,
+		RetryDelay:    b.cfg.Retryer.MinRetryDelay,
+		MaxRetryDelay: b.cfg.Retryer.MaxRetryDelay,
 	}
-	epURL := b.opts.resolveEndpointURL(b.node)
+	epURL := b.cfg.resolveEndpointURL(b.node)
 	return azblob.NewClientWithSharedKeyCredential(epURL, cred, opts)
 }
 
@@ -98,8 +104,8 @@ func (b *Blob) Save(name string, data io.Reader, options ...storage.Option) erro
 	}
 
 	_, err := b.c.UploadStream(context.TODO(),
-		b.opts.Container,
-		path.Join(b.opts.Prefix, name),
+		b.cfg.Container,
+		path.Join(b.cfg.Prefix, name),
 		data,
 		&azblob.UploadStreamOptions{
 			BlockSize:   int64(bufsz),
@@ -110,13 +116,13 @@ func (b *Blob) Save(name string, data io.Reader, options ...storage.Option) erro
 }
 
 func (b *Blob) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	prfx := path.Join(b.opts.Prefix, prefix)
+	prfx := path.Join(b.cfg.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
 		prfx += "/"
 	}
 
-	pager := b.c.NewListBlobsFlatPager(b.opts.Container, &azblob.ListBlobsFlatOptions{
+	pager := b.c.NewListBlobsFlatPager(b.cfg.Container, &azblob.ListBlobsFlatOptions{
 		Prefix: &prfx,
 	})
 
@@ -160,8 +166,8 @@ func (b *Blob) FileStat(name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
 
 	p, err := b.c.ServiceClient().
-		NewContainerClient(b.opts.Container).
-		NewBlockBlobClient(path.Join(b.opts.Prefix, name)).
+		NewContainerClient(b.cfg.Container).
+		NewBlockBlobClient(path.Join(b.cfg.Prefix, name)).
 		GetProperties(context.TODO(), nil)
 	if err != nil {
 		if isNotFound(err) {
@@ -183,8 +189,8 @@ func (b *Blob) FileStat(name string) (storage.FileInfo, error) {
 }
 
 func (b *Blob) Copy(src, dst string) error {
-	to := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, dst))
-	from := b.c.ServiceClient().NewContainerClient(b.opts.Container).NewBlockBlobClient(path.Join(b.opts.Prefix, src))
+	to := b.c.ServiceClient().NewContainerClient(b.cfg.Container).NewBlockBlobClient(path.Join(b.cfg.Prefix, dst))
+	from := b.c.ServiceClient().NewContainerClient(b.cfg.Container).NewBlockBlobClient(path.Join(b.cfg.Prefix, src))
 	r, err := to.StartCopyFromURL(context.TODO(), from.BlobClient().URL(), nil)
 	if err != nil {
 		return errors.Wrap(err, "start copy")
@@ -224,7 +230,7 @@ func (b *Blob) DownloadStat() storage.DownloadStat {
 }
 
 func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
-	o, err := b.c.DownloadStream(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), nil)
+	o, err := b.c.DownloadStream(context.TODO(), b.cfg.Container, path.Join(b.cfg.Prefix, name), nil)
 	if err != nil {
 		if isNotFound(err) {
 			return nil, storage.ErrNotExist
@@ -243,7 +249,7 @@ func (b *Blob) SourceReader(name string) (io.ReadCloser, error) {
 }
 
 func (b *Blob) Delete(name string) error {
-	_, err := b.c.DeleteBlob(context.TODO(), b.opts.Container, path.Join(b.opts.Prefix, name), nil)
+	_, err := b.c.DeleteBlob(context.TODO(), b.cfg.Container, path.Join(b.cfg.Prefix, name), nil)
 	if err != nil {
 		if isNotFound(err) {
 			return storage.ErrNotExist
