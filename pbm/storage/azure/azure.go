@@ -25,6 +25,7 @@ const (
 	defaultUploadBuff = 10 << 20 // 10Mb
 
 	defaultMaxRetries    = 3
+	defaultMinRetryDelay = 800 * time.Millisecond
 	defaultMaxRetryDelay = 60 * time.Second
 
 	maxBlocks = 50_000

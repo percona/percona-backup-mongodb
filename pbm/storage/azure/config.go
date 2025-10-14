@@ -25,6 +25,8 @@ type Credentials struct {
 	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }
 
+// Retryer is configuration for retry behavior described:
+// https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azcore@v1.19.1/policy#RetryOptions
 type Retryer struct {
 	NumMaxRetries int32         `bson:"numMaxRetries" json:"numMaxRetries" yaml:"numMaxRetries"`
 	MinRetryDelay time.Duration `bson:"minRetryDelay" json:"minRetryDelay" yaml:"minRetryDelay"`
@@ -38,6 +40,10 @@ func (cfg *Config) Clone() *Config {
 
 	rv := *cfg
 	rv.EndpointURLMap = maps.Clone(cfg.EndpointURLMap)
+	if cfg.Retryer != nil {
+		v := *cfg.Retryer
+		rv.Retryer = &v
+	}
 	if cfg.MaxObjSizeGB != nil {
 		v := *cfg.MaxObjSizeGB
 		rv.MaxObjSizeGB = &v
@@ -46,33 +52,7 @@ func (cfg *Config) Clone() *Config {
 }
 
 func (cfg *Config) Equal(other *Config) bool {
-	if cfg == nil || other == nil {
-		return cfg == other
-	}
-
-	if cfg.Account != other.Account {
-		return false
-	}
-	if cfg.Container != other.Container {
-		return false
-	}
-	if cfg.EndpointURL != other.EndpointURL {
-		return false
-	}
-	if !maps.Equal(cfg.EndpointURLMap, other.EndpointURLMap) {
-		return false
-	}
-	if cfg.Prefix != other.Prefix {
-		return false
-	}
-	if cfg.Credentials.Key != other.Credentials.Key {
-		return false
-	}
-	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
-		return false
-	}
-
-	return true
+	return reflect.DeepEqual(cfg, other)
 }
 
 // IsSameStorage identifies the same instance of the Azure storage.
@@ -101,11 +81,15 @@ func (cfg *Config) Cast() error {
 	if cfg.Retryer == nil {
 		cfg.Retryer = &Retryer{
 			NumMaxRetries: defaultMaxRetries,
+			MinRetryDelay: defaultMinRetryDelay,
 			MaxRetryDelay: defaultMaxRetryDelay,
 		}
 	} else {
 		if cfg.Retryer.NumMaxRetries == 0 {
 			cfg.Retryer.NumMaxRetries = defaultMaxRetries
+		}
+		if cfg.Retryer.MinRetryDelay == 0 {
+			cfg.Retryer.MinRetryDelay = defaultMinRetryDelay
 		}
 		if cfg.Retryer.MaxRetryDelay == 0 {
 			cfg.Retryer.MaxRetryDelay = defaultMaxRetryDelay
