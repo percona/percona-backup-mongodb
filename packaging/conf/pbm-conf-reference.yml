@@ -69,8 +69,8 @@
 ## Retry upload configuration options.
 #      retryer:
 #        numMaxRetries: 3
-#        minRetryDelay: 30
-#        maxRetryDelay: 5
+#        minRetryDelay: 30ms
+#        maxRetryDelay: 300s
 #
 ## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 5018
@@ -182,6 +182,12 @@
 ## Specify the access key
 #      credentials:
 #        key:
+#
+## Retry upload configuration options.
+#      retryer:
+#        numMaxRetries: 3
+#        minRetryDelay: 800ms
+#        maxRetryDelay: 60s
 #
 ## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 194560
