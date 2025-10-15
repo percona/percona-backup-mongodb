@@ -2,13 +2,19 @@ package s3
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"path"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
 
@@ -237,4 +243,87 @@ func TestToClientLogMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func BenchmarkAWSUpload(b *testing.B) {
+	fsize := int64(500 * 1024 * 1024)
+	numThreds := max(runtime.GOMAXPROCS(0), 1)
+	partSize := defaultPartSize
+	// partSize := int64(50 * 1024 * 1024)
+	// partSize := int64(100 * 1024 * 1024)
+
+	region := "eu-central-1"
+	bucket := ""
+	prefix := ""
+	accessKeyID := ""
+	secretAccessKey := ""
+
+	cfgOpts := []func(*config.LoadOptions) error{
+		config.WithRegion(region),
+		config.WithHTTPClient(&http.Client{}),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
+		),
+	}
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), cfgOpts...)
+	if err != nil {
+		b.Fatalf("load default aws config: %v", err)
+	}
+	s3Client := s3.NewFromConfig(awsCfg)
+	b.Logf("aws s3 client: file size=%d bytes; part size=%d bytes; NumThreads=%d",
+		fsize, partSize, numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("uploading file: %s ....", fname)
+
+		putInput := &s3.PutObjectInput{
+			Bucket:       aws.String(bucket),
+			Key:          aws.String(path.Join(prefix, fname)),
+			Body:         r,
+			StorageClass: types.StorageClass(types.StorageClassStandard),
+		}
+
+		b.StartTimer()
+		_, err := manager.NewUploader(s3Client, func(u *manager.Uploader) {
+			u.PartSize = partSize
+			u.LeavePartsOnError = true
+			u.Concurrency = numThreds
+		}).Upload(context.Background(), putInput)
+		if err != nil {
+			b.Fatalf("put object: %v", err)
+		}
+	}
+}
+
+type InfiniteCustomReader struct {
+	pattern      []byte
+	patternIndex int
+}
+
+func NewInfiniteCustomReader() *InfiniteCustomReader {
+	pattern := []byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22}
+
+	return &InfiniteCustomReader{
+		pattern:      pattern,
+		patternIndex: 0,
+	}
+}
+
+func (r *InfiniteCustomReader) Read(p []byte) (int, error) {
+	readLen := len(p)
+
+	for i := range readLen {
+		p[i] = r.pattern[r.patternIndex]
+		r.patternIndex = (r.patternIndex + 1) % len(r.pattern)
+	}
+
+	return readLen, nil
 }

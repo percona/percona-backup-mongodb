@@ -255,3 +255,59 @@ func (r *InfiniteCustomReader) Read(p []byte) (int, error) {
 
 	return readLen, nil
 }
+
+func BenchmarkMinioUpload(b *testing.B) {
+	fsize := int64(500 * 1024 * 1024)
+	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
+	partSize := uint64(defaultPartSize)
+	// partSize := uint64(50 * 1024 * 1024)
+	// partSize := uint64(100 * 1024 * 1024)
+
+	ep := "s3.amazonaws.com"
+	region := "eu-central-1"
+	bucket := ""
+	prefix := ""
+	accessKeyID := ""
+	secretAccessKey := ""
+
+	mc, err := minio.New(ep, &minio.Options{
+		Region: region,
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: true,
+	})
+	if err != nil {
+		b.Fatalf("minio client creation for aws: %v", err)
+	}
+	b.Logf("minio client: file size=%d bytes; part size=%d bytes; NumThreads=%d",
+		fsize, partSize, numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("uploading file: %s ....", fname)
+
+		putOpts := minio.PutObjectOptions{
+			PartSize:   partSize,
+			NumThreads: numThreds,
+		}
+
+		b.StartTimer()
+		_, err = mc.PutObject(
+			context.Background(),
+			bucket,
+			path.Join(prefix, fname),
+			r,
+			-1,
+			putOpts,
+		)
+		if err != nil {
+			b.Fatalf("put object: %v", err)
+		}
+	}
+}
