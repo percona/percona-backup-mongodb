@@ -2,6 +2,7 @@ package mio
 
 import (
 	"context"
+	"flag"
 	"io"
 	"net/url"
 	"path"
@@ -14,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcminio "github.com/testcontainers/testcontainers-go/modules/minio"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -256,12 +258,15 @@ func (r *InfiniteCustomReader) Read(p []byte) (int, error) {
 	return readLen, nil
 }
 
-func BenchmarkMinioUpload(b *testing.B) {
-	fsize := int64(500 * 1024 * 1024)
+var (
+	fileSize = flag.Int64("file-size", 500, "file size in MB that will be uploaded")
+	partSize = flag.Int64("part-size", 10, "part size in MB that will be used to upload file")
+)
+
+func BenchmarkMinioPutObject(b *testing.B) {
 	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
-	partSize := uint64(defaultPartSize)
-	// partSize := uint64(50 * 1024 * 1024)
-	// partSize := uint64(100 * 1024 * 1024)
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
 
 	ep := "s3.amazonaws.com"
 	region := "eu-central-1"
@@ -278,8 +283,8 @@ func BenchmarkMinioUpload(b *testing.B) {
 	if err != nil {
 		b.Fatalf("minio client creation for aws: %v", err)
 	}
-	b.Logf("minio client: file size=%d bytes; part size=%d bytes; NumThreads=%d",
-		fsize, partSize, numThreds)
+	b.Logf("minio client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
 
 	b.ResetTimer()
 	b.SetBytes(fsize)
@@ -293,7 +298,7 @@ func BenchmarkMinioUpload(b *testing.B) {
 		b.Logf("uploading file: %s ....", fname)
 
 		putOpts := minio.PutObjectOptions{
-			PartSize:   partSize,
+			PartSize:   uint64(pSize),
 			NumThreads: numThreds,
 		}
 
@@ -308,6 +313,50 @@ func BenchmarkMinioUpload(b *testing.B) {
 		)
 		if err != nil {
 			b.Fatalf("put object: %v", err)
+		}
+	}
+}
+
+func BenchmarkMinioStorageSave(b *testing.B) {
+	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
+
+	cfg := &Config{
+		Endpoint: "s3.amazonaws.com",
+		Region:   "eu-central-1",
+		Bucket:   "",
+		Prefix:   "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+		PartSize: pSize,
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("minio storage creation: %v", err)
+	}
+	b.Logf("minio client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("saving file: %s ....", fname)
+
+		b.StartTimer()
+		err := s.Save(fname, r)
+		if err != nil {
+			b.Fatalf("save %s: %v", fname, err)
 		}
 	}
 }
