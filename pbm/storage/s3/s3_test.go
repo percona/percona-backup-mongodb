@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"flag"
 	"io"
 	"net/http"
 	"path"
@@ -19,6 +20,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/minio"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -245,12 +247,15 @@ func TestToClientLogMode(t *testing.T) {
 	}
 }
 
-func BenchmarkAWSUpload(b *testing.B) {
-	fsize := int64(500 * 1024 * 1024)
+var (
+	fileSize = flag.Int64("file-size", 500, "file size that will be uploaded")
+	partSize = flag.Int64("part-size", 10, "part size that will be used to upload file")
+)
+
+func BenchmarkS3Upload(b *testing.B) {
 	numThreds := max(runtime.GOMAXPROCS(0), 1)
-	partSize := defaultPartSize
-	// partSize := int64(50 * 1024 * 1024)
-	// partSize := int64(100 * 1024 * 1024)
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
 
 	region := "eu-central-1"
 	bucket := ""
@@ -270,8 +275,8 @@ func BenchmarkAWSUpload(b *testing.B) {
 		b.Fatalf("load default aws config: %v", err)
 	}
 	s3Client := s3.NewFromConfig(awsCfg)
-	b.Logf("aws s3 client: file size=%d bytes; part size=%d bytes; NumThreads=%d",
-		fsize, partSize, numThreds)
+	b.Logf("aws s3 client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
 
 	b.ResetTimer()
 	b.SetBytes(fsize)
@@ -293,12 +298,54 @@ func BenchmarkAWSUpload(b *testing.B) {
 
 		b.StartTimer()
 		_, err := manager.NewUploader(s3Client, func(u *manager.Uploader) {
-			u.PartSize = partSize
+			u.PartSize = pSize
 			u.LeavePartsOnError = true
 			u.Concurrency = numThreds
 		}).Upload(context.Background(), putInput)
 		if err != nil {
 			b.Fatalf("put object: %v", err)
+		}
+	}
+}
+
+func BenchmarkS3StorageSave(b *testing.B) {
+	numThreds := max(runtime.GOMAXPROCS(0), 1)
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
+
+	cfg := &Config{
+		Region: "eu-central-1",
+		Bucket: "",
+		Prefix: "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+		UploadPartSize: int(pSize),
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("s3 storage creation: %v", err)
+	}
+	b.Logf("aws s3 client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("uploading file: %s ....", fname)
+
+		b.StartTimer()
+		err := s.Save(fname, r)
+		if err != nil {
+			b.Fatalf("save %s: %v", fname, err)
 		}
 	}
 }
