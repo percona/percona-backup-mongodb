@@ -360,3 +360,66 @@ func BenchmarkMinioStorageSave(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkMinioStorageList(b *testing.B) {
+	cfg := &Config{
+		Endpoint: "s3.amazonaws.com",
+		Region:   "eu-central-1",
+		Bucket:   "",
+		Prefix:   "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("minio storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fis, err := s.List("", "")
+		if err != nil {
+			b.Fatalf("list: %v", err)
+		}
+		b.Logf("got %d files", len(fis))
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("saving file: %s ....", fname)
+	}
+}
+
+func BenchmarkMinioStorageFileStat(b *testing.B) {
+	cfg := &Config{
+		Endpoint: "s3.amazonaws.com",
+		Region:   "eu-central-1",
+		Bucket:   "",
+		Prefix:   "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("minio storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fi, err := s.FileStat("2025-10-17T17:13:31")
+		if err != nil {
+			b.Fatalf("file stat: %v", err)
+		}
+		b.Logf("file stat: %s, %d", fi.Name, fi.Size)
+		fi, err = s.FileStat("abc")
+		if err != storage.ErrNotExist {
+			b.Fatal("files should not exist")
+		}
+	}
+}

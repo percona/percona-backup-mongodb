@@ -350,6 +350,64 @@ func BenchmarkS3StorageSave(b *testing.B) {
 	}
 }
 
+func BenchmarkS3StorageList(b *testing.B) {
+	cfg := &Config{
+		Region: "eu-central-1",
+		Bucket: "",
+		Prefix: "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("s3 storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fis, err := s.List("", "")
+		if err != nil {
+			b.Fatalf("list: %v", err)
+		}
+		b.Logf("got %d files", len(fis))
+	}
+}
+
+func BenchmarkS3StorageFileStat(b *testing.B) {
+	cfg := &Config{
+		Region: "eu-central-1",
+		Bucket: "",
+		Prefix: "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("s3 storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fi, err := s.FileStat("2025-10-17T17:05:18")
+		if err != nil {
+			b.Fatalf("file stat: %v", err)
+		}
+		b.Logf("file stat: %s, %d", fi.Name, fi.Size)
+		fi, err = s.FileStat("abc")
+		if err != storage.ErrNotExist {
+			b.Fatal("files should not exist")
+		}
+	}
+}
+
 type InfiniteCustomReader struct {
 	pattern      []byte
 	patternIndex int
