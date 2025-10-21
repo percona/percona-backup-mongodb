@@ -263,6 +263,17 @@ var (
 	partSize = flag.Int64("part-size", 10, "part size in MB that will be used to upload file")
 )
 
+// BenchmarkMinioPutObject measures the performance of uploading file on the Minio SDK level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/mio -bench=BenchmarkMinioPutObject -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
 func BenchmarkMinioPutObject(b *testing.B) {
 	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
 	fsize := *fileSize * 1024 * 1024
@@ -317,6 +328,18 @@ func BenchmarkMinioPutObject(b *testing.B) {
 	}
 }
 
+// BenchmarkMinioStorageSave measures the performance of uploading file on the
+// PBM's storage interface level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/mio -bench=BenchmarkMinioStorageSave -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
 func BenchmarkMinioStorageSave(b *testing.B) {
 	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
 	fsize := *fileSize * 1024 * 1024

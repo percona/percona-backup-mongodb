@@ -252,6 +252,17 @@ var (
 	partSize = flag.Int64("part-size", 10, "part size that will be used to upload file")
 )
 
+// BenchmarkS3Upload measures the performance of uploading file on the AWS S3 SDK level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/s3 -bench=BenchmarkS3Upload -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
 func BenchmarkS3Upload(b *testing.B) {
 	numThreds := max(runtime.GOMAXPROCS(0), 1)
 	fsize := *fileSize * 1024 * 1024
@@ -308,6 +319,18 @@ func BenchmarkS3Upload(b *testing.B) {
 	}
 }
 
+// BenchmarkS3StorageSave measures the performance of uploading file on the
+// PBM's storage interface level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/s3 -bench=BenchmarkS3StorageSave -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
 func BenchmarkS3StorageSave(b *testing.B) {
 	numThreds := max(runtime.GOMAXPROCS(0), 1)
 	fsize := *fileSize * 1024 * 1024
