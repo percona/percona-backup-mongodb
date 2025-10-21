@@ -245,7 +245,7 @@ func (sm *SplitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 
 	fi, err := sm.s.FileStat(name)
 	if err != nil {
-		return res, errors.Wrap(err, "fetching pbm file parts base")
+		return res, errors.Wrapf(err, "fetching pbm file parts base for %s", name)
 	}
 	res = append(res, fi)
 
