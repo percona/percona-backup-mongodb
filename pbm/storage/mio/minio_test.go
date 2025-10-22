@@ -2,6 +2,7 @@ package mio
 
 import (
 	"context"
+	"flag"
 	"io"
 	"net/url"
 	"path"
@@ -14,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcminio "github.com/testcontainers/testcontainers-go/modules/minio"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -254,4 +256,193 @@ func (r *InfiniteCustomReader) Read(p []byte) (int, error) {
 	}
 
 	return readLen, nil
+}
+
+var (
+	fileSize = flag.Int64("file-size", 500, "file size in MB that will be uploaded")
+	partSize = flag.Int64("part-size", 10, "part size in MB that will be used to upload file")
+)
+
+// BenchmarkMinioPutObject measures the performance of uploading file on the Minio SDK level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/mio -bench=BenchmarkMinioPutObject -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
+func BenchmarkMinioPutObject(b *testing.B) {
+	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
+
+	ep := "s3.amazonaws.com"
+	region := "eu-central-1"
+	bucket := ""
+	prefix := ""
+	accessKeyID := ""
+	secretAccessKey := ""
+
+	mc, err := minio.New(ep, &minio.Options{
+		Region: region,
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: true,
+	})
+	if err != nil {
+		b.Fatalf("minio client creation for aws: %v", err)
+	}
+	b.Logf("minio client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("uploading file: %s ....", fname)
+
+		putOpts := minio.PutObjectOptions{
+			PartSize:   uint64(pSize),
+			NumThreads: numThreds,
+		}
+
+		b.StartTimer()
+		_, err = mc.PutObject(
+			context.Background(),
+			bucket,
+			path.Join(prefix, fname),
+			r,
+			-1,
+			putOpts,
+		)
+		if err != nil {
+			b.Fatalf("put object: %v", err)
+		}
+	}
+}
+
+// BenchmarkMinioStorageSave measures the performance of uploading file on the
+// PBM's storage interface level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/mio -bench=BenchmarkMinioStorageSave -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
+func BenchmarkMinioStorageSave(b *testing.B) {
+	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
+
+	cfg := &Config{
+		Endpoint: "s3.amazonaws.com",
+		Region:   "eu-central-1",
+		Bucket:   "",
+		Prefix:   "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+		PartSize: pSize,
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("minio storage creation: %v", err)
+	}
+	b.Logf("minio client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("saving file: %s ....", fname)
+
+		b.StartTimer()
+		err := s.Save(fname, r)
+		if err != nil {
+			b.Fatalf("save %s: %v", fname, err)
+		}
+	}
+}
+
+func BenchmarkMinioStorageList(b *testing.B) {
+	cfg := &Config{
+		Endpoint: "s3.amazonaws.com",
+		Region:   "eu-central-1",
+		Bucket:   "",
+		Prefix:   "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("minio storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fis, err := s.List("", "")
+		if err != nil {
+			b.Fatalf("list: %v", err)
+		}
+		b.Logf("got %d files", len(fis))
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("saving file: %s ....", fname)
+	}
+}
+
+func BenchmarkMinioStorageFileStat(b *testing.B) {
+	cfg := &Config{
+		Endpoint: "s3.amazonaws.com",
+		Region:   "eu-central-1",
+		Bucket:   "",
+		Prefix:   "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("minio storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fi, err := s.FileStat("2025-10-17T17:13:31")
+		if err != nil {
+			b.Fatalf("file stat: %v", err)
+		}
+		b.Logf("file stat: %s, %d", fi.Name, fi.Size)
+		fi, err = s.FileStat("abc")
+		if err != storage.ErrNotExist {
+			b.Fatal("files should not exist")
+		}
+	}
 }

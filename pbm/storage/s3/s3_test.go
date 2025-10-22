@@ -2,17 +2,25 @@ package s3
 
 import (
 	"context"
+	"flag"
+	"io"
+	"net/http"
+	"path"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
@@ -237,4 +245,213 @@ func TestToClientLogMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+var (
+	fileSize = flag.Int64("file-size", 500, "file size that will be uploaded")
+	partSize = flag.Int64("part-size", 10, "part size that will be used to upload file")
+)
+
+// BenchmarkS3Upload measures the performance of uploading file on the AWS S3 SDK level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/s3 -bench=BenchmarkS3Upload -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
+func BenchmarkS3Upload(b *testing.B) {
+	numThreds := max(runtime.GOMAXPROCS(0), 1)
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
+
+	region := "eu-central-1"
+	bucket := ""
+	prefix := ""
+	accessKeyID := ""
+	secretAccessKey := ""
+
+	cfgOpts := []func(*config.LoadOptions) error{
+		config.WithRegion(region),
+		config.WithHTTPClient(&http.Client{}),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
+		),
+	}
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), cfgOpts...)
+	if err != nil {
+		b.Fatalf("load default aws config: %v", err)
+	}
+	s3Client := s3.NewFromConfig(awsCfg)
+	b.Logf("aws s3 client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("uploading file: %s ....", fname)
+
+		putInput := &s3.PutObjectInput{
+			Bucket:       aws.String(bucket),
+			Key:          aws.String(path.Join(prefix, fname)),
+			Body:         r,
+			StorageClass: types.StorageClass(types.StorageClassStandard),
+		}
+
+		b.StartTimer()
+		_, err := manager.NewUploader(s3Client, func(u *manager.Uploader) {
+			u.PartSize = pSize
+			u.LeavePartsOnError = true
+			u.Concurrency = numThreds
+		}).Upload(context.Background(), putInput)
+		if err != nil {
+			b.Fatalf("put object: %v", err)
+		}
+	}
+}
+
+// BenchmarkS3StorageSave measures the performance of uploading file on the
+// PBM's storage interface level.
+// It allows specifying --file-size and --part-size flags.
+// Example that was used in the microbenchmarking tests:
+/*
+go test ./pbm/storage/s3 -bench=BenchmarkS3StorageSave -run=^$ -v \
+-benchtime=5x \
+-cpu=1,2,4,8  \
+-benchmem  \
+-file-size=500 \
+-part-size=100
+*/
+func BenchmarkS3StorageSave(b *testing.B) {
+	numThreds := max(runtime.GOMAXPROCS(0), 1)
+	fsize := *fileSize * 1024 * 1024
+	pSize := *partSize * 1024 * 1024
+
+	cfg := &Config{
+		Region: "eu-central-1",
+		Bucket: "",
+		Prefix: "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+		UploadPartSize: int(pSize),
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("s3 storage creation: %v", err)
+	}
+	b.Logf("aws s3 client: file size=%s; part size=%s; NumThreads=%d",
+		storage.PrettySize(fsize), storage.PrettySize(pSize), numThreds)
+
+	b.ResetTimer()
+	b.SetBytes(fsize)
+
+	for b.Loop() {
+		b.StopTimer()
+		infR := NewInfiniteCustomReader()
+		r := io.LimitReader(infR, fsize)
+
+		fname := time.Now().Format("2006-01-02T15:04:05")
+		b.Logf("uploading file: %s ....", fname)
+
+		b.StartTimer()
+		err := s.Save(fname, r)
+		if err != nil {
+			b.Fatalf("save %s: %v", fname, err)
+		}
+	}
+}
+
+func BenchmarkS3StorageList(b *testing.B) {
+	cfg := &Config{
+		Region: "eu-central-1",
+		Bucket: "",
+		Prefix: "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("s3 storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fis, err := s.List("", "")
+		if err != nil {
+			b.Fatalf("list: %v", err)
+		}
+		b.Logf("got %d files", len(fis))
+	}
+}
+
+func BenchmarkS3StorageFileStat(b *testing.B) {
+	cfg := &Config{
+		Region: "eu-central-1",
+		Bucket: "",
+		Prefix: "",
+		Credentials: Credentials{
+			AccessKeyID:     "",
+			SecretAccessKey: "",
+		},
+	}
+
+	s, err := New(cfg, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("s3 storage creation: %v", err)
+	}
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		fi, err := s.FileStat("2025-10-17T17:05:18")
+		if err != nil {
+			b.Fatalf("file stat: %v", err)
+		}
+		b.Logf("file stat: %s, %d", fi.Name, fi.Size)
+		fi, err = s.FileStat("abc")
+		if err != storage.ErrNotExist {
+			b.Fatal("files should not exist")
+		}
+	}
+}
+
+type InfiniteCustomReader struct {
+	pattern      []byte
+	patternIndex int
+}
+
+func NewInfiniteCustomReader() *InfiniteCustomReader {
+	pattern := []byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22}
+
+	return &InfiniteCustomReader{
+		pattern:      pattern,
+		patternIndex: 0,
+	}
+}
+
+func (r *InfiniteCustomReader) Read(p []byte) (int, error) {
+	readLen := len(p)
+
+	for i := range readLen {
+		p[i] = r.pattern[r.patternIndex]
+		r.patternIndex = (r.patternIndex + 1) % len(r.pattern)
+	}
+
+	return readLen, nil
 }
