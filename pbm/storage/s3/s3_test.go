@@ -264,6 +264,7 @@ go test ./pbm/storage/s3 -bench=BenchmarkS3Upload -run=^$ -v \
 -part-size=100
 */
 func BenchmarkS3Upload(b *testing.B) {
+	var uploadTimes []time.Duration
 	numThreds := max(runtime.GOMAXPROCS(0), 1)
 	fsize := *fileSize * 1024 * 1024
 	pSize := *partSize * 1024 * 1024
@@ -298,7 +299,6 @@ func BenchmarkS3Upload(b *testing.B) {
 		r := io.LimitReader(infR, fsize)
 
 		fname := time.Now().Format("2006-01-02T15:04:05")
-		b.Logf("uploading file: %s ....", fname)
 
 		putInput := &s3.PutObjectInput{
 			Bucket:       aws.String(bucket),
@@ -308,14 +308,27 @@ func BenchmarkS3Upload(b *testing.B) {
 		}
 
 		b.StartTimer()
+		startTime := time.Now()
 		_, err := manager.NewUploader(s3Client, func(u *manager.Uploader) {
 			u.PartSize = pSize
 			u.LeavePartsOnError = true
 			u.Concurrency = numThreds
 		}).Upload(context.Background(), putInput)
+		uploadDuration := time.Since(startTime)
+		uploadTimes = append(uploadTimes, uploadDuration)
+		b.Logf("uploading file: %s, completed in: %v", fname, uploadDuration)
 		if err != nil {
 			b.Fatalf("put object: %v", err)
 		}
+	}
+
+	if len(uploadTimes) > 0 {
+		var totalDuration time.Duration
+		for _, duration := range uploadTimes {
+			totalDuration += duration
+		}
+		averageTime := totalDuration / time.Duration(len(uploadTimes))
+		b.Logf("average upload time: %v", averageTime)
 	}
 }
 

@@ -275,6 +275,7 @@ go test ./pbm/storage/mio -bench=BenchmarkMinioPutObject -run=^$ -v \
 -part-size=100
 */
 func BenchmarkMinioPutObject(b *testing.B) {
+	var uploadTimes []time.Duration
 	numThreds := uint(max(runtime.GOMAXPROCS(0), 1))
 	fsize := *fileSize * 1024 * 1024
 	pSize := *partSize * 1024 * 1024
@@ -306,14 +307,15 @@ func BenchmarkMinioPutObject(b *testing.B) {
 		r := io.LimitReader(infR, fsize)
 
 		fname := time.Now().Format("2006-01-02T15:04:05")
-		b.Logf("uploading file: %s ....", fname)
 
 		putOpts := minio.PutObjectOptions{
-			PartSize:   uint64(pSize),
-			NumThreads: numThreds,
+			PartSize:              uint64(pSize),
+			NumThreads:            numThreds,
+			ConcurrentStreamParts: true,
 		}
 
 		b.StartTimer()
+		startTime := time.Now()
 		_, err = mc.PutObject(
 			context.Background(),
 			bucket,
@@ -322,9 +324,21 @@ func BenchmarkMinioPutObject(b *testing.B) {
 			-1,
 			putOpts,
 		)
+		uploadDuration := time.Since(startTime)
+		uploadTimes = append(uploadTimes, uploadDuration)
+		b.Logf("uploading file: %s, completed in: %v", fname, uploadDuration)
 		if err != nil {
 			b.Fatalf("put object: %v", err)
 		}
+	}
+
+	if len(uploadTimes) > 0 {
+		var totalDuration time.Duration
+		for _, duration := range uploadTimes {
+			totalDuration += duration
+		}
+		averageTime := totalDuration / time.Duration(len(uploadTimes))
+		b.Logf("average upload time: %v", averageTime)
 	}
 }
 
