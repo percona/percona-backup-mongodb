@@ -121,6 +121,9 @@ func (cfg *Config) Equal(other *Config) bool {
 	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
 		return false
 	}
+	if !reflect.DeepEqual(cfg.Retryer, other.Retryer) {
+		return false
+	}
 
 	return true
 }

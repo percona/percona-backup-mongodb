@@ -644,7 +644,10 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 	case reflect.Int, reflect.Int32:
 		v, err = strconv.ParseInt(val, 10, 32)
 	case reflect.Int64:
-		v, err = strconv.ParseInt(val, 10, 64)
+		v, err = time.ParseDuration(val)
+		if err != nil {
+			v, err = strconv.ParseInt(val, 10, 64)
+		}
 	case reflect.Float32:
 		v, err = strconv.ParseFloat(val, 32)
 	case reflect.Float64:

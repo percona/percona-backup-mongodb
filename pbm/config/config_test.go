@@ -1,10 +1,21 @@
 package config
 
 import (
+	"context"
+	"fmt"
+	"log"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/mongodb"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
@@ -220,6 +231,175 @@ func TestCastError(t *testing.T) {
 	})
 }
 
+var connClient connect.Client
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:8.0.4-multi",
+		mongodb.WithReplicaSet("rs1"))
+	if err != nil {
+		log.Fatalf("error while creating mongo test container: %v", err)
+	}
+	connStr, err := mongodbContainer.ConnectionString(ctx)
+	if err != nil {
+		log.Fatalf("conn string error: %v", err)
+	}
+	connStr += "&directConnection=true"
+	mClient, err := mongo.Connect(ctx, options.Client().ApplyURI(connStr))
+	if err != nil {
+		log.Fatalf("mongo client connect error: %v", err)
+	}
+	err = mClient.Ping(ctx, readpref.Primary())
+	if err != nil {
+		log.Fatalf("conn string: %s, ping: %v", connStr, err)
+	}
+
+	connClient = connect.UnsafeClient(mClient)
+
+	code := m.Run()
+
+	err = mClient.Disconnect(ctx)
+	if err != nil {
+		log.Fatalf("mongo client disconnect error: %v", err)
+	}
+	if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
+		log.Fatalf("failed to terminate container: %s", err)
+	}
+
+	os.Exit(code)
+}
+
+func TestConfig(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("gcs config", func(t *testing.T) {
+		wantCfg := &Config{
+			Storage: StorageConf{
+				Type: storage.GCS,
+				GCS: &gcs.Config{
+					Bucket: "b1",
+					Prefix: "p1",
+					Credentials: gcs.Credentials{
+						ClientEmail: "ce1",
+						PrivateKey:  "pk1",
+					},
+					ChunkSize:    100,
+					MaxObjSizeGB: floatPtr(1.1),
+					Retryer: &gcs.Retryer{
+						BackoffInitial:    11 * time.Minute,
+						BackoffMax:        111 * time.Minute,
+						BackoffMultiplier: 11.1,
+					},
+				},
+			},
+		}
+		err := SetConfig(ctx, connClient, &Config{Storage: StorageConf{Type: storage.GCS}})
+		if err != nil {
+			t.Fatal("set config:", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.bucket",
+			wantCfg.Storage.GCS.Bucket,
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.prefix",
+			wantCfg.Storage.GCS.Prefix,
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.credentials.clientEmail",
+			wantCfg.Storage.GCS.Credentials.ClientEmail,
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.credentials.privateKey",
+			wantCfg.Storage.GCS.Credentials.PrivateKey,
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.chunkSize",
+			fmt.Sprintf("%d", wantCfg.Storage.GCS.ChunkSize),
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.maxObjSizeGB",
+			fmt.Sprintf("%f", *wantCfg.Storage.GCS.MaxObjSizeGB),
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.retryer.backoffInitial",
+			wantCfg.Storage.GCS.Retryer.BackoffInitial.String(),
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.retryer.backoffMax",
+			wantCfg.Storage.GCS.Retryer.BackoffMax.String(),
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+		err = SetConfigVar(ctx, connClient,
+			"storage.gcs.retryer.backoffMultiplier",
+			fmt.Sprintf("%f", wantCfg.Storage.GCS.Retryer.BackoffMultiplier),
+		)
+		if err != nil {
+			t.Fatal("set config var", err)
+		}
+
+		gotCfg, err := GetConfig(ctx, connClient)
+		if err != nil {
+			t.Fatal("get config:", err)
+		}
+
+		if !gotCfg.Storage.Equal(&wantCfg.Storage) {
+			t.Fatalf("wrong config after using set config var, diff=%s",
+				cmp.Diff(*wantCfg.Storage.GCS, *gotCfg.Storage.GCS))
+		}
+	})
+}
+
+func Test(t *testing.T) {
+	testCases := []struct {
+		desc string
+	}{
+		{
+			desc: "",
+		},
+	}
+	for _, tC := range testCases {
+		t.Run(tC.desc, func(t *testing.T) {
+
+		})
+	}
+}
+
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func floatPtr(f float64) *float64 {
+	return &f
 }
