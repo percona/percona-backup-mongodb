@@ -36,27 +36,27 @@ type gcsClient interface {
 }
 
 type GCS struct {
-	opts *Config
-	log  log.LogEvent
+	cfg *Config
+	log log.LogEvent
 
 	client gcsClient
 	d      *Download
 }
 
-func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
+func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	g := &GCS{
-		opts: opts,
-		log:  l,
+		cfg: cfg,
+		log: l,
 	}
 
-	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
-		hc, err := newHMACClient(g.opts, g.log)
+	if g.cfg.Credentials.HMACAccessKey != "" && g.cfg.Credentials.HMACSecret != "" {
+		hc, err := newHMACClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new hmac client")
 		}
 		g.client = hc
 	} else {
-		gc, err := newGoogleClient(g.opts, g.log)
+		gc, err := newGoogleClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new google client")
 		}
@@ -69,7 +69,7 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 		cc:       1,
 	}
 
-	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
+	return storage.NewSplitMergeMW(g, cfg.GetMaxObjSizeGB()), nil
 }
 
 func NewWithDownloader(
@@ -83,18 +83,18 @@ func NewWithDownloader(
 	}
 
 	g := &GCS{
-		opts: opts,
-		log:  l,
+		cfg: opts,
+		log: l,
 	}
 
-	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
-		hc, err := newHMACClient(g.opts, g.log)
+	if g.cfg.Credentials.HMACAccessKey != "" && g.cfg.Credentials.HMACSecret != "" {
+		hc, err := newHMACClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new hmac client")
 		}
 		g.client = hc
 	} else {
-		gc, err := newGoogleClient(g.opts, g.log)
+		gc, err := newGoogleClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new google client")
 		}
@@ -132,7 +132,7 @@ func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
 }
 
 func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	prfx := path.Join(g.opts.Prefix, prefix)
+	prfx := path.Join(g.cfg.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
 		prfx += "/"

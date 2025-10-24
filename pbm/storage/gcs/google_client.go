@@ -21,28 +21,28 @@ import (
 
 type googleClient struct {
 	bucketHandle *storagegcs.BucketHandle
-	opts         *Config
+	cfg          *Config
 	log          log.LogEvent
 }
 
-func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
+func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 	ctx := context.Background()
 
-	if opts.Credentials.PrivateKey == "" || opts.Credentials.ClientEmail == "" {
+	if cfg.Credentials.PrivateKey == "" || cfg.Credentials.ClientEmail == "" {
 		return nil, errors.New("clientEmail and privateKey are required for GCS credentials")
 	}
 
 	creds, err := json.Marshal(ServiceAccountCredentials{
 		Type:                "service_account",
-		PrivateKey:          opts.Credentials.PrivateKey,
-		ClientEmail:         opts.Credentials.ClientEmail,
+		PrivateKey:          cfg.Credentials.PrivateKey,
+		ClientEmail:         cfg.Credentials.ClientEmail,
 		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
 		TokenURI:            "https://oauth2.googleapis.com/token",
 		UniverseDomain:      "googleapis.com",
 		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
 		ClientCertURL: fmt.Sprintf(
 			"https://www.googleapis.com/robot/v1/metadata/x509/%s",
-			opts.Credentials.ClientEmail,
+			cfg.Credentials.ClientEmail,
 		),
 	})
 	if err != nil {
@@ -54,23 +54,23 @@ func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
 		return nil, errors.Wrap(err, "new GCS client")
 	}
 
-	bh := cli.Bucket(opts.Bucket)
+	bh := cli.Bucket(cfg.Bucket)
 
-	if opts.Retryer != nil {
+	if cfg.Retryer != nil {
 		bh = bh.Retryer(
 			storagegcs.WithBackoff(gax.Backoff{
-				Initial:    opts.Retryer.BackoffInitial,
-				Max:        opts.Retryer.BackoffMax,
-				Multiplier: opts.Retryer.BackoffMultiplier,
+				Initial:    cfg.Retryer.BackoffInitial,
+				Max:        cfg.Retryer.BackoffMax,
+				Multiplier: cfg.Retryer.BackoffMultiplier,
 			}),
-			storagegcs.WithMaxAttempts(opts.Retryer.MaxAttempts),
+			storagegcs.WithMaxAttempts(cfg.Retryer.MaxAttempts),
 			storagegcs.WithPolicy(storagegcs.RetryAlways),
 		)
 	}
 
 	return &googleClient{
 		bucketHandle: bh,
-		opts:         opts,
+		cfg:          cfg,
 		log:          l,
 	}, nil
 }
@@ -90,7 +90,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 		10<<20, // default: 10 MiB
 		align,
 		10_000,
-		int64(g.opts.ChunkSize),
+		int64(g.cfg.ChunkSize),
 	)
 
 	if rem := partSize % align; rem != 0 {
@@ -105,7 +105,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 	}
 
 	ctx := context.Background()
-	w := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewWriter(ctx)
+	w := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).NewWriter(ctx)
 	w.ChunkSize = int(partSize)
 	if g.log != nil && opts.UseLogger {
 		w.ProgressFunc = func(written int64) {
@@ -133,7 +133,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 func (g googleClient) fileStat(name string) (storage.FileInfo, error) {
 	ctx := context.Background()
 
-	attrs, err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Attrs(ctx)
+	attrs, err := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).Attrs(ctx)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) {
 			return storage.FileInfo{}, storage.ErrNotExist
@@ -196,7 +196,7 @@ func (g googleClient) list(prefix, suffix string) ([]storage.FileInfo, error) {
 func (g googleClient) delete(name string) error {
 	ctx := context.Background()
 
-	err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Delete(ctx)
+	err := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).Delete(ctx)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) {
 			return storage.ErrNotExist
@@ -210,8 +210,8 @@ func (g googleClient) delete(name string) error {
 func (g googleClient) copy(src, dst string) error {
 	ctx := context.Background()
 
-	srcObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, src))
-	dstObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, dst))
+	srcObj := g.bucketHandle.Object(path.Join(g.cfg.Prefix, src))
+	dstObj := g.bucketHandle.Object(path.Join(g.cfg.Prefix, dst))
 
 	_, err := g.fileStat(src)
 	if err == storage.ErrNotExist {
@@ -226,7 +226,7 @@ func (g googleClient) getPartialObject(name string, buf *storage.Arena, start, l
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
 
-	obj := g.bucketHandle.Object(path.Join(g.opts.Prefix, name))
+	obj := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name))
 	reader, err := obj.NewRangeReader(ctx, start, length)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) || isRangeNotSatisfiable(err) {
