@@ -273,6 +273,7 @@ func TestConfig(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("gcs config", func(t *testing.T) {
+
 		wantCfg := &Config{
 			Storage: StorageConf{
 				Type: storage.GCS,
@@ -286,98 +287,104 @@ func TestConfig(t *testing.T) {
 					ChunkSize:    100,
 					MaxObjSizeGB: floatPtr(1.1),
 					Retryer: &gcs.Retryer{
-						BackoffInitial:    11 * time.Minute,
-						BackoffMax:        111 * time.Minute,
-						BackoffMultiplier: 11.1,
+						BackoffInitial:     11 * time.Minute,
+						BackoffMax:         111 * time.Minute,
+						BackoffMultiplier:  11.1,
+						MaxAttempts:        1,
+						ChunkRetryDeadline: 11 * time.Millisecond,
 					},
 				},
 			},
 		}
+
+		var testCases = []struct {
+			desc  string
+			param string
+			val   string
+		}{
+			{
+				desc:  "bucket",
+				param: "storage.gcs.bucket",
+				val:   wantCfg.Storage.GCS.Bucket,
+			},
+			{
+				desc:  "prefix",
+				param: "storage.gcs.prefix",
+				val:   wantCfg.Storage.GCS.Prefix,
+			},
+			{
+				desc:  "credentials.clientEmail",
+				param: "storage.gcs.credentials.clientEmail",
+				val:   wantCfg.Storage.GCS.Credentials.ClientEmail,
+			},
+			{
+				desc:  "credentials.privateKey",
+				param: "storage.gcs.credentials.privateKey",
+				val:   wantCfg.Storage.GCS.Credentials.PrivateKey,
+			},
+			{
+				desc:  "chunkSize",
+				param: "storage.gcs.chunkSize",
+				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.ChunkSize),
+			},
+			{
+				desc:  "maxObjSizeGB",
+				param: "storage.gcs.maxObjSizeGB",
+				val:   fmt.Sprintf("%f", *wantCfg.Storage.GCS.MaxObjSizeGB),
+			},
+			{
+				desc:  "retryer.backoffInitial",
+				param: "storage.gcs.retryer.backoffInitial",
+				val:   wantCfg.Storage.GCS.Retryer.BackoffInitial.String(),
+			},
+			{
+				desc:  "retryer.backoffMax",
+				param: "storage.gcs.retryer.backoffMax",
+				val:   wantCfg.Storage.GCS.Retryer.BackoffMax.String(),
+			},
+			{
+				desc:  "retryer.backoffMultiplier",
+				param: "storage.gcs.retryer.backoffMultiplier",
+				val:   fmt.Sprintf("%f", wantCfg.Storage.GCS.Retryer.BackoffMultiplier),
+			},
+			{
+				desc:  "retryer.maxAttempts",
+				param: "storage.gcs.retryer.maxAttempts",
+				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.Retryer.MaxAttempts),
+			},
+			{
+				desc:  "retryer.chunkRetryDeadline",
+				param: "storage.gcs.retryer.chunkRetryDeadline",
+				val:   wantCfg.Storage.GCS.Retryer.ChunkRetryDeadline.String(),
+			},
+		}
+
 		err := SetConfig(ctx, connClient, &Config{Storage: StorageConf{Type: storage.GCS}})
 		if err != nil {
-			t.Fatal("set config:", err)
+			t.Fatalf("setup: initial SetConfig failed: %v", err)
 		}
 
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.bucket",
-			wantCfg.Storage.GCS.Bucket,
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
+		for _, tc := range testCases {
+			t.Run(tc.desc, func(t *testing.T) {
+				err := SetConfigVar(ctx, connClient, tc.param, tc.val)
+				if err != nil {
+					t.Fatalf("SetConfigVar failed for %s with value %s: %v",
+						tc.param, tc.val, err)
+				}
+			})
 		}
 
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.prefix",
-			wantCfg.Storage.GCS.Prefix,
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
+		t.Run("check final config", func(t *testing.T) {
+			gotCfg, err := GetConfig(ctx, connClient)
+			if err != nil {
+				t.Fatalf("GetConfig failed: %v", err)
+			}
 
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.credentials.clientEmail",
-			wantCfg.Storage.GCS.Credentials.ClientEmail,
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
-
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.credentials.privateKey",
-			wantCfg.Storage.GCS.Credentials.PrivateKey,
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
-
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.chunkSize",
-			fmt.Sprintf("%d", wantCfg.Storage.GCS.ChunkSize),
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
-
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.maxObjSizeGB",
-			fmt.Sprintf("%f", *wantCfg.Storage.GCS.MaxObjSizeGB),
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
-
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.retryer.backoffInitial",
-			wantCfg.Storage.GCS.Retryer.BackoffInitial.String(),
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
-
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.retryer.backoffMax",
-			wantCfg.Storage.GCS.Retryer.BackoffMax.String(),
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
-		err = SetConfigVar(ctx, connClient,
-			"storage.gcs.retryer.backoffMultiplier",
-			fmt.Sprintf("%f", wantCfg.Storage.GCS.Retryer.BackoffMultiplier),
-		)
-		if err != nil {
-			t.Fatal("set config var", err)
-		}
-
-		gotCfg, err := GetConfig(ctx, connClient)
-		if err != nil {
-			t.Fatal("get config:", err)
-		}
-
-		if !gotCfg.Storage.Equal(&wantCfg.Storage) {
-			t.Fatalf("wrong config after using set config var, diff=%s",
-				cmp.Diff(*wantCfg.Storage.GCS, *gotCfg.Storage.GCS))
-		}
+			if !gotCfg.Storage.Equal(&wantCfg.Storage) {
+				t.Fatalf("Wrong config after using SetConfigVar.\n-want: %+v\n-got: %+v\n\nDiff:\n%s",
+					wantCfg.Storage.GCS, gotCfg.Storage.GCS, cmp.Diff(*wantCfg.Storage.GCS, *gotCfg.Storage.GCS))
+			}
+		})
 	})
 }
 
