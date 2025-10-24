@@ -63,7 +63,7 @@ func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
 				Max:        opts.Retryer.BackoffMax,
 				Multiplier: opts.Retryer.BackoffMultiplier,
 			}),
-
+			storagegcs.WithMaxAttempts(opts.Retryer.MaxAttempts),
 			storagegcs.WithPolicy(storagegcs.RetryAlways),
 		)
 	}

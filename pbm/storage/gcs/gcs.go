@@ -53,6 +53,11 @@ type Retryer struct {
 	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Multiplier
 	// Ignored for MinIO (only Initial and Max used)
 	BackoffMultiplier float64 `bson:"backoffMultiplier" json:"backoffMultiplier" yaml:"backoffMultiplier"`
+
+	// MaxAttempts configures the maximum number of tries.
+	// E.g. if you it's set to 5, op will be attempted up to 5 times total (initial call + 4 retries).
+	// https://pkg.go.dev/cloud.google.com/go/storage#WithMaxAttempts
+	MaxAttempts int `bson:"maxAttempts" json:"maxAttempts" yaml:"maxAttempts"`
 }
 
 type ServiceAccountCredentials struct {
