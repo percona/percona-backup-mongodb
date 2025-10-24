@@ -107,6 +107,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 	ctx := context.Background()
 	w := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).NewWriter(ctx)
 	w.ChunkSize = int(partSize)
+	w.ChunkRetryDeadline = g.cfg.Retryer.ChunkRetryDeadline
 	if g.log != nil && opts.UseLogger {
 		w.ProgressFunc = func(written int64) {
 			if opts.Size > 0 {

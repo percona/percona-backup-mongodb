@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+//nolint:lll
 type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
@@ -45,7 +46,12 @@ type Retryer struct {
 	// MaxAttempts configures the maximum number of tries.
 	// E.g. if you it's set to 5, op will be attempted up to 5 times total (initial call + 4 retries).
 	// https://pkg.go.dev/cloud.google.com/go/storage#WithMaxAttempts
-	MaxAttempts int `bson:"maxAttempts" json:"maxAttempts" yaml:"maxAttempts"`
+	MaxAttempts int `bson:"maxAttempts,omitempty" json:"maxAttempts,omitempty" yaml:"maxAttempts,omitempty"`
+
+	// ChunkRetryDeadline sets a per-chunk retry deadline for multi-chunk
+	// resumable uploads.
+	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
+	ChunkRetryDeadline time.Duration `bson:"chunkRetryDeadline,omitempty" json:"chunkRetryDeadline,omitempty" yaml:"chunkRetryDeadline,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
