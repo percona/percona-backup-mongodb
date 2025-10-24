@@ -31,6 +31,7 @@ type Credentials struct {
 	HMACSecret    string `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
 }
 
+//nolint:lll
 type Retryer struct {
 	// BackoffInitial is the initial value of the retry period.
 	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Initial

@@ -273,7 +273,6 @@ func TestConfig(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("gcs config", func(t *testing.T) {
-
 		wantCfg := &Config{
 			Storage: StorageConf{
 				Type: storage.GCS,
@@ -297,7 +296,7 @@ func TestConfig(t *testing.T) {
 			},
 		}
 
-		var testCases = []struct {
+		testCases := []struct {
 			desc  string
 			param string
 			val   string
@@ -367,12 +366,12 @@ func TestConfig(t *testing.T) {
 			t.Fatalf("setup: initial SetConfig failed: %v", err)
 		}
 
-		for _, tc := range testCases {
-			t.Run(tc.desc, func(t *testing.T) {
-				err := SetConfigVar(ctx, connClient, tc.param, tc.val)
+		for _, tt := range testCases {
+			t.Run(tt.desc, func(t *testing.T) {
+				err := SetConfigVar(ctx, connClient, tt.param, tt.val)
 				if err != nil {
 					t.Fatalf("SetConfigVar failed for %s with value %s: %v",
-						tc.param, tc.val, err)
+						tt.param, tt.val, err)
 				}
 			})
 		}
@@ -389,21 +388,6 @@ func TestConfig(t *testing.T) {
 			}
 		})
 	})
-}
-
-func Test(t *testing.T) {
-	testCases := []struct {
-		desc string
-	}{
-		{
-			desc: "",
-		},
-	}
-	for _, tC := range testCases {
-		t.Run(tC.desc, func(t *testing.T) {
-
-		})
-	}
 }
 
 func boolPtr(b bool) *bool {
