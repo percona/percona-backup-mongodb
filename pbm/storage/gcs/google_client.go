@@ -87,7 +87,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 
 	partSize := storage.ComputePartSize(
 		opts.Size,
-		10<<20, // default: 10 MiB
+		defaultChunkSize,
 		align,
 		10_000,
 		int64(g.cfg.ChunkSize),

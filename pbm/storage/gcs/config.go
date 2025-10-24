@@ -3,6 +3,8 @@ package gcs
 import (
 	"reflect"
 	"time"
+
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
 //nolint:lll
@@ -113,6 +115,44 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 	}
 
 	return true
+}
+
+func (cfg *Config) Cast() error {
+	if cfg == nil {
+		return errors.New("missing GCS configuration with GCS storage type")
+	}
+
+	if cfg.ChunkSize == 0 {
+		cfg.ChunkSize = defaultChunkSize
+	}
+
+	if cfg.Retryer == nil {
+		cfg.Retryer = &Retryer{
+			MaxAttempts:        defaultMaxAttempts,
+			BackoffInitial:     defaultBackoffInitial,
+			BackoffMax:         defaultBackoffMax,
+			BackoffMultiplier:  defaultBackoffMultiplier,
+			ChunkRetryDeadline: defaultChunkRetryDeadline,
+		}
+	} else {
+		if cfg.Retryer.MaxAttempts == 0 {
+			cfg.Retryer.MaxAttempts = defaultMaxAttempts
+		}
+		if cfg.Retryer.BackoffInitial == 0 {
+			cfg.Retryer.BackoffInitial = defaultBackoffInitial
+		}
+		if cfg.Retryer.BackoffMax == 0 {
+			cfg.Retryer.BackoffMax = defaultBackoffMax
+		}
+		if cfg.Retryer.BackoffMultiplier == 0 {
+			cfg.Retryer.BackoffMultiplier = defaultBackoffMultiplier
+		}
+		if cfg.Retryer.ChunkRetryDeadline == 0 {
+			cfg.Retryer.ChunkRetryDeadline = defaultChunkRetryDeadline
+		}
+	}
+
+	return nil
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {

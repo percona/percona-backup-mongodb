@@ -359,7 +359,10 @@ func TestConfig(t *testing.T) {
 			},
 		}
 
-		err := SetConfig(ctx, connClient, &Config{Storage: StorageConf{Type: storage.GCS}})
+		emptyCfg := &Config{
+			Storage: StorageConf{Type: storage.GCS, GCS: &gcs.Config{}},
+		}
+		err := SetConfig(ctx, connClient, emptyCfg)
 		if err != nil {
 			t.Fatalf("setup: initial SetConfig failed: %v", err)
 		}

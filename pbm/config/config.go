@@ -346,7 +346,7 @@ func (s *StorageConf) Cast() error {
 	case storage.Azure:
 		return s.Azure.Cast()
 	case storage.GCS:
-		return nil
+		return s.GCS.Cast()
 	case storage.Blackhole: // noop
 		return nil
 	}

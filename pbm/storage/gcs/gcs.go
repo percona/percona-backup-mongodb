@@ -4,6 +4,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -11,8 +12,16 @@ import (
 )
 
 const (
-	gcsEndpointURL      = "storage.googleapis.com"
-	defaultMaxObjSizeGB = 5018 // 4.9 TB
+	gcsEndpointURL = "storage.googleapis.com"
+
+	defaultChunkSize    = 10 * 1024 * 1024 // 10MiB
+	defaultMaxObjSizeGB = 5018             // 4.9 TB
+
+	defaultMaxAttempts        = 5
+	defaultBackoffInitial     = time.Second
+	defaultBackoffMax         = 30 * time.Second
+	defaultBackoffMultiplier  = 2
+	defaultChunkRetryDeadline = 32 * time.Second
 )
 
 type ServiceAccountCredentials struct {
@@ -44,6 +53,10 @@ type GCS struct {
 }
 
 func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
+	if err := cfg.Cast(); err != nil {
+		return nil, errors.Wrap(err, "set defaults")
+	}
+
 	g := &GCS{
 		cfg: cfg,
 		log: l,
