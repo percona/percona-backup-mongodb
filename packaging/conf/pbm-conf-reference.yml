@@ -151,9 +151,11 @@
 
 ## Retry upload configuration options.
 #      retryer:
-#        backoffInitial: 1
-#        backoffMax: 30
+#        maxAttempts: 5
+#        backoffInitial: 1s
+#        backoffMax: 30s
 #        backoffMultiplier: 2
+#        chunkRetryDeadline: 32s
 #
 ## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 5018
