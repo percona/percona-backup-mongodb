@@ -54,10 +54,8 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		return nil, errors.Wrap(err, "new GCS client")
 	}
 
-	bh := cli.Bucket(cfg.Bucket)
-
-	if cfg.Retryer != nil {
-		bh = bh.Retryer(
+	bh := cli.Bucket(cfg.Bucket).
+		Retryer(
 			storagegcs.WithBackoff(gax.Backoff{
 				Initial:    cfg.Retryer.BackoffInitial,
 				Max:        cfg.Retryer.BackoffMax,
@@ -65,14 +63,31 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 			}),
 			storagegcs.WithMaxAttempts(cfg.Retryer.MaxAttempts),
 			storagegcs.WithPolicy(storagegcs.RetryAlways),
+			storagegcs.WithErrorFunc(shouldRetryExtended),
 		)
-	}
 
 	return &googleClient{
 		bucketHandle: bh,
 		cfg:          cfg,
 		log:          l,
 	}, nil
+}
+
+// shouldRetryExtended extends default shouldRetry with mainly
+// `client connection lost` error from std library's http package.
+func shouldRetryExtended(err error) bool {
+	if err == nil {
+		return false
+	}
+	if storagegcs.ShouldRetry(err) {
+		return true
+	}
+	if strings.Contains(err.Error(), "http2: client connection lost") ||
+		strings.Contains(err.Error(), "connect: network is unreachable") {
+		return true
+	}
+
+	return false
 }
 
 func (g googleClient) save(name string, data io.Reader, options ...storage.Option) error {
