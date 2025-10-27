@@ -3,7 +3,6 @@ package gcs
 import (
 	"io"
 	"path"
-	"reflect"
 	"strings"
 	"time"
 
@@ -13,47 +12,17 @@ import (
 )
 
 const (
-	gcsEndpointURL      = "storage.googleapis.com"
-	defaultMaxObjSizeGB = 5018 // 4.9 TB
+	gcsEndpointURL = "storage.googleapis.com"
+
+	defaultChunkSize    = 10 * 1024 * 1024 // 10MiB
+	defaultMaxObjSizeGB = 5018             // 4.9 TB
+
+	defaultMaxAttempts        = 5
+	defaultBackoffInitial     = time.Second
+	defaultBackoffMax         = 30 * time.Second
+	defaultBackoffMultiplier  = 2
+	defaultChunkRetryDeadline = 32 * time.Second
 )
-
-type Config struct {
-	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
-	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
-	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
-
-	// The maximum number of bytes that the Writer will attempt to send in a single request.
-	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
-	ChunkSize    int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
-	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
-
-	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
-}
-
-type Credentials struct {
-	// JSON credentials (service account)
-	ClientEmail string `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
-	PrivateKey  string `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
-
-	// HMAC credentials for XML API (S3 compatibility)
-	HMACAccessKey string `bson:"hmacAccessKey" json:"hmacAccessKey,omitempty" yaml:"hmacAccessKey,omitempty"`
-	HMACSecret    string `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
-}
-
-type Retryer struct {
-	// BackoffInitial is the initial value of the retry period.
-	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Initial
-	BackoffInitial time.Duration `bson:"backoffInitial" json:"backoffInitial" yaml:"backoffInitial"`
-
-	// BackoffMax is the maximum value of the retry period.
-	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Max
-	BackoffMax time.Duration `bson:"backoffMax" json:"backoffMax" yaml:"backoffMax"`
-
-	// BackoffMultiplier is the factor by which the retry period increases.
-	// https://pkg.go.dev/github.com/googleapis/gax-go/v2@v2.12.3#Backoff.Multiplier
-	// Ignored for MinIO (only Initial and Max used)
-	BackoffMultiplier float64 `bson:"backoffMultiplier" json:"backoffMultiplier" yaml:"backoffMultiplier"`
-}
 
 type ServiceAccountCredentials struct {
 	Type                string `json:"type"`
@@ -76,92 +45,31 @@ type gcsClient interface {
 }
 
 type GCS struct {
-	opts *Config
-	log  log.LogEvent
+	cfg *Config
+	log log.LogEvent
 
 	client gcsClient
 	d      *Download
 }
 
-func (cfg *Config) Clone() *Config {
-	if cfg == nil {
-		return nil
+func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
+	if err := cfg.Cast(); err != nil {
+		return nil, errors.Wrap(err, "set defaults")
 	}
 
-	rv := *cfg
-	if cfg.MaxObjSizeGB != nil {
-		v := *cfg.MaxObjSizeGB
-		rv.MaxObjSizeGB = &v
-	}
-	if cfg.Retryer != nil {
-		v := *cfg.Retryer
-		rv.Retryer = &v
-	}
-
-	return &rv
-}
-
-func (cfg *Config) Equal(other *Config) bool {
-	if cfg == nil || other == nil {
-		return cfg == other
-	}
-
-	if cfg.Bucket != other.Bucket {
-		return false
-	}
-	if cfg.Prefix != other.Prefix {
-		return false
-	}
-	if cfg.ChunkSize != other.ChunkSize {
-		return false
-	}
-	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
-		return false
-	}
-	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
-		return false
-	}
-
-	return true
-}
-
-// IsSameStorage identifies the same instance of the GCS storage.
-func (cfg *Config) IsSameStorage(other *Config) bool {
-	if cfg == nil || other == nil {
-		return cfg == other
-	}
-
-	if cfg.Bucket != other.Bucket {
-		return false
-	}
-	if cfg.Prefix != other.Prefix {
-		return false
-	}
-
-	return true
-}
-
-func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
-		return *cfg.MaxObjSizeGB
-	}
-	return defaultMaxObjSizeGB
-}
-
-func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	g := &GCS{
-		opts: opts,
-		log:  l,
+		cfg: cfg,
+		log: l,
 	}
 
-	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
-		hc, err := newHMACClient(g.opts, g.log)
+	if g.cfg.Credentials.HMACAccessKey != "" && g.cfg.Credentials.HMACSecret != "" {
+		hc, err := newHMACClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new hmac client")
 		}
 		g.client = hc
 	} else {
-		gc, err := newGoogleClient(g.opts, g.log)
+		gc, err := newGoogleClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new google client")
 		}
@@ -174,7 +82,7 @@ func New(opts *Config, node string, l log.LogEvent) (storage.Storage, error) {
 		cc:       1,
 	}
 
-	return storage.NewSplitMergeMW(g, opts.GetMaxObjSizeGB()), nil
+	return storage.NewSplitMergeMW(g, cfg.GetMaxObjSizeGB()), nil
 }
 
 func NewWithDownloader(
@@ -188,18 +96,18 @@ func NewWithDownloader(
 	}
 
 	g := &GCS{
-		opts: opts,
-		log:  l,
+		cfg: opts,
+		log: l,
 	}
 
-	if g.opts.Credentials.HMACAccessKey != "" && g.opts.Credentials.HMACSecret != "" {
-		hc, err := newHMACClient(g.opts, g.log)
+	if g.cfg.Credentials.HMACAccessKey != "" && g.cfg.Credentials.HMACSecret != "" {
+		hc, err := newHMACClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new hmac client")
 		}
 		g.client = hc
 	} else {
-		gc, err := newGoogleClient(g.opts, g.log)
+		gc, err := newGoogleClient(g.cfg, g.log)
 		if err != nil {
 			return nil, errors.Wrap(err, "new google client")
 		}
@@ -237,7 +145,7 @@ func (g *GCS) FileStat(name string) (storage.FileInfo, error) {
 }
 
 func (g *GCS) List(prefix, suffix string) ([]storage.FileInfo, error) {
-	prfx := path.Join(g.opts.Prefix, prefix)
+	prfx := path.Join(g.cfg.Prefix, prefix)
 
 	if prfx != "" && !strings.HasSuffix(prfx, "/") {
 		prfx += "/"
