@@ -324,6 +324,8 @@ func (s *StorageConf) IsSameStorage(other *StorageConf) bool {
 		return s.Azure.IsSameStorage(other.Azure)
 	case storage.GCS:
 		return s.GCS.IsSameStorage(other.GCS)
+	case storage.OSS:
+		return s.OSS.IsSameStorage(other.OSS)
 	case storage.Filesystem:
 		return s.Filesystem.IsSameStorage(other.Filesystem)
 	case storage.Blackhole:
@@ -364,6 +366,8 @@ func (s *StorageConf) Typ() string {
 		return "Azure"
 	case storage.GCS:
 		return "GCS"
+	case storage.OSS:
+		return "OSS"
 	case storage.Filesystem:
 		return "FS"
 	case storage.Blackhole:
@@ -418,6 +422,19 @@ func (s *StorageConf) Path() string {
 		if s.GCS.Prefix != "" {
 			path += "/" + s.GCS.Prefix
 		}
+	case storage.OSS:
+		path = s.OSS.EndpointURL
+		if path == "" {
+			path = "oss://" + s.OSS.Bucket
+		} else {
+			if !strings.Contains(path, "://") {
+				path = "oss://" + path
+			}
+			path += "/" + s.OSS.Bucket
+		}
+		if s.OSS.Prefix != "" {
+			path += "/" + s.OSS.Prefix
+		}
 	case storage.Filesystem:
 		path = s.Filesystem.Path
 	}
@@ -433,6 +450,8 @@ func (s *StorageConf) Region() string {
 		region = s.S3.Region
 	case storage.Minio:
 		region = s.Minio.Region
+	case storage.OSS:
+		region = s.OSS.Region
 	}
 
 	return region

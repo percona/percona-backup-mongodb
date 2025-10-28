@@ -63,6 +63,24 @@ type Credentials struct {
 	SessionName     string `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
 }
 
+// IsSameStorage identifies the same instance of the OSS storage.
+func (cfg *Config) IsSameStorage(other *Config) bool {
+	if cfg == nil || other == nil {
+		return cfg == other
+	}
+
+	if cfg.Region != other.Region {
+		return false
+	}
+	if cfg.Bucket != other.Bucket {
+		return false
+	}
+	if cfg.Prefix != other.Prefix {
+		return false
+	}
+	return true
+}
+
 func (cfg *Config) Cast() error {
 	if cfg == nil {
 		return errors.New("missing oss configuration with oss storage type")
