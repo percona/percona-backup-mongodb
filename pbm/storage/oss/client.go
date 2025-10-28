@@ -63,7 +63,7 @@ type Credentials struct {
 	SessionName     string `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
 }
 
-// IsSameStorage identifies the same instance of the S3 storage.
+// IsSameStorage identifies the same instance of the OSS storage.
 func (cfg *Config) IsSameStorage(other *Config) bool {
 	if cfg == nil || other == nil {
 		return cfg == other
