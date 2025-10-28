@@ -367,7 +367,7 @@ func (s *StorageConf) Typ() string {
 	case storage.GCS:
 		return "GCS"
 	case storage.OSS:
-		return ""
+		return "OSS"
 	case storage.Filesystem:
 		return "FS"
 	case storage.Blackhole:
