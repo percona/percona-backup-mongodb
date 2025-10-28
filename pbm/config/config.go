@@ -324,6 +324,8 @@ func (s *StorageConf) IsSameStorage(other *StorageConf) bool {
 		return s.Azure.IsSameStorage(other.Azure)
 	case storage.GCS:
 		return s.GCS.IsSameStorage(other.GCS)
+	case storage.OSS:
+		return s.OSS.IsSameStorage(other.OSS)
 	case storage.Filesystem:
 		return s.Filesystem.IsSameStorage(other.Filesystem)
 	case storage.Blackhole:
@@ -365,7 +367,7 @@ func (s *StorageConf) Typ() string {
 	case storage.GCS:
 		return "GCS"
 	case storage.OSS:
-		return "OSS"
+		return ""
 	case storage.Filesystem:
 		return "FS"
 	case storage.Blackhole:
