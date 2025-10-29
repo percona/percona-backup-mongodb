@@ -183,6 +183,12 @@ func (c *Config) String() string {
 		if c.Storage.OSS.Credentials.SecurityToken != "" {
 			c.Storage.OSS.Credentials.SecurityToken = "***"
 		}
+		if c.Storage.OSS.Credentials.SessionName != "" {
+			c.Storage.OSS.Credentials.SessionName = "***"
+		}
+		if c.Storage.OSS.Credentials.RoleARN != "" {
+			c.Storage.OSS.Credentials.RoleARN = "***"
+		}
 	}
 
 	b, err := yaml.Marshal(c)
