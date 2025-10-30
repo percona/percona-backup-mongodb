@@ -160,6 +160,10 @@
 ## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 5018
 
+## Enable debug trace of HTTP communication
+#      debugTrace: true
+
+
 #--------------------Filesystem Configuration---------------------------
 #  type:
 #    filesystem:
