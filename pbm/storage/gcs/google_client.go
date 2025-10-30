@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"path"
 	"strings"
 	"time"
@@ -50,21 +49,7 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		return nil, errors.Wrap(err, "marshal GCS credentials")
 	}
 
-	clOpts := []option.ClientOption{
-		option.WithCredentialsJSON(creds),
-	}
-	if cfg.DebugTrace {
-		h := slog.NewTextHandler(l.GetLogger(), &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		})
-		gcsLogger := slog.New(h)
-		clOpts = append(clOpts, option.WithLogger(gcsLogger))
-	}
-
-	cli, err := storagegcs.NewClient(
-		ctx,
-		clOpts...,
-	)
+	cli, err := storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
 	if err != nil {
 		return nil, errors.Wrap(err, "new GCS client")
 	}
