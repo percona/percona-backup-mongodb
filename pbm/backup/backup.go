@@ -548,7 +548,12 @@ func (b *Backup) converged(
 				case defs.StatusCancelled:
 					return false, storage.ErrCancelled
 				case defs.StatusError:
-					return false, errors.Errorf("backup on shard %s failed with: %v", shard.Name, bmeta.Error())
+					if shard.Error == "" {
+						return false, errors.Errorf("backup on shard %s failed: %v",
+							shard.Name, bmeta.Error())
+					}
+					return false, errors.Errorf("backup on shard %s failed with %s: %v",
+						shard.Name, shard.Error, bmeta.Error())
 				}
 			}
 		}
