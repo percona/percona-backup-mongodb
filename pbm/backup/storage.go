@@ -31,13 +31,13 @@ func ReadMetadata(stg storage.Storage, filename string) (*BackupMeta, error) {
 	}
 	defer rdr.Close()
 
-	var meta *BackupMeta
+	var meta BackupMeta
 	err = json.NewDecoder(rdr).Decode(&meta)
 	if err != nil {
 		return nil, errors.Wrap(err, "decode")
 	}
 
-	return meta, nil
+	return &meta, nil
 }
 
 func CheckBackupDataFiles(ctx context.Context, stg storage.Storage, bcp *BackupMeta) error {
