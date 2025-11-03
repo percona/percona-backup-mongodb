@@ -1,0 +1,1982 @@
+{
+	"type": "physical",
+	"opid": "69049d5f4e8cca2a8d16adcd",
+	"name": "2025-10-31T11:28:31Z",
+	"shardRemap": {
+		"cfg": "config"
+	},
+	"replsets": [
+    {
+			"name": "rs10",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs11",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs12",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs14",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs15",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs15",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs16",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs17",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs18",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs18",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs19",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs20",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs21",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs22",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs23",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs24",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs25",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs26",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs27",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs28",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs29",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs30",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs31",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs32",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs33",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs33",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs35",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs36",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs37",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},    {
+			"name": "rs38",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},
+    {
+			"name": "rs39",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},
+    {
+			"name": "rs40",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},
+		{
+			"name": "rs41",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 210963437,
+			"size_uncompressed": 210963437,
+			"last_transition_ts": 1761910165,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 2
+			},
+			"node": "rs201:30201",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910165,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30201
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},
+		{
+			"name": "rs1",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 211392153,
+			"size_uncompressed": 211392153,
+			"last_transition_ts": 1761910167,
+			"first_write_ts": {
+				"T": 1761910108,
+				"I": 1
+			},
+			"last_write_ts": {
+				"T": 1761910108,
+				"I": 1
+			},
+			"node": "rs102:30102",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910167,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30102
+				},
+				"sharding": {
+					"clusterRole": "shardsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		},
+		{
+			"name": "cfg",
+			"start_ts": 1761910113,
+			"status": "done",
+			"size": 213576442,
+			"size_uncompressed": 213576442,
+			"iscs": true,
+			"last_transition_ts": 1761910179,
+			"first_write_ts": {
+				"T": 1761910114,
+				"I": 4
+			},
+			"last_write_ts": {
+				"T": 1761910114,
+				"I": 5
+			},
+			"node": "cfg02:30002",
+			"conditions": [
+				{
+					"timestamp": 1761910113,
+					"status": "running"
+				},
+				{
+					"timestamp": 1761910179,
+					"status": "done"
+				}
+			],
+			"mongod_opts": {
+				"net": {
+					"bindIp": "*",
+					"port": 30002
+				},
+				"sharding": {
+					"clusterRole": "configsvr"
+				},
+				"storage": {
+					"directoryPerDB": false,
+					"dbPath": "/data/db",
+					"wiredTiger": {
+						"engineConfig": {
+							"journalCompressor": "snappy",
+							"directoryForIndexes": false
+						},
+						"collectionConfig": {
+							"blockCompressor": "snappy"
+						},
+						"indexConfig": {
+							"prefixCompression": true
+						}
+					}
+				},
+				"security": {}
+			},
+			"pbm_version": "2.12.0",
+			"mongo_version": "8.0.12-4"
+		}
+	],
+	"compression": "none",
+	"store": {
+		"type": "s3",
+		"s3": {
+			"region": "eu-central-1",
+			"endpointUrl": "",
+			"forcePathStyle": true,
+			"bucket": "pbm-boris-bucket",
+			"prefix": "t1",
+			"maxUploadParts": 10000,
+			"storageClass": "STANDARD",
+			"insecureSkipTLSVerify": false
+		}
+	},
+	"size": 635932032,
+	"size_uncompressed": 635932032,
+	"mongodb_version": "8.0.12-4",
+	"fcv": "8.0",
+	"start_ts": 1761910112,
+	"last_transition_ts": 1761910180,
+	"first_write_ts": {
+		"T": 1761910114,
+		"I": 4
+	},
+	"last_write_ts": {
+		"T": 1761910114,
+		"I": 5
+	},
+	"hb": {
+		"T": 1761910178,
+		"I": 3
+	},
+	"status": "done",
+	"conditions": [
+		{
+			"timestamp": 1761910112,
+			"status": "starting"
+		},
+		{
+			"timestamp": 1761910115,
+			"status": "running"
+		},
+		{
+			"timestamp": 1761910180,
+			"status": "done"
+		}
+	],
+	"n": [
+		{
+			"rs": "cfg",
+			"n": [
+				"cfg01:30001",
+				"cfg02:30002"
+			],
+			"ack": "cfg02:30002"
+		},
+		{
+			"rs": "rs1",
+			"n": [
+				"rs101:30101",
+				"rs102:30102"
+			],
+			"ack": "rs102:30102"
+		},
+		{
+			"rs": "rs2",
+			"n": [
+				"rs202:30202",
+				"rs201:30201"
+			],
+			"ack": "rs201:30201"
+		}
+	],
+	"pbm_version": "2.12.0",
+	"balancer": "full"
+}
