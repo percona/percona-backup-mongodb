@@ -654,8 +654,9 @@ func writeMeta(stg storage.Storage, meta *BackupMeta) error {
 	if err != nil {
 		return errors.Wrap(err, "marshal data")
 	}
+	lenMeta := int64(len(b))
 
-	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b))
+	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b), storage.Size(lenMeta))
 	return errors.Wrap(err, "write to store")
 }
 
