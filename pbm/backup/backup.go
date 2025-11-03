@@ -605,7 +605,7 @@ func (b *Backup) waitForStatus(
 			case defs.StatusCancelled:
 				return storage.ErrCancelled
 			case defs.StatusError:
-				return errors.Errorf("cluster failed: %v", err)
+				return errors.Errorf("cluster failed: %v", bmeta.Error())
 			}
 		case <-tout:
 			return errors.New("no backup meta, looks like a leader failed to start")
