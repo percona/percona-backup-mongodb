@@ -13,10 +13,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/percona/percona-backup-mongodb/pbm/defs"
-	stds3 "github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
+
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	stds3 "github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
 func TestMetadataEncodeDecodeWithMinio(t *testing.T) {

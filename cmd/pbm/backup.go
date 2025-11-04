@@ -157,7 +157,7 @@ func runBackup(
 	defer cancel()
 	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "wait for backup status")
 	}
 
 	if b.typ == string(defs.ExternalBackup) {
@@ -293,7 +293,10 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 						rs += ": " + s.Error
 					}
 				}
-				return errors.New(bmeta.Error().Error() + rs)
+				if bmeta.Error() != nil {
+					return errors.New(bmeta.Error().Error() + rs)
+				}
+				return errors.Errorf("status error on %s", rs)
 			}
 		case <-ctx.Done():
 			if bmeta == nil {
