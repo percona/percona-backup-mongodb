@@ -27,7 +27,9 @@ func run(t *sharded.Cluster, typ testTyp) {
 		{"AWS", "/etc/pbm/aws.yaml"},
 		{"GCS", "/etc/pbm/gcs.yaml"},
 		{"GCS_HMAC", "/etc/pbm/gcs_hmac.yaml"},
+		{"AWS_MinIO", "/etc/pbm/aws_minio.yaml"},
 		{"Azure", "/etc/pbm/azure.yaml"},
+		{"OSS", "/etc/pbm/oss.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
 	}
 

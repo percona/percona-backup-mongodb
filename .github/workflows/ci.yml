@@ -41,8 +41,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        psmdb: ["6.0", "7.0", "8.0"]
-        test: [logical, physical, incremental, external]
+        psmdb: ["7.0", "8.0"]
+        shard: [0, 1, 2, 3, 4, 5, 6]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || github.ref_name }}
       GO_VER: ${{ github.event.inputs.go_ver || '1.25-bookworm' }}
@@ -63,9 +63,9 @@ jobs:
           docker compose up -d
         working-directory: psmdb-testing/pbm-functional/pytest
 
-      - name: Test ${{ matrix.test }} backup/restore on PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
+      - name: Run pytest shard number ${{ matrix.shard }} on PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}
         run: |
-          docker compose run test pytest -s --junitxml=junit.xml -k ${{ matrix.test }}
+          docker compose run test pytest -s --junitxml=junit.xml --shard-id=${{ matrix.shard }} --num-shards=7 -m 'not jenkins and not skip'
         working-directory: psmdb-testing/pbm-functional/pytest
 
       - name: Fetch coverage files
@@ -78,7 +78,7 @@ jobs:
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
         with:
-          name: reports-${{ matrix.test }}-${{ matrix.psmdb }}
+          name: reports-${{ matrix.shard }}-${{ matrix.psmdb }}
           path: psmdb-testing/pbm-functional/pytest/reports/
         if: success() || failure()
 

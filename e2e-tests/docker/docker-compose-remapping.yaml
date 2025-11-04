@@ -24,7 +24,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     hostname: rs101
     labels:
@@ -54,7 +54,7 @@ services:
       dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm
@@ -69,7 +69,7 @@ services:
       dockerfile: ./e2e-tests/docker/mongodb.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     hostname: rs201
     labels:
@@ -99,7 +99,7 @@ services:
       dockerfile: ./e2e-tests/docker/pbm.dockerfile
       context: ../..
       args:
-        - MONGODB_VERSION=${MONGODB_VERSION:-6.0}
+        - MONGODB_VERSION=${MONGODB_VERSION:-8.0}
         - MONGODB_IMAGE=${MONGODB_IMAGE:-perconalab/percona-server-mongodb}
     volumes:
       - ./conf:/etc/pbm

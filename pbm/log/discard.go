@@ -66,3 +66,4 @@ func (discardEventImpl) Info(msg string, args ...any)    {}
 func (discardEventImpl) Warning(msg string, args ...any) {}
 func (discardEventImpl) Error(msg string, args ...any)   {}
 func (discardEventImpl) Fatal(msg string, args ...any)   {}
+func (discardEventImpl) GetLogger() Logger               { return &discardLoggerImpl{} }

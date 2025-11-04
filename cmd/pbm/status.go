@@ -540,10 +540,7 @@ func getStorageStat(
 	}
 
 	s.Type = cfg.Storage.Typ()
-
-	if cfg.Storage.Type == storage.S3 {
-		s.Region = cfg.Storage.S3.Region
-	}
+	s.Region = cfg.Storage.Region()
 	s.Path = cfg.Storage.Path()
 
 	bcps, err := pbm.GetAllBackups(ctx)

@@ -45,6 +45,7 @@ type LogEvent interface {
 	Warning(msg string, args ...any)
 	Error(msg string, args ...any)
 	Fatal(msg string, args ...any)
+	GetLogger() Logger
 }
 
 type Buffer interface {

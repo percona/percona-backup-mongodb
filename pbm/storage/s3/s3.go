@@ -33,8 +33,6 @@ import (
 )
 
 const (
-	// GCSEndpointURL is the endpoint url for Google Clound Strage service
-	GCSEndpointURL        = "storage.googleapis.com"
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 	defaultS3Region       = "us-east-1"
 
@@ -46,8 +44,7 @@ const (
 
 //nolint:lll
 type Config struct {
-	Provider             string            `bson:"provider,omitempty" json:"provider,omitempty" yaml:"provider,omitempty"`
-	Region               string            `bson:"region" json:"region" yaml:"region"`
+	Region               string            `bson:"region,omitempty" json:"region,omitempty" yaml:"region,omitempty"`
 	EndpointURL          string            `bson:"endpointUrl,omitempty" json:"endpointUrl" yaml:"endpointUrl,omitempty"`
 	EndpointURLMap       map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
 	ForcePathStyle       *bool             `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
@@ -203,6 +200,9 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 }
 
 func (cfg *Config) Cast() error {
+	if cfg == nil {
+		return errors.New("missing S3 configuration with S3 storage type")
+	}
 	if cfg.Region == "" {
 		cfg.Region = defaultS3Region
 	}
