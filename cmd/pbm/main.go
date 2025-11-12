@@ -359,6 +359,10 @@ func (app *pbmApp) buildCleanupCmd() *cobra.Command {
 	deletePitrCmd.Flags().BoolVar(
 		&cleanupOpts.dryRun, "dry-run", false, "Report but do not delete",
 	)
+	deletePitrCmd.Flags().StringVar(
+		&cleanupOpts.profile, "profile", "",
+		"Name of the PBM profile to use for cleanup. Uses the default profile if omitted.",
+	)
 
 	return deletePitrCmd
 }

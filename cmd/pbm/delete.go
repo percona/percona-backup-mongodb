@@ -255,6 +255,7 @@ type cleanupOptions struct {
 	wait      bool
 	waitTime  time.Duration
 	dryRun    bool
+	profile   string
 }
 
 func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
