@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
@@ -321,9 +322,10 @@ func DeleteBackupBefore(
 	conn connect.Client,
 	t time.Time,
 	bcpType defs.BackupType,
+	profile string,
 	node string,
 ) error {
-	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType)
+	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType, profile)
 	if err != nil {
 		return err
 	}
@@ -331,7 +333,12 @@ func DeleteBackupBefore(
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
+	var stg storage.Storage
+	if profile == "" {
+		stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
+	} else {
+		stg, err = util.GetProfiledStorage(ctx, conn, profile, node, log.LogEventFromContext(ctx))
+	}
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -360,7 +367,7 @@ func ListDeleteBackupBefore(
 	bcpType defs.BackupType,
 	profile string,
 ) ([]BackupMeta, error) {
-	info, err := MakeCleanupInfo(ctx, conn, ts)
+	info, err := MakeCleanupInfo(ctx, conn, ts, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -391,8 +398,13 @@ func ListDeleteBackupBefore(
 	return rv, nil
 }
 
-func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Timestamp) (CleanupInfo, error) {
-	backups, err := listBackupsBefore(ctx, conn, primitive.Timestamp{T: ts.T + 1})
+func MakeCleanupInfo(
+	ctx context.Context,
+	conn connect.Client,
+	ts primitive.Timestamp,
+	profile string,
+) (CleanupInfo, error) {
+	backups, err := listBackupsBefore(ctx, conn, primitive.Timestamp{T: ts.T + 1}, profile)
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list backups before")
 	}
@@ -500,9 +512,13 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 // listBackupsBefore returns backups with restore cluster time less than or equals to ts.
 //
 // It does not include backups stored on an external storages.
-func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]BackupMeta, error) {
+func listBackupsBefore(
+	ctx context.Context,
+	conn connect.Client,
+	ts primitive.Timestamp,
+	profile string,
+) ([]BackupMeta, error) {
 	f := bson.D{
-		{"store.profile", nil},
 		{"last_write_ts", bson.M{"$lt": ts}},
 		{"status", bson.M{"$in": bson.A{
 			defs.StatusDone,

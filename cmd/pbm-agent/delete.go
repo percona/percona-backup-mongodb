@@ -96,7 +96,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 		}
 
 		l.Info("deleting backups older than %v", t)
-		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType, nodeInfo.Me)
+		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType, d.Profile, nodeInfo.Me)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -254,7 +254,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		return
 	}
 
-	cfg, err := config.GetConfig(ctx, a.leadConn)
+	cfg, err := config.GetProfiledConfig(ctx, a.leadConn, d.Profile)
 	if err != nil {
 		l.Error("get config: %v", err)
 	}
@@ -267,7 +267,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	eg := errgroup.Group{}
 	eg.SetLimit(runtime.NumCPU())
 
-	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan)
+	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan, d.Profile)
 	if err != nil {
 		l.Error("make cleanup report: " + err.Error())
 		return
@@ -289,15 +289,20 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		bcp := &cr.Backups[i]
 
 		eg.Go(func() error {
-			err := backup.DeleteBackupFiles(stg, bcp.Name)
-			return errors.Wrapf(err, "delete backup files %q", bcp.Name)
+			err := backup.DeleteBackup(ctx, a.leadConn, bcp.Name, a.brief.Me)
+			return errors.Wrapf(err, "delete backup %q", bcp.Name)
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		l.Error(err.Error())
 	}
 
-	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, false)
+	if d.Profile == "" {
+		err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, false)
+	} else {
+		err = resync.SyncBackupList(ctx, a.leadConn, &cfg.Storage, d.Profile, a.brief.Me)
+	}
+
 	if err != nil {
 		l.Error("storage resync: " + err.Error())
 	}
@@ -306,7 +311,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 func (a *Agent) deletePITRImpl(ctx context.Context, ts primitive.Timestamp) error {
 	l := log.LogEventFromContext(ctx)
 
-	r, err := backup.MakeCleanupInfo(ctx, a.leadConn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, a.leadConn, ts, "")
 	if err != nil {
 		return errors.Wrap(err, "get pitr chunks")
 	}

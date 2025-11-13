@@ -226,7 +226,7 @@ func ListDeleteChunksBefore(
 	client *Client,
 	ts primitive.Timestamp,
 ) ([]OplogChunk, error) {
-	r, err := backup.MakeCleanupInfo(ctx, client.conn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, client.conn, ts, "")
 	return r.Chunks, err
 }
 

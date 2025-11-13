@@ -332,9 +332,8 @@ func (c *Client) DeleteOplogRange(ctx context.Context, until Timestamp) (Command
 	return CommandID(opid.String()), err
 }
 
-func (c *Client) CleanupReport(ctx context.Context, beforeTS Timestamp) (CleanupReport, error) {
-	return backup.MakeCleanupInfo(ctx, c.conn, beforeTS)
 func (c *Client) CleanupReport(ctx context.Context, beforeTS Timestamp, profile string) (CleanupReport, error) {
+	return backup.MakeCleanupInfo(ctx, c.conn, beforeTS, profile)
 }
 
 func (c *Client) RunCleanup(ctx context.Context, beforeTS Timestamp, profile string) (CommandID, error) {
