@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -44,6 +45,15 @@ func deleteBackup(
 	}
 	if d.bcpType != "" && d.olderThan == "" {
 		return nil, errors.New("cannot use --type without --older-than")
+	}
+	if d.profile != "" {
+		_, err := config.GetProfile(ctx, conn, d.profile)
+		if err != nil {
+			if errors.Is(err, config.ErrMissedConfigProfile) {
+				return nil, errors.Errorf("profile %q is not found", d.profile)
+			}
+			return nil, errors.Wrap(err, "get config")
+		}
 	}
 	if !d.dryRun {
 		err := checkForAnotherOperation(ctx, pbm)
@@ -268,6 +278,15 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		providedTime := time.Unix(int64(ts.T), 0).UTC().Format(time.RFC3339)
 		realTime := n.Format(time.RFC3339)
 		return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
+	}
+	if d.profile != "" {
+		_, err := config.GetProfile(ctx, conn, d.profile)
+		if err != nil {
+			if errors.Is(err, config.ErrMissedConfigProfile) {
+				return nil, errors.Errorf("profile %q is not found", d.profile)
+			}
+			return nil, errors.Wrap(err, "get config")
+		}
 	}
 	if !d.dryRun {
 		err := checkForAnotherOperation(ctx, pbm)
