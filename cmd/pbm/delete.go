@@ -25,6 +25,7 @@ type deleteBcpOpts struct {
 	name      string
 	olderThan string
 	bcpType   string
+	profile   string
 	dryRun    bool
 	yes       bool
 }

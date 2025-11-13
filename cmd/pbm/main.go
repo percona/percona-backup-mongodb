@@ -564,6 +564,10 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 	deleteBcpCmd.Flags().BoolVar(
 		&deleteBcpOptions.dryRun, "dry-run", false, "Report but do not delete",
 	)
+	deleteBcpCmd.Flags().StringVar(
+		&deleteBcpOptions.profile, "profile", "",
+		"Name of the PBM profile to use for delete. Uses the default profile if omitted.",
+	)
 
 	return deleteBcpCmd
 }
