@@ -358,6 +358,7 @@ func ListDeleteBackupBefore(
 	conn connect.Client,
 	ts primitive.Timestamp,
 	bcpType defs.BackupType,
+	profile string,
 ) ([]BackupMeta, error) {
 	info, err := MakeCleanupInfo(ctx, conn, ts)
 	if err != nil {
@@ -509,6 +510,12 @@ func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Ti
 			defs.StatusError,
 		}}},
 	}
+	if profile == "" {
+		f = append(f, bson.E{Key: "store.profile", Value: nil})
+	} else {
+		f = append(f, bson.E{Key: "store.profile", Value: true}, bson.E{Key: "store.name", Value: profile})
+	}
+
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := conn.BcpCollection().Find(ctx, f, o)
 	if err != nil {

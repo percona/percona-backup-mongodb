@@ -323,7 +323,7 @@ func (c *Client) DeleteBackupBefore(
 	beforeTS Timestamp,
 	options DeleteBackupBeforeOptions,
 ) (CommandID, error) {
-	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.conn, beforeTS, options.Type)
+	opid, err := ctrl.SendDeleteBackupBefore(ctx, c.conn, beforeTS, options.Type, options.Profile)
 	return CommandID(opid.String()), err
 }
 
@@ -334,10 +334,11 @@ func (c *Client) DeleteOplogRange(ctx context.Context, until Timestamp) (Command
 
 func (c *Client) CleanupReport(ctx context.Context, beforeTS Timestamp) (CleanupReport, error) {
 	return backup.MakeCleanupInfo(ctx, c.conn, beforeTS)
+func (c *Client) CleanupReport(ctx context.Context, beforeTS Timestamp, profile string) (CleanupReport, error) {
 }
 
-func (c *Client) RunCleanup(ctx context.Context, beforeTS Timestamp) (CommandID, error) {
-	opid, err := ctrl.SendCleanup(ctx, c.conn, beforeTS)
+func (c *Client) RunCleanup(ctx context.Context, beforeTS Timestamp, profile string) (CommandID, error) {
+	opid, err := ctrl.SendCleanup(ctx, c.conn, beforeTS, profile)
 	return CommandID(opid.String()), err
 }
 

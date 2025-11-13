@@ -203,6 +203,7 @@ type DeleteBackupCmd struct {
 	Backup    string          `bson:"backup"`
 	OlderThan int64           `bson:"olderthan"`
 	Type      defs.BackupType `bson:"type"`
+	Profile   string          `bson:"profile"`
 }
 
 type DeletePITRCmd struct {
@@ -211,6 +212,7 @@ type DeletePITRCmd struct {
 
 type CleanupCmd struct {
 	OlderThan primitive.Timestamp `bson:"olderThan"`
+	Profile   string              `bson:"profile"`
 }
 
 func (d DeleteBackupCmd) String() string {

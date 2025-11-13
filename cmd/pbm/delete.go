@@ -146,7 +146,7 @@ func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (s
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "parse --type")
 	}
-	backups, err := sdk.ListDeleteBackupBefore(ctx, pbm, ts, bcpType)
+	backups, err := sdk.ListDeleteBackupBefore(ctx, pbm, ts, bcpType, d.profile)
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "fetch backup list")
 	}
@@ -162,7 +162,7 @@ func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (s
 		}
 	}
 
-	cid, err := pbm.DeleteBackupBefore(ctx, ts, sdk.DeleteBackupBeforeOptions{Type: bcpType})
+	cid, err := pbm.DeleteBackupBefore(ctx, ts, sdk.DeleteBackupBeforeOptions{Type: bcpType, Profile: d.profile})
 	return cid, errors.Wrap(err, "schedule delete")
 }
 
@@ -295,7 +295,7 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		}
 	}
 
-	info, err := pbm.CleanupReport(ctx, ts)
+	info, err := pbm.CleanupReport(ctx, ts, d.profile)
 	if err != nil {
 		return nil, errors.Wrap(err, "make cleanup report")
 	}
@@ -317,7 +317,7 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		}
 	}
 
-	cid, err := pbm.RunCleanup(ctx, ts)
+	cid, err := pbm.RunCleanup(ctx, ts, d.profile)
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}
