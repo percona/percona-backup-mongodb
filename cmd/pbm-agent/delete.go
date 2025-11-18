@@ -299,8 +299,6 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 
 	if d.Profile == "" {
 		err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, false)
-	} else {
-		err = resync.SyncBackupList(ctx, a.leadConn, &cfg.Storage, d.Profile, a.brief.Me)
 	}
 
 	if err != nil {
