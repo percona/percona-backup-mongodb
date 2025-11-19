@@ -156,6 +156,13 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		err = s.copyReplsetOplog(ctx, rs)
 		if err != nil {
 			s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
+			if s.lastTS.IsZero() {
+				s.lastTS = rs.FirstWriteTS
+			}
+			s.l.Info("try to do catchup using oplog from chunk: %s", formatts(s.lastTS))
+
+			// copying from logical backup failed, we'll try to catch up from oplog,
+			// if oplog window is not enough, PBM will log the error later.
 			return nil
 		}
 	}
