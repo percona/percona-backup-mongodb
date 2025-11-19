@@ -118,7 +118,8 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return nil
 	}
 
-	if !lastChunk.EndTS.Before(rs.LastWriteTS) {
+	if lastChunk.EndTS.After(rs.LastWriteTS) ||
+		lastChunk.EndTS.Equal(rs.LastWriteTS) {
 		// no need to copy oplog from backup
 		s.lastTS = lastChunk.EndTS
 		return nil
