@@ -257,11 +257,13 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	cfg, err := config.GetProfiledConfig(ctx, a.leadConn, d.Profile)
 	if err != nil {
 		l.Error("get config: %v", err)
+		return
 	}
 
 	stg, err := util.StorageFromConfig(&cfg.Storage, a.brief.Me, l)
 	if err != nil {
 		l.Error("get storage: " + err.Error())
+		return
 	}
 
 	eg := errgroup.Group{}
