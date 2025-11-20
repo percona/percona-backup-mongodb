@@ -38,10 +38,10 @@ func deleteBackup(
 	d *deleteBcpOpts,
 ) (fmt.Stringer, error) {
 	if d.name == "" && d.olderThan == "" {
-		return nil, errors.New("either --name or --older-than should be set")
+		return nil, errors.New("either [name] or --older-than should be set")
 	}
 	if d.name != "" && d.olderThan != "" {
-		return nil, errors.New("cannot use --name and --older-than at the same command")
+		return nil, errors.New("cannot use [name] and --older-than at the same command")
 	}
 	if d.name != "" && d.profile != "" {
 		return nil, errors.New("cannot use [name] with --profile")
