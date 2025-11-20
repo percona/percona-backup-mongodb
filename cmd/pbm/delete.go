@@ -43,6 +43,9 @@ func deleteBackup(
 	if d.name != "" && d.olderThan != "" {
 		return nil, errors.New("cannot use --name and --older-than at the same command")
 	}
+	if d.name != "" && d.profile != "" {
+		return nil, errors.New("cannot use [name] with --profile")
+	}
 	if d.bcpType != "" && d.olderThan == "" {
 		return nil, errors.New("cannot use --type without --older-than")
 	}
