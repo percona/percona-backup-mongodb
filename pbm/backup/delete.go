@@ -408,7 +408,13 @@ func MakeCleanupInfo(
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list backups before")
 	}
-	chunks, err := listChunksBefore(ctx, conn, ts)
+	var chunks []oplog.OplogChunk
+	if profile == "" {
+		// chunks are stored only in the default profile
+		chunks, err = listChunksBefore(ctx, conn, ts)
+	} else {
+		chunks = []oplog.OplogChunk{}
+	}
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list chunks before")
 	}
