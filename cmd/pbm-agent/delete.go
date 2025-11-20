@@ -95,7 +95,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			return
 		}
 
-		l.Info("deleting backups older than %v", t)
+		l.Info("deleting backups (profile: %q) older than %v", d.Profile, t)
 		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType, d.Profile, nodeInfo.Me)
 		if err != nil {
 			l.Error("deleting: %v", err)
