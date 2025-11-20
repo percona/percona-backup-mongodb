@@ -141,7 +141,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		if err != nil {
 			var rangeErr oplog.InsuffRangeError
 			if !errors.As(err, &rangeErr) {
-				return err
+				return errors.Wrap(err, "upload from oplog.rs")
 			}
 
 			s.l.Warning("skip chunk %s - %s: oplog has insufficient range",
@@ -155,11 +155,11 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 	if lastBackup.Type == defs.LogicalBackup {
 		err = s.copyReplsetOplog(ctx, rs)
 		if err != nil {
-			s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
+			s.l.Warning("copy oplog from %q backup: %v", lastBackup.Name, err)
 			if s.lastTS.IsZero() {
 				s.lastTS = rs.FirstWriteTS
 			}
-			s.l.Info("try to do catchup using oplog from chunk: %s", formatts(s.lastTS))
+			s.l.Info("try to do PITR catch-up using oplog.rs from chunk: %s", formatts(s.lastTS))
 
 			// copying from logical backup failed, we'll try to catch up from oplog,
 			// if oplog window is not enough, PBM will log the error later.
