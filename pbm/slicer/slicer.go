@@ -69,6 +69,13 @@ func (s *Slicer) GetSpan() time.Duration {
 	return time.Duration(atomic.LoadInt64(&s.span))
 }
 
+// Catchup resolves oplog timestamp that the Slicer will use as the starting point for the PITR slicing.
+// It can be invoked after the PITR is enabled, re-enabled after finishing the logical backup,
+// or after the restore procedure. Catchup tries to determine the context in which PITR has been started,
+// and it returns an error if it is unabled to proceed: e.g. if the base backup is not present,
+// or if there's no backup after executed restore procedure.
+// After the last backup is found, it tries to resolve lastTS by combining existing oplog chunks,
+// chunks from the logical backup, or oplog entries within oplog.rs.
 func (s *Slicer) Catchup(ctx context.Context) error {
 	s.l.Debug("start_catchup")
 
