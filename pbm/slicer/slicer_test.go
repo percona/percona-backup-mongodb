@@ -90,7 +90,6 @@ func TestCatchup(t *testing.T) {
 				LastWriteTS:  primitive.Timestamp{T: 1000, I: 0},
 			},
 		}
-
 		_, err := connClient.BcpCollection().InsertOne(ctx, backupMeta)
 		if err != nil {
 			t.Fatalf("failed to insert backup: %v", err)
@@ -105,7 +104,7 @@ func TestCatchup(t *testing.T) {
 		}
 	})
 
-	t.Run("no existing PITR chunks, use start from the backup time", func(t *testing.T) {
+	t.Run("no existing PITR chunks, use last write from backup", func(t *testing.T) {
 		s, cleanup := createTestSlicer(t)
 		defer cleanup()
 
@@ -113,7 +112,6 @@ func TestCatchup(t *testing.T) {
 		backupMeta := createBackupMeta()
 		backupMeta.LastWriteTS = wantLastTS
 		backupMeta.Replsets[0].LastWriteTS = wantLastTS
-
 		_, err := connClient.BcpCollection().InsertOne(ctx, backupMeta)
 		if err != nil {
 			t.Fatalf("failed to insert backup: %v", err)
@@ -132,21 +130,19 @@ func TestCatchup(t *testing.T) {
 		s, cleanup := createTestSlicer(t)
 		defer cleanup()
 
-		backupTS := int64(1000)
 		backupMeta := createBackupMeta()
-		backupMeta.StartTS = backupTS
-		backupMeta.LastWriteTS = primitive.Timestamp{T: uint32(backupTS), I: 0}
-		backupMeta.Replsets[0].LastWriteTS = primitive.Timestamp{T: uint32(backupTS), I: 0}
+		backupMeta.StartTS = 1000
+		backupMeta.LastWriteTS = primitive.Timestamp{T: 1000, I: 0}
+		backupMeta.Replsets[0].LastWriteTS = primitive.Timestamp{T: 1000, I: 0}
 		_, err := connClient.BcpCollection().InsertOne(ctx, backupMeta)
 		if err != nil {
 			t.Fatalf("failed to insert backup: %v", err)
 		}
 
-		restoreTS := int64(2000)
 		restoreMeta := &restore.RestoreMeta{
 			Name:    "restore1",
 			Backup:  "2025-11-21T09:38:09Z",
-			StartTS: restoreTS,
+			StartTS: 2000,
 			Status:  defs.StatusDone,
 		}
 		_, err = connClient.RestoresCollection().InsertOne(ctx, restoreMeta)
@@ -200,7 +196,7 @@ func TestCatchup(t *testing.T) {
 		}
 	})
 
-	t.Run("restore after chunk", func(t *testing.T) {
+	t.Run("restore after last chunk", func(t *testing.T) {
 		s, cleanup := createTestSlicer(t)
 		defer cleanup()
 
@@ -227,11 +223,11 @@ func TestCatchup(t *testing.T) {
 			t.Fatalf("failed to insert chunk: %v", err)
 		}
 
-		restoreTS := int64(900)
+		// Create a restore after chunk
 		restoreMeta := &restore.RestoreMeta{
 			Name:    "restore1",
 			Backup:  "2025-11-21T09:38:09Z",
-			StartTS: restoreTS,
+			StartTS: 900,
 			Status:  defs.StatusDone,
 		}
 
@@ -260,7 +256,6 @@ func TestCatchup(t *testing.T) {
 		backupMeta.Replsets[0].FirstWriteTS = backupFirstTS
 		backupMeta.Replsets[0].LastWriteTS = wantLastTS
 		backupMeta.Replsets[0].OplogName = "2025-11-21T09:38:09Z/oplog"
-
 		_, err := connClient.BcpCollection().InsertOne(ctx, backupMeta)
 		if err != nil {
 			t.Fatalf("failed to insert backup: %v", err)
@@ -276,7 +271,6 @@ func TestCatchup(t *testing.T) {
 			EndTS:       chunkEndTS,
 			Size:        1024,
 		}
-
 		_, err = connClient.PITRChunksCollection().InsertOne(ctx, chunk)
 		if err != nil {
 			t.Fatalf("failed to insert chunk: %v", err)
@@ -414,5 +408,9 @@ func cleanupControlColl(t *testing.T) {
 	_, err = connClient.RestoresCollection().DeleteMany(ctx, bson.D{})
 	if err != nil {
 		t.Fatalf("clean up restores: %v", err)
+	}
+	_, err = connClient.ConfigCollection().DeleteMany(ctx, bson.D{})
+	if err != nil {
+		t.Fatalf("clean up config: %v", err)
 	}
 }
