@@ -320,10 +320,10 @@ func isRequiredForOplogSlicing(
 func DeleteBackupBefore(
 	ctx context.Context,
 	conn connect.Client,
-	t time.Time,
-	bcpType defs.BackupType,
+	stg storage.Storage,
 	profile string,
-	node string,
+	bcpType defs.BackupType,
+	t time.Time,
 ) error {
 	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType, profile)
 	if err != nil {

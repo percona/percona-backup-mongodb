@@ -95,8 +95,13 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			return
 		}
 
+		stg, err := util.GetProfiledStorage(ctx, a.leadConn, d.Profile, nodeInfo.Me, l)
+		if err != nil {
+			l.Error("get storage: %v", err)
+			return
+		}
 		l.Info("deleting backups (profile: %q) older than %v", d.Profile, t)
-		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType, d.Profile, nodeInfo.Me)
+		err = backup.DeleteBackupBefore(ctx, a.leadConn, stg, d.Profile, bcpType, t)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
