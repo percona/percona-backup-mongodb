@@ -85,17 +85,7 @@ func deleteBackupImpl(
 		return errors.Wrap(err, "get storage")
 	}
 
-	err = DeleteBackupFiles(stg, bcp.Name)
-	if err != nil {
-		return errors.Wrap(err, "delete files from storage")
-	}
-
-	_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
-	if err != nil {
-		return errors.Wrap(err, "delete metadata from db")
-	}
-
-	return nil
+	return DeleteBackupData(ctx, conn, stg, bcp.Name)
 }
 
 func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta, node string) error {
@@ -120,18 +110,27 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 	}
 
 	for i := len(all) - 1; i >= 0; i-- {
-		bcp := all[i]
-
-		err = DeleteBackupFiles(stg, bcp.Name)
+		err = DeleteBackupData(ctx, conn, stg, all[i].Name)
 		if err != nil {
-			return errors.Wrap(err, "delete files from storage")
+			return err
 		}
+	}
 
-		_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
-		if err != nil {
-			return errors.Wrap(err, "delete metadata from db")
-		}
+	return nil
+}
 
+// DeleteBackupData deletes backup with the given name from the current storage
+// and pbm database. Unlike DeleteBackup, this function doesn't make any checks,
+// and it is up to the caller to ensure that the backup can be safely deleted.
+func DeleteBackupData(ctx context.Context, conn connect.Client, stg storage.Storage, name string) error {
+	err := DeleteBackupFiles(stg, name)
+	if err != nil {
+		return errors.Wrapf(err, "delete files from storage for %q", name)
+	}
+
+	_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": name})
+	if err != nil {
+		return errors.Wrapf(err, "delete metadata from db for %q", name)
 	}
 
 	return nil
@@ -333,27 +332,10 @@ func DeleteBackupBefore(
 		return nil
 	}
 
-	var stg storage.Storage
-	if profile == "" {
-		stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
-	} else {
-		stg, err = util.GetProfiledStorage(ctx, conn, profile, node, log.LogEventFromContext(ctx))
-	}
-	if err != nil {
-		return errors.Wrap(err, "get storage")
-	}
-
 	for i := range backups {
-		bcp := &backups[i]
-
-		err := DeleteBackupFiles(stg, bcp.Name)
+		err := DeleteBackupData(ctx, conn, stg, backups[i].Name)
 		if err != nil {
-			return errors.Wrapf(err, "delete files from storage for %q", bcp.Name)
-		}
-
-		_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
-		if err != nil {
-			return errors.Wrapf(err, "delete metadata from db for %q", bcp.Name)
+			return err
 		}
 	}
 

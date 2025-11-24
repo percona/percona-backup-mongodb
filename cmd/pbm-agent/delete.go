@@ -296,7 +296,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		bcp := &cr.Backups[i]
 
 		eg.Go(func() error {
-			err := backup.DeleteBackup(ctx, a.leadConn, bcp.Name, a.brief.Me)
+			err := backup.DeleteBackupData(ctx, a.leadConn, stg, bcp.Name)
 			return errors.Wrapf(err, "delete backup %q", bcp.Name)
 		})
 	}
