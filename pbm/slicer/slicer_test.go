@@ -65,8 +65,7 @@ func TestCatchup(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no base backup", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		err := s.Catchup(ctx)
 		if err == nil {
@@ -79,8 +78,7 @@ func TestCatchup(t *testing.T) {
 	})
 
 	t.Run("base backup without RS data", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		backupMeta := createBackupMeta()
 		backupMeta.Replsets = []backup.BackupReplset{
@@ -105,8 +103,7 @@ func TestCatchup(t *testing.T) {
 	})
 
 	t.Run("no existing PITR chunks, use last write from backup", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		wantLastTS := primitive.Timestamp{T: 1000, I: 0}
 		backupMeta := createBackupMeta()
@@ -127,8 +124,7 @@ func TestCatchup(t *testing.T) {
 	})
 
 	t.Run("no base backup after restore", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		backupMeta := createBackupMeta()
 		backupMeta.StartTS = 1000
@@ -161,8 +157,7 @@ func TestCatchup(t *testing.T) {
 	})
 
 	t.Run("chunk after backup", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		lastWriteTS := primitive.Timestamp{T: 1000, I: 0}
 		backupMeta := createBackupMeta()
@@ -197,8 +192,7 @@ func TestCatchup(t *testing.T) {
 	})
 
 	t.Run("restore after last chunk", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		wantLastTS := primitive.Timestamp{T: 1000, I: 0}
 		backupMeta := createBackupMeta()
@@ -246,8 +240,7 @@ func TestCatchup(t *testing.T) {
 	})
 
 	t.Run("chunk between backup timestamps", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		backupFirstTS := primitive.Timestamp{T: 500, I: 0}
 		wantLastTS := primitive.Timestamp{T: 1000, I: 0}
@@ -296,8 +289,7 @@ func TestCatchup(t *testing.T) {
 	})
 
 	t.Run("chunk before backup first write", func(t *testing.T) {
-		s, cleanup := createTestSlicer(t)
-		defer cleanup()
+		s := createTestSlicer(t)
 
 		backupFirstTS := primitive.Timestamp{T: 1000, I: 0}
 		backupLastTS := primitive.Timestamp{T: 1500, I: 0}
@@ -348,7 +340,7 @@ func TestCatchup(t *testing.T) {
 	})
 }
 
-func createTestSlicer(t *testing.T) (*Slicer, func()) {
+func createTestSlicer(t *testing.T) *Slicer {
 	t.Helper()
 
 	tmpDir, err := os.MkdirTemp("", "pbm-test-storage-*")
@@ -356,14 +348,13 @@ func createTestSlicer(t *testing.T) (*Slicer, func()) {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 
-	cleanup := func() {
+	t.Cleanup(func() {
 		cleanupControlColl(t)
 		os.RemoveAll(tmpDir)
-	}
+	})
 
 	stg, err := fs.New(&fs.Config{Path: tmpDir})
 	if err != nil {
-		cleanup()
 		t.Fatalf("failed to create filesystem storage: %v", err)
 	}
 	cfg := &config.Config{
@@ -373,8 +364,7 @@ func createTestSlicer(t *testing.T) (*Slicer, func()) {
 		},
 	}
 
-	slicer := NewSlicer("rs0", connClient, mClient, stg, cfg, pbmlog.DiscardLogger)
-	return slicer, cleanup
+	return NewSlicer("rs0", connClient, mClient, stg, cfg, pbmlog.DiscardLogger)
 }
 
 func createBackupMeta() *backup.BackupMeta {
