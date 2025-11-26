@@ -140,6 +140,7 @@ func NewClient(ctx context.Context, uri string) (*Client, error) {
 
 	inf, err := topo.GetNodeInfo(ctx, conn.MongoClient())
 	if err != nil {
+		_ = conn.Disconnect(ctx)
 		return nil, errors.Wrap(err, "get node info")
 	}
 
