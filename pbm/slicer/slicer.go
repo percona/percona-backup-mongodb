@@ -69,6 +69,13 @@ func (s *Slicer) GetSpan() time.Duration {
 	return time.Duration(atomic.LoadInt64(&s.span))
 }
 
+// Catchup resolves oplog timestamp that the Slicer will use as the starting point for the PITR slicing.
+// It can be invoked after the PITR is enabled, re-enabled after finishing the logical backup,
+// or after the restore procedure. Catchup tries to determine the context in which PITR has been started,
+// and it returns an error if it is unable to proceed: e.g. if the base backup is not present,
+// or if there's no backup after executed restore procedure.
+// After the last backup is found, it tries to resolve lastTS by combining existing oplog chunks,
+// chunks from the logical backup, or oplog entries within oplog.rs.
 func (s *Slicer) Catchup(ctx context.Context) error {
 	s.l.Debug("start_catchup")
 
@@ -118,7 +125,8 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return nil
 	}
 
-	if !lastChunk.EndTS.Before(rs.LastWriteTS) {
+	if lastChunk.EndTS.After(rs.LastWriteTS) ||
+		lastChunk.EndTS.Equal(rs.LastWriteTS) {
 		// no need to copy oplog from backup
 		s.lastTS = lastChunk.EndTS
 		return nil
@@ -140,7 +148,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		if err != nil {
 			var rangeErr oplog.InsuffRangeError
 			if !errors.As(err, &rangeErr) {
-				return err
+				return errors.Wrap(err, "upload from oplog.rs")
 			}
 
 			s.l.Warning("skip chunk %s - %s: oplog has insufficient range",
@@ -154,7 +162,14 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 	if lastBackup.Type == defs.LogicalBackup {
 		err = s.copyReplsetOplog(ctx, rs)
 		if err != nil {
-			s.l.Error("copy oplog from %q backup: %v", lastBackup.Name, err)
+			s.l.Warning("copy oplog from %q backup: %v", lastBackup.Name, err)
+			if s.lastTS.IsZero() {
+				s.lastTS = rs.FirstWriteTS
+			}
+			s.l.Info("try to do PITR catch-up using oplog.rs from timestamp: %s", formatts(s.lastTS))
+
+			// copying from logical backup failed, we'll try to catch up from oplog,
+			// if oplog window is not enough, PBM will log the error later.
 			return nil
 		}
 	}
