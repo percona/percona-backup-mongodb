@@ -86,7 +86,7 @@ func GetProfiledStorage(
 	node string,
 	l log.LogEvent,
 ) (storage.Storage, error) {
-	c, err := config.GetProfile(ctx, m, profile)
+	c, err := config.GetProfiledConfig(ctx, m, profile)
 	if err != nil {
 		return nil, errors.Wrap(err, "get profile")
 	}
