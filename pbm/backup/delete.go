@@ -384,6 +384,8 @@ func ListDeleteBackupBefore(
 	return rv, nil
 }
 
+// MakeCleanupInfo returns a list of backups and oplog chunks that can be safely deleted
+// before the given timestamp.
 func MakeCleanupInfo(
 	ctx context.Context,
 	conn connect.Client,
@@ -431,6 +433,16 @@ func MakeCleanupInfo(
 
 			return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 		}
+	}
+
+	if profile != "" {
+		// Only exclude backups that form an incremental backup chain
+		backups, err = extractLastIncrementalChain(ctx, conn, backups)
+		if err != nil {
+			return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
+		}
+
+		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
 	}
 
 	// find the most recent base snapshot before `ts`

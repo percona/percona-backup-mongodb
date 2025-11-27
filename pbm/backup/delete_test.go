@@ -288,6 +288,7 @@ func TestMakeCleanupInfo(t *testing.T) {
 		before  time.Time
 		chunks  []chunk
 		backups map[string][]bcp
+		pitr    bool
 	}
 
 	tests := []testCase{
@@ -367,11 +368,49 @@ func TestMakeCleanupInfo(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:   "backup is a pitr base",
+			pitr:   true,
+			before: tm(25),
+			chunks: []chunk{
+				{From: tm(29), To: tm(25), Expected: false},
+				{From: tm(25), To: tm(20), Expected: false},
+			},
+			backups: map[string][]bcp{
+				"": {
+					{LWT: tm(30), Expected: false},
+				},
+			},
+		},
+		{
+			name:   "fake-base in profile is deleted",
+			pitr:   true,
+			before: tm(25),
+			chunks: []chunk{
+				{From: tm(29), To: tm(25), Expected: false},
+				{From: tm(25), To: tm(20), Expected: false},
+			},
+			backups: map[string][]bcp{
+				"": {
+					{LWT: tm(30), Expected: false},
+				},
+				"aaa": {
+					{LWT: tm(30), Expected: true},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			TestEnv.Reset(t)
+			cfg := &config.Config{}
+			if tt.pitr {
+				cfg.PITR = &config.PITRConf{
+					Enabled:   true,
+					OplogOnly: false,
+				}
+			}
+			TestEnv.ResetWithConfig(t, cfg)
 
 			storages := stgsFromTestBackups(t, tt.backups)
 			expectedChunks := insertTestChunks(t, TestEnv, tt.chunks)
