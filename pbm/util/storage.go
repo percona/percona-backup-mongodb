@@ -79,6 +79,21 @@ func GetStorage(ctx context.Context, m connect.Client, node string, l log.LogEve
 	return StorageFromConfig(&c.Storage, node, l)
 }
 
+func GetProfiledStorage(
+	ctx context.Context,
+	m connect.Client,
+	profile string,
+	node string,
+	l log.LogEvent,
+) (storage.Storage, error) {
+	c, err := config.GetProfiledConfig(ctx, m, profile)
+	if err != nil {
+		return nil, errors.Wrap(err, "get profile")
+	}
+
+	return StorageFromConfig(&c.Storage, node, l)
+}
+
 // Initialize write current PBM version to PBM init file.
 //
 // It does not handle "file already exists" error.

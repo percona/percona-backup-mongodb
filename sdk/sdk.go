@@ -107,7 +107,8 @@ type GetAllRestoresOptions struct {
 }
 
 type DeleteBackupBeforeOptions struct {
-	Type BackupType
+	Type    BackupType
+	Profile string
 }
 
 // OpLock represents internal PBM lock.
@@ -215,8 +216,9 @@ func ListDeleteBackupBefore(
 	client *Client,
 	ts primitive.Timestamp,
 	bcpType BackupType,
+	profile string,
 ) ([]BackupMetadata, error) {
-	return backup.ListDeleteBackupBefore(ctx, client.conn, ts, bcpType)
+	return backup.ListDeleteBackupBefore(ctx, client.conn, ts, bcpType, profile)
 }
 
 func ListDeleteChunksBefore(
@@ -224,7 +226,7 @@ func ListDeleteChunksBefore(
 	client *Client,
 	ts primitive.Timestamp,
 ) ([]OplogChunk, error) {
-	r, err := backup.MakeCleanupInfo(ctx, client.conn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, client.conn, ts, "")
 	return r.Chunks, err
 }
 

@@ -95,8 +95,13 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			return
 		}
 
-		l.Info("deleting backups older than %v", t)
-		err = backup.DeleteBackupBefore(ctx, a.leadConn, t, bcpType, nodeInfo.Me)
+		stg, err := util.GetProfiledStorage(ctx, a.leadConn, d.Profile, nodeInfo.Me, l)
+		if err != nil {
+			l.Error("get storage: %v", err)
+			return
+		}
+		l.Info("deleting backups (profile: %q) older than %v", d.Profile, t)
+		err = backup.DeleteBackupBefore(ctx, a.leadConn, stg, d.Profile, bcpType, t)
 		if err != nil {
 			l.Error("deleting: %v", err)
 			return
@@ -254,20 +259,22 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		return
 	}
 
-	cfg, err := config.GetConfig(ctx, a.leadConn)
+	cfg, err := config.GetProfiledConfig(ctx, a.leadConn, d.Profile)
 	if err != nil {
 		l.Error("get config: %v", err)
+		return
 	}
 
 	stg, err := util.StorageFromConfig(&cfg.Storage, a.brief.Me, l)
 	if err != nil {
 		l.Error("get storage: " + err.Error())
+		return
 	}
 
 	eg := errgroup.Group{}
 	eg.SetLimit(runtime.NumCPU())
 
-	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan)
+	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan, d.Profile)
 	if err != nil {
 		l.Error("make cleanup report: " + err.Error())
 		return
@@ -289,15 +296,18 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		bcp := &cr.Backups[i]
 
 		eg.Go(func() error {
-			err := backup.DeleteBackupFiles(stg, bcp.Name)
-			return errors.Wrapf(err, "delete backup files %q", bcp.Name)
+			err := backup.DeleteBackupData(ctx, a.leadConn, stg, bcp.Name)
+			return errors.Wrapf(err, "delete backup %q", bcp.Name)
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		l.Error(err.Error())
 	}
 
-	err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, false)
+	if d.Profile == "" {
+		err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, false)
+	}
+
 	if err != nil {
 		l.Error("storage resync: " + err.Error())
 	}
@@ -306,7 +316,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 func (a *Agent) deletePITRImpl(ctx context.Context, ts primitive.Timestamp) error {
 	l := log.LogEventFromContext(ctx)
 
-	r, err := backup.MakeCleanupInfo(ctx, a.leadConn, ts)
+	r, err := backup.MakeCleanupInfo(ctx, a.leadConn, ts, "")
 	if err != nil {
 		return errors.Wrap(err, "get pitr chunks")
 	}

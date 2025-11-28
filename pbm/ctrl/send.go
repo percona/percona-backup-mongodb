@@ -27,12 +27,14 @@ func SendDeleteBackupBefore(
 	m connect.Client,
 	before primitive.Timestamp,
 	type_ defs.BackupType,
+	profile string,
 ) (OPID, error) {
 	cmd := Cmd{
 		Cmd: CmdDeleteBackup,
 		Delete: &DeleteBackupCmd{
 			OlderThan: int64(before.T),
 			Type:      type_,
+			Profile:   profile,
 		},
 	}
 	return sendCommand(ctx, m, cmd)
@@ -56,11 +58,13 @@ func SendCleanup(
 	ctx context.Context,
 	m connect.Client,
 	before primitive.Timestamp,
+	profile string,
 ) (OPID, error) {
 	cmd := Cmd{
 		Cmd: CmdCleanup,
 		Cleanup: &CleanupCmd{
 			OlderThan: before,
+			Profile:   profile,
 		},
 	}
 	return sendCommand(ctx, m, cmd)

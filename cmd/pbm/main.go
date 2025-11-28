@@ -335,7 +335,7 @@ func (app *pbmApp) buildCancelBackupCmd() *cobra.Command {
 func (app *pbmApp) buildCleanupCmd() *cobra.Command {
 	cleanupOpts := cleanupOptions{}
 
-	deletePitrCmd := &cobra.Command{
+	cleanupCmd := &cobra.Command{
 		Use:   "cleanup",
 		Short: "Delete Backups and PITR chunks",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
@@ -343,24 +343,28 @@ func (app *pbmApp) buildCleanupCmd() *cobra.Command {
 		}),
 	}
 
-	deletePitrCmd.Flags().StringVar(
+	cleanupCmd.Flags().StringVar(
 		&cleanupOpts.olderThan, "older-than", "",
 		fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat),
 	)
-	deletePitrCmd.Flags().BoolVarP(
+	cleanupCmd.Flags().BoolVarP(
 		&cleanupOpts.yes, "yes", "y", false, "Don't ask for confirmation",
 	)
-	deletePitrCmd.Flags().BoolVarP(
+	cleanupCmd.Flags().BoolVarP(
 		&cleanupOpts.wait, "wait", "w", false, "Wait for deletion done",
 	)
-	deletePitrCmd.Flags().DurationVar(
+	cleanupCmd.Flags().DurationVar(
 		&cleanupOpts.waitTime, "wait-time", 0, "Maximum wait time",
 	)
-	deletePitrCmd.Flags().BoolVar(
+	cleanupCmd.Flags().BoolVar(
 		&cleanupOpts.dryRun, "dry-run", false, "Report but do not delete",
 	)
+	cleanupCmd.Flags().StringVar(
+		&cleanupOpts.profile, "profile", "",
+		"Name of the PBM profile to use for cleanup. Uses the default profile if omitted.",
+	)
 
-	return deletePitrCmd
+	return cleanupCmd
 }
 
 func (app *pbmApp) buildConfigCmd() *cobra.Command {
@@ -559,6 +563,10 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 	)
 	deleteBcpCmd.Flags().BoolVar(
 		&deleteBcpOptions.dryRun, "dry-run", false, "Report but do not delete",
+	)
+	deleteBcpCmd.Flags().StringVar(
+		&deleteBcpOptions.profile, "profile", "",
+		"Name of the PBM profile to use for delete. Uses the default profile if omitted.",
 	)
 
 	return deleteBcpCmd

@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -25,6 +26,7 @@ type deleteBcpOpts struct {
 	name      string
 	olderThan string
 	bcpType   string
+	profile   string
 	dryRun    bool
 	yes       bool
 }
@@ -36,13 +38,25 @@ func deleteBackup(
 	d *deleteBcpOpts,
 ) (fmt.Stringer, error) {
 	if d.name == "" && d.olderThan == "" {
-		return nil, errors.New("either --name or --older-than should be set")
+		return nil, errors.New("either [name] or --older-than should be set")
 	}
 	if d.name != "" && d.olderThan != "" {
-		return nil, errors.New("cannot use --name and --older-than at the same command")
+		return nil, errors.New("cannot use [name] and --older-than at the same command")
+	}
+	if d.name != "" && d.profile != "" {
+		return nil, errors.New("cannot use [name] with --profile")
 	}
 	if d.bcpType != "" && d.olderThan == "" {
 		return nil, errors.New("cannot use --type without --older-than")
+	}
+	if d.profile != "" {
+		_, err := config.GetProfile(ctx, conn, d.profile)
+		if err != nil {
+			if errors.Is(err, config.ErrMissedConfigProfile) {
+				return nil, errors.Errorf("profile %q is not found", d.profile)
+			}
+			return nil, errors.Wrap(err, "get config")
+		}
 	}
 	if !d.dryRun {
 		err := checkForAnotherOperation(ctx, pbm)
@@ -135,7 +149,7 @@ func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (s
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "parse --type")
 	}
-	backups, err := sdk.ListDeleteBackupBefore(ctx, pbm, ts, bcpType)
+	backups, err := sdk.ListDeleteBackupBefore(ctx, pbm, ts, bcpType, d.profile)
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "fetch backup list")
 	}
@@ -151,7 +165,7 @@ func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (s
 		}
 	}
 
-	cid, err := pbm.DeleteBackupBefore(ctx, ts, sdk.DeleteBackupBeforeOptions{Type: bcpType})
+	cid, err := pbm.DeleteBackupBefore(ctx, ts, sdk.DeleteBackupBeforeOptions{Type: bcpType, Profile: d.profile})
 	return cid, errors.Wrap(err, "schedule delete")
 }
 
@@ -255,6 +269,7 @@ type cleanupOptions struct {
 	wait      bool
 	waitTime  time.Duration
 	dryRun    bool
+	profile   string
 }
 
 func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
@@ -267,6 +282,15 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		realTime := n.Format(time.RFC3339)
 		return nil, errors.Errorf("--older-than %q is after now %q", providedTime, realTime)
 	}
+	if d.profile != "" {
+		_, err := config.GetProfile(ctx, conn, d.profile)
+		if err != nil {
+			if errors.Is(err, config.ErrMissedConfigProfile) {
+				return nil, errors.Errorf("profile %q is not found", d.profile)
+			}
+			return nil, errors.Wrap(err, "get config")
+		}
+	}
 	if !d.dryRun {
 		err := checkForAnotherOperation(ctx, pbm)
 		if err != nil {
@@ -274,7 +298,7 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		}
 	}
 
-	info, err := pbm.CleanupReport(ctx, ts)
+	info, err := pbm.CleanupReport(ctx, ts, d.profile)
 	if err != nil {
 		return nil, errors.Wrap(err, "make cleanup report")
 	}
@@ -296,7 +320,7 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		}
 	}
 
-	cid, err := pbm.RunCleanup(ctx, ts)
+	cid, err := pbm.RunCleanup(ctx, ts, d.profile)
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}

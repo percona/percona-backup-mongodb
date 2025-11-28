@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
@@ -54,7 +55,8 @@ type CleanupInfo struct {
 }
 
 // DeleteBackup deletes backup with the given name from the current storage
-// and pbm database
+// and pbm database. Only deletes the backup if it is safe - no running backups,
+// no incremental backups based on it, no base snapshot for existing PITR chunks.
 func DeleteBackup(ctx context.Context, conn connect.Client, name, node string) error {
 	bcp, err := NewDBManager(conn).GetBackupByName(ctx, name)
 	if err != nil {
@@ -84,17 +86,7 @@ func deleteBackupImpl(
 		return errors.Wrap(err, "get storage")
 	}
 
-	err = DeleteBackupFiles(stg, bcp.Name)
-	if err != nil {
-		return errors.Wrap(err, "delete files from storage")
-	}
-
-	_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
-	if err != nil {
-		return errors.Wrap(err, "delete metadata from db")
-	}
-
-	return nil
+	return DeleteBackupData(ctx, conn, stg, bcp.Name)
 }
 
 func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *BackupMeta, node string) error {
@@ -119,18 +111,27 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 	}
 
 	for i := len(all) - 1; i >= 0; i-- {
-		bcp := all[i]
-
-		err = DeleteBackupFiles(stg, bcp.Name)
+		err = DeleteBackupData(ctx, conn, stg, all[i].Name)
 		if err != nil {
-			return errors.Wrap(err, "delete files from storage")
+			return err
 		}
+	}
 
-		_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
-		if err != nil {
-			return errors.Wrap(err, "delete metadata from db")
-		}
+	return nil
+}
 
+// DeleteBackupData deletes backup with the given name from the current storage
+// and pbm database. Unlike DeleteBackup, this function doesn't make any checks,
+// and it is up to the caller to ensure that the backup can be safely deleted.
+func DeleteBackupData(ctx context.Context, conn connect.Client, stg storage.Storage, name string) error {
+	err := DeleteBackupFiles(stg, name)
+	if err != nil {
+		return errors.Wrapf(err, "delete files from storage for %q", name)
+	}
+
+	_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": name})
+	if err != nil {
+		return errors.Wrapf(err, "delete metadata from db for %q", name)
 	}
 
 	return nil
@@ -239,6 +240,7 @@ func FetchAllIncrements(
 	return chain, nil
 }
 
+// isSourceForIncremental returns true if the backup is the source for any incremental backups
 func isSourceForIncremental(
 	ctx context.Context,
 	conn connect.Client,
@@ -319,11 +321,12 @@ func isRequiredForOplogSlicing(
 func DeleteBackupBefore(
 	ctx context.Context,
 	conn connect.Client,
-	t time.Time,
+	stg storage.Storage,
+	profile string,
 	bcpType defs.BackupType,
-	node string,
+	t time.Time,
 ) error {
-	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType)
+	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType, profile)
 	if err != nil {
 		return err
 	}
@@ -331,35 +334,26 @@ func DeleteBackupBefore(
 		return nil
 	}
 
-	stg, err := util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
-	if err != nil {
-		return errors.Wrap(err, "get storage")
-	}
-
 	for i := range backups {
-		bcp := &backups[i]
-
-		err := DeleteBackupFiles(stg, bcp.Name)
+		err := DeleteBackupData(ctx, conn, stg, backups[i].Name)
 		if err != nil {
-			return errors.Wrapf(err, "delete files from storage for %q", bcp.Name)
-		}
-
-		_, err = conn.BcpCollection().DeleteOne(ctx, bson.M{"name": bcp.Name})
-		if err != nil {
-			return errors.Wrapf(err, "delete metadata from db for %q", bcp.Name)
+			return err
 		}
 	}
 
 	return nil
 }
 
+// ListDeleteBackupBefore returns backups which can be deleted and which are older than
+// the given timestamp.
 func ListDeleteBackupBefore(
 	ctx context.Context,
 	conn connect.Client,
 	ts primitive.Timestamp,
 	bcpType defs.BackupType,
+	profile string,
 ) ([]BackupMeta, error) {
-	info, err := MakeCleanupInfo(ctx, conn, ts)
+	info, err := MakeCleanupInfo(ctx, conn, ts, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -390,12 +384,25 @@ func ListDeleteBackupBefore(
 	return rv, nil
 }
 
-func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Timestamp) (CleanupInfo, error) {
-	backups, err := listBackupsBefore(ctx, conn, primitive.Timestamp{T: ts.T + 1})
+// MakeCleanupInfo returns a list of backups and oplog chunks that can be safely deleted
+// before the given timestamp.
+func MakeCleanupInfo(
+	ctx context.Context,
+	conn connect.Client,
+	ts primitive.Timestamp,
+	profile string,
+) (CleanupInfo, error) {
+	backups, err := listBackupsBefore(ctx, conn, primitive.Timestamp{T: ts.T + 1}, profile)
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list backups before")
 	}
-	chunks, err := listChunksBefore(ctx, conn, ts)
+	var chunks []oplog.OplogChunk
+	if profile == "" {
+		// chunks are stored only in the default profile
+		chunks, err = listChunksBefore(ctx, conn, ts)
+	} else {
+		chunks = []oplog.OplogChunk{}
+	}
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list chunks before")
 	}
@@ -409,8 +416,8 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 
 		if isValidBaseSnapshot(r) {
 			// it can be used to fully restore data to the `ts` state.
-			// no need to exclude any backups and chunks before the `ts`.
-			// except increments that is base for following increment (after `ts`) must be excluded
+			// no need to exclude any backups and chunks before the `ts`,
+			// except increments that are a base for increments after `ts`
 			backups, err = extractLastIncrementalChain(ctx, conn, backups)
 			if err != nil {
 				return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
@@ -428,6 +435,18 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 		}
 	}
 
+	if profile != "" {
+		// Only exclude backups that form an incremental backup chain
+		backups, err = extractLastIncrementalChain(ctx, conn, backups)
+		if err != nil {
+			return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
+		}
+
+		return CleanupInfo{Backups: backups, Chunks: chunks}, nil
+	}
+
+	// find the most recent base snapshot before `ts`
+	// this might be a base for PITR or incremental backups after `ts`
 	baseIndex := len(backups) - 1
 	for ; baseIndex != -1; baseIndex-- {
 		if isValidBaseSnapshot(&backups[baseIndex]) {
@@ -435,8 +454,8 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 		}
 	}
 	if baseIndex == -1 {
-		// no valid base snapshot to exclude
-
+		// with no valid base snapshot, we can safely delete all backups
+		// and oplog chunks that end before `ts`
 		beforeChunks := make([]oplog.OplogChunk, 0, len(chunks))
 		for _, chunk := range chunks {
 			if !chunk.EndTS.After(ts) {
@@ -461,23 +480,30 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 	}
 
 	if oplog.HasSingleTimelineToCover(afterChunks, backups[baseIndex].LastWriteTS.T, ts.T) {
-		// there is single continuous oplog range between snapshot and ts.
-		// keep the backup and chunks to be able to restore to the ts
+		// there is a single continuous oplog range between snapshot and ts.
+		// keep the base backup and the following chunks to be able to restore to the ts
 		copy(backups[baseIndex:], backups[baseIndex+1:])
 		backups = backups[:len(backups)-1]
 		chunks = beforeChunks
 	} else {
-		// no chunks yet but if PITR is ON, the backup can be base snapshot for it
+		// No continuous oplog range leading to ts
 		enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
 		if err != nil {
 			return CleanupInfo{}, errors.Wrap(err, "get PITR status")
 		}
+
 		if enabled && !oplogOnly {
+			// If PITR is ON and not in oplog-only mode,
+			// the backup can be a base snapshot for it
 			nextRestoreTime, err := FindBaseSnapshotLWAfter(ctx, conn, ts)
 			if err != nil {
 				return CleanupInfo{}, errors.Wrap(err, "find next snapshot")
 			}
 
+			// TODO: comments bellow needs verification
+			// It may seems that if PITR is ON and there is no continuous oplog range between snapshot and `ts`,
+			// that there must be a more recent base snapshot for PITR.
+			// However PITR might had been enabled and the first oplog chunk was not recorder yet.
 			if nextRestoreTime.IsZero() {
 				// it is not the last base snapshot for PITR
 				copy(backups[baseIndex:], backups[baseIndex+1:])
@@ -487,7 +513,7 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 		}
 	}
 
-	// exclude increments that is base for following increment (after `ts`)
+	// exclude backups that form an incremental backup chain contain a backup after `ts`
 	backups, err = extractLastIncrementalChain(ctx, conn, backups)
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "extract last incremental chain")
@@ -497,11 +523,13 @@ func MakeCleanupInfo(ctx context.Context, conn connect.Client, ts primitive.Time
 }
 
 // listBackupsBefore returns backups with restore cluster time less than or equals to ts.
-//
-// It does not include backups stored on an external storages.
-func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]BackupMeta, error) {
+func listBackupsBefore(
+	ctx context.Context,
+	conn connect.Client,
+	ts primitive.Timestamp,
+	profile string,
+) ([]BackupMeta, error) {
 	f := bson.D{
-		{"store.profile", nil},
 		{"last_write_ts", bson.M{"$lt": ts}},
 		{"status", bson.M{"$in": bson.A{
 			defs.StatusDone,
@@ -509,6 +537,12 @@ func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Ti
 			defs.StatusError,
 		}}},
 	}
+	if profile == "" {
+		f = append(f, bson.E{Key: "store.profile", Value: nil})
+	} else {
+		f = append(f, bson.E{Key: "store.profile", Value: true}, bson.E{Key: "store.name", Value: profile})
+	}
+
 	o := options.Find().SetSort(bson.D{{"last_write_ts", 1}})
 	cur, err := conn.BcpCollection().Find(ctx, f, o)
 	if err != nil {
@@ -520,7 +554,7 @@ func listBackupsBefore(ctx context.Context, conn connect.Client, ts primitive.Ti
 	return rv, errors.Wrap(err, "cursor: all")
 }
 
-// listChunksBefore returns oplog chunks that contain an op at the ts
+// listChunksBefore returns oplog chunks that start before `ts`.
 func listChunksBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]oplog.OplogChunk, error) {
 	f := bson.D{{"start_ts", bson.M{"$lt": ts}}}
 	o := options.Find().SetSort(bson.D{{"start_ts", 1}})
@@ -534,6 +568,10 @@ func listChunksBefore(ctx context.Context, conn connect.Client, ts primitive.Tim
 	return rv, errors.Wrap(err, "cursor: all")
 }
 
+// extractLastIncrementalChain finds the most recent incremental backup, and if it is a source for another backup,
+// it gets removed from backups together with all backups that form the chain to it from `bcps`.
+//
+// bcps must be sorted from oldest to newest.
 func extractLastIncrementalChain(
 	ctx context.Context,
 	conn connect.Client,
@@ -565,6 +603,7 @@ func extractLastIncrementalChain(
 	return extractIncrementalChain(bcps, i), nil
 }
 
+// extractIncrementalChain removes the incremental chain ending at `i` from  `bcps`
 func extractIncrementalChain(bcps []BackupMeta, i int) []BackupMeta {
 	for base := bcps[i].Name; i != -1; i-- {
 		if bcps[i].Status != defs.StatusDone {
