@@ -78,6 +78,10 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 	if cfg.Prefix != other.Prefix {
 		return false
 	}
+	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+
 	return true
 }
 
