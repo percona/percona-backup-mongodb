@@ -82,18 +82,8 @@ func runConfig(
 			return nil, errors.Wrap(err, "unable to get updated config")
 		}
 
-		// resync storage only if Storage identity has changed
-		if !newCfg.Storage.IsSameStorage(&oldCfg.Storage) {
-			cid, err := pbm.SyncFromStorage(ctx, false)
-			if err != nil {
-				return nil, errors.Wrap(err, "resync")
-			}
-
-			if c.wait {
-				if err := waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
-					return nil, err
-				}
-			}
+		if err := resyncIfNeeded(ctx, pbm, oldCfg, newCfg, c); err != nil {
+			return nil, err
 		}
 		return o, nil
 	case len(c.key) > 0:
@@ -145,18 +135,8 @@ func runConfig(
 			return nil, errors.Wrap(err, "unable to set config: write to db")
 		}
 
-		// resync storage only if Storage identity has changed
-		if !newCfg.Storage.IsSameStorage(&oldCfg.Storage) {
-			cid, err := pbm.SyncFromStorage(ctx, false)
-			if err != nil {
-				return nil, errors.Wrap(err, "resync")
-			}
-
-			if c.wait {
-				if err := waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
-					return nil, err
-				}
-			}
+		if err := resyncIfNeeded(ctx, pbm, oldCfg, newCfg, c); err != nil {
+			return nil, err
 		}
 
 		return newCfg, nil
@@ -177,4 +157,21 @@ func readConfigFromFile(filename string) (*config.Config, error) {
 	}()
 
 	return config.Parse(file)
+}
+
+func resyncIfNeeded(ctx context.Context, pbm *sdk.Client, oldCfg, newCfg *config.Config, c *configOpts) error {
+	if newCfg.Storage.IsSameStorage(&oldCfg.Storage) {
+		return nil
+	}
+
+	cid, err := pbm.SyncFromStorage(ctx, false)
+	if err != nil {
+		return errors.Wrap(err, "resync")
+	}
+
+	if !c.wait {
+		return nil
+	}
+
+	return waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime)
 }
