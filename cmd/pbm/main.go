@@ -1143,6 +1143,7 @@ func tsUTC(ts int64) string {
 
 type snapshotStat struct {
 	Name        string           `json:"name"`
+	Profile     string           `json:"profile,omitempty"`
 	Namespaces  []string         `json:"nss,omitempty"`
 	Size        int64            `json:"size,omitempty"`
 	Status      defs.Status      `json:"status"`
@@ -1153,7 +1154,6 @@ type snapshotStat struct {
 	PBMVersion  string           `json:"pbmVersion"`
 	Type        defs.BackupType  `json:"type"`
 	SrcBackup   string           `json:"src"`
-	StoreName   string           `json:"storage,omitempty"`
 }
 
 type pitrRange struct {

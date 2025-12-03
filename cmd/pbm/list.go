@@ -213,8 +213,8 @@ func (bl backupListOut) String() string {
 		} else if b.Type == defs.IncrementalBackup && b.SrcBackup == "" {
 			t += ", base"
 		}
-		if b.StoreName != "" {
-			t += ", " + b.StoreName
+		if b.Profile != "" {
+			t += ", " + b.Profile
 		}
 		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, t, fmtTS(int64(b.RestoreTS)))
 	}
@@ -322,7 +322,7 @@ func getSnapshotList(
 			PBMVersion:  b.PBMVersion,
 			Type:        b.Type,
 			SrcBackup:   b.SrcBackup,
-			StoreName:   b.Store.Name,
+			Profile:     b.Store.Name,
 		})
 	}
 

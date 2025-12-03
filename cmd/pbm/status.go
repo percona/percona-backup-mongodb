@@ -494,8 +494,8 @@ func (s storageStat) String() string {
 		} else if ss.Type == defs.IncrementalBackup && ss.SrcBackup == "" {
 			t += ", base"
 		}
-		if ss.StoreName != "" {
-			t += ", " + ss.StoreName
+		if ss.Profile != "" {
+			t += ", " + ss.Profile
 		}
 		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, ss.PrintStatus, status)
 	}
@@ -590,7 +590,7 @@ func getStorageStat(
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
 			SrcBackup:  bcp.SrcBackup,
-			StoreName:  bcp.Store.Name,
+			Profile:    bcp.Store.Name,
 		}
 		if err := bcp.Error(); err != nil {
 			snpsht.Err = err
