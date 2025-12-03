@@ -910,6 +910,28 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 	return nil
 }
 
+
+// runCmdShardsvrDropCollection executes command _shardsvrDropCollection.
+// The command does cluster-wide drop (from CSRS and all shards) of the namespace
+// specifed with db and coll parameters.
+func (r *Restore) runCmdShardsvrDropCollection(
+	ctx context.Context,
+	db, coll string,
+	configDBDoc *configDatabasesDoc,
+) error {
+	cmd := bson.D{
+		{"_shardsvrDropCollection", coll},
+		{"databaseVersion", configDBDoc.Version},
+		{"writeConcern", writeconcern.Majority()},
+	}
+	res := r.nodeConn.Database(db).RunCommand(ctx, cmd)
+	return errors.Wrapf(
+		res.Err(),
+		"_shardsvrDropCollection for %q",
+		fmt.Sprintf("%s.%s", db, coll),
+	)
+}
+
 // getDBsFromBackup returns all databases present in backup metadata file
 // for each replicaset.
 func (r *Restore) getDBsFromBackup(bcp *backup.BackupMeta) ([]string, error) {
