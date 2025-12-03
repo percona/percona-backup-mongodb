@@ -214,7 +214,7 @@ func (bl backupListOut) String() string {
 			t += ", base"
 		}
 		if b.StoreName != "" {
-			t += ", *"
+			t += ", " + b.StoreName
 		}
 		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, t, fmtTS(int64(b.RestoreTS)))
 	}

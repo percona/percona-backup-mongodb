@@ -495,7 +495,7 @@ func (s storageStat) String() string {
 			t += ", base"
 		}
 		if ss.StoreName != "" {
-			t += ", *"
+			t += ", " + ss.StoreName
 		}
 		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, ss.PrintStatus, status)
 	}
