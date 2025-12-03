@@ -895,14 +895,9 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 			continue
 		}
 
-		cmd := bson.D{
-			{"_shardsvrDropDatabase", 1},
-			{"databaseVersion", configDBDoc.Version},
-			{"writeConcern", writeconcern.Majority()},
-		}
-		res := r.nodeConn.Database(db).RunCommand(ctx, cmd)
-		if err := res.Err(); err != nil {
-			return errors.Wrapf(err, "_shardsvrDropDatabase for %q", db)
+		err = r.runCmdShardsvrDropDatabase(ctx, db, &configDBDoc)
+		if err != nil {
+			return errors.Wrap(err, "full restore cleanup")
 		}
 		r.log.Debug("drop %q", db)
 	}
@@ -910,6 +905,22 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 	return nil
 }
 
+// runCmdShardsvrDropDatabase executes command _shardsvrDropDatabase.
+// The command does cluster-wide drop (from CSRS and all shards) of the whole
+// database specifed with db parameter.
+func (r *Restore) runCmdShardsvrDropDatabase(
+	ctx context.Context,
+	db string,
+	configDBDoc *configDatabasesDoc,
+) error {
+	cmd := bson.D{
+		{"_shardsvrDropDatabase", 1},
+		{"databaseVersion", configDBDoc.Version},
+		{"writeConcern", writeconcern.Majority()},
+	}
+	res := r.nodeConn.Database(db).RunCommand(ctx, cmd)
+	return errors.Wrapf(res.Err(), "_shardsvrDropDatabase for %q", db)
+}
 
 // runCmdShardsvrDropCollection executes command _shardsvrDropCollection.
 // The command does cluster-wide drop (from CSRS and all shards) of the namespace
