@@ -253,8 +253,8 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	// drop sharded dbs on sharded cluster, on each shard (not CSRS), only for full restore
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() && !util.IsSelective(nss) {
+	// drop sharded dbs on sharded cluster, on each shard (not CSRS)
+	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
 		err = r.dropShardedDBs(ctx, bcp)
 		if err != nil {
 			return err
@@ -441,8 +441,8 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	// drop sharded dbs on sharded cluster, on each shard (not CSRS), only for full restore
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() && !util.IsSelective(nss) {
+	// drop sharded dbs on sharded cluster, on each shard (not CSRS)
+	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
 		err = r.dropShardedDBs(ctx, bcp)
 		if err != nil {
 			return err
