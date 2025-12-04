@@ -253,11 +253,18 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	// drop sharded dbs on sharded cluster, on each shard (not CSRS)
+	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
 	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		err = r.fullRestoreDBCleanup(ctx, bcp)
-		if err != nil {
-			return err
+		if util.IsSelective(nss) {
+			err = r.selRestoreDBCleanup(ctx, nss)
+			if err != nil {
+				errors.Wrap(err, "selective restore cleanup")
+			}
+		} else {
+			err = r.fullRestoreDBCleanup(ctx, bcp)
+			if err != nil {
+				errors.Wrap(err, "full restore cleanup")
+			}
 		}
 	}
 
@@ -441,11 +448,18 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	// drop sharded dbs on sharded cluster, on each shard (not CSRS)
+	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
 	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		err = r.fullRestoreDBCleanup(ctx, bcp)
-		if err != nil {
-			return err
+		if util.IsSelective(nss) {
+			err = r.selRestoreDBCleanup(ctx, nss)
+			if err != nil {
+				errors.Wrap(err, "selective restore cleanup")
+			}
+		} else {
+			err = r.fullRestoreDBCleanup(ctx, bcp)
+			if err != nil {
+				errors.Wrap(err, "full restore cleanup")
+			}
 		}
 	}
 
