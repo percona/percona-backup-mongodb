@@ -124,7 +124,7 @@ func status(
 			{
 				"backups", "Backups", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, pbm, rsMap)
+					return getStorageStat(ctx, conn, pbm, opts.profile, rsMap)
 				},
 			},
 		},
@@ -531,6 +531,7 @@ func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
 	pbm *sdk.Client,
+	profile string,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -544,7 +545,7 @@ func getStorageStat(
 	s.Region = cfg.Storage.Region()
 	s.Path = cfg.Storage.Path()
 
-	bcps, err := pbm.GetAllBackups(ctx)
+	bcps, err := backup.BackupsList(ctx, conn, profile, 0)
 	if err != nil {
 		return s, errors.Wrap(err, "get backups list")
 	}
