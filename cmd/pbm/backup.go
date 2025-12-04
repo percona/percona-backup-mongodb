@@ -321,6 +321,7 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 type bcpDesc struct {
 	Name               string          `json:"name" yaml:"name"`
 	Profile            string          `json:"profile,omitempty" yaml:"profile,omitempty"`
+	StorageType        storage.Type    `json:"storage_type,omitempty" yaml:"storage_type,omitempty"`
 	OPID               string          `json:"opid" yaml:"opid"`
 	Type               defs.BackupType `json:"type" yaml:"type"`
 	LastWriteTS        int64           `json:"last_write_ts" yaml:"-"`
@@ -414,6 +415,7 @@ func describeBackup(
 	rv := &bcpDesc{
 		Name:               bcp.Name,
 		Profile:            bcp.Store.Name,
+		StorageType:        bcp.Store.Type,
 		OPID:               bcp.OPID,
 		Type:               bcp.Type,
 		Namespaces:         bcp.Namespaces,
