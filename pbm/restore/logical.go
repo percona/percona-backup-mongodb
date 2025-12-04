@@ -255,7 +255,7 @@ func (r *Restore) Snapshot(
 
 	// drop sharded dbs on sharded cluster, on each shard (not CSRS)
 	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		err = r.dropShardedDBs(ctx, bcp)
+		err = r.fullRestoreDBCleanup(ctx, bcp)
 		if err != nil {
 			return err
 		}
@@ -443,7 +443,7 @@ func (r *Restore) PITR(
 
 	// drop sharded dbs on sharded cluster, on each shard (not CSRS)
 	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		err = r.dropShardedDBs(ctx, bcp)
+		err = r.fullRestoreDBCleanup(ctx, bcp)
 		if err != nil {
 			return err
 		}
@@ -866,11 +866,11 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-// dropShardedDBs drop all sharded databases present in the backup.
+// fullRestoreDBCleanup drop all databases present in the backup.
 // Backup is specified with bcp parameter.
-// For each sharded database present in the backup _shardsvrDropDatabase command
+// For each database present in the backup _shardsvrDropDatabase command
 // is used to drop the database from the config srv and all shards.
-func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) error {
+func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMeta) error {
 	dbsInBcp, err := r.getDBsFromBackup(bcp)
 	if err != nil {
 		return errors.Wrap(err, "get dbs from backup")
