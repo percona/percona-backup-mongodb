@@ -941,6 +941,10 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 		}),
 	}
 
+	statusCmd.Flags().StringVar(
+		&statusOpts.profile, "profile", "",
+		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
+	)
 	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, statusCmd.Flags().Lookup(RSMappingFlag))
 	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)

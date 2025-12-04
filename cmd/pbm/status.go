@@ -29,6 +29,7 @@ import (
 )
 
 type statusOptions struct {
+	profile  string
 	rsMap    string
 	sections []string
 	priority bool
