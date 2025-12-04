@@ -320,6 +320,8 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 
 type bcpDesc struct {
 	Name               string          `json:"name" yaml:"name"`
+	Profile            string          `json:"profile,omitempty" yaml:"profile,omitempty"`
+	StorageType        storage.Type    `json:"storage_type,omitempty" yaml:"storage_type,omitempty"`
 	OPID               string          `json:"opid" yaml:"opid"`
 	Type               defs.BackupType `json:"type" yaml:"type"`
 	LastWriteTS        int64           `json:"last_write_ts" yaml:"-"`
@@ -335,7 +337,6 @@ type bcpDesc struct {
 	SizeUncompressed   int64           `json:"size_uncompressed" yaml:"-"`
 	HSize              string          `json:"size_h" yaml:"size_h"`
 	HSizeUncompressed  string          `json:"size_uncompressed_h" yaml:"size_uncompressed_h"`
-	StorageName        string          `json:"storage_name,omitempty" yaml:"storage_name,omitempty"`
 	Err                *string         `json:"error,omitempty" yaml:"error,omitempty"`
 	Replsets           []bcpReplDesc   `json:"replsets" yaml:"replsets"`
 }
@@ -413,6 +414,8 @@ func describeBackup(
 
 	rv := &bcpDesc{
 		Name:               bcp.Name,
+		Profile:            bcp.Store.Name,
+		StorageType:        bcp.Store.Type,
 		OPID:               bcp.OPID,
 		Type:               bcp.Type,
 		Namespaces:         bcp.Namespaces,
@@ -428,7 +431,6 @@ func describeBackup(
 		HSize:              byteCountIEC(bcp.Size),
 		SizeUncompressed:   bcp.SizeUncompressed,
 		HSizeUncompressed:  byteCountIEC(bcp.SizeUncompressed),
-		StorageName:        bcp.Store.Name,
 	}
 	if bcp.SizeUncompressed > 0 {
 		rv.HSizeUncompressed = byteCountIEC(bcp.SizeUncompressed)
