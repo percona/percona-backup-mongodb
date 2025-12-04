@@ -27,6 +27,7 @@ type listOpts struct {
 	unbacked bool
 	full     bool
 	size     int
+	profile  string
 	rsMap    string
 }
 
