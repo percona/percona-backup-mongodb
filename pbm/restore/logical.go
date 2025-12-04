@@ -866,7 +866,7 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-// fullRestoreDBCleanup drop all databases present in the backup.
+// fullRestoreDBCleanup drops all databases present in the backup.
 // Backup is specified with bcp parameter.
 // For each database present in the backup _shardsvrDropDatabase command
 // is used to drop the database from the config srv and all shards.
@@ -901,8 +901,60 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 	return nil
 }
 
+// selRestoreDBCleanup drops all databases and/or collections specified in
+// selective restore namespaces.
+// For each namespace listed within selective restore _shardsvrDropDatabase or
+// _shardsvrDropCollection is used for the pupose of clister-wide cleanup.
+func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
+	if !util.IsSelective(nss) {
+		return nil
+	}
 
+	droppedDBs := []string{}
+	for _, ns := range nss {
+		db, coll := util.ParseNS(ns)
+		if db == "" {
+			//todo: check this case, maybe it can be omitted completely
+			continue
+		}
+		if slices.Contains(droppedDBs, db) {
+			// db is already dropped
+			continue
+		}
 
+		configDBDoc, err := r.getConfigDatabasesDoc(ctx, db)
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				continue
+			}
+			return errors.Wrapf(err, "get config.databases doc for %q", db)
+		}
+
+		if configDBDoc.Primary != r.nodeInfo.SetName {
+			// this shard is not primary shard for this db, so ignore it
+			continue
+		}
+
+		if coll == "" {
+			// do db cleanup
+			err = r.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
+			if err != nil {
+				return errors.Wrapf(err, "db cleanup %s", db)
+			}
+			droppedDBs = append(droppedDBs, db)
+			r.log.Debug("drop db: %q", db)
+		} else {
+			// do collection cleanup
+			err = r.runCmdShardsvrDropCollection(ctx, db, coll, configDBDoc)
+			if err != nil {
+				return errors.Wrapf(err, "collection cleanup %s", ns)
+			}
+			r.log.Debug("drop ns: %q", ns)
+		}
+	}
+
+	return nil
+}
 
 // getConfigDatabasesDoc fetches database doc from config.databases collection
 // based on db key.
