@@ -878,11 +878,7 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 
 	// make cluster-wide drop for each db from the backup
 	for _, db := range dbsInBcp {
-		var configDBDoc configDatabasesDoc
-		err := r.leadConn.ConfigDatabase().
-			Collection("databases").
-			FindOne(ctx, bson.D{{"_id", db}}).
-			Decode(&configDBDoc)
+		configDBDoc, err := r.getConfigDatabasesDoc(ctx, db)
 		if err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				continue
@@ -895,7 +891,7 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 			continue
 		}
 
-		err = r.runCmdShardsvrDropDatabase(ctx, db, &configDBDoc)
+		err = r.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
 		if err != nil {
 			return errors.Wrap(err, "full restore cleanup")
 		}
@@ -903,6 +899,27 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 	}
 
 	return nil
+}
+
+
+
+
+// getConfigDatabasesDoc fetches database doc from config.databases collection
+// based on db key.
+func (r *Restore) getConfigDatabasesDoc(
+	ctx context.Context,
+	db string,
+) (*configDatabasesDoc, error) {
+	var configDBDoc configDatabasesDoc
+	err := r.leadConn.ConfigDatabase().
+		Collection("databases").
+		FindOne(ctx, bson.D{{"_id", db}}).
+		Decode(&configDBDoc)
+	if err != nil {
+		return nil, err
+	}
+
+	return &configDBDoc, nil
 }
 
 // runCmdShardsvrDropDatabase executes command _shardsvrDropDatabase.
