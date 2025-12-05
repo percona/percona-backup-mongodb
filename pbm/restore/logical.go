@@ -920,15 +920,11 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 // For each namespace listed within selective restore _shardsvrDropDatabase or
 // _shardsvrDropCollection is used for the pupose of clister-wide cleanup.
 func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
-	if !util.IsSelective(nss) {
-		return nil
-	}
-
 	droppedDBs := []string{}
 	for _, ns := range nss {
 		db, coll := util.ParseNS(ns)
-		if db == "" {
-			//todo: check this case, maybe it can be omitted completely
+		if db == "" || db == defs.DB || db == defs.ConfigDB {
+			// not allowed dbs for sel restore
 			continue
 		}
 		if slices.Contains(droppedDBs, db) {
