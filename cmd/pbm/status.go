@@ -501,7 +501,7 @@ func (s storageStat) String() string {
 		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, ss.PrintStatus, status)
 	}
 
-	if len(s.PITR.Ranges) == 0 {
+	if s.PITR == nil || len(s.PITR.Ranges) == 0 {
 		return ret
 	}
 
@@ -632,9 +632,12 @@ func getStorageStat(
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
-	if err != nil {
-		return s, errors.Wrap(err, "get PITR chunks")
+	// for main profile also fetch PITR chunks
+	if profile == "" {
+		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
+		if err != nil {
+			return s, errors.Wrap(err, "get PITR chunks")
+		}
 	}
 
 	return s, nil
