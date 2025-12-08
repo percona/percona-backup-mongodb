@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/sync/errgroup"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/resync"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -277,12 +275,10 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		return
 	}
 
-	for i := range cr.Chunks {
-		name := cr.Chunks[i].FName
-
+	for _, c := range cr.Chunks {
 		eg.Go(func() error {
-			err := stg.Delete(name)
-			return errors.Wrapf(err, "delete chunk file %q", name)
+			err := oplog.DeleteChunkData(ctx, a.leadConn, stg, c)
+			return errors.Wrapf(err, "delete chunk %q", c.FName)
 		})
 	}
 	if err := eg.Wait(); err != nil {
@@ -300,14 +296,6 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	}
 	if err := eg.Wait(); err != nil {
 		l.Error(err.Error())
-	}
-
-	if d.Profile == "" {
-		err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, false)
-	}
-
-	if err != nil {
-		l.Error("storage resync: " + err.Error())
 	}
 }
 
@@ -332,28 +320,11 @@ func (a *Agent) deletePITRImpl(ctx context.Context, ts primitive.Timestamp) erro
 }
 
 func (a *Agent) deleteChunks(ctx context.Context, stg storage.Storage, chunks []oplog.OplogChunk) error {
-	l := log.LogEventFromContext(ctx)
-
 	for _, chnk := range chunks {
-		err := stg.Delete(chnk.FName)
-		if err != nil && !errors.Is(err, storage.ErrNotExist) {
-			return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", chnk.FName, chnk)
-		}
-
-		_, err = a.leadConn.PITRChunksCollection().DeleteOne(
-			ctx,
-			bson.D{
-				{"rs", chnk.RS},
-				{"start_ts", chnk.StartTS},
-				{"end_ts", chnk.EndTS},
-			},
-		)
+		err := oplog.DeleteChunkData(ctx, a.leadConn, stg, chnk)
 		if err != nil {
-			return errors.Wrap(err, "delete pitr chunk metadata")
+			return err
 		}
-
-		l.Debug("deleted %s", chnk.FName)
 	}
-
 	return nil
 }
