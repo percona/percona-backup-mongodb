@@ -37,6 +37,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
+// mDBCl represents mDB client iterface for the DB related ops.
 type mDBCl interface {
 	runCmdShardsvrDropDatabase(ctx context.Context, db string, configDBDoc *configDatabasesDoc) error
 	runCmdShardsvrDropCollection(ctx context.Context, db, coll string, configDBDoc *configDatabasesDoc) error
