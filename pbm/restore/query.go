@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
@@ -9,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -259,4 +261,73 @@ func RestoreList(ctx context.Context, m connect.Client, limit int64) ([]RestoreM
 	restores := []RestoreMeta{}
 	err = cur.All(ctx, &restores)
 	return restores, err
+}
+
+// mDB contains restore related DB operations.
+type mDB struct {
+	leadConn connect.Client
+	nodeConn *mongo.Client
+}
+
+func newMDB(leadConn connect.Client, nodeConn *mongo.Client) *mDB {
+	return &mDB{
+		leadConn: leadConn,
+		nodeConn: nodeConn,
+	}
+}
+
+// runCmdShardsvrDropDatabase executes command _shardsvrDropDatabase.
+// The command does cluster-wide drop (from CSRS and all shards) of the whole
+// database specifed with db parameter.
+func (d *mDB) runCmdShardsvrDropDatabase(
+	ctx context.Context,
+	db string,
+	configDBDoc *configDatabasesDoc,
+) error {
+	cmd := bson.D{
+		{"_shardsvrDropDatabase", 1},
+		{"databaseVersion", configDBDoc.Version},
+		{"writeConcern", writeconcern.Majority()},
+	}
+	res := d.nodeConn.Database(db).RunCommand(ctx, cmd)
+	return errors.Wrapf(res.Err(), "_shardsvrDropDatabase for %q", db)
+}
+
+// runCmdShardsvrDropCollection executes command _shardsvrDropCollection.
+// The command does cluster-wide drop (from CSRS and all shards) of the namespace
+// specifed with db and coll parameters.
+func (d *mDB) runCmdShardsvrDropCollection(
+	ctx context.Context,
+	db, coll string,
+	configDBDoc *configDatabasesDoc,
+) error {
+	cmd := bson.D{
+		{"_shardsvrDropCollection", coll},
+		{"databaseVersion", configDBDoc.Version},
+		{"writeConcern", writeconcern.Majority()},
+	}
+	res := d.nodeConn.Database(db).RunCommand(ctx, cmd)
+	return errors.Wrapf(
+		res.Err(),
+		"_shardsvrDropCollection for %q",
+		fmt.Sprintf("%s.%s", db, coll),
+	)
+}
+
+// getConfigDatabasesDoc fetches database doc from config.databases collection
+// based on db key.
+func (d *mDB) getConfigDatabasesDoc(
+	ctx context.Context,
+	db string,
+) (*configDatabasesDoc, error) {
+	var configDBDoc configDatabasesDoc
+	err := d.leadConn.ConfigDatabase().
+		Collection("databases").
+		FindOne(ctx, bson.D{{"_id", db}}).
+		Decode(&configDBDoc)
+	if err != nil {
+		return nil, err
+	}
+
+	return &configDBDoc, nil
 }

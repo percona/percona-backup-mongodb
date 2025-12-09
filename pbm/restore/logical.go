@@ -17,7 +17,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -37,6 +36,12 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
+
+type mDBCl interface {
+	runCmdShardsvrDropDatabase(ctx context.Context, db string, configDBDoc *configDatabasesDoc) error
+	runCmdShardsvrDropCollection(ctx context.Context, db, coll string, configDBDoc *configDatabasesDoc) error
+	getConfigDatabasesDoc(ctx context.Context, db string) (*configDatabasesDoc, error)
+}
 
 type Restore struct {
 	name     string
@@ -69,6 +74,8 @@ type Restore struct {
 	opid string
 
 	indexCatalog *idx.IndexCatalog
+
+	db mDBCl
 }
 
 type oplogRange struct {
@@ -108,6 +115,7 @@ func New(
 		rsMap:    rsMap,
 
 		cfg: cfg,
+		db:  newMDB(leadConn, nodeConn),
 
 		numParallelColls:          numParallelColls,
 		numInsertionWorkersPerCol: numInsertionWorkersPerCol,
@@ -892,7 +900,7 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 
 	// make cluster-wide drop for each db from the backup
 	for _, db := range dbsInBcp {
-		configDBDoc, err := r.getConfigDatabasesDoc(ctx, db)
+		configDBDoc, err := r.db.getConfigDatabasesDoc(ctx, db)
 		if err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				continue
@@ -905,7 +913,7 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 			continue
 		}
 
-		err = r.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
+		err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
 		if err != nil {
 			return errors.Wrap(err, "full restore cleanup")
 		}
@@ -932,7 +940,7 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 			continue
 		}
 
-		configDBDoc, err := r.getConfigDatabasesDoc(ctx, db)
+		configDBDoc, err := r.db.getConfigDatabasesDoc(ctx, db)
 		if err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				continue
@@ -947,7 +955,7 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 
 		if coll == "" {
 			// do db cleanup
-			err = r.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
+			err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
 			if err != nil {
 				return errors.Wrapf(err, "db cleanup %s", db)
 			}
@@ -955,7 +963,7 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 			r.log.Debug("drop db: %q", db)
 		} else {
 			// do collection cleanup
-			err = r.runCmdShardsvrDropCollection(ctx, db, coll, configDBDoc)
+			err = r.db.runCmdShardsvrDropCollection(ctx, db, coll, configDBDoc)
 			if err != nil {
 				return errors.Wrapf(err, "collection cleanup %s", ns)
 			}
@@ -964,62 +972,6 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 	}
 
 	return nil
-}
-
-// getConfigDatabasesDoc fetches database doc from config.databases collection
-// based on db key.
-func (r *Restore) getConfigDatabasesDoc(
-	ctx context.Context,
-	db string,
-) (*configDatabasesDoc, error) {
-	var configDBDoc configDatabasesDoc
-	err := r.leadConn.ConfigDatabase().
-		Collection("databases").
-		FindOne(ctx, bson.D{{"_id", db}}).
-		Decode(&configDBDoc)
-	if err != nil {
-		return nil, err
-	}
-
-	return &configDBDoc, nil
-}
-
-// runCmdShardsvrDropDatabase executes command _shardsvrDropDatabase.
-// The command does cluster-wide drop (from CSRS and all shards) of the whole
-// database specifed with db parameter.
-func (r *Restore) runCmdShardsvrDropDatabase(
-	ctx context.Context,
-	db string,
-	configDBDoc *configDatabasesDoc,
-) error {
-	cmd := bson.D{
-		{"_shardsvrDropDatabase", 1},
-		{"databaseVersion", configDBDoc.Version},
-		{"writeConcern", writeconcern.Majority()},
-	}
-	res := r.nodeConn.Database(db).RunCommand(ctx, cmd)
-	return errors.Wrapf(res.Err(), "_shardsvrDropDatabase for %q", db)
-}
-
-// runCmdShardsvrDropCollection executes command _shardsvrDropCollection.
-// The command does cluster-wide drop (from CSRS and all shards) of the namespace
-// specifed with db and coll parameters.
-func (r *Restore) runCmdShardsvrDropCollection(
-	ctx context.Context,
-	db, coll string,
-	configDBDoc *configDatabasesDoc,
-) error {
-	cmd := bson.D{
-		{"_shardsvrDropCollection", coll},
-		{"databaseVersion", configDBDoc.Version},
-		{"writeConcern", writeconcern.Majority()},
-	}
-	res := r.nodeConn.Database(db).RunCommand(ctx, cmd)
-	return errors.Wrapf(
-		res.Err(),
-		"_shardsvrDropCollection for %q",
-		fmt.Sprintf("%s.%s", db, coll),
-	)
 }
 
 // getDBsFromBackup returns all databases present in backup metadata file
