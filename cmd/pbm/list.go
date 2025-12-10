@@ -27,6 +27,7 @@ type listOpts struct {
 	unbacked bool
 	full     bool
 	size     int
+	profile  string
 	rsMap    string
 }
 
@@ -113,7 +114,7 @@ func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listO
 		return restoreList(ctx, conn, pbm, int64(l.size))
 	}
 
-	return backupList(ctx, conn, l.size, l.full, l.unbacked, rsMap)
+	return backupList(ctx, conn, l.size, l.full, l.unbacked, l.profile, rsMap)
 }
 
 func findLock(ctx context.Context, pbm *sdk.Client) (*sdk.OpLock, error) {
@@ -192,11 +193,13 @@ func restoreList(ctx context.Context, conn connect.Client, pbm *sdk.Client, limi
 
 type backupListOut struct {
 	Snapshots []snapshotStat `json:"snapshots"`
-	PITR      struct {
-		On       bool                   `json:"on"`
-		Ranges   []pitrRange            `json:"ranges"`
-		RsRanges map[string][]pitrRange `json:"rsRanges,omitempty"`
-	} `json:"pitr"`
+	PITR      *pitrListOut   `json:"pitr,omitempty"`
+}
+
+type pitrListOut struct {
+	On       bool                   `json:"on"`
+	Ranges   []pitrRange            `json:"ranges"`
+	RsRanges map[string][]pitrRange `json:"rsRanges,omitempty"`
 }
 
 func (bl backupListOut) String() string {
@@ -213,11 +216,18 @@ func (bl backupListOut) String() string {
 		} else if b.Type == defs.IncrementalBackup && b.SrcBackup == "" {
 			t += ", base"
 		}
-		if b.StoreName != "" {
-			t += ", *"
+		if b.Profile != "" {
+			t += ", " + b.Profile
 		}
 		s += fmt.Sprintf("  %s <%s> [restore_to_time: %s]\n", b.Name, t, fmtTS(int64(b.RestoreTS)))
 	}
+
+	// if not set, skip PITR information
+	if bl.PITR == nil {
+		return s
+	}
+
+	// include also PITR information
 	if bl.PITR.On {
 		s += fmt.Sprintln("\nPITR <on>:")
 	} else {
@@ -249,15 +259,24 @@ func backupList(
 	conn connect.Client,
 	size int,
 	full, unbacked bool,
+	profile string,
 	rsMap map[string]string,
 ) (backupListOut, error) {
 	var list backupListOut
 	var err error
 
-	list.Snapshots, err = getSnapshotList(ctx, conn, size, rsMap)
+	list.Snapshots, err = getSnapshotList(ctx, conn, profile, size, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get snapshots")
 	}
+
+	// for profile skip PITR information
+	if profile != "" {
+		return list, nil
+	}
+
+	// for main profile include PITR information
+	list.PITR = &pitrListOut{}
 	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
 	if err != nil {
 		return list, errors.Wrap(err, "get PITR ranges")
@@ -274,10 +293,11 @@ func backupList(
 func getSnapshotList(
 	ctx context.Context,
 	conn connect.Client,
+	profile string,
 	size int,
 	rsMap map[string]string,
 ) ([]snapshotStat, error) {
-	bcps, err := backup.BackupsList(ctx, conn, int64(size))
+	bcps, err := backup.BackupsList(ctx, conn, profile, int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
@@ -322,7 +342,7 @@ func getSnapshotList(
 			PBMVersion:  b.PBMVersion,
 			Type:        b.Type,
 			SrcBackup:   b.SrcBackup,
-			StoreName:   b.Store.Name,
+			Profile:     b.Store.Name,
 		})
 	}
 

@@ -53,6 +53,14 @@ jobs:
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
       MAKE_TARGET: 'build-cover'
     steps:
+      - name: Cleanup unnecessary software
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
       - name: Checkout testing repo
         uses: actions/checkout@v4
         with:

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"reflect"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -62,31 +60,30 @@ func runConfig(
 
 	switch {
 	case len(c.set) > 0:
+		oldCfg, err := pbm.GetConfig(ctx)
+		if err != nil {
+			if !errors.Is(err, mongo.ErrNoDocuments) {
+				return nil, errors.Wrap(err, "unable to get current config")
+			}
+			oldCfg = &config.Config{}
+		}
+
 		var o confVals
-		rsnc := false
 		for k, v := range c.set {
 			err := config.SetConfigVar(ctx, conn, k, v)
 			if err != nil {
 				return nil, errors.Wrapf(err, "set %s", k)
 			}
 			o = append(o, confKV{k, v})
-
-			path := strings.Split(k, ".")
-			if !rsnc && len(path) > 0 && path[0] == "storage" {
-				rsnc = true
-			}
 		}
-		if rsnc {
-			cid, err := pbm.SyncFromStorage(ctx, false)
-			if err != nil {
-				return nil, errors.Wrap(err, "resync")
-			}
 
-			if c.wait {
-				if err := waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
-					return nil, err
-				}
-			}
+		newCfg, err := pbm.GetConfig(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to get updated config")
+		}
+
+		if err := resyncIfNeeded(ctx, pbm, oldCfg, newCfg, c); err != nil {
+			return nil, err
 		}
 		return o, nil
 	case len(c.key) > 0:
@@ -138,18 +135,8 @@ func runConfig(
 			return nil, errors.Wrap(err, "unable to set config: write to db")
 		}
 
-		// resync storage only if Storage options have changed
-		if !reflect.DeepEqual(newCfg.Storage, oldCfg.Storage) {
-			cid, err := pbm.SyncFromStorage(ctx, false)
-			if err != nil {
-				return nil, errors.Wrap(err, "resync")
-			}
-
-			if c.wait {
-				if err := waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime); err != nil {
-					return nil, err
-				}
-			}
+		if err := resyncIfNeeded(ctx, pbm, oldCfg, newCfg, c); err != nil {
+			return nil, err
 		}
 
 		return newCfg, nil
@@ -170,4 +157,21 @@ func readConfigFromFile(filename string) (*config.Config, error) {
 	}()
 
 	return config.Parse(file)
+}
+
+func resyncIfNeeded(ctx context.Context, pbm *sdk.Client, oldCfg, newCfg *config.Config, c *configOpts) error {
+	if newCfg.Storage.IsSameStorage(&oldCfg.Storage) {
+		return nil
+	}
+
+	cid, err := pbm.SyncFromStorage(ctx, false)
+	if err != nil {
+		return errors.Wrap(err, "resync")
+	}
+
+	if !c.wait {
+		return nil
+	}
+
+	return waitForResyncWithTimeout(ctx, pbm, cid, c.waitTime)
 }
