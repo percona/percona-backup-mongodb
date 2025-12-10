@@ -24,7 +24,7 @@ jobs:
           tar -xzf ${{ github.workspace }}/trivy/trivy.tar.gz -C ${{ github.workspace }}/trivy
 
       - name: Generate SBOM
-        run: ${{ github.workspace }}/trivy/trivy fs --format cyclonedx --output ${{ github.workspace }}/sbom.json ${{ github.workspace }}
+        run: ${{ github.workspace }}/trivy/trivy fs --format cyclonedx --output ${{ github.workspace }}/sbom.json --skip-dirs ${{ github.workspace }}/vendor ${{ github.workspace }}
 
       - name: Run trivy scan on SBOM
         run: ${{ github.workspace }}/trivy/trivy sbom ${{ github.workspace }}/sbom.json --severity HIGH,CRITICAL --ignore-unfixed --exit-code=1
