@@ -127,7 +127,7 @@ func (i *NodeInfo) IsClusterLeader() bool {
 	return i.IsPrimary && i.Me == i.Primary && i.IsLeader()
 }
 
-// ReplsetRole returns replset role in sharded clister
+// ReplsetRole returns replset role in sharded cluster
 func (i *NodeInfo) ReplsetRole() ReplsetRole {
 	switch {
 	case i.ConfigSvr == 2:

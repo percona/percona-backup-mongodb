@@ -278,7 +278,7 @@ func newMDB(leadConn connect.Client, nodeConn *mongo.Client) *mDB {
 
 // runCmdShardsvrDropDatabase executes command _shardsvrDropDatabase.
 // The command does cluster-wide drop (from CSRS and all shards) of the whole
-// database specifed with db parameter.
+// database specified with db parameter.
 // The command needs to be executed on the primary shard.
 func (d *mDB) runCmdShardsvrDropDatabase(
 	ctx context.Context,
@@ -296,7 +296,7 @@ func (d *mDB) runCmdShardsvrDropDatabase(
 
 // runCmdShardsvrDropCollection executes command _shardsvrDropCollection.
 // The command does cluster-wide drop (from CSRS and all shards) of the namespace
-// specifed with db and coll parameters.
+// specified with db and coll parameters.
 // The command needs to be executed on the primary shard.
 func (d *mDB) runCmdShardsvrDropCollection(
 	ctx context.Context,

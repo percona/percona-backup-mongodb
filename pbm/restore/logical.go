@@ -927,7 +927,7 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 // selRestoreDBCleanup drops all databases and/or collections specified in
 // selective restore namespaces.
 // For each namespace listed within selective restore _shardsvrDropDatabase or
-// _shardsvrDropCollection is used for the pupose of clister-wide cleanup.
+// _shardsvrDropCollection is used for the purpose of clister-wide cleanup.
 func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 	droppedDBs := []string{}
 	for _, ns := range nss {
