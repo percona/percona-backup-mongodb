@@ -688,7 +688,7 @@ func createCleanupRestoreTest(t *testing.T, setName string) (*Restore, *mockMDB)
 	}
 	restore.db = dbMock
 
-	restore.bcpStg = &mockBackupStorage{}
+	restore.bcpStg = &mockBcpStg{}
 
 	t.Cleanup(func() {
 		cleanupTestData(t)
@@ -764,39 +764,37 @@ func (m *mockMDB) getConfigDatabasesDoc(
 	return m.mDB.getConfigDatabasesDoc(ctx, db)
 }
 
-type mockBackupStorage struct {
-	rsName string
-}
+type mockBcpStg struct{}
 
-func (m *mockBackupStorage) Type() storage.Type {
+func (m *mockBcpStg) Type() storage.Type {
 	return storage.Filesystem
 }
 
-func (m *mockBackupStorage) Save(_ string, _ io.Reader, _ ...storage.Option) error {
+func (m *mockBcpStg) Save(_ string, _ io.Reader, _ ...storage.Option) error {
 	return nil
 }
 
-func (m *mockBackupStorage) List(_, _ string) ([]storage.FileInfo, error) {
+func (m *mockBcpStg) List(_, _ string) ([]storage.FileInfo, error) {
 	return nil, nil
 }
 
-func (m *mockBackupStorage) Delete(_ string) error {
+func (m *mockBcpStg) Delete(_ string) error {
 	return nil
 }
 
-func (m *mockBackupStorage) FileStat(_ string) (storage.FileInfo, error) {
+func (m *mockBcpStg) FileStat(_ string) (storage.FileInfo, error) {
 	return storage.FileInfo{}, nil
 }
 
-func (m *mockBackupStorage) Copy(_, _ string) error {
+func (m *mockBcpStg) Copy(_, _ string) error {
 	return nil
 }
 
-func (m *mockBackupStorage) DownloadStat() storage.DownloadStat {
+func (m *mockBcpStg) DownloadStat() storage.DownloadStat {
 	return storage.DownloadStat{}
 }
 
-func (m *mockBackupStorage) SourceReader(filepath string) (io.ReadCloser, error) {
+func (m *mockBcpStg) SourceReader(filepath string) (io.ReadCloser, error) {
 	metaJson := `
 		{
 		  "namespaces": [

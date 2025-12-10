@@ -6,9 +6,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
+
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 )
 
 var leadConn connect.Client
