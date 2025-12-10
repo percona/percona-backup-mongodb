@@ -29,6 +29,7 @@ import (
 )
 
 type statusOptions struct {
+	profile  string
 	rsMap    string
 	sections []string
 	priority bool
@@ -123,7 +124,7 @@ func status(
 			{
 				"backups", "Backups", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, pbm, rsMap)
+					return getStorageStat(ctx, conn, pbm, opts.profile, rsMap)
 				},
 			},
 		},
@@ -500,7 +501,7 @@ func (s storageStat) String() string {
 		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, ss.PrintStatus, status)
 	}
 
-	if len(s.PITR.Ranges) == 0 {
+	if s.PITR == nil || len(s.PITR.Ranges) == 0 {
 		return ret
 	}
 
@@ -530,6 +531,7 @@ func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
 	pbm *sdk.Client,
+	profile string,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -543,7 +545,7 @@ func getStorageStat(
 	s.Region = cfg.Storage.Region()
 	s.Path = cfg.Storage.Path()
 
-	bcps, err := pbm.GetAllBackups(ctx)
+	bcps, err := backup.BackupsList(ctx, conn, profile, 0)
 	if err != nil {
 		return s, errors.Wrap(err, "get backups list")
 	}
@@ -630,9 +632,12 @@ func getStorageStat(
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
-	if err != nil {
-		return s, errors.Wrap(err, "get PITR chunks")
+	// for main profile also fetch PITR chunks
+	if profile == "" {
+		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
+		if err != nil {
+			return s, errors.Wrap(err, "get PITR chunks")
+		}
 	}
 
 	return s, nil

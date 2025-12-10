@@ -6,9 +6,12 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
@@ -214,4 +217,58 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 	os.Exit(code)
+}
+
+type bcp struct {
+	Name     string
+	LWT      time.Time
+	Expected bool
+	BcpType  defs.BackupType
+}
+
+func insertTestBcpMeta(t *testing.T, env *TestEnvironment, stg Storage, b bcp) BackupMeta {
+	t.Helper()
+
+	firstWrite := b.LWT.Add(-10 * time.Minute)
+	if b.BcpType == "" {
+		b.BcpType = defs.LogicalBackup
+	}
+
+	meta := BackupMeta{
+		Type:           b.BcpType,
+		OPID:           ctrl.OPID(primitive.NilObjectID).String(),
+		Name:           b.Name,
+		Namespaces:     make([]string, 0),
+		Compression:    compress.CompressionTypeS2,
+		Store:          stg,
+		StartTS:        time.Now().Unix(),
+		Status:         defs.StatusDone,
+		Replsets:       []BackupReplset{},
+		LastWriteTS:    primitive.Timestamp{T: uint32(b.LWT.Unix())},
+		FirstWriteTS:   primitive.Timestamp{T: uint32(firstWrite.Unix())},
+		PBMVersion:     version.Current().Version,
+		MongoVersion:   env.Brief.Version.String(),
+		Nomination:     []BackupRsNomination{},
+		BalancerStatus: topo.BalancerModeOff,
+		Hb:             primitive.Timestamp{T: uint32(b.LWT.Unix())},
+	}
+
+	_, err := env.Client.BcpCollection().InsertOne(t.Context(), meta)
+	require.NoError(t, err)
+
+	return meta
+}
+
+func stgsFromTestBackups(t *testing.T, backups map[string][]bcp) map[string]Storage {
+	storages := make(map[string]Storage, len(backups))
+
+	for profile := range backups {
+		if profile == "" {
+			storages[profile] = TestEnv.PbmStorage
+		} else {
+			storages[profile] = TempStorageProfile(t, profile)
+		}
+	}
+
+	return storages
 }

@@ -41,7 +41,7 @@ func (m *MongoPBM) SendCmd(ctx context.Context, cmd ctrl.Cmd) error {
 }
 
 func (m *MongoPBM) BackupsList(ctx context.Context, limit int64) ([]backup.BackupMeta, error) {
-	return backup.BackupsList(ctx, m.conn, limit)
+	return backup.BackupsList(ctx, m.conn, "", limit)
 }
 
 func (m *MongoPBM) GetBackupMeta(ctx context.Context, bcpName string) (*backup.BackupMeta, error) {

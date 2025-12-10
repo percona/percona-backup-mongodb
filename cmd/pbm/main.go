@@ -699,7 +699,10 @@ func (app *pbmApp) buildListCmd() *cobra.Command {
 	listCmd.Flags().BoolVar(&listOptions.unbacked, "unbacked", false, "Show unbacked oplog ranges")
 	listCmd.Flags().BoolVarP(&listOptions.full, "full", "f", false, "Show extended restore info")
 	listCmd.Flags().IntVar(&listOptions.size, "size", 0, "Show last N backups")
-
+	listCmd.Flags().StringVar(
+		&listOptions.profile, "profile", "",
+		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
+	)
 	listCmd.Flags().StringVar(&listOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, listCmd.Flags().Lookup(RSMappingFlag))
 	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
@@ -938,6 +941,10 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 		}),
 	}
 
+	statusCmd.Flags().StringVar(
+		&statusOpts.profile, "profile", "",
+		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
+	)
 	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, statusCmd.Flags().Lookup(RSMappingFlag))
 	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
