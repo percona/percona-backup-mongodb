@@ -267,12 +267,12 @@ func (r *Restore) Snapshot(
 		if util.IsSelective(nss) {
 			err = r.selRestoreDBCleanup(ctx, nss)
 			if err != nil {
-				errors.Wrap(err, "selective restore cleanup")
+				return errors.Wrap(err, "selective restore cleanup")
 			}
 		} else {
 			err = r.fullRestoreDBCleanup(ctx, bcp)
 			if err != nil {
-				errors.Wrap(err, "full restore cleanup")
+				return errors.Wrap(err, "full restore cleanup")
 			}
 		}
 	}
@@ -462,12 +462,12 @@ func (r *Restore) PITR(
 		if util.IsSelective(nss) {
 			err = r.selRestoreDBCleanup(ctx, nss)
 			if err != nil {
-				errors.Wrap(err, "selective restore cleanup")
+				return errors.Wrap(err, "selective restore cleanup")
 			}
 		} else {
 			err = r.fullRestoreDBCleanup(ctx, bcp)
 			if err != nil {
-				errors.Wrap(err, "full restore cleanup")
+				return errors.Wrap(err, "full restore cleanup")
 			}
 		}
 	}
