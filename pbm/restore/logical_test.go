@@ -2,16 +2,20 @@ package restore
 
 import (
 	"context"
+	"io"
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	pbmlog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
@@ -253,7 +257,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("drop single database", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db", "rs0")
 		if err != nil {
@@ -278,7 +282,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("drop single collection", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db", "rs0")
 		if err != nil {
@@ -306,7 +310,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("drop multiple databases", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db1", "rs0")
 		if err != nil {
@@ -338,7 +342,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("drop multiple databases and collections", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db1", "rs0")
 		if err != nil {
@@ -356,7 +360,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
-			t.Fatalf("expected 2 dropDatabase calls, got %d", len(db.dropDatabaseCalls))
+			t.Fatalf("expected 1 dropDatabase call, got %d", len(db.dropDatabaseCalls))
 		}
 		if db.dropDatabaseCalls[0] != "db1" {
 			t.Fatalf("expected first dropDatabase call with %q, got %q", "db1", db.dropDatabaseCalls[0])
@@ -368,15 +372,15 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 			t.Fatalf("expected dropCollection coll to be c1, got %q", db.dropCollectionCalls[0].coll)
 		}
 		if db.dropCollectionCalls[1].coll != "c2" {
-			t.Fatalf("expected dropCollection coll to be c2, got %q", db.dropCollectionCalls[0].coll)
+			t.Fatalf("expected dropCollection coll to be c2, got %q", db.dropCollectionCalls[1].coll)
 		}
 		if db.dropCollectionCalls[2].coll != "c3" {
-			t.Fatalf("expected dropCollection coll to be c3, got %q", db.dropCollectionCalls[0].coll)
+			t.Fatalf("expected dropCollection coll to be c3, got %q", db.dropCollectionCalls[2].coll)
 		}
 	})
 
 	t.Run("skip admin and config databases", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		nss := []string{defs.DB + ".*", defs.ConfigDB + ".*"}
 		err := r.selRestoreDBCleanup(ctx, nss)
@@ -393,7 +397,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("skip database not in config.databases", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		nss := []string{"nonexistent.*"}
 		err := r.selRestoreDBCleanup(ctx, nss)
@@ -410,7 +414,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("skip database with different primary shard", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db", "rs1")
 		if err != nil {
@@ -432,7 +436,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("skip collection with different primary shard", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db", "rs1")
 		if err != nil {
@@ -454,7 +458,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("drop database and collection in same namespace list", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db1", "rs0")
 		if err != nil {
@@ -490,7 +494,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("skip already dropped database", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db", "rs0")
 		if err != nil {
@@ -515,7 +519,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("skip already dropped multiple databases", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db1", "rs0")
 		if err != nil {
@@ -533,7 +537,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {
-			t.Fatalf("expected 1 dropDatabase call, got %d", len(db.dropDatabaseCalls))
+			t.Fatalf("expected 2 dropDatabase calls, got %d", len(db.dropDatabaseCalls))
 		}
 		if len(db.dropCollectionCalls) != 0 {
 			t.Fatalf("expected 0 dropCollection calls, got %d", len(db.dropCollectionCalls))
@@ -541,7 +545,7 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 	})
 
 	t.Run("skip already dropped databases preserves order", func(t *testing.T) {
-		r, db := createTestSelCleanupRestore(t, "rs0")
+		r, db := createCleanupRestoreTest(t, "rs0")
 
 		err := createConfigDatabasesDoc(t, "db1", "rs0")
 		if err != nil {
@@ -559,15 +563,103 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {
-			t.Fatalf("expected 1 dropDatabase call, got %d", len(db.dropDatabaseCalls))
+			t.Fatalf("expected 2 dropDatabase calls, got %d", len(db.dropDatabaseCalls))
 		}
 		if len(db.dropCollectionCalls) != 2 {
-			t.Fatalf("expected 0 dropCollection calls, got %d", len(db.dropCollectionCalls))
+			t.Fatalf("expected 2 dropCollection calls, got %d", len(db.dropCollectionCalls))
 		}
 	})
 }
 
-func createTestSelCleanupRestore(t *testing.T, setName string) (*Restore, *mockMDB) {
+func TestFullRestoreDBCleanup(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("drop single database", func(t *testing.T) {
+		r, db := createCleanupRestoreTest(t, "rs0")
+
+		err := createConfigDatabasesDoc(t, "db1", "rs0")
+		if err != nil {
+			t.Fatalf("create config.databases doc: %v", err)
+		}
+
+		bcp := &backup.BackupMeta{Name: "backup1"}
+		err = r.fullRestoreDBCleanup(ctx, bcp)
+		if err != nil {
+			t.Fatalf("fullRestoreDBCleanup: %v", err)
+		}
+
+		if len(db.dropDatabaseCalls) != 1 {
+			t.Fatalf("expected 1 dropDatabase call, got %d", len(db.dropDatabaseCalls))
+		}
+		if db.dropDatabaseCalls[0] != "db1" {
+			t.Fatalf("expected dropDatabase to be called with %q, got %q", "db", db.dropDatabaseCalls[0])
+		}
+	})
+
+	t.Run("drop multiple databases", func(t *testing.T) {
+		r, db := createCleanupRestoreTest(t, "rs0")
+
+		err := createConfigDatabasesDoc(t, "db1", "rs0")
+		if err != nil {
+			t.Fatalf("create config.databases doc 1: %v", err)
+		}
+		err = createConfigDatabasesDoc(t, "db2", "rs0")
+		if err != nil {
+			t.Fatalf("create config.databases doc 2: %v", err)
+		}
+
+		bcp := &backup.BackupMeta{Name: "backup1"}
+		err = r.fullRestoreDBCleanup(ctx, bcp)
+		if err != nil {
+			t.Fatalf("fullRestoreDBCleanup: %v", err)
+		}
+
+		if len(db.dropDatabaseCalls) != 2 {
+			t.Fatalf("expected 2 dropDatabase calls, got %d", len(db.dropDatabaseCalls))
+		}
+		if db.dropDatabaseCalls[0] != "db1" {
+			t.Fatalf("expected dropDatabase call with db1, got %q", db.dropDatabaseCalls[0])
+		}
+		if db.dropDatabaseCalls[1] != "db2" {
+			t.Fatalf("expected dropDatabase call with db2, got %q", db.dropDatabaseCalls[1])
+		}
+	})
+
+	t.Run("skip database not in config.databases", func(t *testing.T) {
+		r, db := createCleanupRestoreTest(t, "rs0")
+
+		bcp := &backup.BackupMeta{Name: "backup1"}
+		err := r.fullRestoreDBCleanup(ctx, bcp)
+		if err != nil {
+			t.Fatalf("fullRestoreDBCleanup: %v", err)
+		}
+
+		if len(db.dropDatabaseCalls) != 0 {
+			t.Fatalf("expected 0 dropDatabase calls, got %d", len(db.dropDatabaseCalls))
+		}
+	})
+
+	t.Run("skip database with different primary shard", func(t *testing.T) {
+		r, db := createCleanupRestoreTest(t, "rs0")
+
+		err := createConfigDatabasesDoc(t, "db1", "rs1")
+		if err != nil {
+			t.Fatalf("create config.databases doc: %v", err)
+		}
+
+		bcp := &backup.BackupMeta{Name: "backup1"}
+		err = r.fullRestoreDBCleanup(ctx, bcp)
+		if err != nil {
+			t.Fatalf("fullRestoreDBCleanup: %v", err)
+		}
+
+		if len(db.dropDatabaseCalls) != 0 {
+			t.Fatalf("expected 0 dropDatabase calls, got %d", len(db.dropDatabaseCalls))
+		}
+	})
+}
+
+func createCleanupRestoreTest(t *testing.T, setName string) (*Restore, *mockMDB) {
 	t.Helper()
 
 	nodeConn := leadConn.MongoClient()
@@ -596,8 +688,10 @@ func createTestSelCleanupRestore(t *testing.T, setName string) (*Restore, *mockM
 	}
 	restore.db = dbMock
 
+	restore.bcpStg = &mockBackupStorage{}
+
 	t.Cleanup(func() {
-		cleanupSelCleanupTest(t)
+		cleanupTestData(t)
 	})
 
 	return restore, dbMock
@@ -621,7 +715,7 @@ func createConfigDatabasesDoc(t *testing.T, dbName, primaryShard string) error {
 	return err
 }
 
-func cleanupSelCleanupTest(t *testing.T) {
+func cleanupTestData(t *testing.T) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -668,4 +762,82 @@ func (m *mockMDB) getConfigDatabasesDoc(
 	db string,
 ) (*configDatabasesDoc, error) {
 	return m.mDB.getConfigDatabasesDoc(ctx, db)
+}
+
+type mockBackupStorage struct {
+	rsName string
+}
+
+func (m *mockBackupStorage) Type() storage.Type {
+	return storage.Filesystem
+}
+
+func (m *mockBackupStorage) Save(_ string, _ io.Reader, _ ...storage.Option) error {
+	return nil
+}
+
+func (m *mockBackupStorage) List(_, _ string) ([]storage.FileInfo, error) {
+	return nil, nil
+}
+
+func (m *mockBackupStorage) Delete(_ string) error {
+	return nil
+}
+
+func (m *mockBackupStorage) FileStat(_ string) (storage.FileInfo, error) {
+	return storage.FileInfo{}, nil
+}
+
+func (m *mockBackupStorage) Copy(_, _ string) error {
+	return nil
+}
+
+func (m *mockBackupStorage) DownloadStat() storage.DownloadStat {
+	return storage.DownloadStat{}
+}
+
+func (m *mockBackupStorage) SourceReader(filepath string) (io.ReadCloser, error) {
+	metaJson := `
+		{
+		  "namespaces": [
+			{
+			  "db": "admin",
+			  "collection": "system.version",
+			  "metadata": "",
+			  "type": "collection",
+			  "crc": {
+				"$numberLong": "7899326899661778306"
+			  },
+			  "size": {
+				"$numberLong": "272"
+			  }
+			},
+			{
+			  "db": "db1",
+			  "collection": "c1",
+			  "metadata": "",
+			  "type": "collection",
+			  "crc": {
+				"$numberLong": "-7684575339597196538"
+			  },
+			  "size": {
+				"$numberLong": "24795"
+			  }
+			},
+			{
+			  "db": "db2",
+			  "collection": "c1",
+			  "metadata": "",
+			  "type": "collection",
+			  "crc": {
+				"$numberLong": "-7684575339597196538"
+			  },
+			  "size": {
+				"$numberLong": "24795"
+			  }
+			}
+		  ]
+		}
+	`
+	return io.NopCloser(strings.NewReader(metaJson)), nil
 }
