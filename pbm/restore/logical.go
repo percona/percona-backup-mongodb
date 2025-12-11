@@ -17,7 +17,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -37,6 +36,13 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
+
+// mDBCl represents mDB client iterface for the DB related ops.
+type mDBCl interface {
+	runCmdShardsvrDropDatabase(ctx context.Context, db string, configDBDoc *configDatabasesDoc) error
+	runCmdShardsvrDropCollection(ctx context.Context, db, coll string, configDBDoc *configDatabasesDoc) error
+	getConfigDatabasesDoc(ctx context.Context, db string) (*configDatabasesDoc, error)
+}
 
 type Restore struct {
 	name     string
@@ -69,6 +75,8 @@ type Restore struct {
 	opid string
 
 	indexCatalog *idx.IndexCatalog
+
+	db mDBCl
 }
 
 type oplogRange struct {
@@ -108,6 +116,7 @@ func New(
 		rsMap:    rsMap,
 
 		cfg: cfg,
+		db:  newMDB(leadConn, nodeConn),
 
 		numParallelColls:          numParallelColls,
 		numInsertionWorkersPerCol: numInsertionWorkersPerCol,
@@ -253,11 +262,18 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	// drop sharded dbs on sharded cluster, on each shard (not CSRS), only for full restore
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() && !util.IsSelective(nss) {
-		err = r.dropShardedDBs(ctx, bcp)
-		if err != nil {
-			return err
+	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
+	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
+		if util.IsSelective(nss) {
+			err = r.selRestoreDBCleanup(ctx, nss)
+			if err != nil {
+				return errors.Wrap(err, "selective restore cleanup")
+			}
+		} else {
+			err = r.fullRestoreDBCleanup(ctx, bcp)
+			if err != nil {
+				return errors.Wrap(err, "full restore cleanup")
+			}
 		}
 	}
 
@@ -441,11 +457,18 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	// drop sharded dbs on sharded cluster, on each shard (not CSRS), only for full restore
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() && !util.IsSelective(nss) {
-		err = r.dropShardedDBs(ctx, bcp)
-		if err != nil {
-			return err
+	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
+	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
+		if util.IsSelective(nss) {
+			err = r.selRestoreDBCleanup(ctx, nss)
+			if err != nil {
+				return errors.Wrap(err, "selective restore cleanup")
+			}
+		} else {
+			err = r.fullRestoreDBCleanup(ctx, bcp)
+			if err != nil {
+				return errors.Wrap(err, "full restore cleanup")
+			}
 		}
 	}
 
@@ -866,11 +889,11 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-// dropShardedDBs drop all sharded databases present in the backup.
+// fullRestoreDBCleanup drops all databases present in the backup.
 // Backup is specified with bcp parameter.
-// For each sharded database present in the backup _shardsvrDropDatabase command
+// For each database present in the backup _shardsvrDropDatabase command
 // is used to drop the database from the config srv and all shards.
-func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) error {
+func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMeta) error {
 	dbsInBcp, err := r.getDBsFromBackup(bcp)
 	if err != nil {
 		return errors.Wrap(err, "get dbs from backup")
@@ -878,11 +901,7 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 
 	// make cluster-wide drop for each db from the backup
 	for _, db := range dbsInBcp {
-		var configDBDoc configDatabasesDoc
-		err := r.leadConn.ConfigDatabase().
-			Collection("databases").
-			FindOne(ctx, bson.D{{"_id", db}}).
-			Decode(&configDBDoc)
+		configDBDoc, err := r.db.getConfigDatabasesDoc(ctx, db)
 		if err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				continue
@@ -895,16 +914,62 @@ func (r *Restore) dropShardedDBs(ctx context.Context, bcp *backup.BackupMeta) er
 			continue
 		}
 
-		cmd := bson.D{
-			{"_shardsvrDropDatabase", 1},
-			{"databaseVersion", configDBDoc.Version},
-			{"writeConcern", writeconcern.Majority()},
-		}
-		res := r.nodeConn.Database(db).RunCommand(ctx, cmd)
-		if err := res.Err(); err != nil {
-			return errors.Wrapf(err, "_shardsvrDropDatabase for %q", db)
+		err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
+		if err != nil {
+			return errors.Wrap(err, "full restore cleanup")
 		}
 		r.log.Debug("drop %q", db)
+	}
+
+	return nil
+}
+
+// selRestoreDBCleanup drops all databases and/or collections specified in
+// selective restore namespaces.
+// For each namespace listed within selective restore _shardsvrDropDatabase or
+// _shardsvrDropCollection is used for the purpose of clister-wide cleanup.
+func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
+	droppedDBs := []string{}
+	for _, ns := range nss {
+		db, coll := util.ParseNS(ns)
+		if db == "" || db == defs.DB || db == defs.ConfigDB {
+			// not allowed dbs for sel restore
+			continue
+		}
+		if slices.Contains(droppedDBs, db) {
+			// db is already dropped
+			continue
+		}
+
+		configDBDoc, err := r.db.getConfigDatabasesDoc(ctx, db)
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				continue
+			}
+			return errors.Wrapf(err, "get config.databases doc for %q", db)
+		}
+
+		if configDBDoc.Primary != r.nodeInfo.SetName {
+			// this shard is not primary shard for this db, so ignore it
+			continue
+		}
+
+		if coll == "" {
+			// do db cleanup
+			err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
+			if err != nil {
+				return errors.Wrapf(err, "db cleanup %s", db)
+			}
+			droppedDBs = append(droppedDBs, db)
+			r.log.Debug("drop db: %q", db)
+		} else {
+			// do collection cleanup
+			err = r.db.runCmdShardsvrDropCollection(ctx, db, coll, configDBDoc)
+			if err != nil {
+				return errors.Wrapf(err, "collection cleanup %s", ns)
+			}
+			r.log.Debug("drop ns: %q", ns)
+		}
 	}
 
 	return nil
