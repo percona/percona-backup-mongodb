@@ -107,10 +107,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			return
 		}
 	case d.Backup != "":
-		l = logger.NewEvent(string(ctrl.CmdDeleteBackup), d.Backup, opid.String(), ep.TS())
-		ctx := log.SetLogEventToContext(ctx, l)
-
-		l.Info("deleting backup")
+		l.Info("deleting backup %q", d.Backup)
 		err := backup.DeleteBackup(ctx, a.leadConn, d.Backup, nodeInfo.Me)
 		if err != nil {
 			l.Error("deleting: %v", err)
@@ -296,6 +293,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		bcp := &cr.Backups[i]
 
 		eg.Go(func() error {
+			l.Info("deleting backup %q (profile: %q)", bcp.Name, d.Profile)
 			err := backup.DeleteBackupData(ctx, a.leadConn, stg, bcp.Name)
 			return errors.Wrapf(err, "delete backup %q", bcp.Name)
 		})

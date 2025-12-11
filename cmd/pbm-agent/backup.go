@@ -240,7 +240,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	a.setBcp(&currentBackup{cancel: cancel})
 	defer a.setBcp(nil)
 
-	l.Info("backup started")
+	l.Info("backup started (profile: %q)", cmd.Profile)
 	err = bcp.Run(bcpCtx, cmd, opid, l)
 	if err != nil {
 		if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {

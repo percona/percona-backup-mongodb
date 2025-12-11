@@ -43,12 +43,15 @@ type backupOpts struct {
 }
 
 type backupOut struct {
-	Name    string `json:"name"`
-	Storage string `json:"storage"`
+	Name        string `json:"name"`
+	Profile     string `json:"profile,omitempty" yaml:"profile,omitempty"`
+	StoragePath string `json:"storagePath"`
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf("Backup '%s' to remote store '%s'", b.Name, b.Storage)
+	return fmt.Sprintf(
+		"Backup %q saved to remote store (profile: %q, path: %q)", b.Name, b.Profile, b.StoragePath,
+	)
 }
 
 type externBcpOut struct {
@@ -151,7 +154,7 @@ func runBackup(
 	showProgress := outf == outText
 
 	if showProgress {
-		fmt.Printf("Starting backup '%s'", b.name)
+		fmt.Printf("Starting backup %q (profile %q)", b.name, b.profile)
 	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
@@ -210,7 +213,7 @@ func runBackup(
 		}
 	}
 
-	return backupOut{b.name, cfg.Storage.Path()}, nil
+	return backupOut{Name: b.name, Profile: cfg.Name, StoragePath: cfg.Storage.Path()}, nil
 }
 
 func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Stringer, error) {
