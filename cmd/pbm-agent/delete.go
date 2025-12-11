@@ -266,35 +266,20 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		return
 	}
 
-	eg := errgroup.Group{}
-	eg.SetLimit(runtime.NumCPU())
-
 	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan, d.Profile)
 	if err != nil {
 		l.Error("make cleanup report: " + err.Error())
 		return
 	}
 
-	for _, c := range cr.Chunks {
-		eg.Go(func() error {
-			err := oplog.DeleteChunkData(ctx, a.leadConn, stg, c)
-			return errors.Wrapf(err, "delete chunk %q", c.FName)
-		})
-	}
-	if err := eg.Wait(); err != nil {
+	eg := &errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+
+	if err := a.deleteChunks(ctx, eg, stg, cr.Chunks); err != nil {
 		l.Error(err.Error())
 	}
 
-	for i := range cr.Backups {
-		bcp := &cr.Backups[i]
-
-		eg.Go(func() error {
-			l.Info("deleting backup %q (profile: %q)", bcp.Name, d.Profile)
-			err := backup.DeleteBackupData(ctx, a.leadConn, stg, bcp.Name)
-			return errors.Wrapf(err, "delete backup %q", bcp.Name)
-		})
-	}
-	if err := eg.Wait(); err != nil {
+	if err := a.deleteBackups(ctx, eg, stg, cr.Backups); err != nil {
 		l.Error(err.Error())
 	}
 }
@@ -316,15 +301,40 @@ func (a *Agent) deletePITRImpl(ctx context.Context, ts primitive.Timestamp) erro
 		return errors.Wrap(err, "get storage")
 	}
 
-	return a.deleteChunks(ctx, stg, r.Chunks)
+	eg := &errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+	return a.deleteChunks(ctx, eg, stg, r.Chunks)
 }
 
-func (a *Agent) deleteChunks(ctx context.Context, stg storage.Storage, chunks []oplog.OplogChunk) error {
-	for _, chnk := range chunks {
-		err := oplog.DeleteChunkData(ctx, a.leadConn, stg, chnk)
-		if err != nil {
-			return err
-		}
+func (a *Agent) deleteChunks(
+	ctx context.Context,
+	eg *errgroup.Group,
+	stg storage.Storage,
+	chunks []oplog.OplogChunk,
+) error {
+	for _, c := range chunks {
+		eg.Go(func() error {
+			err := oplog.DeleteChunkData(ctx, a.leadConn, stg, c)
+			return errors.Wrapf(err, "delete chunk %q", c.FName)
+		})
 	}
-	return nil
+	return eg.Wait()
+}
+
+func (a *Agent) deleteBackups(
+	ctx context.Context,
+	eg *errgroup.Group,
+	stg storage.Storage,
+	backups []backup.BackupMeta,
+) error {
+	l := log.LogEventFromContext(ctx)
+
+	for _, b := range backups {
+		eg.Go(func() error {
+			l.Info("deleting backup %q (profile: %q)", b.Name, b.Store.Name)
+			err := backup.DeleteBackupData(ctx, a.leadConn, stg, b.Name)
+			return errors.Wrapf(err, "delete backup %q", b.Name)
+		})
+	}
+	return eg.Wait()
 }
