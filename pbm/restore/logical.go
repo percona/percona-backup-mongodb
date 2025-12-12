@@ -163,9 +163,6 @@ func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, 
 
 		return nssRestore
 	}
-	if util.IsSelective(nssBackup) {
-		return nssBackup
-	}
 
 	return nssBackup
 }
