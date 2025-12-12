@@ -496,11 +496,21 @@ func (r *Restore) PITR(
 		cloudNS:  cloneNS,
 		sessUUID: sysSessionsUUID,
 	}
+
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.nss = append(oplogOption.nss, nss...)
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
+
+	if bool(usersAndRolesOpt) && util.IsSelective(nss) {
+		//	include users and roles in oplog replay
+		oplogOption.nss = append(oplogOption.nss,
+			"admin.system.users",
+			"admin.system.roles",
+		)
+	}
+
 	err = r.applyOplog(ctx, oplogRanges, &oplogOption)
 	if err != nil {
 		return err
