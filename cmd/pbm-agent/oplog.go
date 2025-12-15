@@ -25,6 +25,15 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 
 	l := logger.NewEvent(string(ctrl.CmdReplay), r.Name, opID.String(), ep.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
+<<<<<<< HEAD
+=======
+
+	l.Info("time range: %s - %s",
+		time.Unix(int64(r.Start.T), 0).UTC().Format(time.RFC3339),
+		time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339),
+	)
+
+>>>>>>> c28deb23 (PBM-1673 Messages during oplog replay are confusing)
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		l.Error("get node info: %s", err.Error())
