@@ -26,9 +26,13 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 	l := logger.NewEvent(string(ctrl.CmdReplay), r.Name, opID.String(), ep.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
 
-	l.Info("time range: %s - %s",
-		time.Unix(int64(r.Start.T), 0).UTC().Format(time.RFC3339),
-		time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339),
+	startTime := time.Unix(int64(r.Start.T), 0).UTC()
+	endTime := time.Unix(int64(r.End.T), 0).UTC()
+	
+	l.Info("Starting oplog replay operation",
+		"start_ts", startTime,
+		"end_ts", endTime,
+		"oplog_range_seconds", endTime.Sub(startTime).Seconds(),
 	)
 
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
