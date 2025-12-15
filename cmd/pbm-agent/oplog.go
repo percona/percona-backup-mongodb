@@ -30,7 +30,6 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 
 	startTime := time.Unix(int64(r.Start.T), 0).UTC()
 	endTime := time.Unix(int64(r.End.T), 0).UTC()
-	
 	l.Info("Starting oplog replay operation",
 		"start_ts", startTime,
 		"end_ts", endTime,
