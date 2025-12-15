@@ -37,7 +37,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 		return
 	}
 	if !nodeInfo.IsPrimary {
-		l.Info("node in not suitable for restore")
+		l.Info("node is not primary, check pbm agent log on primary node for oplog replay details")
 		return
 	}
 	if nodeInfo.ArbiterOnly {
