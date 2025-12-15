@@ -28,9 +28,13 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 <<<<<<< HEAD
 =======
 
-	l.Info("time range: %s - %s",
-		time.Unix(int64(r.Start.T), 0).UTC().Format(time.RFC3339),
-		time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339),
+	startTime := time.Unix(int64(r.Start.T), 0).UTC()
+	endTime := time.Unix(int64(r.End.T), 0).UTC()
+	
+	l.Info("Starting oplog replay operation",
+		"start_ts", startTime,
+		"end_ts", endTime,
+		"oplog_range_seconds", endTime.Sub(startTime).Seconds(),
 	)
 
 >>>>>>> c28deb23 (PBM-1673 Messages during oplog replay are confusing)
