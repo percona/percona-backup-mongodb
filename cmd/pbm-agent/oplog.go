@@ -19,7 +19,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 
 	if r == nil {
 		l := logger.NewEvent(string(ctrl.CmdReplay), "", opID.String(), ep.TS())
-		l.Error("oplog replay: missed command")
+		l.Error("missed command")
 		return
 	}
 
@@ -27,21 +27,21 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 	ctx = log.SetLogEventToContext(ctx, l)
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
-		l.Error("oplog replay: get node info: %s", err.Error())
+		l.Error("get node info: %s", err.Error())
 		return
 	}
 	if !nodeInfo.IsPrimary {
-		l.Debug("oplog replay: node is not primary, check pbm agent log on primary node for oplog replay details")
+		l.Debug("node is not primary, check pbm agent log on primary node for oplog replay details")
 		return
 	}
 	if nodeInfo.ArbiterOnly {
-		l.Debug("oplog replay: node is arbiter only, check pbm agent log on primary node for oplog replay details")
+		l.Debug("node is arbiter only, check pbm agent log on primary node for oplog replay details")
 		return
 	}
 
 	startTime := time.Unix(int64(r.Start.T), 0).UTC()
 	endTime := time.Unix(int64(r.End.T), 0).UTC()
-	l.Info("oplog replay: starting oplog replay for period: %s - %s, duration: %s",
+	l.Info("starting oplog replay for period: %s - %s, duration: %s",
 		startTime.Format(time.RFC3339),
 		endTime.Format(time.RFC3339),
 		endTime.Sub(startTime),
@@ -58,7 +58,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 
 	nominated, err := a.acquireLock(ctx, lck, l)
 	if err != nil {
-		l.Error("oplog replay: acquiring lock: %s", err.Error())
+		l.Error("acquiring lock: %s", err.Error())
 		return
 	}
 	if !nominated {
@@ -68,34 +68,34 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 
 	defer func() {
 		if err := lck.Release(); err != nil {
-			l.Error("oplog replay: release lock: %s", err.Error())
+			l.Error("release lock: %s", err.Error())
 		}
 	}()
 
 	cfg, err := config.GetConfig(ctx, a.leadConn)
 	if err != nil {
-		l.Error("oplog replay: get PBM config: %v", err)
+		l.Error("get PBM config: %v", err)
 		return
 	}
 
-	l.Info("oplog replay: started")
+	l.Info("oplog replay started")
 	rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, 0, 1)
 	err = rr.ReplayOplog(ctx, r, opID, l)
 	if err != nil {
 		if errors.Is(err, restore.ErrNoDataForShard) {
-			l.Info("oplog replay: no oplog for the shard, skipping")
+			l.Info("no oplog for the shard, skipping")
 		} else {
 			l.Error("oplog replay error: %v", err.Error())
 		}
 		return
 	}
-	l.Info("oplog replay: successfully finished")
+	l.Info("oplog replay successfully finished")
 
 	resetEpoch, err := config.ResetEpoch(ctx, a.leadConn)
 	if err != nil {
-		l.Error("oplog replay: reset epoch: %s", err.Error())
+		l.Error("reset epoch: %s", err.Error())
 		return
 	}
 
-	l.Debug("oplog replay: epoch set to %v", resetEpoch)
+	l.Debug("epoch set to %v", resetEpoch)
 }
