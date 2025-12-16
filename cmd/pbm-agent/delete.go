@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/sync/errgroup"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
-	"github.com/percona/percona-backup-mongodb/pbm/resync"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -268,46 +266,21 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		return
 	}
 
-	eg := errgroup.Group{}
-	eg.SetLimit(runtime.NumCPU())
-
 	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan, d.Profile)
 	if err != nil {
 		l.Error("make cleanup report: " + err.Error())
 		return
 	}
 
-	for i := range cr.Chunks {
-		name := cr.Chunks[i].FName
+	eg := &errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
 
-		eg.Go(func() error {
-			err := stg.Delete(name)
-			return errors.Wrapf(err, "delete chunk file %q", name)
-		})
-	}
-	if err := eg.Wait(); err != nil {
+	if err := a.deleteChunks(ctx, eg, stg, cr.Chunks); err != nil {
 		l.Error(err.Error())
 	}
 
-	for i := range cr.Backups {
-		bcp := &cr.Backups[i]
-
-		eg.Go(func() error {
-			l.Info("deleting backup %q (profile: %q)", bcp.Name, d.Profile)
-			err := backup.DeleteBackupData(ctx, a.leadConn, stg, bcp.Name)
-			return errors.Wrapf(err, "delete backup %q", bcp.Name)
-		})
-	}
-	if err := eg.Wait(); err != nil {
+	if err := a.deleteBackups(ctx, eg, stg, cr.Backups); err != nil {
 		l.Error(err.Error())
-	}
-
-	if d.Profile == "" {
-		err = resync.Resync(ctx, a.leadConn, &cfg.Storage, a.brief.Me, false)
-	}
-
-	if err != nil {
-		l.Error("storage resync: " + err.Error())
 	}
 }
 
@@ -328,32 +301,40 @@ func (a *Agent) deletePITRImpl(ctx context.Context, ts primitive.Timestamp) erro
 		return errors.Wrap(err, "get storage")
 	}
 
-	return a.deleteChunks(ctx, stg, r.Chunks)
+	eg := &errgroup.Group{}
+	eg.SetLimit(runtime.NumCPU())
+	return a.deleteChunks(ctx, eg, stg, r.Chunks)
 }
 
-func (a *Agent) deleteChunks(ctx context.Context, stg storage.Storage, chunks []oplog.OplogChunk) error {
+func (a *Agent) deleteChunks(
+	ctx context.Context,
+	eg *errgroup.Group,
+	stg storage.Storage,
+	chunks []oplog.OplogChunk,
+) error {
+	for _, c := range chunks {
+		eg.Go(func() error {
+			err := oplog.DeleteChunkData(ctx, a.leadConn, stg, c)
+			return errors.Wrapf(err, "delete chunk %q", c.FName)
+		})
+	}
+	return eg.Wait()
+}
+
+func (a *Agent) deleteBackups(
+	ctx context.Context,
+	eg *errgroup.Group,
+	stg storage.Storage,
+	backups []backup.BackupMeta,
+) error {
 	l := log.LogEventFromContext(ctx)
 
-	for _, chnk := range chunks {
-		err := stg.Delete(chnk.FName)
-		if err != nil && !errors.Is(err, storage.ErrNotExist) {
-			return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", chnk.FName, chnk)
-		}
-
-		_, err = a.leadConn.PITRChunksCollection().DeleteOne(
-			ctx,
-			bson.D{
-				{"rs", chnk.RS},
-				{"start_ts", chnk.StartTS},
-				{"end_ts", chnk.EndTS},
-			},
-		)
-		if err != nil {
-			return errors.Wrap(err, "delete pitr chunk metadata")
-		}
-
-		l.Debug("deleted %s", chnk.FName)
+	for _, b := range backups {
+		eg.Go(func() error {
+			l.Info("deleting backup %q (profile: %q)", b.Name, b.Store.Name)
+			err := backup.DeleteBackupData(ctx, a.leadConn, stg, b.Name)
+			return errors.Wrapf(err, "delete backup %q", b.Name)
+		})
 	}
-
-	return nil
+	return eg.Wait()
 }
