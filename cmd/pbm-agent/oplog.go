@@ -25,25 +25,27 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 
 	l := logger.NewEvent(string(ctrl.CmdReplay), r.Name, opID.String(), ep.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
-
-	l.Info("time: %s-%s",
-		time.Unix(int64(r.Start.T), 0).UTC().Format(time.RFC3339),
-		time.Unix(int64(r.End.T), 0).UTC().Format(time.RFC3339),
-	)
-
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
 		l.Error("get node info: %s", err.Error())
 		return
 	}
 	if !nodeInfo.IsPrimary {
-		l.Info("node in not suitable for restore")
+		l.Debug("node is not primary, check pbm agent log on primary node for oplog replay details")
 		return
 	}
 	if nodeInfo.ArbiterOnly {
-		l.Debug("arbiter node. skip")
+		l.Debug("node is arbiter only, check pbm agent log on primary node for oplog replay details")
 		return
 	}
+
+	startTime := time.Unix(int64(r.Start.T), 0).UTC()
+	endTime := time.Unix(int64(r.End.T), 0).UTC()
+	l.Info("starting oplog replay for period: %s - %s, duration: %s",
+		startTime.Format(time.RFC3339),
+		endTime.Format(time.RFC3339),
+		endTime.Sub(startTime),
+	)
 
 	epoch := ep.TS()
 	lck := lock.NewLock(a.leadConn, lock.LockHeader{
@@ -60,7 +62,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 		return
 	}
 	if !nominated {
-		l.Debug("oplog replay: skip: lock not acquired")
+		l.Debug("skip: lock not acquired")
 		return
 	}
 
@@ -83,7 +85,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 		if errors.Is(err, restore.ErrNoDataForShard) {
 			l.Info("no oplog for the shard, skipping")
 		} else {
-			l.Error("oplog replay: %v", err.Error())
+			l.Error("oplog replay error: %v", err.Error())
 		}
 		return
 	}
