@@ -27,7 +27,7 @@ func (a *Agent) OplogReplay(ctx context.Context, r *ctrl.ReplayCmd, opID ctrl.OP
 	ctx = log.SetLogEventToContext(ctx, l)
 	nodeInfo, err := topo.GetNodeInfoExt(ctx, a.nodeConn)
 	if err != nil {
-		l.Error("oplog replay: et node info: %s", err.Error())
+		l.Error("oplog replay: get node info: %s", err.Error())
 		return
 	}
 	if !nodeInfo.IsPrimary {
