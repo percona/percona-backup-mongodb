@@ -71,7 +71,7 @@ var errTriesLimitExceeded = errors.New("tries limit exceeded")
 
 func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
 	opts := bc.opts
-	for i := 0; i < retry; i++ {
+	for i := range retry {
 		if i != 0 {
 			// on retry, make new thisBackupName
 			// otherwise, WT error: "Incremental identifier already exists"
