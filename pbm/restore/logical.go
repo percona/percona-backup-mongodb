@@ -509,6 +509,35 @@ func (r *Restore) PITR(
 			"admin.system.users",
 			"admin.system.roles",
 		)
+
+		prevFilter := oplogOption.filter
+
+		oplogOption.filter = func(r *oplog.Record) bool {
+			selected := util.MakeSelectedPred(nss)
+			if r.Namespace == "admin.system.users" {
+				// return false if the user is stored in a database that is not selected
+				for _, e := range r.Object {
+					if e.Key == "db" {
+						db, _ := e.Value.(string)
+						return selected(db + ".*")
+					}
+				}
+			}
+			if r.Namespace == "admin.system.roles" {
+				// return false if the role is stored in a database that is not selected
+				for _, e := range r.Object {
+					if e.Key == "db" {
+						db, _ := e.Value.(string)
+						return selected(db + ".*")
+					}
+				}
+			}
+
+			if prevFilter != nil {
+				return prevFilter(r)
+			}
+			return oplog.DefaultOpFilter(r)
+		}
 	}
 
 	err = r.applyOplog(ctx, oplogRanges, &oplogOption)
