@@ -96,10 +96,18 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 				return nil, err
 			}
 
+			retryableErr := false
 			if se.HasErrorCode(50915) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
 				bc.l.Debug("a checkpoint took place, retrying")
+				retryableErr = true
+			} else if se.HasErrorCode(50917) {
+				bc.l.Debug("oplog rolled over while establishing the backup cursor, retrying: %d/%d.", i+1, retry)
+				retryableErr = true
+			}
+
+			if retryableErr {
 				time.Sleep(time.Second * time.Duration(i+1))
 				continue
 			}
