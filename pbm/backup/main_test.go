@@ -19,6 +19,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -36,6 +37,7 @@ func (tenv *TestEnvironment) StartMongo(ctx context.Context) error {
 		ctx,
 		"perconalab/percona-server-mongodb:8.0.4-multi",
 		mongodb.WithReplicaSet("rs0"),
+		testcontainers.WithCmdArgs("--setParameter", "enableTestCommands=1"),
 	)
 	if err != nil {
 		return err
