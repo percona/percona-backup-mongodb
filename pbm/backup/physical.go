@@ -28,7 +28,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
-const cursorCreateRetries = 10
+const (
+	cursorCreateRetries               = 10
+	openConflictWithCheckpointErrCode = 50915
+	oplogRolledOverErrCode            = 50917
+)
 
 type Meta struct {
 	ID           UUID                `bson:"backupId"`
@@ -97,12 +101,12 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 			}
 
 			retryableErr := false
-			if se.HasErrorCode(50915) {
+			if se.HasErrorCode(openConflictWithCheckpointErrCode) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
 				bc.l.Debug("a checkpoint took place, retrying: %d/%d", i+1, retry)
 				retryableErr = true
-			} else if se.HasErrorCode(50917) {
+			} else if se.HasErrorCode(oplogRolledOverErrCode) {
 				bc.l.Debug("oplog rolled over while establishing the backup cursor, retrying: %d/%d", i+1, retry)
 				retryableErr = true
 			}

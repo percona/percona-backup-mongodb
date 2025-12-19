@@ -49,7 +49,7 @@ func TestBackupCursor(t *testing.T) {
 			// Error 50917: oplog rolled over backup cursor
 			{
 				name:       "50917/pass without error",
-				errCode:    50917,
+				errCode:    oplogRolledOverErrCode,
 				errNum:     0,
 				retryNum:   3,
 				wantErr:    nil,
@@ -57,7 +57,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50917/pass after single retry",
-				errCode:    50917,
+				errCode:    oplogRolledOverErrCode,
 				errNum:     1,
 				retryNum:   3,
 				wantErr:    nil,
@@ -65,7 +65,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50917/pass after last retry",
-				errCode:    50917,
+				errCode:    oplogRolledOverErrCode,
 				errNum:     2,
 				retryNum:   3,
 				wantErr:    nil,
@@ -73,7 +73,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50917/fail for exact number of retries",
-				errCode:    50917,
+				errCode:    oplogRolledOverErrCode,
 				errNum:     2,
 				retryNum:   2,
 				wantErr:    errTriesLimitExceeded,
@@ -81,7 +81,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50917/fail after all retries",
-				errCode:    50917,
+				errCode:    oplogRolledOverErrCode,
 				errNum:     10,
 				retryNum:   2,
 				wantErr:    errTriesLimitExceeded,
@@ -90,7 +90,7 @@ func TestBackupCursor(t *testing.T) {
 			// Error 50915: BackupCursorOpenConflictWithCheckpoint
 			{
 				name:       "50915/pass without error",
-				errCode:    50915,
+				errCode:    openConflictWithCheckpointErrCode,
 				errNum:     0,
 				retryNum:   3,
 				wantErr:    nil,
@@ -98,7 +98,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50915/pass after single retry",
-				errCode:    50915,
+				errCode:    openConflictWithCheckpointErrCode,
 				errNum:     1,
 				retryNum:   100,
 				wantErr:    nil,
@@ -106,7 +106,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50915/pass after last retry",
-				errCode:    50915,
+				errCode:    openConflictWithCheckpointErrCode,
 				errNum:     3,
 				retryNum:   4,
 				wantErr:    nil,
@@ -114,7 +114,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50915/fail for exact number of retries",
-				errCode:    50915,
+				errCode:    openConflictWithCheckpointErrCode,
 				errNum:     2,
 				retryNum:   2,
 				wantErr:    errTriesLimitExceeded,
@@ -122,7 +122,7 @@ func TestBackupCursor(t *testing.T) {
 			},
 			{
 				name:       "50915/fail after all retries",
-				errCode:    50915,
+				errCode:    openConflictWithCheckpointErrCode,
 				errNum:     100,
 				retryNum:   2,
 				wantErr:    errTriesLimitExceeded,
