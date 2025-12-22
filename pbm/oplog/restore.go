@@ -25,6 +25,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -185,6 +186,9 @@ type OplogRestore struct {
 	filter   OpFilter
 	cloneNS  cloneNS
 	sessUUID string
+
+	usersAndRoles bool
+	log           log.LogEvent
 }
 
 const saveLastDistTxns = 100
@@ -243,6 +247,14 @@ func (o *OplogRestore) SetOpFilter(f OpFilter) {
 	}
 
 	o.filter = f
+}
+
+func (o *OplogRestore) SetSelectiveUsersAndRolesRestore(u bool) {
+	o.usersAndRoles = u
+}
+
+func (o *OplogRestore) SetLogEvent(l log.LogEvent) {
+	o.log = l
 }
 
 // SetTimeframe sets boundaries for the replayed operations. All operations
@@ -510,8 +522,33 @@ func isConfigChunksDocAllowed(oe *Record, sessUUID string) bool {
 	return true
 }
 
+func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
+	if !o.usersAndRoles || (oe.Namespace != "admin.system.users" && oe.Namespace != "admin.system.roles") {
+		return false
+	}
+
+	ret := false
+	for _, e := range oe.Object {
+		if e.Key == "db" {
+			d, ok := e.Value.(string)
+			if !ok {
+				return false
+			}
+			colls := o.includeNS[d]
+			return colls != nil && colls[""]
+		}
+	}
+
+	return ret
+}
+
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
 	if o.includeNS == nil || o.includeNS[""] != nil {
+		return true
+	}
+
+	if o.isUserOrRoleOp(oe) {
+		o.log.Debug("User/Role operation selected")
 		return true
 	}
 

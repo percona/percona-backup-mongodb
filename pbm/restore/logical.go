@@ -302,7 +302,7 @@ func (r *Restore) Snapshot(
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.nss = append(oplogOption.nss, nss...)
-		oplogOption.filter = newConfigsvrOpFilter(nss)
+		oplogOption.filter = newConfigsvrOpFilter(nss, usersAndRolesOpt)
 	}
 
 	err = r.applyOplog(ctx, oplogRanges, oplogOption)
@@ -327,13 +327,18 @@ func (r *Restore) Snapshot(
 }
 
 // newConfigsvrOpFilter filters out not needed ops during selective backup on configsvr
-func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
+func newConfigsvrOpFilter(nss []string, usersAndRoles restoreUsersAndRolesOption) oplog.OpFilter {
 	selected := util.MakeSelectedPred(nss)
 
 	return func(r *oplog.Record) bool {
 		if selected(r.Namespace) {
 			return true
 		}
+
+		if usersAndRoles && r.Namespace == "admin.system.users" || r.Namespace == "admin.system.roles" {
+			return true
+		}
+
 		if r.Namespace != "config.databases" {
 			return false
 		}
@@ -491,53 +496,17 @@ func (r *Restore) PITR(
 		{chunks: chunks, storage: r.oplogStg},
 	}
 	oplogOption := applyOplogOption{
-		end:      &cmd.OplogTS,
-		nss:      nss,
-		cloudNS:  cloneNS,
-		sessUUID: sysSessionsUUID,
+		end:           &cmd.OplogTS,
+		nss:           nss,
+		cloudNS:       cloneNS,
+		sessUUID:      sysSessionsUUID,
+		usersAndRoles: bool(usersAndRolesOpt),
 	}
 
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
 		oplogOption.nss = append(oplogOption.nss, nss...)
-		oplogOption.filter = newConfigsvrOpFilter(nss)
-	}
-
-	if bool(usersAndRolesOpt) && util.IsSelective(nss) {
-		//	include users and roles in oplog replay
-		oplogOption.nss = append(oplogOption.nss,
-			"admin.system.users",
-			"admin.system.roles",
-		)
-
-		prevFilter := oplogOption.filter
-
-		oplogOption.filter = func(r *oplog.Record) bool {
-			selected := util.MakeSelectedPred(nss)
-			if r.Namespace == "admin.system.users" {
-				// return false if the user is stored in a database that is not selected
-				for _, e := range r.Object {
-					if e.Key == "db" {
-						db, _ := e.Value.(string)
-						return selected(db + ".*")
-					}
-				}
-			}
-			if r.Namespace == "admin.system.roles" {
-				// return false if the role is stored in a database that is not selected
-				for _, e := range r.Object {
-					if e.Key == "db" {
-						db, _ := e.Value.(string)
-						return selected(db + ".*")
-					}
-				}
-			}
-
-			if prevFilter != nil {
-				return prevFilter(r)
-			}
-			return oplog.DefaultOpFilter(r)
-		}
+		oplogOption.filter = newConfigsvrOpFilter(nss, usersAndRolesOpt)
 	}
 
 	err = r.applyOplog(ctx, oplogRanges, &oplogOption)

@@ -287,13 +287,14 @@ func chunks(
 }
 
 type applyOplogOption struct {
-	start    *primitive.Timestamp
-	end      *primitive.Timestamp
-	nss      []string
-	cloudNS  snapshot.CloneNS
-	unsafe   bool
-	filter   oplog.OpFilter
-	sessUUID string
+	start         *primitive.Timestamp
+	end           *primitive.Timestamp
+	nss           []string
+	cloudNS       snapshot.CloneNS
+	unsafe        bool
+	filter        oplog.OpFilter
+	sessUUID      string
+	usersAndRoles bool
 }
 
 type (
@@ -356,7 +357,9 @@ func applyOplog(
 		return nil, errors.Wrap(err, "create oplog")
 	}
 
+	oplogRestore.SetSelectiveUsersAndRolesRestore(options.usersAndRoles)
 	oplogRestore.SetOpFilter(options.filter)
+	oplogRestore.SetLogEvent(log)
 
 	var startTS, endTS primitive.Timestamp
 	if options.start != nil {
