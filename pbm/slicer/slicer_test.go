@@ -1,6 +1,7 @@
 package slicer
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"os"
@@ -23,6 +24,7 @@ import (
 	pbmlog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 )
 
@@ -253,6 +255,7 @@ func TestCatchup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to insert backup: %v", err)
 		}
+		createPITRFilesOnStorage(t, s.storage, backupMeta.Replsets[0].OplogName, backupFirstTS, wantLastTS)
 
 		// Create a chunk with endTS between backup FirstWriteTS and LastWriteTS
 		chunkEndTS := primitive.Timestamp{T: 750, I: 0}
@@ -303,6 +306,7 @@ func TestCatchup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to insert backup: %v", err)
 		}
+		createPITRFilesOnStorage(t, s.storage, backupMeta.Replsets[0].OplogName, backupFirstTS, backupLastTS)
 
 		// Create a chunk with endTS before backup FirstWriteTS
 		chunkEndTS := primitive.Timestamp{T: 500, I: 0}
@@ -335,6 +339,56 @@ func TestCatchup(t *testing.T) {
 			t.Fatalf("unexpected error in catchup: %v", err)
 		}
 		if s.lastTS != backupLastTS {
+			t.Fatalf("expected lastTS to be %v, got %v", backupLastTS, s.lastTS)
+		}
+	})
+
+	t.Run("logical backup with no PITR files", func(t *testing.T) {
+		s := createTestSlicer(t)
+
+		backupFirstTS := primitive.Timestamp{T: 1000, I: 0}
+		backupLastTS := primitive.Timestamp{T: 1500, I: 0}
+		backupMeta := createBackupMeta()
+		backupMeta.Type = defs.LogicalBackup
+		backupMeta.LastWriteTS = backupLastTS
+		backupMeta.Replsets[0].FirstWriteTS = backupFirstTS
+		backupMeta.Replsets[0].LastWriteTS = backupLastTS
+		backupMeta.Replsets[0].OplogName = "2025-11-21T09:38:09Z/rs0/oplog"
+
+		_, err := connClient.BcpCollection().InsertOne(ctx, backupMeta)
+		if err != nil {
+			t.Fatalf("failed to insert backup: %v", err)
+		}
+
+		chunkEndTS := primitive.Timestamp{T: 750, I: 0}
+		chunk := &oplog.OplogChunk{
+			RS:          "rs0",
+			FName:       "chunk1",
+			Compression: compress.CompressionTypeNone,
+			StartTS:     primitive.Timestamp{T: 600, I: 0},
+			EndTS:       chunkEndTS,
+			Size:        1024,
+		}
+		_, err = connClient.PITRChunksCollection().InsertOne(ctx, chunk)
+		if err != nil {
+			t.Fatalf("failed to insert chunk: %v", err)
+		}
+
+		cfg := &config.Config{
+			PITR: &config.PITRConf{
+				Compression: compress.CompressionTypeNone,
+			},
+		}
+		_, err = connClient.ConfigCollection().InsertOne(ctx, cfg)
+		if err != nil {
+			t.Fatalf("failed to insert config: %v", err)
+		}
+
+		err = s.Catchup(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error in catchup: %v", err)
+		}
+		if s.lastTS != backupFirstTS {
 			t.Fatalf("expected lastTS to be %v, got %v", backupLastTS, s.lastTS)
 		}
 	})
@@ -402,5 +456,23 @@ func cleanupControlColl(t *testing.T) {
 	_, err = connClient.ConfigCollection().DeleteMany(ctx, bson.D{})
 	if err != nil {
 		t.Fatalf("clean up config: %v", err)
+	}
+}
+
+func createPITRFilesOnStorage(
+	t *testing.T,
+	stg storage.Storage,
+	oplogPath string,
+	firstTS, lastTS primitive.Timestamp,
+) {
+	t.Helper()
+
+	chunkName := backup.FormatChunkName(firstTS, lastTS, compress.CompressionTypeNone)
+	fullPath := oplogPath + "/" + chunkName
+
+	dummyData := bytes.NewReader([]byte("test entry"))
+	err := stg.Save(fullPath, dummyData)
+	if err != nil {
+		t.Fatalf("creating oplog chunk: %v", err)
 	}
 }
