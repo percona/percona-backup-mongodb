@@ -26,6 +26,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
+var ErrNoPITRFiles = errors.New("no PITR files")
+
 // Slicer is an incremental backup object
 type Slicer struct {
 	leadClient connect.Client
@@ -232,7 +234,8 @@ func (s *Slicer) copyReplsetOplog(ctx context.Context, rs *backup.BackupReplset)
 		return errors.Wrap(err, "list oplog files")
 	}
 	if len(files) == 0 {
-		return nil
+		// there are no PITR chunks within the backup, so nothing will be copied
+		return ErrNoPITRFiles
 	}
 
 	for _, file := range files {
