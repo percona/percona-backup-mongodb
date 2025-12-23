@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -34,8 +34,8 @@ type OplogBackup struct {
 	cl    *mongo.Client
 	mu    sync.Mutex
 	stopC chan struct{}
-	start primitive.Timestamp
-	end   primitive.Timestamp
+	start bsonv2.Timestamp
+	end   bsonv2.Timestamp
 }
 
 // NewOplogBackup creates a new Oplog instance
@@ -44,13 +44,13 @@ func NewOplogBackup(m *mongo.Client) *OplogBackup {
 }
 
 // SetTailingSpan sets oplog tailing window
-func (ot *OplogBackup) SetTailingSpan(start, end primitive.Timestamp) {
+func (ot *OplogBackup) SetTailingSpan(start, end bsonv2.Timestamp) {
 	ot.start = start
 	ot.end = end
 }
 
 type InsuffRangeError struct {
-	primitive.Timestamp
+	bsonv2.Timestamp
 }
 
 func (e InsuffRangeError) Error() string {
@@ -100,7 +100,7 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 	}
 	defer cur.Close(ctx)
 
-	opts := primitive.Timestamp{}
+	opts := bsonv2.Timestamp{}
 	var ok, rcheck bool
 	var written int64
 	for cur.Next(ctx) {
@@ -167,7 +167,7 @@ func (ot *OplogBackup) Cancel() {
 }
 
 // IsSufficient check is oplog is sufficient back from the given date
-func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
+func (ot *OplogBackup) IsSufficient(from bsonv2.Timestamp) (bool, error) {
 	c, err := ot.cl.Database("local").Collection("oplog.rs").
 		CountDocuments(context.Background(),
 			bson.M{"ts": bson.M{"$lte": from}},

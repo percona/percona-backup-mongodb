@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
@@ -152,7 +152,7 @@ func CanDeleteBackup(ctx context.Context, conn connect.Client, bcp *BackupMeta) 
 		return ErrIncrementalBackup
 	}
 
-	required, err := isRequiredForOplogSlicing(ctx, conn, bcp.LastWriteTS, primitive.Timestamp{})
+	required, err := isRequiredForOplogSlicing(ctx, conn, bcp.LastWriteTS, bsonv2.Timestamp{})
 	if err != nil {
 		return errors.Wrap(err, "check pitr requirements")
 	}
@@ -284,8 +284,8 @@ func isValidBaseSnapshot(bcp *BackupMeta) bool {
 func isRequiredForOplogSlicing(
 	ctx context.Context,
 	conn connect.Client,
-	lw primitive.Timestamp,
-	baseLW primitive.Timestamp,
+	lw bsonv2.Timestamp,
+	baseLW bsonv2.Timestamp,
 ) (bool, error) {
 	enabled, oplogOnly, err := config.IsPITREnabled(ctx, conn)
 	if err != nil {
@@ -330,7 +330,7 @@ func DeleteBackupBefore(
 	bcpType defs.BackupType,
 	t time.Time,
 ) error {
-	backups, err := ListDeleteBackupBefore(ctx, conn, primitive.Timestamp{T: uint32(t.Unix())}, bcpType, profile)
+	backups, err := ListDeleteBackupBefore(ctx, conn, bsonv2.Timestamp{T: uint32(t.Unix())}, bcpType, profile)
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func DeleteBackupBefore(
 func ListDeleteBackupBefore(
 	ctx context.Context,
 	conn connect.Client,
-	ts primitive.Timestamp,
+	ts bsonv2.Timestamp,
 	bcpType defs.BackupType,
 	profile string,
 ) ([]BackupMeta, error) {
@@ -395,10 +395,10 @@ func ListDeleteBackupBefore(
 func MakeCleanupInfo(
 	ctx context.Context,
 	conn connect.Client,
-	ts primitive.Timestamp,
+	ts bsonv2.Timestamp,
 	profile string,
 ) (CleanupInfo, error) {
-	backups, err := listBackupsBefore(ctx, conn, primitive.Timestamp{T: ts.T + 1}, profile)
+	backups, err := listBackupsBefore(ctx, conn, bsonv2.Timestamp{T: ts.T + 1}, profile)
 	if err != nil {
 		return CleanupInfo{}, errors.Wrap(err, "list backups before")
 	}
@@ -532,7 +532,7 @@ func MakeCleanupInfo(
 func listBackupsBefore(
 	ctx context.Context,
 	conn connect.Client,
-	ts primitive.Timestamp,
+	ts bsonv2.Timestamp,
 	profile string,
 ) ([]BackupMeta, error) {
 	f := bson.D{
@@ -561,7 +561,7 @@ func listBackupsBefore(
 }
 
 // listChunksBefore returns oplog chunks that start before `ts`.
-func listChunksBefore(ctx context.Context, conn connect.Client, ts primitive.Timestamp) ([]oplog.OplogChunk, error) {
+func listChunksBefore(ctx context.Context, conn connect.Client, ts bsonv2.Timestamp) ([]oplog.OplogChunk, error) {
 	f := bson.D{{"start_ts", bson.M{"$lt": ts}}}
 	o := options.Find().SetSort(bson.D{{"start_ts", 1}})
 	cur, err := conn.PITRChunksCollection().Find(ctx, f, o)

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -25,7 +25,7 @@ func markBcpStale(ctx context.Context, l *lock.Lock, opid string) error {
 		return nil
 	}
 
-	log.FromContext(ctx).Debug(string(ctrl.CmdBackup), "", opid, primitive.Timestamp{}, "mark stale meta")
+	log.FromContext(ctx).Debug(string(ctrl.CmdBackup), "", opid, bsonv2.Timestamp{}, "mark stale meta")
 
 	return backup.ChangeBackupStateOPID(l.Connect(), opid, defs.StatusError,
 		"some of pbm-agents were lost during the backup")
@@ -42,7 +42,7 @@ func markRestoreStale(ctx context.Context, l *lock.Lock, opid string) error {
 		return nil
 	}
 
-	log.FromContext(ctx).Debug(string(ctrl.CmdRestore), "", opid, primitive.Timestamp{}, "mark stale meta")
+	log.FromContext(ctx).Debug(string(ctrl.CmdRestore), "", opid, bsonv2.Timestamp{}, "mark stale meta")
 
 	return restore.ChangeRestoreStateOPID(ctx, l.Connect(), opid, defs.StatusError,
 		"some of pbm-agents were lost during the restore")

@@ -4,7 +4,7 @@ import (
 	"sort"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
@@ -21,7 +21,7 @@ type RestoreMeta struct {
 	StartPITR        int64               `bson:"start_pitr" json:"start_pitr"`
 	PITR             int64               `bson:"pitr" json:"pitr"`
 	Replsets         []RestoreReplset    `bson:"replsets" json:"replsets"`
-	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
+	Hb               bsonv2.Timestamp `bson:"hb" json:"hb"`
 	StartTS          int64               `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	Conditions       Conditions          `bson:"conditions" json:"conditions"`
@@ -37,13 +37,13 @@ type RestoreReplset struct {
 	CommittedTxn     []phys.RestoreTxn     `bson:"committed_txn" json:"committed_txn"`
 	CommittedTxnSet  bool                  `bson:"txn_set" json:"txn_set"`
 	PartialTxn       []db.Oplog            `bson:"partial_txn" json:"partial_txn"`
-	CurrentOp        primitive.Timestamp   `bson:"op" json:"op"`
+	CurrentOp        bsonv2.Timestamp   `bson:"op" json:"op"`
 	LastTransitionTS int64                 `bson:"last_transition_ts" json:"last_transition_ts"`
-	LastWriteTS      primitive.Timestamp   `bson:"last_write_ts" json:"last_write_ts"`
+	LastWriteTS      bsonv2.Timestamp   `bson:"last_write_ts" json:"last_write_ts"`
 	Nodes            []RestoreNode         `bson:"nodes,omitempty" json:"nodes,omitempty"`
 	Error            string                `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       Conditions            `bson:"conditions" json:"conditions"`
-	Hb               primitive.Timestamp   `bson:"hb" json:"hb"`
+	Hb               bsonv2.Timestamp   `bson:"hb" json:"hb"`
 	Stat             phys.RestoreShardStat `bson:"stat" json:"stat"`
 }
 
@@ -73,5 +73,5 @@ type RestoreNode struct {
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       Conditions          `bson:"conditions" json:"conditions"`
-	Hb               primitive.Timestamp `bson:"hb" json:"hb"`
+	Hb               bsonv2.Timestamp `bson:"hb" json:"hb"`
 }

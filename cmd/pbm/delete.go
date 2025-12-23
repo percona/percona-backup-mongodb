@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -134,7 +134,7 @@ func deleteBackupByName(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) 
 }
 
 func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
-	var ts primitive.Timestamp
+	var ts bsonv2.Timestamp
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "parse --older-than")
@@ -197,9 +197,9 @@ func deletePITR(
 		}
 	}
 
-	var until primitive.Timestamp
+	var until bsonv2.Timestamp
 	if d.all {
-		until = primitive.Timestamp{T: uint32(time.Now().UTC().Unix())}
+		until = bsonv2.Timestamp{T: uint32(time.Now().UTC().Unix())}
 	} else {
 		var err error
 		until, err = parseOlderThan(d.olderThan)
@@ -342,10 +342,10 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 	return rv, err
 }
 
-func parseOlderThan(s string) (primitive.Timestamp, error) {
+func parseOlderThan(s string) (bsonv2.Timestamp, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return primitive.Timestamp{}, errInvalidFormat
+		return bsonv2.Timestamp{}, errInvalidFormat
 	}
 
 	ts, err := parseTS(s)
@@ -358,11 +358,11 @@ func parseOlderThan(s string) (primitive.Timestamp, error) {
 		if errors.Is(err, errInvalidDuration) {
 			err = errInvalidFormat
 		}
-		return primitive.Timestamp{}, err
+		return bsonv2.Timestamp{}, err
 	}
 
 	unix := time.Now().UTC().Add(-dur).Unix()
-	return primitive.Timestamp{T: uint32(unix), I: 0}, nil
+	return bsonv2.Timestamp{T: uint32(unix), I: 0}, nil
 }
 
 var errInvalidDuration = errors.New("invalid duration")
@@ -407,7 +407,7 @@ func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.
 	}
 
 	type oplogRange struct {
-		Start, End primitive.Timestamp
+		Start, End bsonv2.Timestamp
 	}
 
 	oplogRanges := make(map[string][]oplogRange)

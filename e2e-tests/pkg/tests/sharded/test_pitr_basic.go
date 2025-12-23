@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -161,7 +161,7 @@ func (pc *pcounter) current() *pbmt.Counter {
 	return pc.curr
 }
 
-func (c *Cluster) pitrcCheck(name string, shard *pbmt.Mongo, data *[]pbmt.Counter, bcpLastWrite primitive.Timestamp) {
+func (c *Cluster) pitrcCheck(name string, shard *pbmt.Mongo, data *[]pbmt.Counter, bcpLastWrite bsonv2.Timestamp) {
 	log.Println(name, "getting restored counters")
 	restored, err := shard.GetCounters()
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -696,7 +697,7 @@ func (r *Restore) checkTopologyForOplog(currShards []topo.Shard, oplogShards []s
 // chunks defines chunks of oplog slice in given range, ensures its integrity (timeline
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
-func (r *Restore) chunks(ctx context.Context, from, to primitive.Timestamp) ([]oplog.OplogChunk, error) {
+func (r *Restore) chunks(ctx context.Context, from, to bsonv2.Timestamp) ([]oplog.OplogChunk, error) {
 	return chunks(ctx, r.leadConn, r.oplogStg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
@@ -1428,8 +1429,8 @@ func (r *Restore) setcommittedTxn(ctx context.Context, txn []phys.RestoreTxn) er
 	return RestoreSetRSTxn(ctx, r.leadConn, r.name, r.nodeInfo.SetName, txn)
 }
 
-func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]primitive.Timestamp, error) {
-	txn := make(map[string]primitive.Timestamp)
+func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]bsonv2.Timestamp, error) {
+	txn := make(map[string]bsonv2.Timestamp)
 
 	shards := make(map[string]struct{})
 	for _, s := range r.shards {

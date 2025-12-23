@@ -7,7 +7,7 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/db"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
@@ -137,7 +137,7 @@ func RestoreSetRSPartTxn(ctx context.Context, m connect.Client, name, rsName str
 	return err
 }
 
-func SetCurrentOp(ctx context.Context, m connect.Client, name, rsName string, ts primitive.Timestamp) error {
+func SetCurrentOp(ctx context.Context, m connect.Client, name, rsName string, ts bsonv2.Timestamp) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},

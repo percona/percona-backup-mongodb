@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
@@ -18,7 +18,7 @@ import (
 // PITRMeta contains all operational data about PITR execution process.
 type PITRMeta struct {
 	StartTS    int64               `bson:"start_ts" json:"start_ts"`
-	Hb         primitive.Timestamp `bson:"hb" json:"hb"`
+	Hb         bsonv2.Timestamp `bson:"hb" json:"hb"`
 	Status     Status              `bson:"status" json:"status"`
 	Nomination []PITRNomination    `bson:"n" json:"n"`
 	Replsets   []PITRReplset       `bson:"replsets" json:"replsets"`

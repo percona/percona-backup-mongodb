@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/mongodb/mongo-tools/common/idx"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -246,7 +246,7 @@ func chunks(
 	conn connect.Client,
 	stg storage.Storage,
 	from,
-	to primitive.Timestamp,
+	to bsonv2.Timestamp,
 	rsName string,
 	rsMap map[string]string,
 ) ([]oplog.OplogChunk, error) {
@@ -287,8 +287,8 @@ func chunks(
 }
 
 type applyOplogOption struct {
-	start    *primitive.Timestamp
-	end      *primitive.Timestamp
+	start    *bsonv2.Timestamp
+	end      *bsonv2.Timestamp
 	nss      []string
 	cloudNS  snapshot.CloneNS
 	unsafe   bool
@@ -298,7 +298,7 @@ type applyOplogOption struct {
 
 type (
 	setcommittedTxnFn func(ctx context.Context, txn []phys.RestoreTxn) error
-	getcommittedTxnFn func(ctx context.Context) (map[string]primitive.Timestamp, error)
+	getcommittedTxnFn func(ctx context.Context) (map[string]bsonv2.Timestamp, error)
 )
 
 // By looking at just transactions in the oplog we can't tell which shards
@@ -358,7 +358,7 @@ func applyOplog(
 
 	oplogRestore.SetOpFilter(options.filter)
 
-	var startTS, endTS primitive.Timestamp
+	var startTS, endTS bsonv2.Timestamp
 	if options.start != nil {
 		startTS = *options.start
 	}
@@ -376,7 +376,7 @@ func applyOplog(
 	}
 	oplogRestore.SetSessionsToExclude(options.sessUUID)
 
-	var lts primitive.Timestamp
+	var lts bsonv2.Timestamp
 	for _, oplogRange := range ranges {
 		stg := oplogRange.storage
 		for _, chnk := range oplogRange.chunks {
@@ -439,17 +439,17 @@ func replayChunk(
 	oplog *oplog.OplogRestore,
 	stg storage.Storage,
 	c compress.CompressionType,
-) (primitive.Timestamp, error) {
+) (bsonv2.Timestamp, error) {
 	or, err := stg.SourceReader(file)
 	if err != nil {
-		lts := primitive.Timestamp{}
+		lts := bsonv2.Timestamp{}
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)
 	}
 	defer or.Close()
 
 	oplogReader, err := compress.Decompress(or, c)
 	if err != nil {
-		lts := primitive.Timestamp{}
+		lts := bsonv2.Timestamp{}
 		return lts, errors.Wrapf(err, "decompress object %s", file)
 	}
 	defer oplogReader.Close()

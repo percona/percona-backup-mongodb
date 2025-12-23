@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type chunk struct {
@@ -151,10 +151,10 @@ func TestIsRequiredForOplogSlicing(t *testing.T) {
 			insertTestBackupsStorage(t, TestEnv, TestEnv.PbmStorage, tt.backups)
 			insertTestChunks(t, TestEnv, tt.chunks)
 
-			lwtBson := primitive.Timestamp{T: uint32(tt.lwt.Unix())}
-			baseLWTBson := primitive.Timestamp{T: uint32(tt.baseLWT.Unix())}
+			lwtBson := bsonv2.Timestamp{T: uint32(tt.lwt.Unix())}
+			baseLWTBson := bsonv2.Timestamp{T: uint32(tt.baseLWT.Unix())}
 			if baseLWTBson.IsZero() {
-				baseLWTBson = primitive.Timestamp{}
+				baseLWTBson = bsonv2.Timestamp{}
 			}
 
 			actual, err := isRequiredForOplogSlicing(t.Context(), TestEnv.Client, lwtBson, baseLWTBson)
@@ -259,7 +259,7 @@ func TestListDeleteBackups(t *testing.T) {
 
 			storages := stgsFromTestBackups(t, tt.backups)
 			expected := insertTestBackups(t, TestEnv, storages, tt.backups)
-			before := primitive.Timestamp{T: uint32(tt.before.Unix())}
+			before := bsonv2.Timestamp{T: uint32(tt.before.Unix())}
 
 			for profile := range tt.backups {
 				bcps, err := ListDeleteBackupBefore(t.Context(), TestEnv.Client, before, tt.bcpType, profile)
@@ -405,7 +405,7 @@ func TestMakeCleanupInfo(t *testing.T) {
 			storages := stgsFromTestBackups(t, tt.backups)
 			expectedChunks := insertTestChunks(t, TestEnv, tt.chunks)
 			expectedBackupNames := insertTestBackups(t, TestEnv, storages, tt.backups)
-			before := primitive.Timestamp{T: uint32(tt.before.Unix())}
+			before := bsonv2.Timestamp{T: uint32(tt.before.Unix())}
 
 			for profile := range tt.backups {
 				info, err := MakeCleanupInfo(t.Context(), TestEnv.Client, before, profile)
@@ -463,7 +463,7 @@ func TestListChunksBefore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			TestEnv.Reset(t)
 
-			before := primitive.Timestamp{T: uint32(tt.before.Unix())}
+			before := bsonv2.Timestamp{T: uint32(tt.before.Unix())}
 			expected := insertTestChunks(t, TestEnv, tt.chunks)
 
 			chunks, err := listChunksBefore(t.Context(), TestEnv.Client, before)
@@ -560,7 +560,7 @@ func TestListBackupsBefore(t *testing.T) {
 
 			storages := stgsFromTestBackups(t, tt.backups)
 			expected := insertTestBackups(t, TestEnv, storages, tt.backups)
-			before := primitive.Timestamp{T: uint32(tt.before.Unix())}
+			before := bsonv2.Timestamp{T: uint32(tt.before.Unix())}
 
 			for profile := range tt.backups {
 				bcps, err := listBackupsBefore(t.Context(), TestEnv.Client, before, profile)
@@ -691,8 +691,8 @@ func insertTestChunks(t *testing.T, env *TestEnvironment, chunks []chunk) []oplo
 func insertTestChunkMeta(t *testing.T, env *TestEnvironment, c chunk) oplog.OplogChunk {
 	t.Helper()
 
-	fromBson := primitive.Timestamp{T: uint32(c.From.Unix())}
-	toBson := primitive.Timestamp{T: uint32(c.To.Unix())}
+	fromBson := bsonv2.Timestamp{T: uint32(c.From.Unix())}
+	toBson := bsonv2.Timestamp{T: uint32(c.To.Unix())}
 	compression := compress.CompressionTypeS2
 	filename := oplog.FormatChunkFilepath(env.Brief.SetName, fromBson, toBson, compression)
 

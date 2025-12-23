@@ -3,12 +3,12 @@ package log
 import (
 	"context"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type discardLoggerImpl struct{}
 
-func (l discardLoggerImpl) NewEvent(typ, name, opid string, epoch primitive.Timestamp) LogEvent {
+func (l discardLoggerImpl) NewEvent(typ, name, opid string, epoch bsonv2.Timestamp) LogEvent {
 	return l.NewDefaultEvent()
 }
 
@@ -35,19 +35,19 @@ func (discardLoggerImpl) Write([]byte) (int, error) {
 func (discardLoggerImpl) Printf(msg string, args ...any) {
 }
 
-func (discardLoggerImpl) Debug(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any) {
+func (discardLoggerImpl) Debug(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any) {
 }
 
-func (discardLoggerImpl) Info(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any) {
+func (discardLoggerImpl) Info(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any) {
 }
 
-func (discardLoggerImpl) Warning(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any) {
+func (discardLoggerImpl) Warning(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any) {
 }
 
-func (discardLoggerImpl) Error(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any) {
+func (discardLoggerImpl) Error(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any) {
 }
 
-func (discardLoggerImpl) Fatal(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any) {
+func (discardLoggerImpl) Fatal(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any) {
 }
 
 func (discardLoggerImpl) Output(ctx context.Context, e *Entry) error {

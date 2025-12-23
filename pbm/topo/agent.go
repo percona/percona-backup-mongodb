@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -69,7 +69,7 @@ type AgentStat struct {
 	StorageStatus SubsysStatus `bson:"stors"`
 
 	// Heartbeat is agent's last seen cluster time.
-	Heartbeat primitive.Timestamp `bson:"hb"`
+	Heartbeat bsonv2.Timestamp `bson:"hb"`
 
 	// Err can be any error.
 	Err string `bson:"e"`
@@ -85,7 +85,7 @@ type SubsysStatus struct {
 }
 
 // IsStale returns true if agent's heartbeat is steal for the give `t` cluster time.
-func (s *AgentStat) IsStale(t primitive.Timestamp) bool {
+func (s *AgentStat) IsStale(t bsonv2.Timestamp) bool {
 	return s.Heartbeat.T+defs.StaleFrameSec < t.T
 }
 

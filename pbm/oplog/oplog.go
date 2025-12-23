@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
@@ -20,7 +20,7 @@ import (
 
 var errNoTransaction = errors.New("no transaction found")
 
-func GetOplogStartTime(ctx context.Context, m *mongo.Client) (primitive.Timestamp, error) {
+func GetOplogStartTime(ctx context.Context, m *mongo.Client) (bsonv2.Timestamp, error) {
 	ts, err := findTransactionStartTime(ctx, m)
 	if errors.Is(err, errNoTransaction) {
 		ts, err = findLastOplogTS(ctx, m)
@@ -29,50 +29,50 @@ func GetOplogStartTime(ctx context.Context, m *mongo.Client) (primitive.Timestam
 	return ts, err
 }
 
-func findTransactionStartTime(ctx context.Context, m *mongo.Client) (primitive.Timestamp, error) {
+func findTransactionStartTime(ctx context.Context, m *mongo.Client) (bsonv2.Timestamp, error) {
 	coll := m.Database("config").Collection("transactions", options.Collection().SetReadConcern(readconcern.Local()))
 	f := bson.D{{"state", bson.D{{"$in", bson.A{"prepared", "inProgress"}}}}}
 	o := options.FindOne().SetSort(bson.D{{"startOpTime", 1}})
 	doc, err := coll.FindOne(ctx, f, o).Raw()
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return primitive.Timestamp{}, errNoTransaction
+			return bsonv2.Timestamp{}, errNoTransaction
 		}
-		return primitive.Timestamp{}, errors.Wrap(err, "query transactions")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "query transactions")
 	}
 
 	rawTS, err := doc.LookupErr("startOpTime", "ts")
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "lookup timestamp")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "lookup timestamp")
 	}
 
 	t, i, ok := rawTS.TimestampOK()
 	if !ok {
-		return primitive.Timestamp{}, errors.Wrap(err, "parse timestamp")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "parse timestamp")
 	}
 
-	return primitive.Timestamp{T: t, I: i}, nil
+	return bsonv2.Timestamp{T: t, I: i}, nil
 }
 
-func findLastOplogTS(ctx context.Context, m *mongo.Client) (primitive.Timestamp, error) {
+func findLastOplogTS(ctx context.Context, m *mongo.Client) (bsonv2.Timestamp, error) {
 	coll := m.Database("local").Collection("oplog.rs")
 	o := options.FindOne().SetSort(bson.M{"$natural": -1})
 	doc, err := coll.FindOne(ctx, bson.D{}, o).Raw()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "query oplog")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "query oplog")
 	}
 
 	rawTS, err := doc.LookupErr("ts")
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "lookup oplog ts")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "lookup oplog ts")
 	}
 
 	t, i, ok := rawTS.TimestampOK()
 	if !ok {
-		return primitive.Timestamp{}, errors.Wrap(err, "parse oplog ts")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "parse oplog ts")
 	}
 
-	return primitive.Timestamp{T: t, I: i}, nil
+	return bsonv2.Timestamp{T: t, I: i}, nil
 }
 
 // IsOplogSlicing checks if PITR slicing is running. It looks for PITR locks

@@ -11,9 +11,9 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 )
@@ -102,7 +102,7 @@ func TestListenCmd(t *testing.T) {
 		}
 
 		for _, e := range commands {
-			doc := bson.D{{"_id", primitive.NewObjectID()}, {"cmd", e.cmd}, {"ts", e.ts}}
+			doc := bson.D{{"_id", bsonv2.NewObjectID()}, {"cmd", e.cmd}, {"ts", e.ts}}
 			if _, err := coll.InsertOne(ctx, doc); err != nil {
 				t.Fatalf("insert %s@%d: %v", e.cmd, e.ts, err)
 			}

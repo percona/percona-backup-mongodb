@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
@@ -16,16 +16,16 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
-type uploadChunkFunc func(ctx context.Context, w io.WriterTo, from, till primitive.Timestamp) (int64, error)
+type uploadChunkFunc func(ctx context.Context, w io.WriterTo, from, till bsonv2.Timestamp) (int64, error)
 
-type stopSlicerFunc func() (primitive.Timestamp, int64, error)
+type stopSlicerFunc func() (bsonv2.Timestamp, int64, error)
 
 func startOplogSlicer(
 	ctx context.Context,
 	m *mongo.Client,
 	writeConcern *writeconcern.WriteConcern,
 	interval time.Duration,
-	startOpTime primitive.Timestamp,
+	startOpTime bsonv2.Timestamp,
 	upload uploadChunkFunc,
 ) stopSlicerFunc {
 	l := log.LogEventFromContext(ctx)
@@ -99,7 +99,7 @@ func startOplogSlicer(
 		}
 	}()
 
-	return func() (primitive.Timestamp, int64, error) {
+	return func() (bsonv2.Timestamp, int64, error) {
 		select {
 		case <-stoppedC:
 			// already closed

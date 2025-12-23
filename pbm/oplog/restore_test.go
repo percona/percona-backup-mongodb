@@ -15,7 +15,7 @@ import (
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
@@ -43,8 +43,8 @@ func newMDBTestClient() *mdbTestClient {
 	return &mdbTestClient{applyOpsInv: []map[string]string{}}
 }
 
-func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (primitive.Binary, error) {
-	return primitive.Binary{Subtype: 0x00, Data: []byte{0x01, 0x02, 0x03}}, nil
+func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (bsonv2.Binary, error) {
+	return bsonv2.Binary{Subtype: 0x00, Data: []byte{0x01, 0x02, 0x03}}, nil
 }
 
 func (d *mdbTestClient) ensureCollExists(_ string) error {
@@ -959,7 +959,7 @@ func createConfigCollectionsEntry(shardedColl, collUUID string) *db.Oplog {
 		Namespace: "config.collections",
 		Object: bson.D{
 			{"_id", shardedColl},
-			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
+			{"uuid", bsonv2.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
 		},
 	}
 }
@@ -972,7 +972,7 @@ func createConfigChunksEntry(uuid string) *db.Oplog {
 		Namespace: "config.chunks",
 		Object: bson.D{
 			{"_id", id},
-			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
+			{"uuid", bsonv2.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
 			{"shard", "rsX"},
 		},
 	}

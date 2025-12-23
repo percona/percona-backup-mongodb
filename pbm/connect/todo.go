@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -21,8 +21,8 @@ type nodeInfo struct {
 	ConfigSvr         int    `bson:"configsvr,omitempty"`
 	ConfigServerState *struct {
 		OpTime *struct {
-			TS   primitive.Timestamp `bson:"ts" json:"ts"`
-			Term int64               `bson:"t" json:"t"`
+			TS   bsonv2.Timestamp `bson:"ts" json:"ts"`
+			Term int64            `bson:"t" json:"t"`
 		} `bson:"opTime"`
 	} `bson:"$configServerState,omitempty"`
 	Opts *mongodOpts `bson:"-"`

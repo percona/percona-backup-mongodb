@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -283,7 +283,7 @@ func getRestoreMetaStg(name string, stg storage.Storage) (*restore.RestoreMeta, 
 	return rmeta, nil
 }
 
-func (c *Cluster) PITRestoreCT(t primitive.Timestamp) {
+func (c *Cluster) PITRestoreCT(t bsonv2.Timestamp) {
 	stdlog.Printf("restoring to the point-in-time %v", t)
 	err := c.pbm.PITRestoreClusterTime(t.T, t.I)
 	if err != nil {

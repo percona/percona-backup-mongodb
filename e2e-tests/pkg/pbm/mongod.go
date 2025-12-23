@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 type Mongo struct {
@@ -172,7 +173,7 @@ type Counter struct {
 	Count     int
 	WallTime  time.Time
 	ID        interface{}
-	WriteTime primitive.Timestamp
+	WriteTime bsonv2.Timestamp
 }
 
 func (c Counter) String() string {
@@ -264,15 +265,15 @@ func (m *Mongo) GetNodeInfo() (*topo.NodeInfo, error) {
 	return inf, nil
 }
 
-func (m *Mongo) GetLastWrite() (primitive.Timestamp, error) {
+func (m *Mongo) GetLastWrite() (bsonv2.Timestamp, error) {
 	inf, err := m.GetNodeInfo()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
 	if inf.LastWrite.MajorityOpTime.TS.T == 0 {
-		return primitive.Timestamp{}, errors.New("timestamp is nil")
+		return bsonv2.Timestamp{}, errors.New("timestamp is nil")
 	}
-	return inf.LastWrite.OpTime.TS, nil
+	return util.ToV2Timestamp(inf.LastWrite.OpTime.TS), nil
 }
 
 func (m *Mongo) Conn() *mongo.Client {

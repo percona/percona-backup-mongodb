@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // LogTimeFormat is a date-time format to be displayed in the log output
@@ -16,7 +16,7 @@ var (
 )
 
 type Logger interface {
-	NewEvent(typ, name, opid string, epoch primitive.Timestamp) LogEvent
+	NewEvent(typ, name, opid string, epoch bsonv2.Timestamp) LogEvent
 	NewDefaultEvent() LogEvent
 
 	Close()
@@ -29,11 +29,11 @@ type Logger interface {
 	Write(p []byte) (n int, err error)
 
 	Printf(msg string, args ...any)
-	Debug(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)
-	Info(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)
-	Warning(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)
-	Error(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)
-	Fatal(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...any)
+	Debug(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any)
+	Info(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any)
+	Warning(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any)
+	Error(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any)
+	Fatal(event, obj, opid string, epoch bsonv2.Timestamp, msg string, args ...any)
 	Output(ctx context.Context, e *Entry) error
 	Opts() *Opts
 	SetLogLevelAndJSON(cfg *Opts)

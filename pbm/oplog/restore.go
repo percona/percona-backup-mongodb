@@ -28,11 +28,13 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -135,7 +137,7 @@ type cloneNS struct {
 	fromColl string
 	toDB     string
 	toColl   string
-	toUUID   primitive.Binary
+	toUUID   bsonv2.Binary
 }
 
 func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
@@ -146,7 +148,7 @@ func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
 
 // mDBCl represents client interface for MongoDB logic used by OplogRestore
 type mDBCl interface {
-	getUUIDForNS(ctx context.Context, ns string) (primitive.Binary, error)
+	getUUIDForNS(ctx context.Context, ns string) (bsonv2.Binary, error)
 	ensureCollExists(dbName string) error
 	applyOps(entries []interface{}) error
 }
@@ -157,8 +159,8 @@ type OplogRestore struct {
 	ver               *db.Version
 	needIdxWorkaround bool
 	preserveUUIDopt   bool
-	startTS           primitive.Timestamp
-	endTS             primitive.Timestamp
+	startTS           bsonv2.Timestamp
+	endTS             bsonv2.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	excludeNS         *ns.Matcher
 	includeNS         map[string]map[string]bool
@@ -247,19 +249,19 @@ func (o *OplogRestore) SetOpFilter(f OpFilter) {
 
 // SetTimeframe sets boundaries for the replayed operations. All operations
 // that happened before `start` and after `end` are going to be discarded.
-// Zero `end` (primitive.Timestamp{T:0}) means all chunks will be replayed
+// Zero `end` (bsonv2.Timestamp{T:0}) means all chunks will be replayed
 // utill the end (no tail trim).
-func (o *OplogRestore) SetTimeframe(start, end primitive.Timestamp) {
+func (o *OplogRestore) SetTimeframe(start, end bsonv2.Timestamp) {
 	o.startTS = start
 	o.endTS = end
 }
 
 // Apply applys an oplog from a given source
-func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
+func (o *OplogRestore) Apply(src io.ReadCloser) (bsonv2.Timestamp, error) {
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
-	var lts primitive.Timestamp
+	var lts bsonv2.Timestamp
 
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
@@ -273,12 +275,12 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 		}
 
 		// skip if operation happened before the desired time frame
-		if o.startTS.Compare(oe.Timestamp) == 1 {
+		if o.startTS.Compare(util.ToV2Timestamp(oe.Timestamp)) == 1 {
 			continue
 		}
 
 		// finish if operation happened after the desired time frame (oe.Timestamp > to)
-		if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
+		if o.endTS.T > 0 && util.ToV2Timestamp(oe.Timestamp).Compare(o.endTS) == 1 {
 			return lts, nil
 		}
 
@@ -287,7 +289,7 @@ func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
 			return lts, err
 		}
 
-		lts = oe.Timestamp
+		lts = util.ToV2Timestamp(oe.Timestamp)
 		// keeping track of last applied (observed) clusterTime
 		atomic.StoreUint32(&o.lastOpT, oe.Timestamp.T)
 	}
@@ -623,7 +625,7 @@ func (o *OplogRestore) LastOpTS() uint32 {
 
 func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	// skip if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
-	if o.endTS.T > 0 && oe.Timestamp.Compare(o.endTS) == 1 {
+	if o.endTS.T > 0 && util.ToV2Timestamp(oe.Timestamp).Compare(o.endTS) == 1 {
 		return nil
 	}
 
@@ -785,10 +787,10 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	// preserve it and communicate later to another shards so they can apply
 	// prepared txn if its commit didn't get into the oplog time range
 	if !meta.IsData() {
-		var cts primitive.Timestamp
+		var cts bsonv2.Timestamp
 		for _, v := range op.Object {
 			if v.Key == "commitTimestamp" {
-				cts = v.Value.(primitive.Timestamp)
+				cts = v.Value.(bsonv2.Timestamp)
 			}
 		}
 
@@ -930,7 +932,7 @@ func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits [
 
 //nolint:nonamedreturns
 func (o *OplogRestore) HandleUncommittedTxn(
-	commits map[string]primitive.Timestamp,
+	commits map[string]bsonv2.Timestamp,
 ) (partial, uncommitted []Txn, err error) {
 	if len(o.txnData) == 0 {
 		return nil, nil, nil

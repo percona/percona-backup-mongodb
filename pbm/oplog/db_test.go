@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/integration/mtest"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestGetUUIDForNS(t *testing.T) {
 	mt := mtest.New(t, mtest.NewOptions().ClientType(mtest.Mock))
 
 	mt.Run("successful response from db", func(mt *mtest.T) {
-		expectedUUID := primitive.Binary{Subtype: 0xFF, Data: []byte{0x01, 0x02, 0x03}}
+		expectedUUID := bsonv2.Binary{Subtype: 0xFF, Data: []byte{0x01, 0x02, 0x03}}
 		listCollRes := bson.D{
 			{"name", "c1"},
 			{"type", "collection"},
@@ -30,7 +30,7 @@ func TestGetUUIDForNS(t *testing.T) {
 		if err != nil {
 			t.Errorf("got err=%v", err)
 		}
-		primitive.NewObjectID()
+		bsonv2.NewObjectID()
 
 		if !uuid.Equal(expectedUUID) {
 			t.Errorf("wrong uuid for ns: expected=%v, got=%v", expectedUUID, uuid)

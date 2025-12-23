@@ -5,7 +5,7 @@ import (
 	"maps"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -113,7 +113,7 @@ func (a *Agent) PITR(ctx context.Context) {
 	for {
 		select {
 		case <-a.closeCMD:
-			l.Debug(string(ctrl.CmdPITR), "", "", primitive.Timestamp{}, "stopping main loop")
+			l.Debug(string(ctrl.CmdPITR), "", "", bsonv2.Timestamp{}, "stopping main loop")
 			return
 		default:
 		}

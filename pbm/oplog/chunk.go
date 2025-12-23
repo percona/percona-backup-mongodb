@@ -11,7 +11,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
@@ -27,8 +27,8 @@ type OplogChunk struct {
 	RS          string                   `bson:"rs"`
 	FName       string                   `bson:"fname"`
 	Compression compress.CompressionType `bson:"compression"`
-	StartTS     primitive.Timestamp      `bson:"start_ts"`
-	EndTS       primitive.Timestamp      `bson:"end_ts"`
+	StartTS     bsonv2.Timestamp      `bson:"start_ts"`
+	EndTS       bsonv2.Timestamp      `bson:"end_ts"`
 	Size        int64                    `bson:"size"`
 }
 
@@ -60,7 +60,7 @@ func pitrChunk(ctx context.Context, m connect.Client, rs string, sort int) (*Opl
 	return chnk, errors.Wrap(err, "decode")
 }
 
-func AllOplogRSNames(ctx context.Context, m connect.Client, from, to primitive.Timestamp) ([]string, error) {
+func AllOplogRSNames(ctx context.Context, m connect.Client, from, to bsonv2.Timestamp) ([]string, error) {
 	q := bson.M{
 		"start_ts": bson.M{"$lte": to},
 	}
@@ -87,7 +87,7 @@ func PITRGetChunksSlice(
 	ctx context.Context,
 	m connect.Client,
 	rs string,
-	from, to primitive.Timestamp,
+	from, to bsonv2.Timestamp,
 ) ([]OplogChunk, error) {
 	q := bson.D{}
 	if rs != "" {
@@ -108,7 +108,7 @@ func PITRGetChunksSliceUntil(
 	ctx context.Context,
 	m connect.Client,
 	rs string,
-	t primitive.Timestamp,
+	t bsonv2.Timestamp,
 ) ([]OplogChunk, error) {
 	q := bson.D{}
 	if rs != "" {
@@ -151,7 +151,7 @@ func PITRGetChunkStarts(
 	ctx context.Context,
 	m connect.Client,
 	rs string,
-	ts primitive.Timestamp,
+	ts bsonv2.Timestamp,
 ) (*OplogChunk, error) {
 	res := m.PITRChunksCollection().FindOne(
 		ctx,
@@ -186,7 +186,7 @@ func PITRGetValidTimelines(
 	ctx context.Context,
 	m connect.Client,
 	rs string,
-	until primitive.Timestamp,
+	until bsonv2.Timestamp,
 ) ([]Timeline, error) {
 	fch, err := PITRFirstChunkMeta(ctx, m, rs)
 	if err != nil && !errors.Is(err, errors.ErrNotFound) {
@@ -203,8 +203,8 @@ func PITRGetValidTimelinesBetween(
 	ctx context.Context,
 	m connect.Client,
 	rs string,
-	from primitive.Timestamp,
-	until primitive.Timestamp,
+	from bsonv2.Timestamp,
+	until bsonv2.Timestamp,
 ) ([]Timeline, error) {
 	slices, err := PITRGetChunksSlice(ctx, m, rs, from, until)
 	if err != nil {
@@ -221,10 +221,10 @@ func PITRTimelines(ctx context.Context, m connect.Client) ([]Timeline, error) {
 		return nil, errors.Wrap(err, "get cluster time")
 	}
 
-	return PITRTimelinesBetween(ctx, m, primitive.Timestamp{}, now)
+	return PITRTimelinesBetween(ctx, m, bsonv2.Timestamp{}, now)
 }
 
-func PITRTimelinesBetween(ctx context.Context, m connect.Client, from, until primitive.Timestamp) ([]Timeline, error) {
+func PITRTimelinesBetween(ctx context.Context, m connect.Client, from, until bsonv2.Timestamp) ([]Timeline, error) {
 	shards, err := topo.ClusterMembers(ctx, m.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster members")
@@ -246,7 +246,7 @@ func PITRTimelinesBetween(ctx context.Context, m connect.Client, from, until pri
 
 func gettimelines(slices []OplogChunk) []Timeline {
 	var tl Timeline
-	var prevEnd primitive.Timestamp
+	var prevEnd bsonv2.Timestamp
 	tlines := []Timeline{}
 
 	for _, s := range slices {
@@ -391,7 +391,7 @@ func MergeTimelines(tlns ...[]Timeline) []Timeline {
 // Current format is 20200715155939-0.20200715160029-1.oplog.snappy
 //
 // !!! should be agreed with oplog.MakeChunkMetaFromFilepath()
-func FormatChunkFilepath(rs string, first, last primitive.Timestamp, c compress.CompressionType) string {
+func FormatChunkFilepath(rs string, first, last bsonv2.Timestamp, c compress.CompressionType) string {
 	ft := time.Unix(int64(first.T), 0).UTC()
 	lt := time.Unix(int64(last.T), 0).UTC()
 
@@ -455,14 +455,14 @@ func MakeChunkMetaFromFilepath(f string) *OplogChunk {
 	return chnk
 }
 
-func pitrParseTS(tstr string) *primitive.Timestamp {
+func pitrParseTS(tstr string) *bsonv2.Timestamp {
 	tparts := strings.Split(tstr, "-")
 	t, err := time.Parse("20060102150405", tparts[0])
 	if err != nil {
 		// just skip this file
 		return nil
 	}
-	ts := primitive.Timestamp{T: uint32(t.Unix())}
+	ts := bsonv2.Timestamp{T: uint32(t.Unix())}
 	if len(tparts) > 1 {
 		ti, err := strconv.Atoi(tparts[1])
 		if err != nil {

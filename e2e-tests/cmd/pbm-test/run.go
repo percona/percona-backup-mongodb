@@ -115,11 +115,11 @@ func run(t *sharded.Cluster, typ testTyp) {
 			t.CleanupFullRestore)
 
 		// disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
-		// tsTo := primitive.Timestamp{1644410656, 8}
+		// tsTo := bsonv2.Timestamp{1644410656, 8}
 
 		//if semver.Compare(cVersion, "v5.0") >= 0 {
 		//	disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
-		//	tsTo = primitive.Timestamp{1644243375, 7}
+		//	tsTo = bsonv2.Timestamp{1644243375, 7}
 		//}
 
 		// t.ApplyConfig(context.TODO(), disttxnconf)

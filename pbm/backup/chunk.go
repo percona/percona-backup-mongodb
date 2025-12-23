@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -14,7 +14,7 @@ import (
 
 const chunkUnixFormat = "20060102150405"
 
-func FormatChunkName(start, end primitive.Timestamp, cmp compress.CompressionType) string {
+func FormatChunkName(start, end bsonv2.Timestamp, cmp compress.CompressionType) string {
 	return fmt.Sprintf("%s-%s.%s-%s%s",
 		time.Unix(int64(start.T), 0).UTC().Format(chunkUnixFormat),
 		strconv.Itoa(int(start.I)),
@@ -25,8 +25,8 @@ func FormatChunkName(start, end primitive.Timestamp, cmp compress.CompressionTyp
 
 //nolint:nonamedreturns
 func ParseChunkName(filename string) (
-	start primitive.Timestamp,
-	end primitive.Timestamp,
+	start bsonv2.Timestamp,
+	end bsonv2.Timestamp,
 	comp compress.CompressionType,
 	err error,
 ) {
@@ -59,8 +59,8 @@ func ParseChunkName(filename string) (
 	return
 }
 
-func parseChunkTime(s string) (primitive.Timestamp, error) {
-	var rv primitive.Timestamp
+func parseChunkTime(s string) (bsonv2.Timestamp, error) {
+	var rv bsonv2.Timestamp
 
 	parts := strings.SplitN(s, "-", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

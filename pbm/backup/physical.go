@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/bsontype"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -35,16 +35,16 @@ const (
 )
 
 type Meta struct {
-	ID           UUID                `bson:"backupId"`
-	DBpath       string              `bson:"dbpath"`
-	OplogStart   BCoplogTS           `bson:"oplogStart"`
-	OplogEnd     BCoplogTS           `bson:"oplogEnd"`
-	CheckpointTS primitive.Timestamp `bson:"checkpointTimestamp"`
+	ID           UUID             `bson:"backupId"`
+	DBpath       string           `bson:"dbpath"`
+	OplogStart   BCoplogTS        `bson:"oplogStart"`
+	OplogEnd     BCoplogTS        `bson:"oplogEnd"`
+	CheckpointTS bsonv2.Timestamp `bson:"checkpointTimestamp"`
 }
 
 type BCoplogTS struct {
-	TS primitive.Timestamp `bson:"ts"`
-	T  int64               `bson:"t"`
+	TS bsonv2.Timestamp `bson:"ts"`
+	T  int64            `bson:"t"`
 }
 
 // see https://www.percona.com/blog/2021/06/07/experimental-feature-backupcursorextend-in-percona-server-for-mongodb/
@@ -187,7 +187,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	return &BackupCursorData{m, files}, nil
 }
 
-func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]File, error) {
+func (bc *BackupCursor) Journals(upto bsonv2.Timestamp) ([]File, error) {
 	ctx := context.Background()
 	cur, err := bc.conn.Database("admin").Aggregate(ctx,
 		mongo.Pipeline{

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -25,7 +25,7 @@ func SendDeleteBackupByName(ctx context.Context, m connect.Client, name string) 
 func SendDeleteBackupBefore(
 	ctx context.Context,
 	m connect.Client,
-	before primitive.Timestamp,
+	before bsonv2.Timestamp,
 	type_ defs.BackupType,
 	profile string,
 ) (OPID, error) {
@@ -43,7 +43,7 @@ func SendDeleteBackupBefore(
 func SendDeleteOplogRangeBefore(
 	ctx context.Context,
 	m connect.Client,
-	before primitive.Timestamp,
+	before bsonv2.Timestamp,
 ) (OPID, error) {
 	cmd := Cmd{
 		Cmd: CmdDeletePITR,
@@ -57,7 +57,7 @@ func SendDeleteOplogRangeBefore(
 func SendCleanup(
 	ctx context.Context,
 	m connect.Client,
-	before primitive.Timestamp,
+	before bsonv2.Timestamp,
 	profile string,
 ) (OPID, error) {
 	cmd := Cmd{
@@ -120,7 +120,7 @@ func sendCommand(ctx context.Context, m connect.Client, cmd Cmd) (OPID, error) {
 		return NilOPID, err
 	}
 
-	opid, ok := res.InsertedID.(primitive.ObjectID)
+	opid, ok := res.InsertedID.(bsonv2.ObjectID)
 	if !ok {
 		return NilOPID, errors.New("unexpected opid type")
 	}

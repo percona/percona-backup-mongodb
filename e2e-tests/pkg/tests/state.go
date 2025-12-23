@@ -14,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -55,9 +56,9 @@ type dbSpec struct {
 	ID      string `bson:"_id"`
 	Primary string `bson:"primary"`
 	Version struct {
-		UUID      primitive.Binary    `bson:"uuid"`
-		Timestamp primitive.Timestamp `bson:"timestamp"`
-		LastMod   int32               `bson:"lastMod,omitempty"` // since v5.0
+		UUID      bsonv2.Binary    `bson:"uuid"`
+		Timestamp bsonv2.Timestamp `bson:"timestamp"`
+		LastMod   int32            `bson:"lastMod,omitempty"` // since v5.0
 	} `bson:"version"`
 }
 
@@ -72,15 +73,15 @@ type configCollState struct {
 
 // collSpec describes a sharded collection. It is a config.collections document
 type collSpec struct {
-	ID           string              `bson:"_id"`
-	LastmodEpoch primitive.ObjectID  `bson:"lastmodEpoch"`
-	LastMod      primitive.DateTime  `bson:"lastMod"`
-	Timestamp    primitive.Timestamp `bson:"timestamp"`
-	UUID         *primitive.Binary   `bson:"uuid,omitempty"` // since v5.0
-	Key          map[string]any      `bson:"key"`
-	Unique       bool                `bson:"unique"`
-	ChunksSplit  bool                `bson:"chunksAlreadySplitForDowngrade"`
-	NoBalance    bool                `bson:"noBalance"`
+	ID           string             `bson:"_id"`
+	LastmodEpoch primitive.ObjectID `bson:"lastmodEpoch"`
+	LastMod      primitive.DateTime `bson:"lastMod"`
+	Timestamp    bsonv2.Timestamp   `bson:"timestamp"`
+	UUID         *primitive.Binary  `bson:"uuid,omitempty"` // since v5.0
+	Key          map[string]any     `bson:"key"`
+	Unique       bool               `bson:"unique"`
+	ChunksSplit  bool               `bson:"chunksAlreadySplitForDowngrade"`
+	NoBalance    bool               `bson:"noBalance"`
 }
 
 // chunksState is chunks state for a ns for a shard

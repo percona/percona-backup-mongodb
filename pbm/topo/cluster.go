@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -39,48 +40,53 @@ type Shard struct {
 }
 
 // ClusterTime returns mongo's current cluster time
-func GetClusterTime(ctx context.Context, m connect.Client) (primitive.Timestamp, error) {
+func GetClusterTime(ctx context.Context, m connect.Client) (bsonv2.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
 	// Otherwise, cluster timestamp could remain the same between node info reads,
 	// while in fact time has been moved forward.
 	err := m.LockCollection().FindOne(ctx, bson.D{}).Err()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-		return primitive.Timestamp{}, errors.Wrap(err, "void read")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "void read")
 	}
 
 	inf, err := GetNodeInfo(ctx, m.MongoClient())
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "get NodeInfo")
 	}
 
 	return ClusterTimeFromNodeInfo(inf)
 }
 
-func ClusterTimeFromNodeInfo(info *NodeInfo) (primitive.Timestamp, error) {
+func ClusterTimeFromNodeInfo(info *NodeInfo) (bsonv2.Timestamp, error) {
 	if info.ClusterTime == nil {
-		return primitive.Timestamp{}, errors.Errorf("No clusterTime in response. Received: %+v", info)
+		return bsonv2.Timestamp{}, errors.Errorf("No clusterTime in response. Received: %+v", info)
 	}
 
-	return info.ClusterTime.ClusterTime, nil
+	return ToV2Timestamp(info.ClusterTime.ClusterTime), nil
 }
 
-func GetLastWrite(ctx context.Context, m *mongo.Client, majority bool) (primitive.Timestamp, error) {
+// todo: remove
+func ToV2Timestamp(ts primitive.Timestamp) bsonv2.Timestamp {
+	return bsonv2.Timestamp{T: ts.T, I: ts.I}
+}
+
+func GetLastWrite(ctx context.Context, m *mongo.Client, majority bool) (bsonv2.Timestamp, error) {
 	inf, err := GetNodeInfo(ctx, m)
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
+		return bsonv2.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
 	return OpTimeFromNodeInfo(inf, majority)
 }
 
-func OpTimeFromNodeInfo(inf *NodeInfo, majority bool) (primitive.Timestamp, error) {
+func OpTimeFromNodeInfo(inf *NodeInfo, majority bool) (bsonv2.Timestamp, error) {
 	lw := inf.LastWrite.MajorityOpTime.TS
 	if !majority {
 		lw = inf.LastWrite.OpTime.TS
 	}
 	if lw.T == 0 {
-		return primitive.Timestamp{}, errors.New("last write timestamp is nil")
+		return bsonv2.Timestamp{}, errors.New("last write timestamp is nil")
 	}
-	return lw, nil
+	return ToV2Timestamp(lw), nil
 }
 
 // IsWriteMajorityRequested compares cluster wide majority (replSetGetStatus.writeMajorityCount)

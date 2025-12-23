@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -49,9 +49,9 @@ type BackupMeta struct {
 	FCV              string                   `bson:"fcv" json:"fcv"`
 	StartTS          int64                    `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64                    `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     primitive.Timestamp      `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      primitive.Timestamp      `bson:"last_write_ts" json:"last_write_ts"`
-	Hb               primitive.Timestamp      `bson:"hb" json:"hb"`
+	FirstWriteTS     bsonv2.Timestamp      `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      bsonv2.Timestamp      `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               bsonv2.Timestamp      `bson:"hb" json:"hb"`
 	Status           defs.Status              `bson:"status" json:"status"`
 	Conditions       []Condition              `bson:"conditions" json:"conditions"`
 	Nomination       []BackupRsNomination     `bson:"n" json:"n"`
@@ -123,8 +123,8 @@ type BackupReplset struct {
 	IsConfigSvr      *bool               `bson:"iscs,omitempty" json:"iscs,omitempty"`
 	IsConfigShard    *bool               `bson:"configshard,omitempty" json:"configshard,omitempty"`
 	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
+	FirstWriteTS     bsonv2.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      bsonv2.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
 	Node             string              `bson:"node" json:"node"` // node that performed backup
 	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
 	Conditions       []Condition         `bson:"conditions" json:"conditions"`

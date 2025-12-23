@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -76,13 +77,13 @@ func AsUTC(ts int64) string {
 }
 
 type LogKeys struct {
-	Severity Severity            `bson:"s" json:"s"`
-	RS       string              `bson:"rs" json:"rs"`
-	Node     string              `bson:"node" json:"node"`
-	Event    string              `bson:"e" json:"e"`
-	ObjName  string              `bson:"eobj" json:"eobj"`
-	Epoch    primitive.Timestamp `bson:"ep,omitempty" json:"ep,omitempty"`
-	OPID     string              `bson:"opid,omitempty" json:"opid,omitempty"`
+	Severity Severity         `bson:"s" json:"s"`
+	RS       string           `bson:"rs" json:"rs"`
+	Node     string           `bson:"node" json:"node"`
+	Event    string           `bson:"e" json:"e"`
+	ObjName  string           `bson:"eobj" json:"eobj"`
+	Epoch    bsonv2.Timestamp `bson:"ep,omitempty" json:"ep,omitempty"`
+	OPID     string           `bson:"opid,omitempty" json:"opid,omitempty"`
 }
 
 type Entries struct {

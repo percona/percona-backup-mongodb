@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
@@ -23,8 +23,8 @@ func newMDB(m *mongo.Client) *mDB {
 // getUUIDForNS ruturns UUID of existing collection.
 // When ns doesn't exist, it returns zero value without an error.
 // In case of error, it returns zero value for UUID in addition to error.
-func (d *mDB) getUUIDForNS(ctx context.Context, ns string) (primitive.Binary, error) {
-	var uuid primitive.Binary
+func (d *mDB) getUUIDForNS(ctx context.Context, ns string) (bsonv2.Binary, error) {
+	var uuid bsonv2.Binary
 
 	db, coll, _ := strings.Cut(ns, ".")
 	cur, err := d.m.Database(db).ListCollections(ctx, bson.D{{"name", coll}})
@@ -35,7 +35,7 @@ func (d *mDB) getUUIDForNS(ctx context.Context, ns string) (primitive.Binary, er
 
 	for cur.Next(ctx) {
 		if subtype, data, ok := cur.Current.Lookup("info", "uuid").BinaryOK(); ok {
-			uuid = primitive.Binary{
+			uuid = bsonv2.Binary{
 				Subtype: subtype,
 				Data:    data,
 			}
