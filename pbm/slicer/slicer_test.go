@@ -389,7 +389,7 @@ func TestCatchup(t *testing.T) {
 			t.Fatalf("unexpected error in catchup: %v", err)
 		}
 		if s.lastTS != backupFirstTS {
-			t.Fatalf("expected lastTS to be %v, got %v", backupLastTS, s.lastTS)
+			t.Fatalf("expected lastTS to be %v, got %v", backupFirstTS, s.lastTS)
 		}
 	})
 }
