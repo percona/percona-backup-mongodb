@@ -9,6 +9,8 @@ package json
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/ccoveille/go-safecast/v2"
 )
 
 // Transition functions for recognizing Timestamp.
@@ -36,8 +38,8 @@ func (d *decodeState) storeTimestamp(v reflect.Value) {
 	}
 	switch kind := v.Kind(); kind {
 	case reflect.Interface:
-		arg0 := uint32(args[0].Uint())
-		arg1 := uint32(args[1].Uint())
+		arg0 := safecast.MustConvert[uint32](args[0].Uint())
+		arg1 := safecast.MustConvert[uint32](args[1].Uint())
 		v.Set(reflect.ValueOf(Timestamp{arg0, arg1}))
 	default:
 		d.error(fmt.Errorf("cannot store %v value into %v type", timestampType, kind))
@@ -59,11 +61,33 @@ func (d *decodeState) getTimestamp() interface{} {
 	if err := ctorNumArgsMismatch("Timestamp", 2, len(args)); err != nil {
 		d.error(err)
 	}
-	arg0, err := args[0].(Number).Uint32()
+
+	arg0Num, ok := args[0].(Number)
+	if !ok {
+		d.error(
+			fmt.Errorf(
+				"expected number (not %T) for first argument of Timestamp constructor",
+				args[0],
+			),
+		)
+	}
+
+	arg0, err := arg0Num.Uint32()
 	if err != nil {
 		d.error(fmt.Errorf("expected uint32 for first argument of Timestamp constructor"))
 	}
-	arg1, err := args[1].(Number).Uint32()
+
+	arg1Num, ok := args[1].(Number)
+	if !ok {
+		d.error(
+			fmt.Errorf(
+				"expected number (not %T) for second argument of Timestamp constructor",
+				args[1],
+			),
+		)
+	}
+
+	arg1, err := arg1Num.Uint32()
 	if err != nil {
 		d.error(fmt.Errorf("expected uint32 for second argument of Timestamp constructor"))
 	}

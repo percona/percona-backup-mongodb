@@ -8,18 +8,20 @@ package archive
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/ccoveille/go-safecast/v2"
 	"github.com/mongodb/mongo-tools/common/intents"
 	"github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/util"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// MetadataFile implements intents.file
+// MetadataFile implements intents.file.
 type MetadataFile struct {
 	pos int64 // updated atomically, aligned at the beginning of the struct
 	*bytes.Buffer
@@ -71,12 +73,10 @@ func (prelude *Prelude) Read(in io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("I/O failure reading beginning of archive: %v", err)
 	}
-	readMagicNumber := uint32(
-		(uint32(readMagicNumberBuf[0]) << 0) |
-			(uint32(readMagicNumberBuf[1]) << 8) |
-			(uint32(readMagicNumberBuf[2]) << 16) |
-			(uint32(readMagicNumberBuf[3]) << 24),
-	)
+	readMagicNumber := (uint32(readMagicNumberBuf[0]) << 0) |
+		(uint32(readMagicNumberBuf[1]) << 8) |
+		(uint32(readMagicNumberBuf[2]) << 16) |
+		(uint32(readMagicNumberBuf[3]) << 24)
 
 	if readMagicNumber != MagicNumber {
 		return fmt.Errorf("stream or file does not appear to be a mongodump archive")
@@ -92,13 +92,17 @@ func (prelude *Prelude) Read(in io.Reader) error {
 }
 
 // NewPrelude generates a Prelude using the contents of an intent.Manager.
-func NewPrelude(manager *intents.Manager, concurrentColls int, serverVersion, toolVersion string) (*Prelude, error) {
+func NewPrelude(
+	manager *intents.Manager,
+	concurrentColls int,
+	serverVersion, toolVersion string,
+) (*Prelude, error) {
 	prelude := Prelude{
 		Header: &Header{
 			FormatVersion:         archiveFormatVersion,
 			ServerVersion:         serverVersion,
 			ToolVersion:           toolVersion,
-			ConcurrentCollections: int32(concurrentColls),
+			ConcurrentCollections: safecast.MustConvert[int32](concurrentColls),
 		},
 		NamespaceMetadatasByDB: make(map[string][]*CollectionMetadata, 0),
 	}
@@ -112,7 +116,7 @@ func NewPrelude(manager *intents.Manager, concurrentColls int, serverVersion, to
 			prelude.AddMetadata(&CollectionMetadata{
 				Database:   intent.DB,
 				Collection: intent.C,
-				Metadata:   archiveMetadata.Buffer.String(),
+				Metadata:   archiveMetadata.String(),
 				Type:       intent.Type,
 			})
 		} else {
@@ -136,16 +140,17 @@ func (prelude *Prelude) AddMetadata(cm *CollectionMetadata) {
 	if !ok {
 		prelude.DBS = append(prelude.DBS, cm.Database)
 	}
-	prelude.NamespaceMetadatasByDB[cm.Database] = append(prelude.NamespaceMetadatasByDB[cm.Database], cm)
+	prelude.NamespaceMetadatasByDB[cm.Database] = append(
+		prelude.NamespaceMetadatasByDB[cm.Database],
+		cm,
+	)
 	log.Logvf(log.Info, "archive prelude %v.%v", cm.Database, cm.Collection)
 }
 
 // Write writes the archive header.
 func (prelude *Prelude) Write(out io.Writer) error {
-	magicNumberBytes := make([]byte, 4)
-	for i := range magicNumberBytes {
-		magicNumberBytes[i] = byte(uint32(MagicNumber) >> uint(i*8))
-	}
+	magicNumberBytes := binary.LittleEndian.AppendUint32(nil, MagicNumber)
+
 	_, err := out.Write(magicNumberBytes)
 	if err != nil {
 		return err
@@ -353,7 +358,7 @@ func (pe *PreludeExplorer) Parent() DirLike {
 	}
 }
 
-// MetadataPreludeFile is part of the intents.file. It allows the metadata contained in the prelude to be opened and read
+// MetadataPreludeFile is part of the intents.file. It allows the metadata contained in the prelude to be opened and read.
 type MetadataPreludeFile struct {
 	pos     int64 // updated atomically, aligned at the beginning of the struct
 	Intent  *intents.Intent

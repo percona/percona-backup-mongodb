@@ -11,7 +11,6 @@ package options
 import (
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"runtime"
@@ -28,6 +27,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
+	"golang.org/x/exp/slices"
 	"gopkg.in/yaml.v2"
 )
 
@@ -40,7 +40,13 @@ const IncompatibleArgsErrorFormat = "illegal argument combination: cannot specif
 const unknownOptionsWarningFormat = "WARNING: ignoring unsupported URI parameter '%v'"
 
 func ConflictingArgsErrorFormat(optionName, uriValue, cliValue, cliOptionName string) error {
-	return fmt.Errorf("Invalid Options: Cannot specify different %s in connection URI and command-line option (\"%s\" was specified in the URI and \"%s\" was specified in the %s option)", optionName, uriValue, cliValue, cliOptionName)
+	return fmt.Errorf(
+		"Invalid Options: Cannot specify different %s in connection URI and command-line option (\"%s\" was specified in the URI and \"%s\" was specified in the %s option)",
+		optionName,
+		uriValue,
+		cliValue,
+		cliOptionName,
+	)
 }
 
 const deprecationWarningSSLAllow = "WARNING: --sslAllowInvalidCertificates and --sslAllowInvalidHostnames are deprecated, please use --tlsInsecure instead"
@@ -107,7 +113,7 @@ func (ns Namespace) String() string {
 	return ns.DB + "." + ns.Collection
 }
 
-// Struct holding generic options
+// Struct holding generic options.
 type General struct {
 	Help       bool   `long:"help" description:"print usage"`
 	Version    bool   `long:"version" description:"print the tool version and exit"`
@@ -118,7 +124,7 @@ type General struct {
 	Trace      bool   `long:"trace" hidden:"true"`
 }
 
-// Struct holding verbosity-related options
+// Struct holding verbosity-related options.
 type Verbosity struct {
 	SetVerbosity    func(string) `short:"v" long:"verbose" value-name:"<level>" description:"more detailed log output (include multiple times for more verbosity, e.g. -vvvvv, or specify a numeric value, e.g. --verbose=N)" optional:"true" optional-value:""`
 	Quiet           bool         `long:"quiet" description:"hide all log output"`
@@ -137,12 +143,11 @@ func (v Verbosity) IsQuiet() bool {
 type URI struct {
 	ConnectionString string `long:"uri" value-name:"mongodb-uri" description:"mongodb uri connection string"`
 
-	knownURIParameters   []string
 	extraOptionsRegistry []ExtraOptions
 	ConnString           *connstring.ConnString
 }
 
-// Struct holding connection-related options
+// Struct holding connection-related options.
 type Connection struct {
 	Host string `short:"h" long:"host" value-name:"<hostname>" description:"mongodb host to connect to (setname/host1,host2 for replica sets)"`
 	Port string `long:"port" value-name:"<port>" description:"server port (can also use --host hostname:port)"`
@@ -154,7 +159,7 @@ type Connection struct {
 	Compressors            string `long:"compressors" default:"none" hidden:"true" value-name:"<snappy,...>" description:"comma-separated list of compressors to enable. Use 'none' to disable."`
 }
 
-// Struct holding ssl-related options
+// Struct holding ssl-related options.
 type SSL struct {
 	UseSSL              bool   `long:"ssl" description:"connect to a mongod or mongos that has ssl enabled"`
 	SSLCAFile           string `long:"sslCAFile" value-name:"<filename>" description:"the .pem file containing the root certificate chain from the certificate authority"`
@@ -167,7 +172,7 @@ type SSL struct {
 	TLSInsecure         bool   `long:"tlsInsecure" description:"bypass the validation for server's certificate chain and host name"`
 }
 
-// Struct holding auth-related options
+// Struct holding auth-related options.
 type Auth struct {
 	Username        string `short:"u" value-name:"<username>" long:"username" description:"username for authentication"`
 	Password        string `short:"p" value-name:"<password>" long:"password" description:"password for authentication"`
@@ -176,7 +181,7 @@ type Auth struct {
 	AWSSessionToken string `long:"awsSessionToken" value-name:"<aws-session-token>" description:"session token to authenticate via AWS IAM"`
 }
 
-// Struct for Kerberos/GSSAPI-specific options
+// Struct for Kerberos/GSSAPI-specific options.
 type Kerberos struct {
 	Service     string `long:"gssapiServiceName" value-name:"<service-name>" description:"service name to use when authenticating using GSSAPI/Kerberos (default: mongodb)"`
 	ServiceHost string `long:"gssapiHostName" value-name:"<host-name>" description:"hostname to use when authenticating using GSSAPI/Kerberos (default: <remote server's address>)"`
@@ -185,11 +190,6 @@ type WriteConcern struct {
 	// Specifies the write concern for each write operation that mongofiles writes to the target database.
 	// By default, mongofiles waits for a majority of members from the replica set to respond before returning.
 	WriteConcern string `long:"writeConcern" value-name:"<write-concern>" default:"majority" default-mask:"-" description:"write concern options e.g. --writeConcern majority, --writeConcern '{w: 3, wtimeout: 500, fsync: true, j: true}'"`
-
-	w        int
-	wtimeout int
-	fsync    bool
-	journal  bool
 }
 
 type OptionRegistrationFunction func(*ToolOptions) error
@@ -212,8 +212,12 @@ func parseVal(val string) int {
 	return ret
 }
 
-// Ask for a new instance of tool options
-func New(appName, versionStr, gitCommit, usageStr string, parsePositionalArgsAsURI bool, enabled EnabledOptions) *ToolOptions {
+// Ask for a new instance of tool options.
+func New(
+	appName, versionStr, gitCommit, usageStr string,
+	parsePositionalArgsAsURI bool,
+	enabled EnabledOptions,
+) *ToolOptions {
 	opts := &ToolOptions{
 		AppName:    appName,
 		VersionStr: versionStr,
@@ -303,7 +307,7 @@ func New(appName, versionStr, gitCommit, usageStr string, parsePositionalArgsAsU
 }
 
 // UseReadOnlyHostDescription changes the help description of the --host arg to
-// not mention the shard/host:port format used in the data-mutating tools
+// not mention the shard/host:port format used in the data-mutating tools.
 func (opts *ToolOptions) UseReadOnlyHostDescription() {
 	hostOpt := opts.parser.FindOptionByLongName("host")
 	hostOpt.Description = "mongodb host(s) to connect to (use commas to delimit hosts)"
@@ -311,7 +315,7 @@ func (opts *ToolOptions) UseReadOnlyHostDescription() {
 
 // FindOptionByLongName finds an option in any of the added option groups by
 // matching its long name; useful for modifying the attributes (e.g. description
-// or name) of an option
+// or name) of an option.
 func (opts *ToolOptions) FindOptionByLongName(name string) *flags.Option {
 	return opts.parser.FindOptionByLongName(name)
 }
@@ -348,7 +352,7 @@ func (opts *ToolOptions) PrintVersion() bool {
 	return opts.Version
 }
 
-// Interface for extra options that need to be used by specific tools
+// Interface for extra options that need to be used by specific tools.
 type ExtraOptions interface {
 	// Name specifying what type of options these are
 	Name() string
@@ -368,7 +372,8 @@ type URISetter interface {
 }
 
 func (auth *Auth) RequiresExternalDB() bool {
-	return auth.Mechanism == "GSSAPI" || auth.Mechanism == "PLAIN" || auth.Mechanism == "MONGODB-X509"
+	reqsExternalDB := []string{"GSSAPI", "PLAIN", "MONGODB-X509", "MONGODB-OIDC"}
+	return slices.Contains(reqsExternalDB, auth.Mechanism)
 }
 
 func (auth *Auth) IsSet() bool {
@@ -378,8 +383,9 @@ func (auth *Auth) IsSet() bool {
 // ShouldAskForPassword returns true if the user specifies a username flag
 // but no password, and the authentication mechanism requires a password.
 func (auth *Auth) ShouldAskForPassword() bool {
+	neverUsesPassword := []string{"MONGODB-X509", "GSSAPI", "MONGODB-OIDC"}
 	return auth.Username != "" && auth.Password == "" &&
-		!(auth.Mechanism == "MONGODB-X509" || auth.Mechanism == "GSSAPI")
+		!slices.Contains(neverUsesPassword, auth.Mechanism)
 }
 
 // ShouldAskForPassword returns true if the user specifies a ssl pem key file
@@ -393,7 +399,7 @@ func (ssl *SSL) ShouldAskForPassword() (bool, error) {
 }
 
 func (ssl *SSL) pemKeyFileHasEncryptedKey() (bool, error) {
-	b, err := ioutil.ReadFile(ssl.SSLPEMKeyFile)
+	b, err := os.ReadFile(ssl.SSLPEMKeyFile)
 	if err != nil {
 		return false, err
 	}
@@ -446,17 +452,17 @@ func (uri *URI) LogUnsupportedOptions() {
 // --authenticationDatabase if it's provided, otherwise, the database that's
 // specified in the tool's --db arg.
 func (opts *ToolOptions) GetAuthenticationDatabase() string {
-	if opts.Auth.Source != "" {
-		return opts.Auth.Source
-	} else if opts.Auth.RequiresExternalDB() {
+	if opts.Source != "" {
+		return opts.Source
+	} else if opts.RequiresExternalDB() {
 		return "$external"
-	} else if opts.Namespace != nil && opts.Namespace.DB != "" {
-		return opts.Namespace.DB
+	} else if opts.Namespace != nil && opts.DB != "" {
+		return opts.DB
 	}
 	return ""
 }
 
-// AddOptions registers an additional options group to this instance
+// AddOptions registers an additional options group to this instance.
 func (opts *ToolOptions) AddOptions(extraOpts ExtraOptions) {
 	_, err := opts.parser.AddGroup(extraOpts.Name()+" options", "", extraOpts)
 	if err != nil {
@@ -472,7 +478,7 @@ func (opts *ToolOptions) AddOptions(extraOpts ExtraOptions) {
 // AddToExtraOptionsRegistry appends an additional options group to the extra options
 // registry found in opts.URI.
 func (opts *ToolOptions) AddToExtraOptionsRegistry(extraOpts ExtraOptions) {
-	opts.URI.extraOptionsRegistry = append(opts.URI.extraOptionsRegistry, extraOpts)
+	opts.extraOptionsRegistry = append(opts.extraOptionsRegistry, extraOpts)
 }
 
 func (opts *ToolOptions) CallArgParser(args []string) ([]string, error) {
@@ -557,21 +563,21 @@ func LogSensitiveOptionWarnings(args []string) {
 	}
 
 	// Log a message for --password, if specified.
-	if tempOpts.Auth.Password != "" {
-		log.Logvf(log.Always, passwordMsg)
+	if tempOpts.Password != "" {
+		log.Logv(log.Always, passwordMsg)
 	}
 
 	// Log a message for --uri or a positional connection string, if either is specified.
-	uri := tempOpts.URI.ConnectionString
+	uri := tempOpts.ConnectionString
 	if uri != "" {
 		if cs, err := connstring.Parse(uri); err == nil && cs.Password != "" {
-			log.Logvf(log.Always, uriMsg)
+			log.Logv(log.Always, uriMsg)
 		}
 	}
 
 	// Log a message for --sslPEMKeyPassword, if specified.
-	if tempOpts.SSL.SSLPEMKeyPassword != "" {
-		log.Logvf(log.Always, sslMsg)
+	if tempOpts.SSLPEMKeyPassword != "" {
+		log.Logv(log.Always, sslMsg)
 	}
 }
 
@@ -588,12 +594,12 @@ func (opts *ToolOptions) ParseConfigFile(args []string) error {
 	}
 
 	// No --config option was specified.
-	if opts.General.ConfigPath == "" {
+	if opts.ConfigPath == "" {
 		return nil
 	}
 
 	// --config option specifies a file path.
-	configBytes, err := ioutil.ReadFile(opts.General.ConfigPath)
+	configBytes, err := os.ReadFile(opts.ConfigPath)
 	if err != nil {
 		return errors.Wrapf(err, "error opening file with --config")
 	}
@@ -607,16 +613,16 @@ func (opts *ToolOptions) ParseConfigFile(args []string) error {
 	}
 	err = yaml.UnmarshalStrict(configBytes, &config)
 	if err != nil {
-		return errors.Wrapf(err, "error parsing config file %s", opts.General.ConfigPath)
+		return errors.Wrapf(err, "error parsing config file %s", opts.ConfigPath)
 	}
 
 	// Assign each parsed value to its respective ToolOptions field.
-	opts.Auth.Password = config.Password
-	opts.URI.ConnectionString = config.ConnectionString
-	opts.SSL.SSLPEMKeyPassword = config.SSLPEMKeyPassword
+	opts.Password = config.Password
+	opts.ConnectionString = config.ConnectionString
+	opts.SSLPEMKeyPassword = config.SSLPEMKeyPassword
 
 	// Mongomirror has an extra option to set.
-	for _, extraOpt := range opts.URI.extraOptionsRegistry {
+	for _, extraOpt := range opts.extraOptionsRegistry {
 		if destinationAuth, ok := extraOpt.(DestinationAuthOptions); ok {
 			destinationAuth.SetDestinationPassword(config.DestinationPassword)
 			break
@@ -638,7 +644,9 @@ func (opts *ToolOptions) setURIFromPositionalArg(args []string) ([]string, error
 		cs, err := connstring.Parse(arg)
 		if err == nil {
 			if foundURI {
-				return []string{}, fmt.Errorf("too many URIs found in positional arguments: only one URI can be set as a positional argument")
+				return []string{}, fmt.Errorf(
+					"too many URIs found in positional arguments: only one URI can be set as a positional argument",
+				)
 			}
 			foundURI = true
 			parsedURI = cs
@@ -651,7 +659,10 @@ func (opts *ToolOptions) setURIFromPositionalArg(args []string) ([]string, error
 
 	if foundURI { // Successfully parsed a URI
 		if opts.ConnectionString != "" {
-			return []string{}, fmt.Errorf(IncompatibleArgsErrorFormat, "a URI in a positional argument")
+			return []string{}, fmt.Errorf(
+				IncompatibleArgsErrorFormat,
+				"a URI in a positional argument",
+			)
 		}
 		opts.ConnectionString = parsedURI.Original
 	}
@@ -665,7 +676,7 @@ func (opts *ToolOptions) setURIFromPositionalArg(args []string) ([]string, error
 // connection string. If a value is set on the connection string, but not the options,
 // that value is added to the options.
 func (opts *ToolOptions) NormalizeOptionsAndURI() error {
-	if opts.URI == nil || opts.URI.ConnectionString == "" {
+	if opts.URI == nil || opts.ConnectionString == "" {
 		// If URI not provided, get replica set name and generate connection string
 		_, opts.ReplicaSetName = util.SplitHostArg(opts.Host)
 		uri, err := NewURI(util.BuildURI(opts.Host, opts.Port))
@@ -675,7 +686,7 @@ func (opts *ToolOptions) NormalizeOptionsAndURI() error {
 		opts.URI = uri
 	}
 
-	cs, err := connstring.Parse(opts.URI.ConnectionString)
+	cs, err := connstring.Parse(opts.ConnectionString)
 	if err != nil {
 		return err
 	}
@@ -690,7 +701,7 @@ func (opts *ToolOptions) NormalizeOptionsAndURI() error {
 		if err != nil {
 			return fmt.Errorf("error reading password: %v", err)
 		}
-		opts.Auth.Password = pass
+		opts.Password = pass
 		opts.ConnString.Password = pass
 	}
 
@@ -703,7 +714,7 @@ func (opts *ToolOptions) NormalizeOptionsAndURI() error {
 		if err != nil {
 			return fmt.Errorf("error reading password: %v", err)
 		}
-		opts.SSL.SSLPEMKeyPassword = pass
+		opts.SSLPEMKeyPassword = pass
 	}
 
 	err = opts.ConnString.Validate()
@@ -721,7 +732,11 @@ func (opts *ToolOptions) NormalizeOptionsAndURI() error {
 	return nil
 }
 
-func (opts *ToolOptions) handleUnknownOption(option string, arg flags.SplitArgument, args []string) ([]string, error) {
+func (opts *ToolOptions) handleUnknownOption(
+	option string,
+	arg flags.SplitArgument,
+	args []string,
+) ([]string, error) {
 	if option == "dbpath" || option == "directoryperdb" || option == "journal" {
 		return args, fmt.Errorf("--dbpath and related flags are not supported in 3.0 tools.\n" +
 			"See http://dochub.mongodb.org/core/tools-dbpath-deprecated for more information")
@@ -742,7 +757,7 @@ func (opts *ToolOptions) handleUnknownOption(option string, arg flags.SplitArgum
 // we check that it is not equal to its default value. To check that a URI option is set,
 // some options have an "OptionSet" field.
 func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
-	opts.URI.ConnString = cs
+	opts.ConnString = cs
 
 	if opts.enabledOptions.Connection {
 		// Port can be set in --port, --host, or URI
@@ -750,10 +765,15 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 		if opts.Port != "" {
 			// if --port is set, check that each host:port pair in the URI the port defined in --port
 			for i, host := range cs.Hosts {
-				if strings.Index(host, ":") != -1 {
+				if strings.Contains(host, ":") {
 					hostPort := strings.Split(host, ":")[1]
 					if hostPort != opts.Port {
-						return ConflictingArgsErrorFormat("port", strings.Join(cs.Hosts, ","), opts.Port, "--port")
+						return ConflictingArgsErrorFormat(
+							"port",
+							strings.Join(cs.Hosts, ","),
+							opts.Port,
+							"--port",
+						)
 					}
 				} else {
 					// if the URI hosts have no ports, append them
@@ -769,7 +789,7 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 			if opts.Port != "" {
 				for i := range seedlist {
-					if strings.Index(seedlist[i], ":") == -1 { // no port
+					if !strings.Contains(seedlist[i], ":") { // no port
 						seedlist[i] = seedlist[i] + ":" + opts.Port
 					}
 				}
@@ -788,12 +808,22 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 			// check the sets are equal
 			if len(csHostSet) != len(optionHostSet) {
-				return ConflictingArgsErrorFormat("host", strings.Join(cs.Hosts, ","), opts.Host, "--host")
+				return ConflictingArgsErrorFormat(
+					"host",
+					strings.Join(cs.Hosts, ","),
+					opts.Host,
+					"--host",
+				)
 			}
 
 			for host := range csHostSet {
 				if _, ok := optionHostSet[host]; !ok {
-					return ConflictingArgsErrorFormat("host", strings.Join(cs.Hosts, ","), opts.Host, "--host")
+					return ConflictingArgsErrorFormat(
+						"host",
+						strings.Join(cs.Hosts, ","),
+						opts.Host,
+						"--host",
+					)
 				}
 			}
 		} else if len(cs.Hosts) > 0 {
@@ -832,51 +862,76 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 			return fmt.Errorf("loadBalanced cannot be set to true if multiple hosts are specified")
 		}
 
-		if opts.Connection.ServerSelectionTimeout != 0 && cs.ServerSelectionTimeoutSet {
-			if (time.Duration(opts.Connection.ServerSelectionTimeout) * time.Millisecond) != cs.ServerSelectionTimeout {
-				return ConflictingArgsErrorFormat("serverSelectionTimeout", strconv.Itoa(int(cs.ServerSelectionTimeout/time.Millisecond)), strconv.Itoa(opts.Connection.ServerSelectionTimeout), "--serverSelectionTimeout")
+		if opts.ServerSelectionTimeout != 0 && cs.ServerSelectionTimeoutSet {
+			if (time.Duration(opts.ServerSelectionTimeout) * time.Millisecond) != cs.ServerSelectionTimeout {
+				return ConflictingArgsErrorFormat(
+					"serverSelectionTimeout",
+					strconv.Itoa(int(cs.ServerSelectionTimeout/time.Millisecond)),
+					strconv.Itoa(opts.ServerSelectionTimeout),
+					"--serverSelectionTimeout",
+				)
 			}
 		}
-		if opts.Connection.ServerSelectionTimeout != 0 && !cs.ServerSelectionTimeoutSet {
-			cs.ServerSelectionTimeout = time.Duration(opts.Connection.ServerSelectionTimeout) * time.Millisecond
+		if opts.ServerSelectionTimeout != 0 && !cs.ServerSelectionTimeoutSet {
+			cs.ServerSelectionTimeout = time.Duration(
+				opts.ServerSelectionTimeout,
+			) * time.Millisecond
 			cs.ServerSelectionTimeoutSet = true
 		}
-		if opts.Connection.ServerSelectionTimeout == 0 && cs.ServerSelectionTimeoutSet {
-			opts.Connection.ServerSelectionTimeout = int(cs.ServerSelectionTimeout / time.Millisecond)
+		if opts.ServerSelectionTimeout == 0 && cs.ServerSelectionTimeoutSet {
+			opts.ServerSelectionTimeout = int(
+				cs.ServerSelectionTimeout / time.Millisecond,
+			)
 		}
 
-		if opts.Connection.Timeout != 3 && cs.ConnectTimeoutSet {
-			if (time.Duration(opts.Connection.Timeout) * time.Millisecond) != cs.ConnectTimeout {
-				return ConflictingArgsErrorFormat("connectTimeout", strconv.Itoa(int(cs.ConnectTimeout/time.Millisecond)), strconv.Itoa(opts.Connection.Timeout), "--dialTimeout")
+		if opts.Timeout != 3 && cs.ConnectTimeoutSet {
+			if (time.Duration(opts.Timeout) * time.Millisecond) != cs.ConnectTimeout {
+				return ConflictingArgsErrorFormat(
+					"connectTimeout",
+					strconv.Itoa(int(cs.ConnectTimeout/time.Millisecond)),
+					strconv.Itoa(opts.Timeout),
+					"--dialTimeout",
+				)
 			}
 		}
-		if opts.Connection.Timeout != 3 && !cs.ConnectTimeoutSet {
-			cs.ConnectTimeout = time.Duration(opts.Connection.Timeout) * time.Millisecond
+		if opts.Timeout != 3 && !cs.ConnectTimeoutSet {
+			cs.ConnectTimeout = time.Duration(opts.Timeout) * time.Millisecond
 			cs.ConnectTimeoutSet = true
 		}
-		if opts.Connection.Timeout == 3 && cs.ConnectTimeoutSet {
-			opts.Connection.Timeout = int(cs.ConnectTimeout / time.Millisecond)
+		if opts.Timeout == 3 && cs.ConnectTimeoutSet {
+			opts.Timeout = int(cs.ConnectTimeout / time.Millisecond)
 		}
 
-		if opts.Connection.SocketTimeout != 0 && cs.SocketTimeoutSet {
-			if (time.Duration(opts.Connection.SocketTimeout) * time.Millisecond) != cs.SocketTimeout {
-				return ConflictingArgsErrorFormat("SocketTimeout", strconv.Itoa(int(cs.SocketTimeout/time.Millisecond)), strconv.Itoa(opts.Connection.SocketTimeout), "--socketTimeout")
+		if opts.SocketTimeout != 0 && cs.SocketTimeoutSet {
+			if (time.Duration(opts.SocketTimeout) * time.Millisecond) != cs.SocketTimeout {
+				return ConflictingArgsErrorFormat(
+					"SocketTimeout",
+					strconv.Itoa(int(cs.SocketTimeout/time.Millisecond)),
+					strconv.Itoa(opts.SocketTimeout),
+					"--socketTimeout",
+				)
 			}
 		}
-		if opts.Connection.SocketTimeout != 0 && !cs.SocketTimeoutSet {
-			cs.SocketTimeout = time.Duration(opts.Connection.SocketTimeout) * time.Millisecond
+		if opts.SocketTimeout != 0 && !cs.SocketTimeoutSet {
+			cs.SocketTimeout = time.Duration(opts.SocketTimeout) * time.Millisecond
 			cs.SocketTimeoutSet = true
 		}
-		if opts.Connection.SocketTimeout == 0 && cs.SocketTimeoutSet {
-			opts.Connection.SocketTimeout = int(cs.SocketTimeout / time.Millisecond)
+		if opts.SocketTimeout == 0 && cs.SocketTimeoutSet {
+			opts.SocketTimeout = int(cs.SocketTimeout / time.Millisecond)
 		}
 
 		if len(cs.Compressors) != 0 {
-			if opts.Connection.Compressors != "none" && opts.Connection.Compressors != strings.Join(cs.Compressors, ",") {
-				return ConflictingArgsErrorFormat("compressors", strings.Join(cs.Compressors, ","), opts.Connection.Compressors, "--compressors")
+			if opts.Compressors != "none" &&
+				opts.Compressors != strings.Join(cs.Compressors, ",") {
+				return ConflictingArgsErrorFormat(
+					"compressors",
+					strings.Join(cs.Compressors, ","),
+					opts.Compressors,
+					"--compressors",
+				)
 			}
 		} else {
-			cs.Compressors = strings.Split(opts.Connection.Compressors, ",")
+			cs.Compressors = strings.Split(opts.Compressors, ",")
 		}
 	}
 
@@ -884,7 +939,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 		if opts.Username != "" && cs.Username != "" {
 			if opts.Username != cs.Username {
-				return ConflictingArgsErrorFormat("username", cs.Username, opts.Username, "--username")
+				return ConflictingArgsErrorFormat(
+					"username",
+					cs.Username,
+					opts.Username,
+					"--username",
+				)
 			}
 		}
 		if opts.Username != "" && cs.Username == "" {
@@ -896,7 +956,9 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 		if opts.Password != "" && cs.PasswordSet {
 			if opts.Password != cs.Password {
-				return fmt.Errorf("Invalid Options: Cannot specify different password in connection URI and command-line option")
+				return fmt.Errorf(
+					"Invalid Options: Cannot specify different password in connection URI and command-line option",
+				)
 			}
 		}
 		if opts.Password != "" && !cs.PasswordSet {
@@ -909,7 +971,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 		if opts.Source != "" && cs.AuthSourceSet {
 			if opts.Source != cs.AuthSource {
-				return ConflictingArgsErrorFormat("authSource", cs.AuthSource, opts.Source, "--authenticationDatabase")
+				return ConflictingArgsErrorFormat(
+					"authSource",
+					cs.AuthSource,
+					opts.Source,
+					"--authenticationDatabase",
+				)
 			}
 		}
 		if opts.Source != "" && !cs.AuthSourceSet {
@@ -922,7 +989,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 		if opts.Mechanism != "" && cs.AuthMechanism != "" {
 			if opts.Mechanism != cs.AuthMechanism {
-				return ConflictingArgsErrorFormat("authMechanism", cs.AuthMechanism, opts.Mechanism, "--authenticationMechanism")
+				return ConflictingArgsErrorFormat(
+					"authMechanism",
+					cs.AuthMechanism,
+					opts.Mechanism,
+					"--authenticationMechanism",
+				)
 			}
 		}
 		if opts.Mechanism != "" && cs.AuthMechanism == "" {
@@ -952,10 +1024,17 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 	// check replica set name equality
 	if opts.ReplicaSetName != "" && cs.ReplicaSet != "" {
 		if opts.ReplicaSetName != cs.ReplicaSet {
-			return ConflictingArgsErrorFormat("replica set name", cs.ReplicaSet, opts.Host, "--host")
+			return ConflictingArgsErrorFormat(
+				"replica set name",
+				cs.ReplicaSet,
+				opts.Host,
+				"--host",
+			)
 		}
 		if opts.ConnString.LoadBalanced {
-			return fmt.Errorf("loadBalanced cannot be set to true if the replica set name is specified")
+			return fmt.Errorf(
+				"loadBalanced cannot be set to true if the replica set name is specified",
+			)
 		}
 	}
 	if opts.ReplicaSetName != "" && cs.ReplicaSet == "" {
@@ -968,7 +1047,9 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 	// Connect directly to a host if indicated by the connection string.
 	opts.Direct = cs.DirectConnection || (cs.Connect == connstring.SingleConnect)
 	if opts.Direct && opts.ConnString.LoadBalanced {
-		return fmt.Errorf("loadBalanced cannot be set to true if the direct connection option is specified")
+		return fmt.Errorf(
+			"loadBalanced cannot be set to true if the direct connection option is specified",
+		)
 	}
 
 	if cs.RetryWritesSet {
@@ -977,7 +1058,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 	if cs.SSLSet {
 		if opts.UseSSL && !cs.SSL {
-			return ConflictingArgsErrorFormat("ssl", strconv.FormatBool(cs.SSL), strconv.FormatBool(opts.UseSSL), "--ssl")
+			return ConflictingArgsErrorFormat(
+				"ssl",
+				strconv.FormatBool(cs.SSL),
+				strconv.FormatBool(opts.UseSSL),
+				"--ssl",
+			)
 		} else if !opts.UseSSL && cs.SSL {
 			opts.UseSSL = cs.SSL
 		}
@@ -988,7 +1074,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 	// Treat as conflict: opts.UseSSL = true, cs.SSL = false
 	if opts.UseSSL && cs.SSLSet {
 		if !cs.SSL {
-			return ConflictingArgsErrorFormat("ssl or tls", strconv.FormatBool(cs.SSL), strconv.FormatBool(opts.UseSSL), "--ssl")
+			return ConflictingArgsErrorFormat(
+				"ssl or tls",
+				strconv.FormatBool(cs.SSL),
+				strconv.FormatBool(opts.UseSSL),
+				"--ssl",
+			)
 		}
 	}
 	if opts.UseSSL && !cs.SSLSet {
@@ -1002,7 +1093,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 	if opts.SSLCAFile != "" && cs.SSLCaFileSet {
 		if opts.SSLCAFile != cs.SSLCaFile {
-			return ConflictingArgsErrorFormat("sslCAFile", cs.SSLCaFile, opts.SSLCAFile, "--sslCAFile")
+			return ConflictingArgsErrorFormat(
+				"sslCAFile",
+				cs.SSLCaFile,
+				opts.SSLCAFile,
+				"--sslCAFile",
+			)
 		}
 	}
 	if opts.SSLCAFile != "" && !cs.SSLCaFileSet {
@@ -1015,7 +1111,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 	if opts.SSLPEMKeyFile != "" && cs.SSLClientCertificateKeyFileSet {
 		if opts.SSLPEMKeyFile != cs.SSLClientCertificateKeyFile {
-			return ConflictingArgsErrorFormat("sslClientCertificateKeyFile", cs.SSLClientCertificateKeyFile, opts.SSLPEMKeyFile, "--sslPEMKeyFile")
+			return ConflictingArgsErrorFormat(
+				"sslClientCertificateKeyFile",
+				cs.SSLClientCertificateKeyFile,
+				opts.SSLPEMKeyFile,
+				"--sslPEMKeyFile",
+			)
 		}
 	}
 	if opts.SSLPEMKeyFile != "" && !cs.SSLClientCertificateKeyFileSet {
@@ -1028,7 +1129,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 	if opts.SSLPEMKeyPassword != "" && cs.SSLClientCertificateKeyPasswordSet {
 		if opts.SSLPEMKeyPassword != cs.SSLClientCertificateKeyPassword() {
-			return ConflictingArgsErrorFormat("sslPEMKeyFilePassword", cs.SSLClientCertificateKeyPassword(), opts.SSLPEMKeyPassword, "--sslPEMKeyFilePassword")
+			return ConflictingArgsErrorFormat(
+				"sslPEMKeyFilePassword",
+				cs.SSLClientCertificateKeyPassword(),
+				opts.SSLPEMKeyPassword,
+				"--sslPEMKeyFilePassword",
+			)
 		}
 	}
 	if opts.SSLPEMKeyPassword != "" && !cs.SSLClientCertificateKeyPasswordSet {
@@ -1043,16 +1149,24 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 	// ignore (opts.SSLAllowInvalidCert || opts.SSLAllowInvalidHost) being false due to zero-value problem (TOOLS-2459 PR for details)
 	// Have cs take precedence in cases where it is unclear
-	if (opts.SSLAllowInvalidCert || opts.SSLAllowInvalidHost || opts.TLSInsecure) && cs.SSLInsecureSet {
+	if (opts.SSLAllowInvalidCert || opts.SSLAllowInvalidHost || opts.TLSInsecure) &&
+		cs.SSLInsecureSet {
 		if !cs.SSLInsecure {
-			return ConflictingArgsErrorFormat("sslInsecure or tlsInsecure", "false", "true", "--sslAllowInvalidCert or --sslAllowInvalidHost")
+			return ConflictingArgsErrorFormat(
+				"sslInsecure or tlsInsecure",
+				"false",
+				"true",
+				"--sslAllowInvalidCert or --sslAllowInvalidHost",
+			)
 		}
 	}
-	if (opts.SSLAllowInvalidCert || opts.SSLAllowInvalidHost || opts.TLSInsecure) && !cs.SSLInsecureSet {
+	if (opts.SSLAllowInvalidCert || opts.SSLAllowInvalidHost || opts.TLSInsecure) &&
+		!cs.SSLInsecureSet {
 		cs.SSLInsecure = true
 		cs.SSLInsecureSet = true
 	}
-	if (!opts.SSLAllowInvalidCert && !opts.SSLAllowInvalidHost || !opts.TLSInsecure) && cs.SSLInsecureSet {
+	if (!opts.SSLAllowInvalidCert && !opts.SSLAllowInvalidHost || !opts.TLSInsecure) &&
+		cs.SSLInsecureSet {
 		opts.SSLAllowInvalidCert = cs.SSLInsecure
 		opts.SSLAllowInvalidHost = cs.SSLInsecure
 		opts.TLSInsecure = cs.SSLInsecure
@@ -1060,34 +1174,46 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 
 	if strings.ToLower(cs.AuthMechanism) == "gssapi" {
 		if !BuiltWithGSSAPI {
-			return fmt.Errorf("cannot specify gssapiservicename: tool not built with kerberos support")
+			return fmt.Errorf(
+				"cannot specify gssapiservicename: tool not built with kerberos support",
+			)
 		}
 
-		gssapiServiceName, _ := cs.AuthMechanismProperties["SERVICE_NAME"]
+		gssapiServiceName := cs.AuthMechanismProperties["SERVICE_NAME"]
 
-		if opts.Kerberos.Service != "" && cs.AuthMechanismPropertiesSet {
-			if opts.Kerberos.Service != gssapiServiceName {
-				return ConflictingArgsErrorFormat("Kerberos service name", gssapiServiceName, opts.Kerberos.Service, "--gssapiServiceName")
+		if opts.Service != "" && cs.AuthMechanismPropertiesSet {
+			if opts.Service != gssapiServiceName {
+				return ConflictingArgsErrorFormat(
+					"Kerberos service name",
+					gssapiServiceName,
+					opts.Service,
+					"--gssapiServiceName",
+				)
 			}
 		}
-		if opts.Kerberos.Service != "" && !cs.AuthMechanismPropertiesSet {
+		if opts.Service != "" && !cs.AuthMechanismPropertiesSet {
 			if cs.AuthMechanismProperties == nil {
 				cs.AuthMechanismProperties = make(map[string]string)
 			}
-			cs.AuthMechanismProperties["SERVICE_NAME"] = opts.Kerberos.Service
+			cs.AuthMechanismProperties["SERVICE_NAME"] = opts.Service
 			cs.AuthMechanismPropertiesSet = true
 		}
-		if opts.Kerberos.Service == "" && cs.AuthMechanismPropertiesSet {
-			opts.Kerberos.Service = gssapiServiceName
+		if opts.Service == "" && cs.AuthMechanismPropertiesSet {
+			opts.Service = gssapiServiceName
 		}
 	}
 
 	if strings.ToLower(cs.AuthMechanism) == "mongodb-aws" {
-		awsSessionToken, _ := cs.AuthMechanismProperties["AWS_SESSION_TOKEN"]
+		awsSessionToken := cs.AuthMechanismProperties["AWS_SESSION_TOKEN"]
 
 		if opts.AWSSessionToken != "" && cs.AuthMechanismPropertiesSet {
 			if opts.AWSSessionToken != awsSessionToken {
-				return ConflictingArgsErrorFormat("AWS Session Token", awsSessionToken, opts.AWSSessionToken, "--awsSessionToken")
+				return ConflictingArgsErrorFormat(
+					"AWS Session Token",
+					awsSessionToken,
+					opts.AWSSessionToken,
+					"--awsSessionToken",
+				)
 			}
 		}
 		if opts.AWSSessionToken != "" && !cs.AuthMechanismPropertiesSet {
@@ -1101,7 +1227,7 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 			opts.AWSSessionToken = awsSessionToken
 		}
 	}
-	for _, extraOpts := range opts.URI.extraOptionsRegistry {
+	for _, extraOpts := range opts.extraOptionsRegistry {
 		if uriSetter, ok := extraOpts.(URISetter); ok {
 			err := uriSetter.SetOptionsFromURI(cs)
 			if err != nil {
@@ -1114,39 +1240,4 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 	opts.ConnString = cs
 
 	return nil
-}
-
-// getIntArg returns 3 args: the parsed int value, a bool set to true if a value
-// was consumed from the incoming args array during parsing, and an error
-// value if parsing failed
-func getIntArg(arg flags.SplitArgument, args []string) (int, bool, error) {
-	var rawVal string
-	consumeValue := false
-	rawVal, hasVal := arg.Value()
-	if !hasVal {
-		if len(args) == 0 {
-			return 0, false, fmt.Errorf("no value specified")
-		}
-		rawVal = args[0]
-		consumeValue = true
-	}
-	val, err := strconv.Atoi(rawVal)
-	if err != nil {
-		return val, consumeValue, fmt.Errorf("expected an integer value but got '%v'", rawVal)
-	}
-	return val, consumeValue, nil
-}
-
-// getStringArg returns 3 args: the parsed string value, a bool set to true if a value
-// was consumed from the incoming args array during parsing, and an error
-// value if parsing failed
-func getStringArg(arg flags.SplitArgument, args []string) (string, bool, error) {
-	value, hasVal := arg.Value()
-	if hasVal {
-		return value, false, nil
-	}
-	if len(args) == 0 {
-		return "", false, fmt.Errorf("no value specified")
-	}
-	return args[0], true, nil
 }

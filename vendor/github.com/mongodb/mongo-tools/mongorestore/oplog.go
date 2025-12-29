@@ -7,10 +7,12 @@
 package mongorestore
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/ccoveille/go-safecast/v2"
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/dumprestore"
@@ -20,18 +22,13 @@ import (
 	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/common/util"
+	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-
+	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"golang.org/x/exp/slices"
 )
-
-// oplogMaxCommandSize sets the maximum size for multiple buffered ops in the
-// applyOps command. This is to prevent pathological cases where the array overhead
-// of many small operations can overflow the maximum command size.
-// Note that ops > 8MB will still be buffered, just as single elements.
-const oplogMaxCommandSize = 1024 * 1024 * 8
 
 type oplogContext struct {
 	progressor *progress.CountProgressor
@@ -64,6 +61,10 @@ var errorTimestampBeforeLimit = fmt.Errorf("timestamp before limit")
 
 // shouldIgnoreNamespace returns true if the given namespace should be ignored during applyOps.
 func shouldIgnoreNamespace(ns string) bool {
+	if strings.HasPrefix(ns, util.MongoDBInternalDBPrefix) {
+		return true
+	}
+
 	if strings.HasPrefix(ns, "config.") {
 		collName := ns[7:]
 		if !slices.Contains(dumprestore.ConfigCollectionsToKeep, collName) {
@@ -165,7 +166,16 @@ func (restore *MongoRestore) HandleOp(oplogCtx *oplogContext, op db.Oplog) error
 	}
 
 	if op.Operation == "c" && len(op.Object) > 0 {
-		entryName := op.Object[0].Key
+		el0, err := op.Object.IndexErr(0)
+		if err != nil {
+			return errors.Wrap(err, "parsing op:c o")
+		}
+
+		entryName, err := el0.KeyErr()
+		if err != nil {
+			return errors.Wrap(err, "parsing op:c o’s first element")
+		}
+
 		if entryName == "startIndexBuild" || entryName == "abortIndexBuild" {
 			log.Logv(log.Always, "skipping applying the oplog entry "+entryName)
 			return nil
@@ -222,7 +232,17 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 		if len(op.Object) == 0 {
 			return fmt.Errorf("Empty object value for op: %v", op)
 		}
-		cmdName := op.Object[0].Key
+
+		var objD bson.D
+		if err := bson.Unmarshal(op.Object, &objD); err != nil {
+			return fmt.Errorf("parsing objecting value for op: %v", op)
+		}
+
+		if len(objD) == 0 {
+			return fmt.Errorf("BSON object value for op has no fields: %v", op)
+		}
+
+		cmdName := objD[0].Key
 
 		if !knownCommands[cmdName] {
 			return fmt.Errorf("unknown oplog command name %v: %v", cmdName, op)
@@ -237,14 +257,18 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 			// indexes, we need to convert the command to "createIndexes" command for each single index and apply
 			collectionName, indexes := extractIndexDocumentFromCommitIndexBuilds(op)
 			if indexes == nil {
-				return fmt.Errorf("failed to parse IndexDocument from commitIndexBuild in %s, %v", collectionName, op)
+				return fmt.Errorf(
+					"failed to parse IndexDocument from commitIndexBuild in %s, %v",
+					collectionName,
+					op,
+				)
 			}
 
 			if restore.OutputOptions.ConvertLegacyIndexes {
 				indexes = restore.convertLegacyIndexes(indexes, op.Namespace)
 			}
 
-			collName, ok := op.Object[0].Value.(string)
+			collName, ok := objD[0].Value.(string)
 			if !ok {
 				return fmt.Errorf("could not parse collection name from op: %v", op)
 			}
@@ -256,7 +280,11 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 			// server > 4.4 no longer supports applying createIndexes oplog, we need to convert the oplog to createIndexes command and execute it
 			collectionName, index := extractIndexDocumentFromCreateIndexes(op)
 			if index.Key == nil {
-				return fmt.Errorf("failed to parse IndexDocument from createIndexes in %s, %v", collectionName, op)
+				return fmt.Errorf(
+					"failed to parse IndexDocument from createIndexes in %s, %v",
+					collectionName,
+					op,
+				)
 			}
 
 			indexes := []*idx.IndexDocument{index}
@@ -264,7 +292,7 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 				indexes = restore.convertLegacyIndexes(indexes, op.Namespace)
 			}
 
-			collName, ok := op.Object[0].Value.(string)
+			collName, ok := objD[0].Value.(string)
 			if !ok {
 				return fmt.Errorf("could not parse collection name from op: %v", op)
 			}
@@ -276,14 +304,14 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 			restore.indexCatalog.DropDatabase(dbName)
 
 		case "drop":
-			collName, ok := op.Object[0].Value.(string)
+			collName, ok := objD[0].Value.(string)
 			if !ok {
 				return fmt.Errorf("could not parse collection name from op: %v", op)
 			}
 			restore.indexCatalog.DropCollection(dbName, collName)
 
 		case "applyOps":
-			rawOps, ok := op.Object[0].Value.(bson.A)
+			rawOps, ok := objD[0].Value.(bson.A)
 			if !ok {
 				return fmt.Errorf("unknown format for applyOps: %#v", op.Object)
 			}
@@ -308,23 +336,31 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 			return nil
 
 		case "deleteIndex", "deleteIndexes", "dropIndex", "dropIndexes":
-			collName, ok := op.Object[0].Value.(string)
+			collName, ok := objD[0].Value.(string)
 			if !ok {
 				return fmt.Errorf("could not parse collection name from op: %v", op)
 			}
-			restore.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
+			if err := restore.indexCatalog.DeleteIndexes(dbName, collName, objD); err != nil {
+				return fmt.Errorf("error deleting indexes: %v", err)
+			}
 			return nil
 		case "collMod":
 			if restore.serverVersion.GTE(db.Version{4, 1, 11}) {
-				_, _ = bsonutil.RemoveKey("noPadding", &op.Object)
-				_, _ = bsonutil.RemoveKey("usePowerOf2Sizes", &op.Object)
+				_, _ = bsonutil.RemoveKey("noPadding", &objD)
+				_, _ = bsonutil.RemoveKey("usePowerOf2Sizes", &objD)
 			}
 
-			indexModValue, found := bsonutil.RemoveKey("index", &op.Object)
+			indexModValue, found := bsonutil.RemoveKey("index", &objD)
+
+			op.Object, err = bson.Marshal(objD)
+			if err != nil {
+				return errors.Wrap(err, "re-marshaling op object")
+			}
+
 			if !found {
 				break
 			}
-			collName, ok := op.Object[0].Value.(string)
+			collName, ok := objD[0].Value.(string)
 			if !ok {
 				return fmt.Errorf("could not parse collection name from op: %v", op)
 			}
@@ -337,17 +373,18 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 				return nil
 			}
 		case "create":
-			collName, ok := op.Object[0].Value.(string)
+			collName, ok := objD[0].Value.(string)
 			if !ok {
 				return fmt.Errorf("could not parse collection name from op: %v", op)
 			}
-			collation, err := bsonutil.FindSubdocumentByKey("collation", &op.Object)
+
+			collation, err := bsonutil.FindSubdocumentByKey("collation", &objD)
 			if err != nil {
-				restore.indexCatalog.SetCollation(dbName, collName, true)
+				restore.indexCatalog.SetSimpleCollation(dbName, collName, true)
 			}
 			localeValue, _ := bsonutil.FindValueByKey("locale", &collation)
 			if localeValue == "simple" {
-				restore.indexCatalog.SetCollation(dbName, collName, true)
+				restore.indexCatalog.SetSimpleCollation(dbName, collName, true)
 			}
 		}
 	}
@@ -407,12 +444,14 @@ Loop:
 // ApplyOps is a wrapper for the applyOps database command, we pass in
 // a session to avoid opening a new connection for a few inserts at a time.
 func (restore *MongoRestore) ApplyOps(session *mongo.Client, entries []interface{}) error {
-	singleRes := session.Database("admin").RunCommand(nil, bson.D{{"applyOps", entries}})
+	singleRes := session.Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
 	if err := singleRes.Err(); err != nil {
 		return fmt.Errorf("applyOps: %v", err)
 	}
 	res := bson.M{}
-	singleRes.Decode(&res)
+	if err := singleRes.Decode(&res); err != nil {
+		return fmt.Errorf("applyOps decoding result: %v", err)
+	}
 	if util.IsFalsy(res["ok"]) {
 		return fmt.Errorf("applyOps command: %v", res["errmsg"])
 	}
@@ -451,7 +490,10 @@ func ParseTimestampFlag(ts string) (primitive.Timestamp, error) {
 		if len(timestampFields[1]) > 0 {
 			increment, err = strconv.Atoi(timestampFields[1])
 			if err != nil {
-				return primitive.Timestamp{}, fmt.Errorf("error parsing timestamp increment: %v", err)
+				return primitive.Timestamp{}, fmt.Errorf(
+					"error parsing timestamp increment: %v",
+					err,
+				)
 			}
 		} else {
 			// handle the case where the user writes "<time_t>:" with no ordinal
@@ -459,18 +501,17 @@ func ParseTimestampFlag(ts string) (primitive.Timestamp, error) {
 		}
 	}
 
-	return primitive.Timestamp{T: uint32(seconds), I: uint32(increment)}, nil
-}
-
-// Server versions 3.6.0-3.6.8 and 4.0.0-4.0.2 require a 'ui' field
-// in the createIndexes command.
-func (restore *MongoRestore) needsCreateIndexWorkaround() bool {
-	sv := restore.serverVersion
-	if (sv.GTE(db.Version{3, 6, 0}) && sv.LTE(db.Version{3, 6, 8})) ||
-		(sv.GTE(db.Version{4, 0, 0}) && sv.LTE(db.Version{4, 0, 2})) {
-		return true
+	secsU32, err := safecast.Convert[uint32](seconds)
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrapf(err, "secs (%d) to %T", seconds, secsU32)
 	}
-	return false
+
+	incU32, err := safecast.Convert[uint32](increment)
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrapf(err, "increment (%d) to %T", increment, incU32)
+	}
+
+	return primitive.Timestamp{T: secsU32, I: incU32}, nil
 }
 
 // filterUUIDs removes 'ui' entries from ops, including nested applyOps ops.
@@ -479,12 +520,6 @@ func (restore *MongoRestore) filterUUIDs(op db.Oplog) (db.Oplog, error) {
 	// Remove UUIDs from oplog entries
 	if !restore.OutputOptions.PreserveUUID {
 		op.UI = nil
-
-		// The createIndexes oplog command requires 'ui' for some server versions, so
-		// in that case we fall back to an old-style system.indexes insert.
-		if op.Operation == "c" && op.Object[0].Key == "createIndexes" && restore.needsCreateIndexWorkaround() {
-			return convertCreateIndexToIndexInsert(op)
-		}
 	}
 
 	// Check for and filter nested applyOps ops
@@ -530,57 +565,41 @@ func (restore *MongoRestore) filterHs(op db.Oplog) (db.Oplog, error) {
 	return op, nil
 }
 
-// convertCreateIndexToIndexInsert converts from new-style create indexes
-// command to old style special index insert.
-func convertCreateIndexToIndexInsert(op db.Oplog) (db.Oplog, error) {
-	dbName, _ := util.SplitNamespace(op.Namespace)
-
-	cmdValue := op.Object[0].Value
-	collName, ok := cmdValue.(string)
-	if !ok {
-		return db.Oplog{}, fmt.Errorf("unknown format for createIndexes")
-	}
-
-	indexSpec := op.Object[1:]
-	if len(indexSpec) < 3 {
-		return db.Oplog{}, fmt.Errorf("unknown format for createIndexes, index spec " +
-			"must have at least \"v\", \"key\", and \"name\" fields")
-	}
-
-	// createIndexes does not include the "ns" field but index inserts
-	// do. Add it as the third field, after "v", "key", and "name".
-	ns := bson.D{{"ns", fmt.Sprintf("%s.%s", dbName, collName)}}
-	indexSpec = append(indexSpec[:3], append(ns, indexSpec[3:]...)...)
-	op.Object = indexSpec
-	op.Namespace = fmt.Sprintf("%s.system.indexes", dbName)
-	op.Operation = "i"
-
-	return op, nil
-}
-
 // extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "commitIndexBuild" oplog entry and convert to IndexDocument
-// returns collection name and index specs
+// returns collection name and index specs.
 func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.IndexDocument) {
 	collectionName := ""
-	for _, elem := range op.Object {
+
+	var obj bson.D
+	if err := bson.Unmarshal(op.Object, &obj); err != nil {
+		panic("raw to D: " + err.Error())
+	}
+
+	for _, elem := range obj {
 		if elem.Key == "commitIndexBuild" {
+			//nolint:errcheck
 			collectionName = elem.Value.(string)
 		}
 	}
 	// We need second iteration to split the indexes into single createIndex command
-	for _, elem := range op.Object {
+	for _, elem := range obj {
 		if elem.Key == "indexes" {
+			//nolint:errcheck
 			indexes := elem.Value.(bson.A)
 			indexDocuments := make([]*idx.IndexDocument, len(indexes))
 			for i, index := range indexes {
 				var indexSpec idx.IndexDocument
 				indexSpec.Options = bson.M{}
+				//nolint:errcheck
 				for _, elem := range index.(bson.D) {
-					if elem.Key == "key" {
+					switch elem.Key {
+					case "key":
+						//nolint:errcheck
 						indexSpec.Key = elem.Value.(bson.D)
-					} else if elem.Key == "partialFilterExpression" {
+					case "partialFilterExpression":
+						//nolint:errcheck
 						indexSpec.PartialFilterExpression = elem.Value.(bson.D)
-					} else {
+					default:
 						indexSpec.Options[elem.Key] = elem.Value
 					}
 				}
@@ -595,18 +614,27 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 }
 
 // extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of  "createIndexes" oplog entry and convert to IndexDocument
-// returns collection name and index spec
+// returns collection name and index spec.
 func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocument) {
+	var obj bson.D
+	if err := bson.Unmarshal(op.Object, &obj); err != nil {
+		panic("raw to D: " + err.Error())
+	}
+
 	collectionName := ""
 	indexDocument := &idx.IndexDocument{Options: bson.M{}}
-	for _, elem := range op.Object {
-		if elem.Key == "createIndexes" {
+	for _, elem := range obj {
+		switch elem.Key {
+		case "createIndexes":
+			//nolint:errcheck
 			collectionName = elem.Value.(string)
-		} else if elem.Key == "key" {
+		case "key":
+			//nolint:errcheck
 			indexDocument.Key = elem.Value.(bson.D)
-		} else if elem.Key == "partialFilterExpression" {
+		case "partialFilterExpression":
+			//nolint:errcheck
 			indexDocument.PartialFilterExpression = elem.Value.(bson.D)
-		} else {
+		default:
 			indexDocument.Options[elem.Key] = elem.Value
 		}
 	}
@@ -615,18 +643,20 @@ func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocum
 }
 
 // isApplyOpsCmd returns true if a document seems to be an applyOps command.
-func isApplyOpsCmd(cmd bson.D) bool {
-	for _, v := range cmd {
-		if v.Key == "applyOps" {
-			return true
-		}
+func isApplyOpsCmd(cmd bson.Raw) bool {
+	_, err := cmd.LookupErr("applyOps")
+	if err == nil {
+		return true
+	} else if errors.Is(err, bsoncore.ErrElementNotFound) {
+		return false
 	}
-	return false
+
+	panic(fmt.Sprintf("bad cmd (err: %v): %+v", err, cmd))
 }
 
 // newFilteredApplyOps iterates over nested ops in an applyOps document and
 // returns a new applyOps document that omits the 'ui' field from nested ops.
-func (restore *MongoRestore) newFilteredApplyOps(cmd bson.D) (bson.D, error) {
+func (restore *MongoRestore) newFilteredApplyOps(cmd bson.Raw) (bson.Raw, error) {
 	ops, err := unwrapNestedApplyOps(cmd)
 	if err != nil {
 		return nil, err
@@ -648,7 +678,7 @@ func (restore *MongoRestore) newFilteredApplyOps(cmd bson.D) (bson.D, error) {
 	return doc, nil
 }
 
-// nestedApplyOps models an applyOps command document
+// nestedApplyOps models an applyOps command document.
 type nestedApplyOps struct {
 	ApplyOps []db.Oplog `bson:"applyOps"`
 }
@@ -656,7 +686,7 @@ type nestedApplyOps struct {
 // unwrapNestedApplyOps converts a bson.D to a typed data structure.
 // Unfortunately, we're forced to convert by marshaling to bytes and
 // unmarshalling.
-func unwrapNestedApplyOps(doc bson.D) ([]db.Oplog, error) {
+func unwrapNestedApplyOps(doc bson.Raw) ([]db.Oplog, error) {
 	// Doc to bytes
 	bs, err := bson.Marshal(doc)
 	if err != nil {
@@ -676,7 +706,7 @@ func unwrapNestedApplyOps(doc bson.D) ([]db.Oplog, error) {
 // wrapNestedApplyOps converts a typed data structure to a bson.D.
 // Unfortunately, we're forced to convert by marshaling to bytes and
 // unmarshalling.
-func wrapNestedApplyOps(ops []db.Oplog) (bson.D, error) {
+func wrapNestedApplyOps(ops []db.Oplog) (bson.Raw, error) {
 	cmd := &nestedApplyOps{ApplyOps: ops}
 
 	// Typed data to bytes
@@ -685,12 +715,5 @@ func wrapNestedApplyOps(ops []db.Oplog) (bson.D, error) {
 		return nil, fmt.Errorf("cannot rewrap nested applyOps op: %s", err)
 	}
 
-	// Bytes to doc
-	var doc bson.D
-	err = bson.Unmarshal(raw, &doc)
-	if err != nil {
-		return nil, fmt.Errorf("cannot reunmarshal nested applyOps op: %s", err)
-	}
-
-	return doc, nil
+	return raw, nil
 }

@@ -9,15 +9,18 @@ package mongorestore
 
 import (
 	"compress/gzip"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/mongodb/mongo-tools/common"
 	"github.com/mongodb/mongo-tools/common/archive"
 	"github.com/mongodb/mongo-tools/common/auth"
 	"github.com/mongodb/mongo-tools/common/db"
@@ -32,14 +35,17 @@ import (
 )
 
 const (
-	progressBarLength   = 24
-	progressBarWaitTime = time.Second * 3
-)
-
-const (
+	progressBarLength                        = 24
+	progressBarWaitTime                      = time.Second * 3
 	deprecatedDBAndCollectionsOptionsWarning = "The --db and --collection flags are deprecated for " +
 		"this use-case; please use --nsInclude instead, " +
 		"i.e. with --nsInclude=${DATABASE}.${COLLECTION}"
+)
+
+var (
+	NoUsersOrRolesInDumpError = errors.New(
+		"No users or roles found in restore target. Please omit --restoreDbUsersAndRoles, or use a dump created with --dumpDbUsersAndRoles.",
+	)
 )
 
 // MongoRestore is a container for the user-specified options and
@@ -61,12 +67,11 @@ type MongoRestore struct {
 	// other internal state
 	manager *intents.Manager
 
-	objCheck         bool
-	oplogLimit       primitive.Timestamp
-	isMongos         bool
-	isAtlasProxy     bool
-	useWriteCommands bool
-	authVersions     authVersionPair
+	objCheck     bool
+	oplogLimit   primitive.Timestamp
+	isMongos     bool
+	isAtlasProxy bool
+	authVersions authVersionPair
 
 	// a map of database names to a list of collection names
 	knownCollections      map[string][]string
@@ -84,14 +89,15 @@ type MongoRestore struct {
 	archive *archive.Reader
 
 	// boolean set if termination signal received; false by default
-	terminate bool
+	terminate atomic.Bool
 
 	// Reader to take care of BSON input if not reading from the local filesystem.
 	// This is initialized to os.Stdin if unset.
 	InputReader io.Reader
 
-	// Server version for version-specific behavior
-	serverVersion db.Version
+	// Server versions for version-specific behavior
+	dumpServerVersion db.Version
+	serverVersion     db.Version
 }
 
 type collectionIndexes map[string][]*idx.IndexDocument
@@ -109,7 +115,12 @@ func New(opts Options) (*MongoRestore, error) {
 	}
 
 	// start up the progress bar manager
-	progressManager := progress.NewBarWriter(log.Writer(0), progressBarWaitTime, progressBarLength, true)
+	progressManager := progress.NewBarWriter(
+		log.Writer(0),
+		progressBarWaitTime,
+		progressBarLength,
+		true,
+	)
 	progressManager.Start()
 
 	restore := &MongoRestore{
@@ -121,7 +132,6 @@ func New(opts Options) (*MongoRestore, error) {
 		SessionProvider: provider,
 		ProgressManager: progressManager,
 		serverVersion:   serverVersion,
-		terminate:       false,
 		indexCatalog:    idx.NewIndexCatalog(),
 	}
 
@@ -162,30 +172,33 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 		log.Logv(log.DebugHigh, "\tdumping with object check disabled")
 	}
 
-	if restore.ToolOptions.Namespace.DB == "" && restore.ToolOptions.Namespace.Collection != "" {
+	if restore.ToolOptions.DB == "" && restore.ToolOptions.Collection != "" {
 		return fmt.Errorf("cannot restore a collection without a specified database")
 	}
 
-	if restore.ToolOptions.Namespace.DB != "" {
-		if err := util.ValidateDBName(restore.ToolOptions.Namespace.DB); err != nil {
+	if restore.ToolOptions.DB != "" {
+		if err := util.ValidateDBName(restore.ToolOptions.DB); err != nil {
 			return fmt.Errorf("invalid db name: %v", err)
 		}
 	}
-	if restore.ToolOptions.Namespace.Collection != "" {
-		if err := util.ValidateCollectionGrammar(restore.ToolOptions.Namespace.Collection); err != nil {
+	if restore.ToolOptions.Collection != "" {
+		if err := util.ValidateCollectionGrammar(restore.ToolOptions.Collection); err != nil {
 			return fmt.Errorf("invalid collection name: %v", err)
 		}
 	}
-	if restore.InputOptions.RestoreDBUsersAndRoles && restore.ToolOptions.Namespace.DB == "" {
+	if restore.InputOptions.RestoreDBUsersAndRoles && restore.ToolOptions.DB == "" {
 		return fmt.Errorf("cannot use --restoreDbUsersAndRoles without a specified database")
 	}
-	if restore.InputOptions.RestoreDBUsersAndRoles && restore.ToolOptions.Namespace.DB == "admin" {
+	if restore.InputOptions.RestoreDBUsersAndRoles && restore.ToolOptions.DB == "admin" {
 		return fmt.Errorf("cannot use --restoreDbUsersAndRoles with the admin database")
 	}
 
 	if restore.isAtlasProxy {
-		if restore.InputOptions.RestoreDBUsersAndRoles || restore.ToolOptions.Namespace.DB == "admin" {
-			return fmt.Errorf("cannot restore to the admin database when connected to a MongoDB Atlas free or shared cluster")
+		if restore.InputOptions.RestoreDBUsersAndRoles ||
+			restore.ToolOptions.DB == "admin" {
+			return fmt.Errorf(
+				"cannot restore to the admin database when connected to a MongoDB Atlas free or shared cluster",
+			)
 		}
 		log.Logv(log.DebugLow, "restoring to a MongoDB Atlas free or shared cluster")
 	}
@@ -218,7 +231,7 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 	log.Logvf(log.DebugLow, "connected to node type: %v", nodeType)
 
 	// deprecations with --nsInclude --nsExclude
-	if restore.ToolOptions.Namespace.DB != "" || restore.ToolOptions.Namespace.Collection != "" {
+	if restore.ToolOptions.DB != "" || restore.ToolOptions.Collection != "" {
 		if filepath.Ext(restore.TargetDirectory) != ".bson" {
 			log.Logvf(log.Always, deprecatedDBAndCollectionsOptionsWarning)
 		}
@@ -229,7 +242,7 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 			"are deprecated and will not exist in the future; use --nsExclude instead")
 	}
 	if restore.InputOptions.OplogReplay {
-		if len(restore.NSOptions.NSInclude) > 0 || restore.ToolOptions.Namespace.DB != "" {
+		if len(restore.NSOptions.NSInclude) > 0 || restore.ToolOptions.DB != "" {
 			return fmt.Errorf("cannot use --oplogReplay with includes specified")
 		}
 		if len(restore.NSOptions.NSExclude) > 0 || len(restore.NSOptions.ExcludedCollections) > 0 ||
@@ -242,11 +255,11 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 	}
 
 	includes := restore.NSOptions.NSInclude
-	if restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection != "" {
-		includes = append(includes, ns.Escape(restore.ToolOptions.Namespace.DB)+"."+
-			restore.ToolOptions.Namespace.Collection)
-	} else if restore.ToolOptions.Namespace.DB != "" {
-		includes = append(includes, ns.Escape(restore.ToolOptions.Namespace.DB)+".*")
+	if restore.ToolOptions.DB != "" && restore.ToolOptions.Collection != "" {
+		includes = append(includes, ns.Escape(restore.ToolOptions.DB)+"."+
+			restore.ToolOptions.Collection)
+	} else if restore.ToolOptions.DB != "" {
+		includes = append(includes, ns.Escape(restore.ToolOptions.DB)+".*")
 	}
 	if len(includes) == 0 {
 		includes = []string{"*"}
@@ -256,11 +269,15 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 		return fmt.Errorf("invalid includes: %v", err)
 	}
 
-	if len(restore.NSOptions.ExcludedCollections) > 0 && restore.ToolOptions.Namespace.Collection != "" {
+	if len(restore.NSOptions.ExcludedCollections) > 0 &&
+		restore.ToolOptions.Collection != "" {
 		return fmt.Errorf("--collection is not allowed when --excludeCollection is specified")
 	}
-	if len(restore.NSOptions.ExcludedCollectionPrefixes) > 0 && restore.ToolOptions.Namespace.Collection != "" {
-		return fmt.Errorf("--collection is not allowed when --excludeCollectionsWithPrefix is specified")
+	if len(restore.NSOptions.ExcludedCollectionPrefixes) > 0 &&
+		restore.ToolOptions.Collection != "" {
+		return fmt.Errorf(
+			"--collection is not allowed when --excludeCollectionsWithPrefix is specified",
+		)
 	}
 	excludes := restore.NSOptions.NSExclude
 	for _, col := range restore.NSOptions.ExcludedCollections {
@@ -275,7 +292,9 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 	}
 
 	if len(restore.NSOptions.NSFrom) != len(restore.NSOptions.NSTo) {
-		return fmt.Errorf("--nsFrom and --nsTo arguments must be specified an equal number of times")
+		return fmt.Errorf(
+			"--nsFrom and --nsTo arguments must be specified an equal number of times",
+		)
 	}
 	restore.renamer, err = ns.NewRenamer(restore.NSOptions.NSFrom, restore.NSOptions.NSTo)
 	if err != nil {
@@ -302,7 +321,7 @@ func (restore *MongoRestore) ParseAndValidateOptions() error {
 			return fmt.Errorf(
 				"cannot restore from \"-\" when --archive is specified")
 		}
-		if restore.ToolOptions.Namespace.Collection == "" {
+		if restore.ToolOptions.Collection == "" {
 			return fmt.Errorf("cannot restore from stdin without a specified collection")
 		}
 	}
@@ -344,9 +363,34 @@ func (restore *MongoRestore) Restore() Result {
 		if err != nil {
 			return Result{Err: err}
 		}
-		log.Logvf(log.DebugLow, `archive format version "%v"`, restore.archive.Prelude.Header.FormatVersion)
-		log.Logvf(log.DebugLow, `archive server version "%v"`, restore.archive.Prelude.Header.ServerVersion)
-		log.Logvf(log.DebugLow, `archive tool version "%v"`, restore.archive.Prelude.Header.ToolVersion)
+		log.Logvf(
+			log.DebugLow,
+			`archive format version "%v"`,
+			restore.archive.Prelude.Header.FormatVersion,
+		)
+
+		dumpServerVersionStr := restore.archive.Prelude.Header.ServerVersion
+		log.Logvf(
+			log.DebugLow,
+			`archive server version "%v"`,
+			dumpServerVersionStr,
+		)
+		restore.dumpServerVersion, _ = db.StrToVersion(dumpServerVersionStr)
+		log.Logvf(
+			log.DebugLow,
+			`archive tool version "%v"`,
+			restore.archive.Prelude.Header.ToolVersion,
+		)
+
+		if restore.dumpServerVersion.CmpMinor(restore.serverVersion) != 0 {
+			log.Logvf(
+				log.Always,
+				"WARNING: This archive came from MongoDB %s, but you are restoring to %s. Cross-version dump & restore is unsupported. The restored data may be corrupted.",
+				dumpServerVersionStr,
+				restore.serverVersion.String(),
+			)
+		}
+
 		target, err = restore.archive.Prelude.NewPreludeExplorer()
 		if err != nil {
 			return Result{Err: err}
@@ -365,6 +409,14 @@ func (restore *MongoRestore) Restore() Result {
 			}
 			return Result{Err: fmt.Errorf("mongorestore target '%v' invalid: %v", restore.TargetDirectory, err)}
 		}
+		preludeFileExists, err := restore.ReadPreludeMetadata(target)
+		if !preludeFileExists {
+			// don't error out here because mongodump versions before 100.12.0 will not include prelude.json
+			log.Logvf(log.DebugLow, "no prelude metadata found in target directory or parent, skipping")
+		} else if err != nil {
+			return Result{Err: fmt.Errorf("error reading dump metadata: %w", err)}
+		}
+
 		// handle cases where the user passes in a file instead of a directory
 		if !target.IsDir() {
 			log.Logv(log.DebugLow, "mongorestore target is a file, not a directory")
@@ -376,7 +428,7 @@ func (restore *MongoRestore) Restore() Result {
 			log.Logv(log.DebugLow, "mongorestore target is a directory, not a file")
 		}
 	}
-	if restore.ToolOptions.Namespace.Collection != "" &&
+	if restore.ToolOptions.Collection != "" &&
 		restore.OutputOptions.NumParallelCollections > 1 &&
 		restore.OutputOptions.NumInsertionWorkers == 1 &&
 		!restore.OutputOptions.MaintainInsertionOrder {
@@ -388,9 +440,14 @@ func (restore *MongoRestore) Restore() Result {
 		restore.OutputOptions.NumInsertionWorkers = restore.OutputOptions.NumParallelCollections
 	}
 	if restore.InputOptions.Archive != "" {
-		if int(restore.archive.Prelude.Header.ConcurrentCollections) > restore.OutputOptions.NumParallelCollections {
-			restore.OutputOptions.NumParallelCollections = int(restore.archive.Prelude.Header.ConcurrentCollections)
-			log.Logvf(log.Always,
+		if int(
+			restore.archive.Prelude.Header.ConcurrentCollections,
+		) > restore.OutputOptions.NumParallelCollections {
+			restore.OutputOptions.NumParallelCollections = int(
+				restore.archive.Prelude.Header.ConcurrentCollections,
+			)
+			log.Logvf(
+				log.Always,
 				"setting number of parallel collections to number of parallel collections in archive (%v)",
 				restore.archive.Prelude.Header.ConcurrentCollections,
 			)
@@ -400,32 +457,36 @@ func (restore *MongoRestore) Restore() Result {
 	// Create the demux before intent creation, because muted archive intents need
 	// to register themselves with the demux directly
 	if restore.InputOptions.Archive != "" {
-		restore.archive.Demux = archive.CreateDemux(restore.archive.Prelude.NamespaceMetadatas, restore.archive.In, restore.isAtlasProxy)
+		restore.archive.Demux = archive.CreateDemux(
+			restore.archive.Prelude.NamespaceMetadatas,
+			restore.archive.In,
+			restore.isAtlasProxy,
+		)
 	}
 
 	switch {
 	case restore.InputOptions.Archive != "":
 		log.Logvf(log.Always, "preparing collections to restore from")
 		err = restore.CreateAllIntents(target)
-	case restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection == "":
+	case restore.ToolOptions.DB != "" && restore.ToolOptions.Collection == "":
 		log.Logvf(log.Always,
 			"building a list of collections to restore from %v dir",
 			target.Path())
 		err = restore.CreateIntentsForDB(
-			restore.ToolOptions.Namespace.DB,
+			restore.ToolOptions.DB,
 			target,
 		)
-	case restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection != "" && restore.TargetDirectory == "-":
+	case restore.ToolOptions.DB != "" && restore.ToolOptions.Collection != "" && restore.TargetDirectory == "-":
 		log.Logvf(log.Always, "setting up a collection to be read from standard input")
 		err = restore.CreateStdinIntentForCollection(
-			restore.ToolOptions.Namespace.DB,
-			restore.ToolOptions.Namespace.Collection,
+			restore.ToolOptions.DB,
+			restore.ToolOptions.Collection,
 		)
-	case restore.ToolOptions.Namespace.DB != "" && restore.ToolOptions.Namespace.Collection != "":
+	case restore.ToolOptions.DB != "" && restore.ToolOptions.Collection != "":
 		log.Logvf(log.Always, "checking for collection data in %v", target.Path())
 		err = restore.CreateIntentForCollection(
-			restore.ToolOptions.Namespace.DB,
-			restore.ToolOptions.Namespace.Collection,
+			restore.ToolOptions.DB,
+			restore.ToolOptions.Collection,
 			target,
 		)
 	default:
@@ -436,9 +497,20 @@ func (restore *MongoRestore) Restore() Result {
 		return Result{Err: fmt.Errorf("error scanning filesystem: %v", err)}
 	}
 
-	if restore.isMongos && restore.manager.HasConfigDBIntent() && restore.ToolOptions.Namespace.DB == "" {
+	if restore.isMongos && restore.manager.HasConfigDBIntent() &&
+		restore.ToolOptions.DB == "" {
 		return Result{Err: fmt.Errorf("cannot do a full restore on a sharded system - " +
 			"remove the 'config' directory from the dump directory first")}
+	}
+
+	// if --restoreDbUsersAndRoles is used then db specific users and roles ($admin.system.users.bson / $admin.system.roles.bson)
+	// should exist in target directory / archive
+	if restore.InputOptions.RestoreDBUsersAndRoles &&
+		restore.ToolOptions.DB != "" &&
+		(restore.manager.Users() == nil && restore.manager.Roles() == nil) {
+		return Result{
+			Err: NoUsersOrRolesInDumpError,
+		}
 	}
 
 	if restore.InputOptions.OplogFile != "" {
@@ -448,11 +520,17 @@ func (restore *MongoRestore) Restore() Result {
 		}
 	}
 	if restore.InputOptions.OplogReplay && restore.manager.Oplog() == nil {
-		return Result{Err: fmt.Errorf("no oplog file to replay; make sure you run mongodump with --oplog")}
+		return Result{
+			Err: fmt.Errorf("no oplog file to replay; make sure you run mongodump with --oplog"),
+		}
 	}
 	if restore.manager.GetOplogConflict() {
-		return Result{Err: fmt.Errorf("cannot provide both an oplog.bson file and an oplog file with --oplogFile, " +
-			"nor can you provide both a local/oplog.rs.bson and a local/oplog.$main.bson file")}
+		return Result{
+			Err: fmt.Errorf(
+				"cannot provide both an oplog.bson file and an oplog file with --oplogFile, " +
+					"nor can you provide both a local/oplog.rs.bson and a local/oplog.$main.bson file",
+			),
+		}
 	}
 
 	conflicts := restore.manager.GetDestinationConflicts()
@@ -530,7 +608,8 @@ func (restore *MongoRestore) Restore() Result {
 		if err != nil {
 			return Result{Err: fmt.Errorf(
 				"the users and roles collections in the dump have an incompatible auth version with target server: %v",
-				err)}
+				err,
+			)}
 		}
 	}
 
@@ -604,6 +683,84 @@ func (restore *MongoRestore) Restore() Result {
 	return result
 }
 
+// ReadPreludeMetadata finds and parses the prelude.json file if it's present.
+// It currently only sets the server.dumpServerVersion, but in the future we can read and set other metadata from the dump as required.
+// Returns true if the metadata file exists.
+func (restore *MongoRestore) ReadPreludeMetadata(target archive.DirLike) (bool, error) {
+	filename := "prelude.json"
+	if restore.InputOptions.Gzip {
+		filename += ".gz"
+	}
+
+	var err error
+	var reader io.ReadCloser
+	if !target.IsDir() {
+		// Look for prelude.json in target's directory if target is .bson file.
+		target, err = newActualPath(target.Parent().Path())
+		if err != nil {
+			return false, fmt.Errorf("error finding parent of target file: %w", err)
+		}
+	}
+	filePath := filepath.Join(target.Path(), filename)
+	file, err := os.Open(filePath)
+	if errors.Is(err, os.ErrNotExist) {
+		// If the mongodump was for all databases, prelude.json will be in the top level directory.
+		// If a single database's directory was used as the target, look for prelude.json in the target's parent directory.
+		filePath = filepath.Join(target.Parent().Path(), filename)
+		file, err = os.Open(filePath)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		} else if err != nil {
+			return false, fmt.Errorf("error opening file %#q: %w", filePath, err)
+		}
+	} else if err != nil {
+		return false, fmt.Errorf("error opening file %#q: %w", filePath, err)
+	}
+
+	defer file.Close()
+
+	if restore.InputOptions.Gzip {
+		zipfile, err := gzip.NewReader(file)
+		if err != nil {
+			return true, fmt.Errorf("failed to open gzip file %#q: %w", filePath, err)
+		}
+		defer zipfile.Close()
+		reader = zipfile
+	} else {
+		reader = file
+	}
+	bytes, err := io.ReadAll(reader)
+	if err != nil {
+		return true, fmt.Errorf("failed to read prelude metadata from %#q: %w", filePath, err)
+	}
+
+	var prelude map[string]string
+	err = json.Unmarshal(bytes, &prelude)
+	if err != nil {
+		return true, fmt.Errorf("failed to unmarshal prelude metadata from %#q: %w", filePath, err)
+	}
+
+	dumpVersion, ok := prelude["ServerVersion"]
+	if !ok {
+		return true, fmt.Errorf("ServerVersion key not found in %#q", filePath)
+	}
+
+	// mongodump sets server version to unknown if it can't get the server version
+	if dumpVersion == common.ServerVersionUnknown {
+		log.Logvf(log.Info, "ServerVersion is 'unknown' in %#q", filePath)
+		return true, nil
+	}
+
+	restore.dumpServerVersion, err = db.StrToVersion(dumpVersion)
+	if err != nil {
+		return true, fmt.Errorf("failed to parse server version from %#q: %w", filePath, err)
+	} else {
+		log.Logvf(log.Info, "successfully parsed prelude metadata from %#q", filePath)
+		log.Logvf(log.DebugLow, "restore.dumpServerVersion: %#q", dumpVersion)
+		return true, nil
+	}
+}
+
 func (restore *MongoRestore) preFlightChecks() error {
 
 	for _, intent := range restore.manager.Intents() {
@@ -616,8 +773,11 @@ func (restore *MongoRestore) preFlightChecks() error {
 				}
 
 				if timeseriesExists {
-					return fmt.Errorf("timeseries collection `%s` already exists on the destination. "+
-						"You must remove this collection from the destination or use --drop", intent.Namespace())
+					return fmt.Errorf(
+						"timeseries collection `%s` already exists on the destination. "+
+							"You must remove this collection from the destination or use --drop",
+						intent.Namespace(),
+					)
 				}
 
 				bucketExists, err := restore.CollectionExists(intent.DB, intent.DataCollection())
@@ -626,13 +786,19 @@ func (restore *MongoRestore) preFlightChecks() error {
 				}
 
 				if bucketExists {
-					return fmt.Errorf("system.buckets collection `%v` already exists on the destination. "+
-						"You must remove this collection from the destination in order to restore %s", intent.DataNamespace(), intent.Namespace())
+					return fmt.Errorf(
+						"system.buckets collection `%v` already exists on the destination. "+
+							"You must remove this collection from the destination in order to restore %s",
+						intent.DataNamespace(),
+						intent.Namespace(),
+					)
 				}
 			}
 
 			if restore.OutputOptions.NoOptionsRestore {
-				return fmt.Errorf("cannot specify --noOptionsRestore when restoring timeseries collections")
+				return fmt.Errorf(
+					"cannot specify --noOptionsRestore when restoring timeseries collections",
+				)
 			}
 		}
 	}
@@ -658,7 +824,7 @@ func (restore *MongoRestore) preFlightChecks() error {
 
 func (restore *MongoRestore) getArchiveReader() (rc io.ReadCloser, err error) {
 	if restore.InputOptions.Archive == "-" {
-		rc = ioutil.NopCloser(restore.InputReader)
+		rc = io.NopCloser(restore.InputReader)
 	} else {
 		targetStat, err := os.Stat(restore.InputOptions.Archive)
 		if err != nil {
@@ -691,5 +857,5 @@ func (restore *MongoRestore) getArchiveReader() (rc io.ReadCloser, err error) {
 }
 
 func (restore *MongoRestore) HandleInterrupt() {
-	restore.terminate = true
+	restore.terminate.Store(true)
 }
