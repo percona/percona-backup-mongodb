@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/mongodb/mongo-tools/common/idx"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/bsonlib"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -246,7 +246,7 @@ func chunks(
 	conn connect.Client,
 	stg storage.Storage,
 	from,
-	to bsonv2.Timestamp,
+	to bson.Timestamp,
 	rsName string,
 	rsMap map[string]string,
 ) ([]oplog.OplogChunk, error) {
@@ -287,8 +287,8 @@ func chunks(
 }
 
 type applyOplogOption struct {
-	start    *bsonv2.Timestamp
-	end      *bsonv2.Timestamp
+	start    *bson.Timestamp
+	end      *bson.Timestamp
 	nss      []string
 	cloudNS  snapshot.CloneNS
 	unsafe   bool
@@ -298,7 +298,7 @@ type applyOplogOption struct {
 
 type (
 	setcommittedTxnFn func(ctx context.Context, txn []phys.RestoreTxn) error
-	getcommittedTxnFn func(ctx context.Context) (map[string]bsonv2.Timestamp, error)
+	getcommittedTxnFn func(ctx context.Context) (map[string]bson.Timestamp, error)
 )
 
 // By looking at just transactions in the oplog we can't tell which shards
@@ -330,7 +330,7 @@ func applyOplog(
 	ranges []oplogRange,
 	options *applyOplogOption,
 	sharded bool,
-	ic *idx.IndexCatalog,
+	ic *bsonlib.IndexCatalog,
 	setTxn setcommittedTxnFn,
 	getTxn getcommittedTxnFn,
 	stat *phys.DistTxnStat,
@@ -358,7 +358,7 @@ func applyOplog(
 
 	oplogRestore.SetOpFilter(options.filter)
 
-	var startTS, endTS bsonv2.Timestamp
+	var startTS, endTS bson.Timestamp
 	if options.start != nil {
 		startTS = *options.start
 	}
@@ -376,7 +376,7 @@ func applyOplog(
 	}
 	oplogRestore.SetSessionsToExclude(options.sessUUID)
 
-	var lts bsonv2.Timestamp
+	var lts bson.Timestamp
 	for _, oplogRange := range ranges {
 		stg := oplogRange.storage
 		for _, chnk := range oplogRange.chunks {
@@ -439,17 +439,17 @@ func replayChunk(
 	oplog *oplog.OplogRestore,
 	stg storage.Storage,
 	c compress.CompressionType,
-) (bsonv2.Timestamp, error) {
+) (bson.Timestamp, error) {
 	or, err := stg.SourceReader(file)
 	if err != nil {
-		lts := bsonv2.Timestamp{}
+		lts := bson.Timestamp{}
 		return lts, errors.Wrapf(err, "get object %s form the storage", file)
 	}
 	defer or.Close()
 
 	oplogReader, err := compress.Decompress(or, c)
 	if err != nil {
-		lts := bsonv2.Timestamp{}
+		lts := bson.Timestamp{}
 		return lts, errors.Wrapf(err, "decompress object %s", file)
 	}
 	defer oplogReader.Close()

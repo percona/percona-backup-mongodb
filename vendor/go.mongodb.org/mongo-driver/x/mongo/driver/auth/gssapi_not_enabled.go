@@ -9,11 +9,9 @@
 
 package auth
 
-import "net/http"
-
 // GSSAPI is the mechanism name for GSSAPI.
 const GSSAPI = "GSSAPI"
 
-func newGSSAPIAuthenticator(*Cred, *http.Client) (Authenticator, error) {
+func newGSSAPIAuthenticator(*Cred) (Authenticator, error) {
 	return nil, newAuthError("GSSAPI support not enabled during build (-tags gssapi)", nil)
 }

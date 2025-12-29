@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/mod/semver"
 
 	pbmt "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
@@ -18,11 +18,11 @@ type scounter struct {
 	cancel context.CancelFunc
 }
 
-func lte(t1, t2 bsonv2.Timestamp) bool {
+func lte(t1, t2 bson.Timestamp) bool {
 	return t1.Compare(t2) <= 0
 }
 
-func lt(t1, t2 bsonv2.Timestamp) bool {
+func lt(t1, t2 bson.Timestamp) bool {
 	return t1.Compare(t2) < 0
 }
 
@@ -133,8 +133,8 @@ func (c *Cluster) bcheckCheck(
 	name string,
 	shard *pbmt.Mongo,
 	data *[]pbmt.Counter,
-	bcpLastWrite bsonv2.Timestamp,
-	inRange func(ts, limit bsonv2.Timestamp) bool,
+	bcpLastWrite bson.Timestamp,
+	inRange func(ts, limit bson.Timestamp) bool,
 ) {
 	log.Println(name, "getting restored counters")
 	restored, err := shard.GetCounters()

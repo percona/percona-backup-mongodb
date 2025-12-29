@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -115,18 +115,18 @@ func (a *Agent) CanStart(ctx context.Context) error {
 func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
 	if err := version.FeatureSupport(a.brief.Version).PBMSupport(); err != nil {
 		log.FromContext(ctx).
-			Warning("", "", "", bsonv2.Timestamp{}, "WARNING: %v", err)
+			Warning("", "", "", bson.Timestamp{}, "WARNING: %v", err)
 	}
 
 	if a.brief.Sharded && a.brief.Version.IsShardedTimeseriesSupported() {
 		tss, err := topo.ListShardedTimeseries(ctx, a.leadConn)
 		if err != nil {
 			log.FromContext(ctx).
-				Error("", "", "", bsonv2.Timestamp{},
+				Error("", "", "", bson.Timestamp{},
 					"failed to list sharded timeseries: %v", err)
 		} else if len(tss) != 0 {
 			log.FromContext(ctx).
-				Warning("", "", "", bsonv2.Timestamp{},
+				Warning("", "", "", bson.Timestamp{},
 					"WARNING: cannot backup following sharded timeseries: %s",
 					strings.Join(tss, ", "))
 		}
@@ -136,11 +136,11 @@ func (a *Agent) showIncompatibilityWarning(ctx context.Context) {
 		hasConfigShard, err := topo.HasConfigShard(ctx, a.leadConn)
 		if err != nil {
 			log.FromContext(ctx).
-				Error("", "", "", bsonv2.Timestamp{},
+				Error("", "", "", bson.Timestamp{},
 					"failed to check for Config Shard: %v", err)
 		} else if hasConfigShard {
 			log.FromContext(ctx).
-				Warning("", "", "", bsonv2.Timestamp{},
+				Warning("", "", "", bson.Timestamp{},
 					"WARNING: selective backup and restore is not supported with Config Shard")
 		}
 	}
@@ -267,7 +267,7 @@ func (a *Agent) HbIsRun() bool {
 
 func (a *Agent) HbStatus(ctx context.Context) {
 	logger := log.FromContext(ctx)
-	l := logger.NewEvent("agentCheckup", "", "", bsonv2.Timestamp{})
+	l := logger.NewEvent("agentCheckup", "", "", bson.Timestamp{})
 	ctx = log.SetLogEventToContext(ctx, l)
 
 	nodeVersion, err := version.GetMongoVersion(ctx, a.nodeConn)
@@ -293,7 +293,7 @@ func (a *Agent) HbStatus(ctx context.Context) {
 		l.Debug("deleting agent status")
 		err := topo.RemoveAgentStatus(context.Background(), a.leadConn, hb)
 		if err != nil {
-			logger := logger.NewEvent("agentCheckup", "", "", bsonv2.Timestamp{})
+			logger := logger.NewEvent("agentCheckup", "", "", bson.Timestamp{})
 			logger.Error("remove agent heartbeat: %v", err)
 		}
 	}()
@@ -408,7 +408,7 @@ func updateAgentStat(
 func (a *Agent) warnIfParallelAgentDetected(
 	ctx context.Context,
 	l log.LogEvent,
-	lastHeartbeat bsonv2.Timestamp,
+	lastHeartbeat bson.Timestamp,
 ) {
 	s, err := topo.GetAgentStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
 	if err != nil {

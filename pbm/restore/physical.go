@@ -21,12 +21,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v2"
 
@@ -38,6 +36,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -98,7 +97,7 @@ type PhysRestore struct {
 	bcp       *backup.BackupMeta
 	files     []files
 	bcpSizeRS int64 // total uncompressed size of the backup for RS (including all increments)
-	restoreTS bsonv2.Timestamp
+	restoreTS bson.Timestamp
 
 	confOpts *config.RestoreConf
 
@@ -763,33 +762,33 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 	return cstat, nil
 }
 
-func (r *PhysRestore) getTSFromSyncFile(path string) (bsonv2.Timestamp, error) {
+func (r *PhysRestore) getTSFromSyncFile(path string) (bson.Timestamp, error) {
 	res, err := r.stg.SourceReader(path + "." + string(defs.StatusExtTS))
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "get timestamp")
+		return bson.Timestamp{}, errors.Wrap(err, "get timestamp")
 	}
 	b, err := io.ReadAll(res)
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "read timestamp")
+		return bson.Timestamp{}, errors.Wrap(err, "read timestamp")
 	}
 	tsb := bytes.Split(b, []byte(":"))
 	if len(tsb) != 2 {
-		return bsonv2.Timestamp{}, errors.Errorf("wrong file format: %s", tsb)
+		return bson.Timestamp{}, errors.Errorf("wrong file format: %s", tsb)
 	}
 	tsparts := bytes.Split(tsb[1], []byte(","))
 	if len(tsparts) != 2 {
-		return bsonv2.Timestamp{}, errors.Errorf("wrong timestamp format: %s", tsparts)
+		return bson.Timestamp{}, errors.Errorf("wrong timestamp format: %s", tsparts)
 	}
 	ctsT, err := strconv.Atoi(string(tsparts[0]))
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "parse ts.T")
+		return bson.Timestamp{}, errors.Wrap(err, "parse ts.T")
 	}
 	ctsI, err := strconv.Atoi(string(tsparts[1]))
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "parse ts.I")
+		return bson.Timestamp{}, errors.Wrap(err, "parse ts.I")
 	}
 
-	return bsonv2.Timestamp{
+	return bson.Timestamp{
 		T: uint32(ctsT),
 		I: uint32(ctsI),
 	}, nil
@@ -1060,7 +1059,7 @@ func (l *logBuff) Flush() error {
 func (r *PhysRestore) Snapshot(
 	ctx context.Context,
 	cmd *ctrl.RestoreCmd,
-	pitr bsonv2.Timestamp,
+	pitr bson.Timestamp,
 	opid ctrl.OPID,
 	l log.LogEvent,
 	stopAgentC chan<- struct{},
@@ -1522,16 +1521,16 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	return stat, nil
 }
 
-func (r *PhysRestore) getLasOpTime() (bsonv2.Timestamp, error) {
+func (r *PhysRestore) getLasOpTime() (bson.Timestamp, error) {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "start mongo")
+		return bson.Timestamp{}, errors.Wrap(err, "start mongo")
 	}
 
 	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "connect to mongo")
+		return bson.Timestamp{}, errors.Wrap(err, "connect to mongo")
 	}
 
 	ctx := context.TODO()
@@ -1542,13 +1541,13 @@ func (r *PhysRestore) getLasOpTime() (bsonv2.Timestamp, error) {
 		options.FindOne().SetSort(bson.D{{"ts", -1}}),
 	)
 	if res.Err() != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(res.Err(), "get oplog entry")
+		return bson.Timestamp{}, errors.Wrap(res.Err(), "get oplog entry")
 	}
 	rb, err := res.Raw()
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "decode oplog entry")
+		return bson.Timestamp{}, errors.Wrap(err, "decode oplog entry")
 	}
-	ts := bsonv2.Timestamp{}
+	ts := bson.Timestamp{}
 	var ok bool
 	ts.T, ts.I, ok = rb.Lookup("ts").TimestampOK()
 	if !ok {
@@ -1591,7 +1590,7 @@ func (r *PhysRestore) prepareData() error {
 	}
 
 	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
-		bson.M{"_id": bsonv2.NewObjectID(), "t": -1, "ts": bsonv2.Timestamp{0, 1}},
+		bson.M{"_id": bson.NewObjectID(), "t": -1, "ts": bson.Timestamp{0, 1}},
 	)
 	if err != nil {
 		return errors.Wrap(err, "insert to replset.minvalid")
@@ -1660,8 +1659,8 @@ func (r *PhysRestore) recoverStandalone() error {
 }
 
 func (r *PhysRestore) replayOplog(
-	from bsonv2.Timestamp,
-	to bsonv2.Timestamp,
+	from bson.Timestamp,
+	to bson.Timestamp,
 	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
@@ -1748,7 +1747,7 @@ func (r *PhysRestore) replayOplog(
 		return errors.Wrap(err, "replay oplog")
 	}
 	if len(partial) > 0 {
-		tops := []db.Oplog{}
+		tops := []oplog.Record{}
 		for _, t := range partial {
 			tops = append(tops, t.Oplog...)
 		}
@@ -1977,8 +1976,8 @@ func (r *PhysRestore) getShardMapping(bcp *backup.BackupMeta) map[string]string 
 // pick the oldest ts and put it as the reples ts. And the cluster will
 // pick the oldest ts proposed by replsets. All comms done via storage. Similar
 // to the restore states with proposed ts in *.lastTS files.
-func (r *PhysRestore) agreeCommonRestoreTS() (bsonv2.Timestamp, error) {
-	var ts bsonv2.Timestamp
+func (r *PhysRestore) agreeCommonRestoreTS() (bson.Timestamp, error) {
+	var ts bson.Timestamp
 	cts, err := r.getLasOpTime()
 	if err != nil {
 		return ts, errors.Wrap(err, "define last op time")
@@ -1998,7 +1997,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (bsonv2.Timestamp, error) {
 		if err != nil {
 			return ts, errors.Wrap(err, "wait for shards timestamp")
 		}
-		var mints bsonv2.Timestamp
+		var mints bson.Timestamp
 		for sh := range r.syncPathShards {
 			ts, err := r.getTSFromSyncFile(sh)
 			if err != nil {
@@ -2042,9 +2041,9 @@ func (r *PhysRestore) setcommittedTxn(_ context.Context, txn []phys.RestoreTxn) 
 	return storage.RetryableWrite(r.stg, r.syncPathRS+".txn", b)
 }
 
-func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]bsonv2.Timestamp, error) {
+func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]bson.Timestamp, error) {
 	shards := maps.Clone(r.syncPathShards)
-	txn := make(map[string]bsonv2.Timestamp)
+	txn := make(map[string]bson.Timestamp)
 	for len(shards) > 0 {
 		for f := range shards {
 			dr, err := r.stg.FileStat(f + "." + string(defs.StatusDone))

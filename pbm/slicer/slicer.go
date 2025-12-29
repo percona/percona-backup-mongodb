@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -32,7 +32,7 @@ type Slicer struct {
 	node       *mongo.Client
 	rs         string
 	span       int64
-	lastTS     bsonv2.Timestamp
+	lastTS     bson.Timestamp
 	storage    storage.Storage
 	oplog      *oplog.OplogBackup
 	l          log.LogEvent
@@ -329,7 +329,7 @@ func (s *Slicer) Stream(
 	}
 
 	for {
-		sliceTo := bsonv2.Timestamp{}
+		sliceTo := bson.Timestamp{}
 		// waiting for a trigger
 		select {
 		// wrapping up at the current point-in-time
@@ -352,7 +352,7 @@ func (s *Slicer) Stream(
 
 					s.l.Info("unsuitable backup [opid: %q]", opid)
 					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
-					sliceTo = bsonv2.Timestamp{}
+					sliceTo = bson.Timestamp{}
 				} else if s.lastTS.After(sliceTo) {
 					// it can happen that prevoius slice >= backup's fisrt_write
 					// in that case we have to just back off.
@@ -454,8 +454,8 @@ func (s *Slicer) Stream(
 
 func (s *Slicer) upload(
 	ctx context.Context,
-	from bsonv2.Timestamp,
-	to bsonv2.Timestamp,
+	from bson.Timestamp,
+	to bson.Timestamp,
 	compression compress.CompressionType,
 	level *int,
 ) error {
@@ -497,7 +497,7 @@ func (s *Slicer) upload(
 	return nil
 }
 
-func formatts(t bsonv2.Timestamp) string {
+func formatts(t bson.Timestamp) string {
 	return time.Unix(int64(t.T), 0).UTC().Format("2006-01-02T15:04:05")
 }
 
@@ -523,8 +523,8 @@ func (s *Slicer) getOpLock(ctx context.Context, l *lock.LockHeader, t time.Durat
 
 var errUnsuitableBackup = errors.New("unsuitable backup")
 
-func (s *Slicer) backupRSStartTS(ctx context.Context, opid string, t time.Duration) (bsonv2.Timestamp, error) {
-	var ts bsonv2.Timestamp
+func (s *Slicer) backupRSStartTS(ctx context.Context, opid string, t time.Duration) (bson.Timestamp, error) {
+	var ts bson.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 

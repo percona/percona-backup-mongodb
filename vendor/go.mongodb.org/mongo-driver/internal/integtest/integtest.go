@@ -198,12 +198,11 @@ func AddServerlessAuthCredentials(uri string) (string, error) {
 
 	var scheme string
 	// remove the scheme
-	switch {
-	case strings.HasPrefix(uri, "mongodb+srv://"):
+	if strings.HasPrefix(uri, "mongodb+srv://") {
 		scheme = "mongodb+srv://"
-	case strings.HasPrefix(uri, "mongodb://"):
+	} else if strings.HasPrefix(uri, "mongodb://") {
 		scheme = "mongodb://"
-	default:
+	} else {
 		return "", errors.New(`scheme must be "mongodb" or "mongodb+srv"`)
 	}
 

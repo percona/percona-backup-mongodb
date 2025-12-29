@@ -381,9 +381,16 @@ func ReadMsgSectionSingleDocument(src []byte) (doc bsoncore.Document, rem []byte
 // ReadMsgSectionDocumentSequence reads an identifier and document sequence from src and returns the document sequence
 // data parsed into a slice of BSON documents.
 func ReadMsgSectionDocumentSequence(src []byte) (identifier string, docs []bsoncore.Document, rem []byte, ok bool) {
-	identifier, rem, ret, ok := ReadMsgSectionRawDocumentSequence(src)
+	length, rem, ok := readi32(src)
+	if !ok || int(length) > len(src) {
+		return "", nil, rem, false
+	}
+
+	rem, ret := rem[:length-4], rem[length-4:] // reslice so we can just iterate a loop later
+
+	identifier, rem, ok = readcstring(rem)
 	if !ok {
-		return "", nil, src, false
+		return "", nil, rem, false
 	}
 
 	docs = make([]bsoncore.Document, 0)
@@ -396,7 +403,7 @@ func ReadMsgSectionDocumentSequence(src []byte) (identifier string, docs []bsonc
 		docs = append(docs, doc)
 	}
 	if len(rem) > 0 {
-		return "", nil, src, false
+		return "", nil, append(rem, ret...), false
 	}
 
 	return identifier, docs, ret, true
@@ -406,8 +413,8 @@ func ReadMsgSectionDocumentSequence(src []byte) (identifier string, docs []bsonc
 // sequence data.
 func ReadMsgSectionRawDocumentSequence(src []byte) (identifier string, data []byte, rem []byte, ok bool) {
 	length, rem, ok := readi32(src)
-	if !ok || int(length) > len(src) || length-4 < 0 {
-		return "", nil, src, false
+	if !ok || int(length) > len(src) {
+		return "", nil, rem, false
 	}
 
 	// After these assignments, rem will be the data containing the identifier string + the document sequence bytes and
@@ -416,7 +423,7 @@ func ReadMsgSectionRawDocumentSequence(src []byte) (identifier string, data []by
 
 	identifier, rem, ok = readcstring(rem)
 	if !ok {
-		return "", nil, src, false
+		return "", nil, rem, false
 	}
 
 	return identifier, rem, rest, true
@@ -540,11 +547,8 @@ func ReadCompressedCompressorID(src []byte) (id CompressorID, rem []byte, ok boo
 }
 
 // ReadCompressedCompressedMessage reads the compressed wiremessage to dst.
-//
-// Deprecated: This function is not required by the Go Driver and will be
-// removed in the 2.0 release.
 func ReadCompressedCompressedMessage(src []byte, length int32) (msg []byte, rem []byte, ok bool) {
-	if len(src) < int(length) || length < 0 {
+	if len(src) < int(length) {
 		return nil, src, false
 	}
 	return src[:length], src[length:], true

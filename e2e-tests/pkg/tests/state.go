@@ -11,10 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -56,9 +55,9 @@ type dbSpec struct {
 	ID      string `bson:"_id"`
 	Primary string `bson:"primary"`
 	Version struct {
-		UUID      bsonv2.Binary    `bson:"uuid"`
-		Timestamp bsonv2.Timestamp `bson:"timestamp"`
-		LastMod   int32            `bson:"lastMod,omitempty"` // since v5.0
+		UUID      bson.Binary    `bson:"uuid"`
+		Timestamp bson.Timestamp `bson:"timestamp"`
+		LastMod   int32          `bson:"lastMod,omitempty"` // since v5.0
 	} `bson:"version"`
 }
 
@@ -76,7 +75,7 @@ type collSpec struct {
 	ID           string             `bson:"_id"`
 	LastmodEpoch primitive.ObjectID `bson:"lastmodEpoch"`
 	LastMod      primitive.DateTime `bson:"lastMod"`
-	Timestamp    bsonv2.Timestamp   `bson:"timestamp"`
+	Timestamp    bson.Timestamp     `bson:"timestamp"`
 	UUID         *primitive.Binary  `bson:"uuid,omitempty"` // since v5.0
 	Key          map[string]any     `bson:"key"`
 	Unique       bool               `bson:"unique"`
@@ -467,7 +466,7 @@ func getShardState(ctx context.Context, m *mongo.Client) (shardState, error) {
 
 		for _, coll := range colls {
 			rv[name+"."+coll.Name] = &shardCollState{
-				Spec: coll,
+				Spec: &coll,
 				Hash: dbHash.Collections[coll.Name],
 			}
 		}

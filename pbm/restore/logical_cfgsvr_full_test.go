@@ -9,9 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -291,9 +290,9 @@ func createConfigDatabasesDocs(t *testing.T, n int64) *bytes.Buffer {
 	t.Helper()
 
 	type version struct {
-		UUID      bsonv2.Binary    `bson:"uuid"`
-		Timestamp bsonv2.Timestamp `bson:"timestamp"`
-		LastMod   int64            `bson:"lastMod,omitempty"`
+		UUID      bson.Binary    `bson:"uuid"`
+		Timestamp bson.Timestamp `bson:"timestamp"`
+		LastMod   int64          `bson:"lastMod,omitempty"`
 	}
 	type databasesSchema struct {
 		ID      string  `bson:"_id"`
@@ -307,8 +306,8 @@ func createConfigDatabasesDocs(t *testing.T, n int64) *bytes.Buffer {
 			ID:      fmt.Sprintf("%d", i),
 			Primary: "rs1",
 			Version: version{
-				UUID:      bsonv2.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
-				Timestamp: bsonv2.Timestamp{T: uint32(i), I: 1},
+				UUID:      bson.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
+				Timestamp: bson.Timestamp{T: uint32(i), I: 1},
 				LastMod:   i,
 			},
 		}
@@ -331,8 +330,8 @@ func createConfigCollectionsDocs(t *testing.T, n int64, addSession bool) *bytes.
 		ID                string             `bson:"_id"`
 		LastmodEpoch      primitive.ObjectID `bson:"lastmodEpoch"`
 		LastMod           primitive.DateTime `bson:"lastMod"`
-		Timestamp         bsonv2.Timestamp   `bson:"timestamp"`
-		UUID              bsonv2.Binary      `bson:"uuid,omitempty"`
+		Timestamp         bson.Timestamp     `bson:"timestamp"`
+		UUID              bson.Binary        `bson:"uuid,omitempty"`
 		Key               bson.D             `bson:"key"`
 		Unique            bool               `bson:"unique"`
 		NoBalance         bool               `bson:"noBalance"`
@@ -345,8 +344,8 @@ func createConfigCollectionsDocs(t *testing.T, n int64, addSession bool) *bytes.
 			ID:                fmt.Sprintf("%d", i),
 			LastmodEpoch:      primitive.NewObjectID(),
 			LastMod:           10,
-			Timestamp:         bsonv2.Timestamp{T: uint32(i), I: 1},
-			UUID:              bsonv2.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
+			Timestamp:         bson.Timestamp{T: uint32(i), I: 1},
+			UUID:              bson.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
 			Key:               bson.D{{"_id", 1}},
 			Unique:            false,
 			NoBalance:         false,
@@ -355,7 +354,7 @@ func createConfigCollectionsDocs(t *testing.T, n int64, addSession bool) *bytes.
 		if addSession && i == 0 {
 			dbDoc.ID = "config.system.sessions"
 			uuid, _ := hex.DecodeString(configSystemSessionsUUID)
-			dbDoc.UUID = bsonv2.Binary{Subtype: 0x04, Data: uuid}
+			dbDoc.UUID = bson.Binary{Subtype: 0x04, Data: uuid}
 		}
 		bsonDoc, err := bson.Marshal(dbDoc)
 		if err != nil {
@@ -373,8 +372,8 @@ func createConfigChunksDocs(t *testing.T, n int64, addSessionChunk bool, sysSess
 	t.Helper()
 
 	type historyEntry struct {
-		ValidAfter bsonv2.Timestamp `bson:"validAfter"`
-		Shard      string           `bson:"shard"`
+		ValidAfter bson.Timestamp `bson:"validAfter"`
+		Shard      string         `bson:"shard"`
 	}
 	type chunksSchema struct {
 		ID                  primitive.ObjectID `bson:"_id"`
@@ -382,8 +381,8 @@ func createConfigChunksDocs(t *testing.T, n int64, addSessionChunk bool, sysSess
 		Min                 bson.D             `bson:"min"`
 		Max                 bson.D             `bson:"max"`
 		Shard               string             `bson:"shard"`
-		Lastmod             bsonv2.Timestamp   `bson:"lastmod"`
-		OnCurrentShardSince bsonv2.Timestamp   `bson:"onCurrentShardSince"`
+		Lastmod             bson.Timestamp     `bson:"lastmod"`
+		OnCurrentShardSince bson.Timestamp     `bson:"onCurrentShardSince"`
 		History             []historyEntry     `bson:"history"`
 	}
 
@@ -401,11 +400,11 @@ func createConfigChunksDocs(t *testing.T, n int64, addSessionChunk bool, sysSess
 			Min:                 bson.D{{"_id", primitive.MinKey{}}},
 			Max:                 bson.D{{"_id", primitive.MaxKey{}}},
 			Shard:               "rs1",
-			Lastmod:             bsonv2.Timestamp{T: uint32(i), I: 0},
-			OnCurrentShardSince: bsonv2.Timestamp{T: uint32(time.Now().Unix()), I: 15},
+			Lastmod:             bson.Timestamp{T: uint32(i), I: 0},
+			OnCurrentShardSince: bson.Timestamp{T: uint32(time.Now().Unix()), I: 15},
 			History: []historyEntry{
 				{
-					ValidAfter: bsonv2.Timestamp{T: uint32(time.Now().Unix()), I: 15},
+					ValidAfter: bson.Timestamp{T: uint32(time.Now().Unix()), I: 15},
 					Shard:      "rs1",
 				},
 			},

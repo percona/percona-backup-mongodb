@@ -4,9 +4,8 @@ import (
 	"context"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -22,20 +21,20 @@ type NodeStatus struct {
 	// https://github.com/mongodb/mongo/blob/v8.0/src/mongo/db/repl/member_state.h#L170-L193
 	StateStr string `bson:"stateStr" json:"stateStr"`
 
-	Uptime            int64            `bson:"uptime" json:"uptime"`
-	Optime            *OpTime          `bson:"optime" json:"optime"`
-	OptimeDate        time.Time        `bson:"optimeDate" json:"optimeDate"`
-	ConfigVersion     int              `bson:"configVersion" json:"configVersion"`
-	ElectionTime      bsonv2.Timestamp `bson:"electionTime,omitempty" json:"electionTime,omitempty"`
-	ElectionDate      time.Time        `bson:"electionDate,omitempty" json:"electionDate,omitempty"`
-	InfoMessage       string           `bson:"infoMessage,omitempty" json:"infoMessage,omitempty"`
-	OptimeDurable     *OpTime          `bson:"optimeDurable,omitempty" json:"optimeDurable,omitempty"`
-	OptimeDurableDate time.Time        `bson:"optimeDurableDate,omitempty" json:"optimeDurableDate,omitempty"`
-	LastHeartbeat     time.Time        `bson:"lastHeartbeat,omitempty" json:"lastHeartbeat,omitempty"`
-	LastHeartbeatRecv time.Time        `bson:"lastHeartbeatRecv,omitempty" json:"lastHeartbeatRecv,omitempty"`
-	PingMs            int64            `bson:"pingMs,omitempty" json:"pingMs,omitempty"`
-	Self              bool             `bson:"self,omitempty" json:"self,omitempty"`
-	SyncingTo         string           `bson:"syncingTo,omitempty" json:"syncingTo,omitempty"`
+	Uptime            int64          `bson:"uptime" json:"uptime"`
+	Optime            *OpTime        `bson:"optime" json:"optime"`
+	OptimeDate        time.Time      `bson:"optimeDate" json:"optimeDate"`
+	ConfigVersion     int            `bson:"configVersion" json:"configVersion"`
+	ElectionTime      bson.Timestamp `bson:"electionTime,omitempty" json:"electionTime,omitempty"`
+	ElectionDate      time.Time      `bson:"electionDate,omitempty" json:"electionDate,omitempty"`
+	InfoMessage       string         `bson:"infoMessage,omitempty" json:"infoMessage,omitempty"`
+	OptimeDurable     *OpTime        `bson:"optimeDurable,omitempty" json:"optimeDurable,omitempty"`
+	OptimeDurableDate time.Time      `bson:"optimeDurableDate,omitempty" json:"optimeDurableDate,omitempty"`
+	LastHeartbeat     time.Time      `bson:"lastHeartbeat,omitempty" json:"lastHeartbeat,omitempty"`
+	LastHeartbeatRecv time.Time      `bson:"lastHeartbeatRecv,omitempty" json:"lastHeartbeatRecv,omitempty"`
+	PingMs            int64          `bson:"pingMs,omitempty" json:"pingMs,omitempty"`
+	Self              bool           `bson:"self,omitempty" json:"self,omitempty"`
+	SyncingTo         string         `bson:"syncingTo,omitempty" json:"syncingTo,omitempty"`
 }
 
 func (s *NodeStatus) IsArbiter() bool {
@@ -61,7 +60,7 @@ type ReplsetStatus struct {
 	Ok                      int                `bson:"ok" json:"ok"`
 	ClusterTime             *ClusterTime       `bson:"$clusterTime,omitempty" json:"$clusterTime,omitempty"`
 	ConfigServerState       *ConfigServerState `bson:"$configServerState,omitempty" json:"$configServerState,omitempty"`
-	OperationTime           *bsonv2.Timestamp  `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
+	OperationTime           *bson.Timestamp    `bson:"operationTime,omitempty" json:"operationTime,omitempty"`
 	WriteMajorityCount      int                `bson:"writeMajorityCount,omitempty" json:"writeMajorityCount,omitempty"`
 }
 

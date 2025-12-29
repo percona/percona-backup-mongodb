@@ -10,10 +10,9 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 )
@@ -33,7 +32,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("conn string error: %v", err)
 	}
-	mClient, err = mongo.Connect(ctx, options.Client().ApplyURI(connStr))
+	mClient, err = mongo.Connect(options.Client().ApplyURI(connStr))
 	if err != nil {
 		log.Fatalf("mongo client connect error: %v", err)
 	}
@@ -102,7 +101,7 @@ func TestListenCmd(t *testing.T) {
 		}
 
 		for _, e := range commands {
-			doc := bson.D{{"_id", bsonv2.NewObjectID()}, {"cmd", e.cmd}, {"ts", e.ts}}
+			doc := bson.D{{"_id", bson.NewObjectID()}, {"cmd", e.cmd}, {"ts", e.ts}}
 			if _, err := coll.InsertOne(ctx, doc); err != nil {
 				t.Fatalf("insert %s@%d: %v", e.cmd, e.ts, err)
 			}

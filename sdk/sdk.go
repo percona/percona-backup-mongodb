@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -30,7 +30,7 @@ type (
 	Command     = ctrl.Cmd
 	CommandID   string
 	CommandType = ctrl.Command
-	Timestamp   = bsonv2.Timestamp
+	Timestamp   = bson.Timestamp
 )
 
 const (
@@ -124,7 +124,7 @@ type OpLock struct {
 	// Node is `host:port` pair of an agent that acquired the lock.
 	Node string `json:"node,omitempty"`
 	// Heartbeat is the last cluster time seen by an agent that acquired the lock.
-	Heartbeat bsonv2.Timestamp `json:"hb"`
+	Heartbeat bson.Timestamp `json:"hb"`
 
 	err error
 }
@@ -214,7 +214,7 @@ func CanDeleteIncrementalBackup(
 func ListDeleteBackupBefore(
 	ctx context.Context,
 	client *Client,
-	ts bsonv2.Timestamp,
+	ts bson.Timestamp,
 	bcpType BackupType,
 	profile string,
 ) ([]BackupMetadata, error) {
@@ -224,7 +224,7 @@ func ListDeleteBackupBefore(
 func ListDeleteChunksBefore(
 	ctx context.Context,
 	client *Client,
-	ts bsonv2.Timestamp,
+	ts bson.Timestamp,
 ) ([]OplogChunk, error) {
 	r, err := backup.MakeCleanupInfo(ctx, client.conn, ts, "")
 	return r.Chunks, err

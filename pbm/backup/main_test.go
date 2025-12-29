@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -151,7 +150,7 @@ func (tenv *TestEnvironment) resetMongo(ctx context.Context) error {
 
 	// drop PBM collections
 	db := mongo.Database(defs.DB)
-	pbmColFilter := bson.D{{Key: "name", Value: bsonv2.Regex{Pattern: "^pbm"}}}
+	pbmColFilter := bson.D{{Key: "name", Value: bson.Regex{Pattern: "^pbm"}}}
 	collections, err := db.ListCollectionNames(ctx, pbmColFilter)
 	if err != nil {
 		return err
@@ -239,7 +238,7 @@ func insertTestBcpMeta(t *testing.T, env *TestEnvironment, stg Storage, b bcp) B
 
 	meta := BackupMeta{
 		Type:           b.BcpType,
-		OPID:           ctrl.OPID(bsonv2.NilObjectID).String(),
+		OPID:           ctrl.OPID(bson.NilObjectID).String(),
 		Name:           b.Name,
 		Namespaces:     make([]string, 0),
 		Compression:    compress.CompressionTypeS2,
@@ -247,13 +246,13 @@ func insertTestBcpMeta(t *testing.T, env *TestEnvironment, stg Storage, b bcp) B
 		StartTS:        time.Now().Unix(),
 		Status:         defs.StatusDone,
 		Replsets:       []BackupReplset{},
-		LastWriteTS:    bsonv2.Timestamp{T: uint32(b.LWT.Unix())},
-		FirstWriteTS:   bsonv2.Timestamp{T: uint32(firstWrite.Unix())},
+		LastWriteTS:    bson.Timestamp{T: uint32(b.LWT.Unix())},
+		FirstWriteTS:   bson.Timestamp{T: uint32(firstWrite.Unix())},
 		PBMVersion:     version.Current().Version,
 		MongoVersion:   env.Brief.Version.String(),
 		Nomination:     []BackupRsNomination{},
 		BalancerStatus: topo.BalancerModeOff,
-		Hb:             bsonv2.Timestamp{T: uint32(b.LWT.Unix())},
+		Hb:             bson.Timestamp{T: uint32(b.LWT.Unix())},
 	}
 
 	_, err := env.Client.BcpCollection().InsertOne(t.Context(), meta)

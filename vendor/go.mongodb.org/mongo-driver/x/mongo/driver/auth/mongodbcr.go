@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 
 	// Ignore gosec warning "Blocklisted import crypto/md5: weak cryptographic primitive". We need
 	// to use MD5 here to implement the MONGODB-CR specification.
@@ -29,13 +28,9 @@ import (
 // MongoDB 4.0.
 const MONGODBCR = "MONGODB-CR"
 
-func newMongoDBCRAuthenticator(cred *Cred, _ *http.Client) (Authenticator, error) {
-	source := cred.Source
-	if source == "" {
-		source = "admin"
-	}
+func newMongoDBCRAuthenticator(cred *Cred) (Authenticator, error) {
 	return &MongoDBCRAuthenticator{
-		DB:       source,
+		DB:       cred.Source,
 		Username: cred.Username,
 		Password: cred.Password,
 	}, nil
@@ -100,11 +95,6 @@ func (a *MongoDBCRAuthenticator) Auth(ctx context.Context, cfg *Config) error {
 	}
 
 	return nil
-}
-
-// Reauth reauthenticates the connection.
-func (a *MongoDBCRAuthenticator) Reauth(_ context.Context, _ *driver.AuthConfig) error {
-	return newAuthError("MONGODB-CR does not support reauthentication", nil)
 }
 
 func (a *MongoDBCRAuthenticator) createKey(nonce string) string {

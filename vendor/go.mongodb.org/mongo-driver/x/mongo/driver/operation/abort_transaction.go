@@ -21,7 +21,6 @@ import (
 
 // AbortTransaction performs an abortTransaction operation.
 type AbortTransaction struct {
-	authenticator driver.Authenticator
 	recoveryToken bsoncore.Document
 	session       *session.Client
 	clock         *session.ClusterClock
@@ -67,7 +66,6 @@ func (at *AbortTransaction) Execute(ctx context.Context) error {
 		WriteConcern:      at.writeConcern,
 		ServerAPI:         at.serverAPI,
 		Name:              driverutil.AbortTransactionOp,
-		Authenticator:     at.authenticator,
 	}.Execute(ctx)
 
 }
@@ -199,15 +197,5 @@ func (at *AbortTransaction) ServerAPI(serverAPI *driver.ServerAPIOptions) *Abort
 	}
 
 	at.serverAPI = serverAPI
-	return at
-}
-
-// Authenticator sets the authenticator to use for this operation.
-func (at *AbortTransaction) Authenticator(authenticator driver.Authenticator) *AbortTransaction {
-	if at == nil {
-		at = new(AbortTransaction)
-	}
-
-	at.authenticator = authenticator
 	return at
 }

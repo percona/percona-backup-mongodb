@@ -82,13 +82,12 @@ func (js *jsonScanner) nextToken() (*jsonToken, error) {
 		return js.scanString()
 	default:
 		// check if it's a number
-		switch {
-		case c == '-' || isDigit(c):
+		if c == '-' || isDigit(c) {
 			return js.scanNumber(c)
-		case c == 't' || c == 'f' || c == 'n':
+		} else if c == 't' || c == 'f' || c == 'n' {
 			// maybe a literal
 			return js.scanLiteral(c)
-		default:
+		} else {
 			return nil, fmt.Errorf("invalid JSON input. Position: %d. Character: %c", js.pos-1, c)
 		}
 	}
@@ -175,7 +174,7 @@ func getu4(s []byte) rune {
 	for _, c := range s[:4] {
 		switch {
 		case '0' <= c && c <= '9':
-			c -= '0'
+			c = c - '0'
 		case 'a' <= c && c <= 'f':
 			c = c - 'a' + 10
 		case 'A' <= c && c <= 'F':
@@ -326,14 +325,13 @@ func (js *jsonScanner) scanLiteral(first byte) (*jsonToken, error) {
 
 	c5, err := js.readNextByte()
 
-	switch {
-	case bytes.Equal([]byte("true"), lit) && (isValueTerminator(c5) || errors.Is(err, io.EOF)):
+	if bytes.Equal([]byte("true"), lit) && (isValueTerminator(c5) || errors.Is(err, io.EOF)) {
 		js.pos = int(math.Max(0, float64(js.pos-1)))
 		return &jsonToken{t: jttBool, v: true, p: p}, nil
-	case bytes.Equal([]byte("null"), lit) && (isValueTerminator(c5) || errors.Is(err, io.EOF)):
+	} else if bytes.Equal([]byte("null"), lit) && (isValueTerminator(c5) || errors.Is(err, io.EOF)) {
 		js.pos = int(math.Max(0, float64(js.pos-1)))
 		return &jsonToken{t: jttNull, v: nil, p: p}, nil
-	case bytes.Equal([]byte("fals"), lit):
+	} else if bytes.Equal([]byte("fals"), lit) {
 		if c5 == 'e' {
 			c5, err = js.readNextByte()
 
@@ -432,13 +430,12 @@ func (js *jsonScanner) scanNumber(first byte) (*jsonToken, error) {
 			case '}', ']', ',':
 				s = nssDone
 			default:
-				switch {
-				case isWhiteSpace(c) || errors.Is(err, io.EOF):
+				if isWhiteSpace(c) || errors.Is(err, io.EOF) {
 					s = nssDone
-				case isDigit(c):
+				} else if isDigit(c) {
 					s = nssSawIntegerDigits
 					b.WriteByte(c)
-				default:
+				} else {
 					s = nssInvalid
 				}
 			}
@@ -458,13 +455,12 @@ func (js *jsonScanner) scanNumber(first byte) (*jsonToken, error) {
 			case '}', ']', ',':
 				s = nssDone
 			default:
-				switch {
-				case isWhiteSpace(c) || errors.Is(err, io.EOF):
+				if isWhiteSpace(c) || errors.Is(err, io.EOF) {
 					s = nssDone
-				case isDigit(c):
+				} else if isDigit(c) {
 					s = nssSawFractionDigits
 					b.WriteByte(c)
-				default:
+				} else {
 					s = nssInvalid
 				}
 			}
@@ -494,13 +490,12 @@ func (js *jsonScanner) scanNumber(first byte) (*jsonToken, error) {
 			case '}', ']', ',':
 				s = nssDone
 			default:
-				switch {
-				case isWhiteSpace(c) || errors.Is(err, io.EOF):
+				if isWhiteSpace(c) || errors.Is(err, io.EOF) {
 					s = nssDone
-				case isDigit(c):
+				} else if isDigit(c) {
 					s = nssSawExponentDigits
 					b.WriteByte(c)
-				default:
+				} else {
 					s = nssInvalid
 				}
 			}

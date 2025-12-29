@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -185,7 +185,7 @@ func (a *Agent) DeletePITR(ctx context.Context, d *ctrl.DeletePITRCmd, opid ctrl
 		return
 	}
 
-	ts := bsonv2.Timestamp{T: uint32(t.Unix())}
+	ts := bson.Timestamp{T: uint32(t.Unix())}
 	l.Info("deleting pitr chunks older than %v", t)
 	err = a.deletePITRImpl(ctx, ts)
 	if err != nil {
@@ -284,7 +284,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	}
 }
 
-func (a *Agent) deletePITRImpl(ctx context.Context, ts bsonv2.Timestamp) error {
+func (a *Agent) deletePITRImpl(ctx context.Context, ts bson.Timestamp) error {
 	l := log.LogEventFromContext(ctx)
 
 	r, err := backup.MakeCleanupInfo(ctx, a.leadConn, ts, "")

@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -705,8 +704,8 @@ func createConfigDatabasesDoc(t *testing.T, dbName, primaryShard string) error {
 		{"_id", dbName},
 		{"primary", primaryShard},
 		{"version", bson.D{
-			{"uuid", bsonv2.Binary{Subtype: 0x04, Data: []byte("test-uuid")}},
-			{"timestamp", bsonv2.Timestamp{T: 1, I: 0}},
+			{"uuid", bson.Binary{Subtype: 0x04, Data: []byte("test-uuid")}},
+			{"timestamp", bson.Timestamp{T: 1, I: 0}},
 			{"lastMod", int64(1)},
 		}},
 	}

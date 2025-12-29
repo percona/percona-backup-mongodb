@@ -10,10 +10,9 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -41,7 +40,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("conn string error: %v", err)
 	}
-	mClient, err = mongo.Connect(ctx, options.Client().ApplyURI(connStr))
+	mClient, err = mongo.Connect(options.Client().ApplyURI(connStr))
 	if err != nil {
 		log.Fatalf("mongo client connect error: %v", err)
 	}
@@ -84,8 +83,8 @@ func TestCatchup(t *testing.T) {
 		backupMeta.Replsets = []backup.BackupReplset{
 			{
 				Name:         "rsX",
-				FirstWriteTS: bsonv2.Timestamp{T: 500, I: 0},
-				LastWriteTS:  bsonv2.Timestamp{T: 1000, I: 0},
+				FirstWriteTS: bson.Timestamp{T: 500, I: 0},
+				LastWriteTS:  bson.Timestamp{T: 1000, I: 0},
 			},
 		}
 		_, err := connClient.BcpCollection().InsertOne(ctx, backupMeta)
@@ -105,7 +104,7 @@ func TestCatchup(t *testing.T) {
 	t.Run("no existing PITR chunks, use last write from backup", func(t *testing.T) {
 		s := createTestSlicer(t)
 
-		wantLastTS := bsonv2.Timestamp{T: 1000, I: 0}
+		wantLastTS := bson.Timestamp{T: 1000, I: 0}
 		backupMeta := createBackupMeta()
 		backupMeta.LastWriteTS = wantLastTS
 		backupMeta.Replsets[0].LastWriteTS = wantLastTS
@@ -128,8 +127,8 @@ func TestCatchup(t *testing.T) {
 
 		backupMeta := createBackupMeta()
 		backupMeta.StartTS = 1000
-		backupMeta.LastWriteTS = bsonv2.Timestamp{T: 1000, I: 0}
-		backupMeta.Replsets[0].LastWriteTS = bsonv2.Timestamp{T: 1000, I: 0}
+		backupMeta.LastWriteTS = bson.Timestamp{T: 1000, I: 0}
+		backupMeta.Replsets[0].LastWriteTS = bson.Timestamp{T: 1000, I: 0}
 		_, err := connClient.BcpCollection().InsertOne(ctx, backupMeta)
 		if err != nil {
 			t.Fatalf("failed to insert backup: %v", err)
@@ -159,7 +158,7 @@ func TestCatchup(t *testing.T) {
 	t.Run("chunk after backup", func(t *testing.T) {
 		s := createTestSlicer(t)
 
-		lastWriteTS := bsonv2.Timestamp{T: 1000, I: 0}
+		lastWriteTS := bson.Timestamp{T: 1000, I: 0}
 		backupMeta := createBackupMeta()
 		backupMeta.LastWriteTS = lastWriteTS
 		backupMeta.Replsets[0].LastWriteTS = lastWriteTS
@@ -168,12 +167,12 @@ func TestCatchup(t *testing.T) {
 			t.Fatalf("failed to insert backup: %v", err)
 		}
 
-		wantChunkEndTS := bsonv2.Timestamp{T: 1500, I: 0}
+		wantChunkEndTS := bson.Timestamp{T: 1500, I: 0}
 		chunk := &oplog.OplogChunk{
 			RS:          "rs0",
 			FName:       "chunk1",
 			Compression: compress.CompressionTypeNone,
-			StartTS:     bsonv2.Timestamp{T: 1000, I: 0},
+			StartTS:     bson.Timestamp{T: 1000, I: 0},
 			EndTS:       wantChunkEndTS,
 			Size:        1024,
 		}
@@ -194,7 +193,7 @@ func TestCatchup(t *testing.T) {
 	t.Run("restore after last chunk", func(t *testing.T) {
 		s := createTestSlicer(t)
 
-		wantLastTS := bsonv2.Timestamp{T: 1000, I: 0}
+		wantLastTS := bson.Timestamp{T: 1000, I: 0}
 		backupMeta := createBackupMeta()
 		backupMeta.LastWriteTS = wantLastTS
 		backupMeta.Replsets[0].LastWriteTS = wantLastTS
@@ -203,12 +202,12 @@ func TestCatchup(t *testing.T) {
 			t.Fatalf("failed to insert backup: %v", err)
 		}
 
-		chunkEndTS := bsonv2.Timestamp{T: 800, I: 0}
+		chunkEndTS := bson.Timestamp{T: 800, I: 0}
 		chunk := &oplog.OplogChunk{
 			RS:          "rs0",
 			FName:       "chunk1",
 			Compression: compress.CompressionTypeNone,
-			StartTS:     bsonv2.Timestamp{T: 500, I: 0},
+			StartTS:     bson.Timestamp{T: 500, I: 0},
 			EndTS:       chunkEndTS,
 			Size:        1024,
 		}
@@ -242,8 +241,8 @@ func TestCatchup(t *testing.T) {
 	t.Run("chunk between backup timestamps", func(t *testing.T) {
 		s := createTestSlicer(t)
 
-		backupFirstTS := bsonv2.Timestamp{T: 500, I: 0}
-		wantLastTS := bsonv2.Timestamp{T: 1000, I: 0}
+		backupFirstTS := bson.Timestamp{T: 500, I: 0}
+		wantLastTS := bson.Timestamp{T: 1000, I: 0}
 		backupMeta := createBackupMeta()
 		backupMeta.LastWriteTS = wantLastTS
 		backupMeta.Replsets[0].FirstWriteTS = backupFirstTS
@@ -255,12 +254,12 @@ func TestCatchup(t *testing.T) {
 		}
 
 		// Create a chunk with endTS between backup FirstWriteTS and LastWriteTS
-		chunkEndTS := bsonv2.Timestamp{T: 750, I: 0}
+		chunkEndTS := bson.Timestamp{T: 750, I: 0}
 		chunk := &oplog.OplogChunk{
 			RS:          "rs0",
 			FName:       "chunk1",
 			Compression: compress.CompressionTypeNone,
-			StartTS:     bsonv2.Timestamp{T: 600, I: 0},
+			StartTS:     bson.Timestamp{T: 600, I: 0},
 			EndTS:       chunkEndTS,
 			Size:        1024,
 		}
@@ -291,8 +290,8 @@ func TestCatchup(t *testing.T) {
 	t.Run("chunk before backup first write", func(t *testing.T) {
 		s := createTestSlicer(t)
 
-		backupFirstTS := bsonv2.Timestamp{T: 1000, I: 0}
-		backupLastTS := bsonv2.Timestamp{T: 1500, I: 0}
+		backupFirstTS := bson.Timestamp{T: 1000, I: 0}
+		backupLastTS := bson.Timestamp{T: 1500, I: 0}
 		backupMeta := createBackupMeta()
 		backupMeta.LastWriteTS = backupLastTS
 		backupMeta.Replsets[0].FirstWriteTS = backupFirstTS
@@ -305,12 +304,12 @@ func TestCatchup(t *testing.T) {
 		}
 
 		// Create a chunk with endTS before backup FirstWriteTS
-		chunkEndTS := bsonv2.Timestamp{T: 500, I: 0}
+		chunkEndTS := bson.Timestamp{T: 500, I: 0}
 		chunk := &oplog.OplogChunk{
 			RS:          "rs0",
 			FName:       "chunk1",
 			Compression: compress.CompressionTypeNone,
-			StartTS:     bsonv2.Timestamp{T: 200, I: 0},
+			StartTS:     bson.Timestamp{T: 200, I: 0},
 			EndTS:       chunkEndTS,
 			Size:        1024,
 		}
@@ -358,7 +357,7 @@ func createTestSlicer(t *testing.T) *Slicer {
 		t.Fatalf("failed to create filesystem storage: %v", err)
 	}
 	cfg := &config.Config{
-		Epoch: bsonv2.Timestamp{T: 1, I: 0},
+		Epoch: bson.Timestamp{T: 1, I: 0},
 		PITR: &config.PITRConf{
 			Compression: compress.CompressionTypeNone,
 		},
@@ -368,7 +367,7 @@ func createTestSlicer(t *testing.T) *Slicer {
 }
 
 func createBackupMeta() *backup.BackupMeta {
-	lastWriteTS := bsonv2.Timestamp{T: 1000, I: 0}
+	lastWriteTS := bson.Timestamp{T: 1000, I: 0}
 	return &backup.BackupMeta{
 		Name:        "2025-11-21T09:38:09Z",
 		Type:        defs.LogicalBackup,
@@ -378,7 +377,7 @@ func createBackupMeta() *backup.BackupMeta {
 		Replsets: []backup.BackupReplset{
 			{
 				Name:         "rs0",
-				FirstWriteTS: bsonv2.Timestamp{T: 500, I: 0},
+				FirstWriteTS: bson.Timestamp{T: 500, I: 0},
 				LastWriteTS:  lastWriteTS,
 			},
 		},

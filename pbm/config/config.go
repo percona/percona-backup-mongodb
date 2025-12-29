@@ -11,10 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"gopkg.in/yaml.v2"
 
@@ -80,7 +79,7 @@ type Config struct {
 	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 
-	Epoch bsonv2.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+	Epoch bson.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
 func Parse(r io.Reader) (*Config, error) {
@@ -768,10 +767,10 @@ func IsPITREnabled(ctx context.Context, m connect.Client) (bool, bool, error) {
 	return cfg.PITR.Enabled, cfg.PITR.OplogOnly, nil
 }
 
-type Epoch bsonv2.Timestamp
+type Epoch bson.Timestamp
 
-func (e Epoch) TS() bsonv2.Timestamp {
-	return bsonv2.Timestamp(e)
+func (e Epoch) TS() bson.Timestamp {
+	return bson.Timestamp(e)
 }
 
 func GetEpoch(ctx context.Context, m connect.Client) (Epoch, error) {

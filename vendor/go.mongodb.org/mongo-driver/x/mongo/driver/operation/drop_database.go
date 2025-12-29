@@ -21,16 +21,15 @@ import (
 
 // DropDatabase performs a dropDatabase operation
 type DropDatabase struct {
-	authenticator driver.Authenticator
-	session       *session.Client
-	clock         *session.ClusterClock
-	monitor       *event.CommandMonitor
-	crypt         driver.Crypt
-	database      string
-	deployment    driver.Deployment
-	selector      description.ServerSelector
-	writeConcern  *writeconcern.WriteConcern
-	serverAPI     *driver.ServerAPIOptions
+	session      *session.Client
+	clock        *session.ClusterClock
+	monitor      *event.CommandMonitor
+	crypt        driver.Crypt
+	database     string
+	deployment   driver.Deployment
+	selector     description.ServerSelector
+	writeConcern *writeconcern.WriteConcern
+	serverAPI    *driver.ServerAPIOptions
 }
 
 // NewDropDatabase constructs and returns a new DropDatabase.
@@ -56,7 +55,6 @@ func (dd *DropDatabase) Execute(ctx context.Context) error {
 		WriteConcern:   dd.writeConcern,
 		ServerAPI:      dd.serverAPI,
 		Name:           driverutil.DropDatabaseOp,
-		Authenticator:  dd.authenticator,
 	}.Execute(ctx)
 
 }
@@ -154,15 +152,5 @@ func (dd *DropDatabase) ServerAPI(serverAPI *driver.ServerAPIOptions) *DropDatab
 	}
 
 	dd.serverAPI = serverAPI
-	return dd
-}
-
-// Authenticator sets the authenticator to use for this operation.
-func (dd *DropDatabase) Authenticator(authenticator driver.Authenticator) *DropDatabase {
-	if dd == nil {
-		dd = new(DropDatabase)
-	}
-
-	dd.authenticator = authenticator
 	return dd
 }

@@ -19,17 +19,14 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/dumprestore"
-	"github.com/mongodb/mongo-tools/common/idx"
-	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/percona/percona-backup-mongodb/pbm/bsonlib"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
@@ -38,7 +35,139 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-type Record = db.Oplog
+// "empty" prevOpTime is {ts: Timestamp(0, 0), t: NumberLong(-1)} as BSON.
+var emptyPrev = string([]byte{
+	28, 0, 0, 0, 17, 116, 115, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	18, 116, 0, 255, 255, 255, 255, 255, 255, 255, 255, 0,
+})
+
+// ID wraps fields needed to uniquely identify a transaction for use as a map
+// key.  The 'lsid' is a string rather than bson.Raw or []byte so that this
+// type is a valid map key.
+type ID struct {
+	lsid      string
+	txnNumber int64
+}
+
+func (id ID) String() string {
+	return fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(id.lsid)), id.txnNumber)
+}
+
+// Meta holds information extracted from an oplog entry for later routing
+// logic.  Zero value means 'not a transaction'.  We store 'prevOpTime' as
+// string so the struct is comparable.
+type Meta struct {
+	id         ID
+	commit     bool
+	abort      bool
+	partial    bool
+	prepare    bool
+	prevOpTime string
+}
+
+// NewMeta extracts transaction metadata from an oplog entry.  A
+// non-transaction will return a zero-value Meta struct, not an error.
+//
+// Currently there is no way for this to error, but that may change in the
+// future if we change the db.Oplog.Object to bson.Raw, so the API is designed
+// with failure as a possibility.
+func NewMeta(op Record) (Meta, error) {
+	// If a vectored insert is within a retryable session, it will contain `lsid`, `txnNumber`, and `prevOpTime` fields
+	// and also a `multiOpType: 1` field which distinguishes vectored inserts from transactions.
+	if op.MultiOpType != nil && *op.MultiOpType == 1 {
+		return Meta{}, nil
+	}
+
+	if op.LSID == nil || op.TxnNumber == nil || op.Operation != "c" {
+		return Meta{}, nil
+	}
+
+	// Default prevOpTime to empty to "upgrade" 4.0 transactions without it.
+	m := Meta{
+		id:         ID{lsid: string(op.LSID), txnNumber: *op.TxnNumber},
+		prevOpTime: emptyPrev,
+	}
+
+	if op.PrevOpTime != nil {
+		m.prevOpTime = string(op.PrevOpTime)
+	}
+
+	// Inspect command to confirm a transaction command and identify parameters.
+	var isRealTxn bool
+	for _, e := range op.Object {
+		switch e.Key {
+		case "applyOps":
+			isRealTxn = true
+		case "commitTransaction":
+			isRealTxn = true
+			m.commit = true
+		case "abortTransaction":
+			isRealTxn = true
+			m.abort = true
+		case "partialTxn":
+			m.partial = true
+		case "prepare":
+			m.prepare = true
+		}
+	}
+
+	// Defensive, in case some other op command ever includes lsid+txnNumber
+	if !isRealTxn {
+		return Meta{}, nil
+	}
+
+	return m, nil
+}
+
+// IsAbort is true if the oplog entry had the abort command.
+func (m Meta) IsAbort() bool {
+	return m.abort
+}
+
+// IsData is true if the oplog entry contains transaction data
+func (m Meta) IsData() bool {
+	return !m.commit && !m.abort
+}
+
+// IsCommit is true if the oplog entry was an abort command or was the
+// final entry of an unprepared transaction.
+func (m Meta) IsCommit() bool {
+	return m.commit || (m.IsTxn() && !m.prepare && !m.partial)
+}
+
+// IsFinal is true if the oplog entry is the closing entry of a transaction,
+// i.e. if IsAbort or IsCommit is true.
+func (m Meta) IsFinal() bool {
+	return m.IsCommit() || m.IsAbort()
+}
+
+// IsMultiOp is true if the oplog entry is part of a prepared and/or large
+// transaction.
+func (m Meta) IsMultiOp() bool {
+	return m.partial || m.prepare || (m.IsTxn() && m.prevOpTime != emptyPrev)
+}
+
+// IsTxn is true if the oplog entry is part of any transaction, i.e. the lsid field
+// exists.
+func (m Meta) IsTxn() bool {
+	return m != Meta{}
+}
+
+type Record struct {
+	Timestamp   primitive.Timestamp `bson:"ts"`
+	Term        *int64              `bson:"t"`
+	Hash        *int64              `bson:"h,omitempty"`
+	Version     int                 `bson:"v"`
+	Operation   string              `bson:"op"`
+	Namespace   string              `bson:"ns"`
+	Object      bson.D              `bson:"o"`
+	Query       bson.D              `bson:"o2,omitempty"`
+	UI          *primitive.Binary   `bson:"ui,omitempty"`
+	LSID        bson.Raw            `bson:"lsid,omitempty"`
+	TxnNumber   *int64              `bson:"txnNumber,omitempty"`
+	PrevOpTime  bson.Raw            `bson:"prevOpTime,omitempty"`
+	MultiOpType *int                `bson:"multiOpType,omitempty"`
+}
 
 // OpFilter can be used to filter out oplog records by content.
 // Useful for apply only subset of operations depending on conditions
@@ -137,7 +266,7 @@ type cloneNS struct {
 	fromColl string
 	toDB     string
 	toColl   string
-	toUUID   bsonv2.Binary
+	toUUID   bson.Binary
 }
 
 func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
@@ -148,7 +277,7 @@ func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
 
 // mDBCl represents client interface for MongoDB logic used by OplogRestore
 type mDBCl interface {
-	getUUIDForNS(ctx context.Context, ns string) (bsonv2.Binary, error)
+	getUUIDForNS(ctx context.Context, ns string) (bson.Binary, error)
 	ensureCollExists(dbName string) error
 	applyOps(entries []interface{}) error
 }
@@ -159,9 +288,9 @@ type OplogRestore struct {
 	ver               *db.Version
 	needIdxWorkaround bool
 	preserveUUIDopt   bool
-	startTS           bsonv2.Timestamp
-	endTS             bsonv2.Timestamp
-	indexCatalog      *idx.IndexCatalog
+	startTS           bson.Timestamp
+	endTS             bson.Timestamp
+	indexCatalog      *bsonlib.IndexCatalog
 	excludeNS         *ns.Matcher
 	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
@@ -194,7 +323,7 @@ const saveLastDistTxns = 100
 // NewOplogRestore creates an object for an oplog applying
 func NewOplogRestore(
 	m *mongo.Client,
-	ic *idx.IndexCatalog,
+	ic *bsonlib.IndexCatalog,
 	sv *version.MongoVersion,
 	unsafe,
 	preserveUUID bool,
@@ -217,7 +346,7 @@ func NewOplogRestore(
 		}
 	}
 	if ic == nil {
-		ic = idx.NewIndexCatalog()
+		ic = bsonlib.NewIndexCatalog()
 	}
 	ver := &db.Version{v[0], v[1], v[2]}
 	return &OplogRestore{
@@ -249,26 +378,26 @@ func (o *OplogRestore) SetOpFilter(f OpFilter) {
 
 // SetTimeframe sets boundaries for the replayed operations. All operations
 // that happened before `start` and after `end` are going to be discarded.
-// Zero `end` (bsonv2.Timestamp{T:0}) means all chunks will be replayed
+// Zero `end` (bson.Timestamp{T:0}) means all chunks will be replayed
 // utill the end (no tail trim).
-func (o *OplogRestore) SetTimeframe(start, end bsonv2.Timestamp) {
+func (o *OplogRestore) SetTimeframe(start, end bson.Timestamp) {
 	o.startTS = start
 	o.endTS = end
 }
 
 // Apply applys an oplog from a given source
-func (o *OplogRestore) Apply(src io.ReadCloser) (bsonv2.Timestamp, error) {
+func (o *OplogRestore) Apply(src io.ReadCloser) (bson.Timestamp, error) {
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
-	var lts bsonv2.Timestamp
+	var lts bson.Timestamp
 
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
 		if rawOplogEntry == nil {
 			break
 		}
-		oe := db.Oplog{}
+		oe := Record{}
 		err := bson.Unmarshal(rawOplogEntry, &oe)
 		if err != nil {
 			return lts, errors.Wrap(err, "reading oplog")
@@ -541,7 +670,7 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 
 // isOpForCloning returns whether op needs to be processed or not in case of cloning NS.
 // In case of non cloning use case, it's always true.
-func (o *OplogRestore) isOpForCloning(oe *db.Oplog) bool {
+func (o *OplogRestore) isOpForCloning(oe *Record) bool {
 	if !o.cloneNS.IsSpecified() {
 		return true
 	}
@@ -623,7 +752,7 @@ func (o *OplogRestore) LastOpTS() uint32 {
 	return atomic.LoadUint32(&o.lastOpT)
 }
 
-func (o *OplogRestore) handleOp(oe db.Oplog) error {
+func (o *OplogRestore) handleOp(oe Record) error {
 	// skip if operation happened after the desired time frame (oe.Timestamp > o.lastTS)
 	if o.endTS.T > 0 && util.ToV2Timestamp(oe.Timestamp).Compare(o.endTS) == 1 {
 		return nil
@@ -653,7 +782,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return err
 	}
 
-	meta, err := txn.NewMeta(oe)
+	meta, err := NewMeta(oe)
 	if err != nil {
 		return errors.Wrap(err, "get op metadata")
 	}
@@ -673,7 +802,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	return nil
 }
 
-func (o *OplogRestore) setPreserveUUID(oe db.Oplog) error {
+func (o *OplogRestore) setPreserveUUID(oe Record) error {
 	// optimization - not to parse namespace if it remains the same
 	if o.cnamespase != oe.Namespace {
 		o.preserveUUID = o.preserveUUIDopt
@@ -699,7 +828,7 @@ func (o *OplogRestore) setPreserveUUID(oe db.Oplog) error {
 	return nil
 }
 
-func isTxnOps(op *db.Oplog) bool {
+func isTxnOps(op *Record) bool {
 	for _, v := range op.Object {
 		if v.Key == "applyOps" {
 			return true
@@ -709,7 +838,7 @@ func isTxnOps(op *db.Oplog) bool {
 	return false
 }
 
-func isPartial(op *db.Oplog) bool {
+func isPartial(op *Record) bool {
 	for _, v := range op.Object {
 		if v.Key == "partialTxn" {
 			return true
@@ -720,9 +849,9 @@ func isPartial(op *db.Oplog) bool {
 }
 
 type Txn struct {
-	Oplog    []db.Oplog
-	meta     txn.Meta
-	applyOps []db.Oplog
+	Oplog    []Record
+	meta     Meta
+	applyOps []Record
 	allOps   bool
 }
 
@@ -748,7 +877,7 @@ type Txn struct {
 // a commit message for this txn is encountered. But store uncommitted dist txns
 // so applier check in the end if any of them committed on other shards
 // (and commit if so)
-func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
+func (o *OplogRestore) handleTxnOp(meta Meta, op Record) error {
 	txnID := fmt.Sprintf("%s-%d", base64.RawStdEncoding.EncodeToString([]byte(op.LSID)), *op.TxnNumber)
 
 	if isTxnOps(&op) {
@@ -787,10 +916,10 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	// preserve it and communicate later to another shards so they can apply
 	// prepared txn if its commit didn't get into the oplog time range
 	if !meta.IsData() {
-		var cts bsonv2.Timestamp
+		var cts bson.Timestamp
 		for _, v := range op.Object {
 			if v.Key == "commitTimestamp" {
-				cts = v.Value.(bsonv2.Timestamp)
+				cts = v.Value.(bson.Timestamp)
 			}
 		}
 
@@ -823,9 +952,9 @@ func (e extractTxError) Error() string {
 	return fmt.Sprintf("error extracting transaction ops: applyOps %s: %v", e.tag, e.msg)
 }
 
-func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
+func txnInnerOps(txnOp *Record) ([]Record, error) {
 	doc := txnOp.Object
-	rawAO, err := bsonutil.FindValueByKey("applyOps", &doc)
+	rawAO, err := bsonlib.FindValueByKey("applyOps", &doc)
 	if err != nil {
 		return nil, extractTxError{"field", err.Error()}
 	}
@@ -835,7 +964,7 @@ func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 		return nil, extractTxError{"field", "not a BSON array"}
 	}
 
-	ops := make([]db.Oplog, len(ao))
+	ops := make([]Record, len(ao))
 	for i, v := range ao {
 		opDoc, ok := v.(bson.D)
 		if !ok {
@@ -867,8 +996,8 @@ func (e bsonConvertError) Error() string {
 	return fmt.Sprintf("error converting bson.D to op: %s field: %s", e.field, e.msg)
 }
 
-func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
-	op := db.Oplog{}
+func bsonDocToOplog(doc bson.D) (*Record, error) {
+	op := Record{}
 
 	for _, v := range doc {
 		switch v.Key {
@@ -932,7 +1061,7 @@ func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits [
 
 //nolint:nonamedreturns
 func (o *OplogRestore) HandleUncommittedTxn(
-	commits map[string]bsonv2.Timestamp,
+	commits map[string]bson.Timestamp,
 ) (partial, uncommitted []Txn, err error) {
 	if len(o.txnData) == 0 {
 		return nil, nil, nil
@@ -960,7 +1089,7 @@ func (o *OplogRestore) HandleUncommittedTxn(
 	return partial, uncommitted, nil
 }
 
-func (o *OplogRestore) cloneEntry(op *db.Oplog) {
+func (o *OplogRestore) cloneEntry(op *Record) {
 	if !o.cloneNS.IsSpecified() {
 		return
 	}
@@ -997,7 +1126,7 @@ func (o *OplogRestore) cloneEntry(op *db.Oplog) {
 	op.UI = nil
 }
 
-func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
+func (o *OplogRestore) handleNonTxnOp(op Record) error {
 	// have to handle it here one more time because before the op gets thru
 	// txnBuffer its namespace is `collection.$cmd` instead of the real one
 	if o.isOpExcluded(&op) || !isOpAllowed(&op) ||
@@ -1082,7 +1211,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				if err != nil {
 					return errors.Wrapf(err, "could not marshal applyOps operation: %v", rawOp)
 				}
-				var nestedOp db.Oplog
+				var nestedOp Record
 				err = bson.Unmarshal(bytesOp, &nestedOp)
 				if err != nil {
 					return errors.Wrapf(err, "could not unmarshal applyOps command: %v", rawOp)
@@ -1105,11 +1234,11 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			return nil
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {
-				bsonutil.RemoveKey("noPadding", &op.Object)
-				bsonutil.RemoveKey("usePowerOf2Sizes", &op.Object)
+				bsonlib.RemoveKey("noPadding", &op.Object)
+				bsonlib.RemoveKey("usePowerOf2Sizes", &op.Object)
 			}
 
-			indexModValue, found := bsonutil.RemoveKey("index", &op.Object)
+			indexModValue, found := bsonlib.RemoveKey("index", &op.Object)
 			if !found {
 				break
 			}
@@ -1132,11 +1261,11 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			}
 			o.indexCatalog.DropCollection(dbName, collName)
 
-			collation, err := bsonutil.FindSubdocumentByKey("collation", &op.Object)
+			collation, err := bsonlib.FindSubdocumentByKey("collation", &op.Object)
 			if err != nil {
 				o.indexCatalog.SetCollation(dbName, collName, true)
 			}
-			localeValue, _ := bsonutil.FindValueByKey("locale", &collation)
+			localeValue, _ := bsonlib.FindValueByKey("locale", &collation)
 			if localeValue == "simple" {
 				o.indexCatalog.SetCollation(dbName, collName, true)
 			}
@@ -1200,9 +1329,9 @@ func (c *cqueue) last() *phys.RestoreTxn {
 // extractIndexDocumentFromCommitIndexBuilds extracts the index specs out of
 // "createIndexes" oplog entry and convert to IndexDocument
 // returns collection name and index spec
-func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocument) {
+func extractIndexDocumentFromCreateIndexes(op Record) (string, *bsonlib.IndexDocument) {
 	collectionName := ""
-	indexDocument := &idx.IndexDocument{Options: bson.M{}}
+	indexDocument := &bsonlib.IndexDocument{Options: bson.M{}}
 	for _, elem := range op.Object {
 		switch elem.Key {
 		case "createIndexes":
@@ -1223,7 +1352,7 @@ func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocum
 // returns collection name and index specs
 //
 //nolint:lll
-func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.IndexDocument) {
+func extractIndexDocumentFromCommitIndexBuilds(op Record) (string, []*bsonlib.IndexDocument) {
 	collectionName := ""
 	for _, elem := range op.Object {
 		if elem.Key == "commitIndexBuild" {
@@ -1234,9 +1363,9 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 	for _, elem := range op.Object {
 		if elem.Key == "indexes" {
 			indexes := elem.Value.(bson.A)
-			indexDocuments := make([]*idx.IndexDocument, len(indexes))
+			indexDocuments := make([]*bsonlib.IndexDocument, len(indexes))
 			for i, index := range indexes {
-				var indexSpec idx.IndexDocument
+				var indexSpec bsonlib.IndexDocument
 				indexSpec.Options = bson.M{}
 				for _, elem := range index.(bson.D) {
 					switch elem.Key {
@@ -1260,7 +1389,7 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 
 // filterUUIDs removes 'ui' entries from ops, including nested applyOps ops.
 // It also modifies ops that rely on 'ui'.
-func (o *OplogRestore) filterUUIDs(op db.Oplog) (db.Oplog, error) {
+func (o *OplogRestore) filterUUIDs(op Record) (Record, error) {
 	// Remove UUIDs from oplog entries
 	if !o.preserveUUID {
 		op.UI = nil
@@ -1276,7 +1405,7 @@ func (o *OplogRestore) filterUUIDs(op db.Oplog) (db.Oplog, error) {
 	if op.Operation == "c" && isApplyOpsCmd(op.Object) {
 		filtered, err := o.newFilteredApplyOps(op.Object)
 		if err != nil {
-			return db.Oplog{}, err
+			return Record{}, err
 		}
 		op.Object = filtered
 	}
@@ -1292,7 +1421,7 @@ func (o *OplogRestore) newFilteredApplyOps(cmd bson.D) (bson.D, error) {
 		return nil, err
 	}
 
-	filtered := make([]db.Oplog, len(ops))
+	filtered := make([]Record, len(ops))
 	for i, v := range ops {
 		filtered[i], err = o.filterUUIDs(v)
 		if err != nil {
@@ -1318,7 +1447,7 @@ func needsCreateIndexWorkaround(sv *db.Version) bool {
 
 // convertCreateIndexToIndexInsert converts from new-style create indexes
 // command to old style special index insert.
-func convertCreateIndexToIndexInsert(op db.Oplog) (db.Oplog, error) {
+func convertCreateIndexToIndexInsert(op Record) (Record, error) {
 	dbName := op.Namespace
 	if i := strings.Index(dbName, "."); i > -1 {
 		dbName = dbName[:i]
@@ -1327,12 +1456,12 @@ func convertCreateIndexToIndexInsert(op db.Oplog) (db.Oplog, error) {
 	cmdValue := op.Object[0].Value
 	collName, ok := cmdValue.(string)
 	if !ok {
-		return db.Oplog{}, errors.New("unknown format for createIndexes")
+		return Record{}, errors.New("unknown format for createIndexes")
 	}
 
 	indexSpec := op.Object[1:]
 	if len(indexSpec) < 3 {
-		return db.Oplog{}, errors.New("unknown format for createIndexes, index spec " +
+		return Record{}, errors.New("unknown format for createIndexes, index spec " +
 			"must have at least \"v\", \"key\", and \"name\" fields")
 	}
 
@@ -1359,13 +1488,13 @@ func isApplyOpsCmd(cmd bson.D) bool {
 
 // nestedApplyOps models an applyOps command document
 type nestedApplyOps struct {
-	ApplyOps []db.Oplog `bson:"applyOps"`
+	ApplyOps []Record `bson:"applyOps"`
 }
 
 // unwrapNestedApplyOps converts a bson.D to a typed data structure.
 // Unfortunately, we're forced to convert by marshaling to bytes and
 // unmarshalling.
-func unwrapNestedApplyOps(doc bson.D) ([]db.Oplog, error) {
+func unwrapNestedApplyOps(doc bson.D) ([]Record, error) {
 	// Doc to bytes
 	bs, err := bson.Marshal(doc)
 	if err != nil {
@@ -1385,7 +1514,7 @@ func unwrapNestedApplyOps(doc bson.D) ([]db.Oplog, error) {
 // wrapNestedApplyOps converts a typed data structure to a bson.D.
 // Unfortunately, we're forced to convert by marshaling to bytes and
 // unmarshalling.
-func wrapNestedApplyOps(ops []db.Oplog) (bson.D, error) {
+func wrapNestedApplyOps(ops []Record) (bson.D, error) {
 	cmd := &nestedApplyOps{ApplyOps: ops}
 
 	// Typed data to bytes

@@ -675,12 +675,6 @@ type FindOneAndReplaceOptions struct {
 	// Values must be constant or closed expressions that do not reference document fields. Parameters can then be
 	// accessed as variables in an aggregate expression context (e.g. "$$var").
 	Let interface{}
-
-	// If true, the server accepts empty Timestamp as a literal rather than replacing it with the current time.
-	//
-	// Deprecated: This option is for internal use only and should not be set. It may be changed or removed in any
-	// release.
-	BypassEmptyTsReplacement *bool
 }
 
 // FindOneAndReplace creates a new FindOneAndReplaceOptions instance.
@@ -793,9 +787,6 @@ func MergeFindOneAndReplaceOptions(opts ...*FindOneAndReplaceOptions) *FindOneAn
 		if opt.Let != nil {
 			fo.Let = opt.Let
 		}
-		if opt.BypassEmptyTsReplacement != nil {
-			fo.BypassEmptyTsReplacement = opt.BypassEmptyTsReplacement
-		}
 	}
 
 	return fo
@@ -861,12 +852,6 @@ type FindOneAndUpdateOptions struct {
 	// Values must be constant or closed expressions that do not reference document fields. Parameters can then be
 	// accessed as variables in an aggregate expression context (e.g. "$$var").
 	Let interface{}
-
-	// If true, the server accepts empty Timestamp as a literal rather than replacing it with the current time.
-	//
-	// Deprecated: This option is for internal use only and should not be set. It may be changed or removed in any
-	// release.
-	BypassEmptyTsReplacement *bool
 }
 
 // FindOneAndUpdate creates a new FindOneAndUpdateOptions instance.
@@ -987,9 +972,6 @@ func MergeFindOneAndUpdateOptions(opts ...*FindOneAndUpdateOptions) *FindOneAndU
 		}
 		if opt.Let != nil {
 			fo.Let = opt.Let
-		}
-		if opt.BypassEmptyTsReplacement != nil {
-			fo.BypassEmptyTsReplacement = opt.BypassEmptyTsReplacement
 		}
 	}
 

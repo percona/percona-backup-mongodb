@@ -20,16 +20,15 @@ import (
 
 // EndSessions performs an endSessions operation.
 type EndSessions struct {
-	authenticator driver.Authenticator
-	sessionIDs    bsoncore.Document
-	session       *session.Client
-	clock         *session.ClusterClock
-	monitor       *event.CommandMonitor
-	crypt         driver.Crypt
-	database      string
-	deployment    driver.Deployment
-	selector      description.ServerSelector
-	serverAPI     *driver.ServerAPIOptions
+	sessionIDs bsoncore.Document
+	session    *session.Client
+	clock      *session.ClusterClock
+	monitor    *event.CommandMonitor
+	crypt      driver.Crypt
+	database   string
+	deployment driver.Deployment
+	selector   description.ServerSelector
+	serverAPI  *driver.ServerAPIOptions
 }
 
 // NewEndSessions constructs and returns a new EndSessions.
@@ -62,7 +61,6 @@ func (es *EndSessions) Execute(ctx context.Context) error {
 		Selector:          es.selector,
 		ServerAPI:         es.serverAPI,
 		Name:              driverutil.EndSessionsOp,
-		Authenticator:     es.authenticator,
 	}.Execute(ctx)
 
 }
@@ -161,15 +159,5 @@ func (es *EndSessions) ServerAPI(serverAPI *driver.ServerAPIOptions) *EndSession
 	}
 
 	es.serverAPI = serverAPI
-	return es
-}
-
-// Authenticator sets the authenticator to use for this operation.
-func (es *EndSessions) Authenticator(authenticator driver.Authenticator) *EndSessions {
-	if es == nil {
-		es = new(EndSessions)
-	}
-
-	es.authenticator = authenticator
 	return es
 }

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -573,7 +573,7 @@ func getStorageStat(
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
 
 	stg, err := util.GetStorage(ctx, conn, inf.Me,
-		log.FromContext(ctx).NewEvent("", "", "", bsonv2.Timestamp{}))
+		log.FromContext(ctx).NewEvent("", "", "", bson.Timestamp{}))
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")
 	}
@@ -684,7 +684,7 @@ func getPITRranges(
 
 	var pr []pitrRange
 	for _, tl := range oplog.MergeTimelines(rstlines...) {
-		var bcplastWrite bsonv2.Timestamp
+		var bcplastWrite bson.Timestamp
 
 		for i := range bcps {
 			bcp := &bcps[i]

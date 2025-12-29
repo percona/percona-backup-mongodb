@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -431,38 +431,38 @@ func getBaseSnapshotLastWrite(
 	sh map[string]bool,
 	rsMap map[string]string,
 	tl oplog.Timeline,
-) (bsonv2.Timestamp, error) {
-	bcp, err := backup.GetFirstBackup(ctx, conn, &bsonv2.Timestamp{T: tl.Start, I: 0})
+) (bson.Timestamp, error) {
+	bcp, err := backup.GetFirstBackup(ctx, conn, &bson.Timestamp{T: tl.Start, I: 0})
 	if err != nil {
 		if !errors.Is(err, errors.ErrNotFound) {
-			return bsonv2.Timestamp{}, errors.Wrapf(err, "get backup for timeline: %s", tl)
+			return bson.Timestamp{}, errors.Wrapf(err, "get backup for timeline: %s", tl)
 		}
 
-		return bsonv2.Timestamp{}, nil
+		return bson.Timestamp{}, nil
 	}
 	if bcp == nil {
-		return bsonv2.Timestamp{}, nil
+		return bson.Timestamp{}, nil
 	}
 
 	ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "get mongo version")
+		return bson.Timestamp{}, errors.Wrap(err, "get mongo version")
 	}
 	fcv, err := version.GetFCV(ctx, conn.MongoClient())
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "get featureCompatibilityVersion")
+		return bson.Timestamp{}, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
 
 	bcpMatchCluster(bcp, ver.VersionString, fcv, sh, util.MakeRSMapFunc(rsMap), util.MakeReverseRSMapFunc(rsMap))
 
 	if bcp.Status != defs.StatusDone {
-		return bsonv2.Timestamp{}, nil
+		return bson.Timestamp{}, nil
 	}
 
 	return bcp.LastWriteTS, nil
 }
 
-func splitByBaseSnapshot(lastWrite bsonv2.Timestamp, tl oplog.Timeline) []pitrRange {
+func splitByBaseSnapshot(lastWrite bson.Timestamp, tl oplog.Timeline) []pitrRange {
 	if lastWrite.IsZero() || (lastWrite.T < tl.Start || lastWrite.T > tl.End) {
 		return []pitrRange{{Range: tl, NoBaseSnapshot: true}}
 	}

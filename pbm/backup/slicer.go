@@ -7,25 +7,25 @@ import (
 	"io"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
-type uploadChunkFunc func(ctx context.Context, w io.WriterTo, from, till bsonv2.Timestamp) (int64, error)
+type uploadChunkFunc func(ctx context.Context, w io.WriterTo, from, till bson.Timestamp) (int64, error)
 
-type stopSlicerFunc func() (bsonv2.Timestamp, int64, error)
+type stopSlicerFunc func() (bson.Timestamp, int64, error)
 
 func startOplogSlicer(
 	ctx context.Context,
 	m *mongo.Client,
 	writeConcern *writeconcern.WriteConcern,
 	interval time.Duration,
-	startOpTime bsonv2.Timestamp,
+	startOpTime bson.Timestamp,
 	upload uploadChunkFunc,
 ) stopSlicerFunc {
 	l := log.LogEventFromContext(ctx)
@@ -99,7 +99,7 @@ func startOplogSlicer(
 		}
 	}()
 
-	return func() (bsonv2.Timestamp, int64, error) {
+	return func() (bson.Timestamp, int64, error) {
 		select {
 		case <-stoppedC:
 			// already closed

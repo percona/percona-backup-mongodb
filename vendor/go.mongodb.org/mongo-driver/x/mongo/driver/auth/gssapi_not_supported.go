@@ -11,13 +11,12 @@ package auth
 
 import (
 	"fmt"
-	"net/http"
 	"runtime"
 )
 
 // GSSAPI is the mechanism name for GSSAPI.
 const GSSAPI = "GSSAPI"
 
-func newGSSAPIAuthenticator(*Cred, *http.Client) (Authenticator, error) {
+func newGSSAPIAuthenticator(cred *Cred) (Authenticator, error) {
 	return nil, newAuthError(fmt.Sprintf("GSSAPI is not supported on %s", runtime.GOOS), nil)
 }

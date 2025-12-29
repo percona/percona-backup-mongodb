@@ -4,10 +4,9 @@ import (
 	"context"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -164,7 +163,7 @@ func SetSrcBackup(ctx context.Context, conn connect.Client, bcpName, srcName str
 	return err
 }
 
-func SetFirstWrite(ctx context.Context, conn connect.Client, bcpName string, first bsonv2.Timestamp) error {
+func SetFirstWrite(ctx context.Context, conn connect.Client, bcpName string, first bson.Timestamp) error {
 	_, err := conn.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}},
@@ -176,7 +175,7 @@ func SetFirstWrite(ctx context.Context, conn connect.Client, bcpName string, fir
 	return err
 }
 
-func SetLastWrite(ctx context.Context, conn connect.Client, bcpName string, last bsonv2.Timestamp) error {
+func SetLastWrite(ctx context.Context, conn connect.Client, bcpName string, last bson.Timestamp) error {
 	_, err := conn.BcpCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", bcpName}},
@@ -265,7 +264,7 @@ func SetBackupSizeForRS(
 	return err
 }
 
-func SetRSLastWrite(conn connect.Client, bcpName, rsName string, ts bsonv2.Timestamp) error {
+func SetRSLastWrite(conn connect.Client, bcpName, rsName string, ts bson.Timestamp) error {
 	_, err := conn.BcpCollection().UpdateOne(
 		context.Background(),
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
@@ -284,7 +283,7 @@ func LastIncrementalBackup(ctx context.Context, conn connect.Client) (*BackupMet
 // GetLastBackup returns last successfully finished backup (non-selective and non-external)
 // or nil if there is no such backup yet. If ts isn't nil it will
 // search for the most recent backup that finished before specified timestamp
-func GetLastBackup(ctx context.Context, conn connect.Client, before *bsonv2.Timestamp) (*BackupMeta, error) {
+func GetLastBackup(ctx context.Context, conn connect.Client, before *bson.Timestamp) (*BackupMeta, error) {
 	return getRecentBackup(ctx, conn, nil, before, -1, bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
@@ -292,7 +291,7 @@ func GetLastBackup(ctx context.Context, conn connect.Client, before *bsonv2.Time
 	})
 }
 
-func GetFirstBackup(ctx context.Context, conn connect.Client, after *bsonv2.Timestamp) (*BackupMeta, error) {
+func GetFirstBackup(ctx context.Context, conn connect.Client, after *bson.Timestamp) (*BackupMeta, error) {
 	return getRecentBackup(ctx, conn, after, nil, 1, bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
@@ -304,7 +303,7 @@ func getRecentBackup(
 	ctx context.Context,
 	conn connect.Client,
 	after,
-	before *bsonv2.Timestamp,
+	before *bson.Timestamp,
 	sort int,
 	opts bson.D,
 ) (*BackupMeta, error) {
@@ -337,17 +336,17 @@ func getRecentBackup(
 func FindBaseSnapshotLWAfter(
 	ctx context.Context,
 	conn connect.Client,
-	lw bsonv2.Timestamp,
-) (bsonv2.Timestamp, error) {
+	lw bson.Timestamp,
+) (bson.Timestamp, error) {
 	return findBaseSnapshotLWImpl(ctx, conn, bson.M{"$gt": lw}, 1)
 }
 
 func FindBaseSnapshotLWBefore(
 	ctx context.Context,
 	conn connect.Client,
-	lw bsonv2.Timestamp,
-	exclude bsonv2.Timestamp,
-) (bsonv2.Timestamp, error) {
+	lw bson.Timestamp,
+	exclude bson.Timestamp,
+) (bson.Timestamp, error) {
 	return findBaseSnapshotLWImpl(ctx, conn, bson.M{"$lt": lw, "$ne": exclude}, -1)
 }
 
@@ -356,7 +355,7 @@ func findBaseSnapshotLWImpl(
 	conn connect.Client,
 	lwCond bson.M,
 	sort int,
-) (bsonv2.Timestamp, error) {
+) (bson.Timestamp, error) {
 	f := bson.D{
 		{"nss", nil},
 		{"type", bson.M{"$ne": defs.ExternalBackup}},
@@ -372,7 +371,7 @@ func findBaseSnapshotLWImpl(
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			err = nil
 		}
-		return bsonv2.Timestamp{}, errors.Wrap(err, "query")
+		return bson.Timestamp{}, errors.Wrap(err, "query")
 	}
 
 	bcp := &BackupMeta{}
@@ -414,7 +413,7 @@ func BackupsList(ctx context.Context, conn connect.Client, profile string, limit
 func BackupsDoneList(
 	ctx context.Context,
 	conn connect.Client,
-	after *bsonv2.Timestamp,
+	after *bson.Timestamp,
 	limit int64,
 	order int,
 ) ([]BackupMeta, error) {

@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -89,7 +88,7 @@ func (r topoCheckError) Error() string {
 func collectTopoCheckErrors(
 	replsets []Shard,
 	agentsByRS map[ReplsetName]map[NodeURI]AgentStat,
-	ts bsonv2.Timestamp,
+	ts bson.Timestamp,
 	type_ defs.BackupType,
 ) error {
 	rv := topoCheckError{

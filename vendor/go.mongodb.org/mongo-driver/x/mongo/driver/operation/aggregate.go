@@ -25,7 +25,6 @@ import (
 
 // Aggregate represents an aggregate operation.
 type Aggregate struct {
-	authenticator            driver.Authenticator
 	allowDiskUse             *bool
 	batchSize                *int32
 	bypassDocumentValidation *bool
@@ -116,7 +115,6 @@ func (a *Aggregate) Execute(ctx context.Context) error {
 		Timeout:                        a.timeout,
 		Name:                           driverutil.AggregateOp,
 		OmitCSOTMaxTimeMS:              a.omitCSOTMaxTimeMS,
-		Authenticator:                  a.authenticator,
 	}.Execute(ctx)
 
 }
@@ -433,15 +431,5 @@ func (a *Aggregate) OmitCSOTMaxTimeMS(omit bool) *Aggregate {
 	}
 
 	a.omitCSOTMaxTimeMS = omit
-	return a
-}
-
-// Authenticator sets the authenticator to use for this operation.
-func (a *Aggregate) Authenticator(authenticator driver.Authenticator) *Aggregate {
-	if a == nil {
-		a = new(Aggregate)
-	}
-
-	a.authenticator = authenticator
 	return a
 }

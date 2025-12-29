@@ -25,7 +25,6 @@ import (
 
 // FindAndModify performs a findAndModify operation.
 type FindAndModify struct {
-	authenticator            driver.Authenticator
 	arrayFilters             bsoncore.Array
 	bypassDocumentValidation *bool
 	collation                bsoncore.Document
@@ -52,7 +51,6 @@ type FindAndModify struct {
 	serverAPI                *driver.ServerAPIOptions
 	let                      bsoncore.Document
 	timeout                  *time.Duration
-	bypassEmptyTsReplacement *bool
 
 	result FindAndModifyResult
 }
@@ -147,7 +145,6 @@ func (fam *FindAndModify) Execute(ctx context.Context) error {
 		ServerAPI:      fam.serverAPI,
 		Timeout:        fam.timeout,
 		Name:           driverutil.FindAndModifyOp,
-		Authenticator:  fam.authenticator,
 	}.Execute(ctx)
 
 }
@@ -214,9 +211,6 @@ func (fam *FindAndModify) command(dst []byte, desc description.SelectedServer) (
 	}
 	if fam.let != nil {
 		dst = bsoncore.AppendDocumentElement(dst, "let", fam.let)
-	}
-	if fam.bypassEmptyTsReplacement != nil {
-		dst = bsoncore.AppendBooleanElement(dst, "bypassEmptyTsReplacement", *fam.bypassEmptyTsReplacement)
 	}
 
 	return dst, nil
@@ -481,25 +475,5 @@ func (fam *FindAndModify) Timeout(timeout *time.Duration) *FindAndModify {
 	}
 
 	fam.timeout = timeout
-	return fam
-}
-
-// Authenticator sets the authenticator to use for this operation.
-func (fam *FindAndModify) Authenticator(authenticator driver.Authenticator) *FindAndModify {
-	if fam == nil {
-		fam = new(FindAndModify)
-	}
-
-	fam.authenticator = authenticator
-	return fam
-}
-
-// BypassEmptyTsReplacement sets the bypassEmptyTsReplacement to use for this operation.
-func (fam *FindAndModify) BypassEmptyTsReplacement(bypassEmptyTsReplacement bool) *FindAndModify {
-	if fam == nil {
-		fam = new(FindAndModify)
-	}
-
-	fam.bypassEmptyTsReplacement = &bypassEmptyTsReplacement
 	return fam
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestLoggerConstructor(t *testing.T) {
@@ -16,7 +16,7 @@ func TestLoggerConstructor(t *testing.T) {
 			l := NewWithOpts(nil, "rs", "node", &Opts{LogPath: f})
 			defer os.Remove(f)
 
-			l.Debug("", "", "", bsonv2.Timestamp{}, "msg: %v", "nil conn")
+			l.Debug("", "", "", bson.Timestamp{}, "msg: %v", "nil conn")
 
 			lEntry, _ := os.ReadFile(f)
 			if !strings.Contains(string(lEntry), "msg: nil conn") {

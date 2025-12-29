@@ -11,10 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -122,8 +121,8 @@ func connTopo(ctx context.Context, uri string) (topo, error) {
 	return topoUnknown, nil
 }
 
-func parseTS(t string) (bsonv2.Timestamp, error) {
-	var ts bsonv2.Timestamp
+func parseTS(t string) (bson.Timestamp, error) {
+	var ts bson.Timestamp
 	if len(t) == 0 {
 		return ts, nil
 	}
@@ -181,7 +180,7 @@ func sayHello(ctx context.Context, m *mongo.Client) (*hello, error) {
 	return r, errors.Wrap(err, "decode")
 }
 
-func ensureClusterOplog(ctx context.Context, uri string, from, till bsonv2.Timestamp) error {
+func ensureClusterOplog(ctx context.Context, uri string, from, till bson.Timestamp) error {
 	logger.Printf("[%s] ensuring cluster oplog: %s - %s",
 		uri, formatTimestamp(from), formatTimestamp(from))
 
@@ -221,7 +220,7 @@ func ensureClusterOplog(ctx context.Context, uri string, from, till bsonv2.Times
 	return nil
 }
 
-func ensureReplsetOplog(ctx context.Context, uri string, from, till bsonv2.Timestamp) error {
+func ensureReplsetOplog(ctx context.Context, uri string, from, till bson.Timestamp) error {
 	logger.Printf("[%s] ensure replset oplog: %s - %s",
 		uri, formatTimestamp(from), formatTimestamp(from))
 
@@ -325,7 +324,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till bsonv2.Times
 	return nil
 }
 
-func findPreviousOplogTS(ctx context.Context, m *mongo.Client, ts bsonv2.Timestamp) (bsonv2.Timestamp, error) {
+func findPreviousOplogTS(ctx context.Context, m *mongo.Client, ts bson.Timestamp) (bson.Timestamp, error) {
 	f := bson.M{}
 	if !ts.IsZero() {
 		f["ts"] = bson.M{"$lte": ts}
@@ -335,7 +334,7 @@ func findPreviousOplogTS(ctx context.Context, m *mongo.Client, ts bsonv2.Timesta
 	return findOplogTSHelper(res)
 }
 
-func findFollowingOplogTS(ctx context.Context, m *mongo.Client, ts bsonv2.Timestamp) (bsonv2.Timestamp, error) {
+func findFollowingOplogTS(ctx context.Context, m *mongo.Client, ts bson.Timestamp) (bson.Timestamp, error) {
 	f := bson.M{}
 	if !ts.IsZero() {
 		f["ts"] = bson.M{"$gte": ts}
@@ -345,24 +344,24 @@ func findFollowingOplogTS(ctx context.Context, m *mongo.Client, ts bsonv2.Timest
 	return findOplogTSHelper(res)
 }
 
-func findOplogTSHelper(res *mongo.SingleResult) (bsonv2.Timestamp, error) {
+func findOplogTSHelper(res *mongo.SingleResult) (bson.Timestamp, error) {
 	if err := res.Err(); err != nil {
-		return bsonv2.Timestamp{}, err
+		return bson.Timestamp{}, err
 	}
 
-	var v struct{ TS bsonv2.Timestamp }
+	var v struct{ TS bson.Timestamp }
 	if err := res.Decode(&v); err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "decode")
+		return bson.Timestamp{}, errors.Wrap(err, "decode")
 	}
 
 	return v.TS, nil
 }
 
 type timerange struct {
-	from, till bsonv2.Timestamp
+	from, till bson.Timestamp
 }
 
-func findChunkRanges(rs []oplog.OplogChunk, from, till bsonv2.Timestamp) []timerange {
+func findChunkRanges(rs []oplog.OplogChunk, from, till bson.Timestamp) []timerange {
 	if len(rs) == 0 {
 		return []timerange{{from, till}}
 	}
@@ -393,6 +392,6 @@ func findChunkRanges(rs []oplog.OplogChunk, from, till bsonv2.Timestamp) []timer
 	return rv
 }
 
-func formatTimestamp(t bsonv2.Timestamp) string {
+func formatTimestamp(t bson.Timestamp) string {
 	return fmt.Sprintf("%d,%d", t.T, t.I)
 }

@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	tpbm "github.com/percona/percona-backup-mongodb/e2e-tests/pkg/pbm"
 )
@@ -95,6 +95,6 @@ func getLastWrittenCounter(counters map[string]shardCounter) tpbm.Counter {
 	return *rv
 }
 
-func getLastWriteTime(counters map[string]shardCounter) bsonv2.Timestamp {
+func getLastWriteTime(counters map[string]shardCounter) bson.Timestamp {
 	return getLastWrittenCounter(counters).WriteTime
 }

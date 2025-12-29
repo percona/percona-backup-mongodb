@@ -90,8 +90,6 @@ type LoadBalancedTransactionConnection interface {
 	DriverConnectionID() uint64 // TODO(GODRIVER-2824): change type to int64.
 	Address() address.Address
 	Stale() bool
-	OIDCTokenGenID() uint64
-	SetOIDCTokenGenID(uint64)
 
 	// Functions copied over from driver.PinnedConnection that are not part of Connection or Expirable.
 	PinToCursor() error
@@ -160,14 +158,13 @@ func MaxClusterTime(ct1, ct2 bson.Raw) bson.Raw {
 	epoch1, ord1 := getClusterTime(ct1)
 	epoch2, ord2 := getClusterTime(ct2)
 
-	switch {
-	case epoch1 > epoch2:
+	if epoch1 > epoch2 {
 		return ct1
-	case epoch1 < epoch2:
+	} else if epoch1 < epoch2 {
 		return ct2
-	case ord1 > ord2:
+	} else if ord1 > ord2 {
 		return ct1
-	case ord1 < ord2:
+	} else if ord1 < ord2 {
 		return ct2
 	}
 
@@ -479,12 +476,11 @@ func (c *Client) UpdateCommitTransactionWriteConcern() {
 // CheckAbortTransaction checks to see if allowed to abort transaction and returns
 // an error if not allowed.
 func (c *Client) CheckAbortTransaction() error {
-	switch {
-	case c.TransactionState == None:
+	if c.TransactionState == None {
 		return ErrNoTransactStarted
-	case c.TransactionState == Committed:
+	} else if c.TransactionState == Committed {
 		return ErrAbortAfterCommit
-	case c.TransactionState == Aborted:
+	} else if c.TransactionState == Aborted {
 		return ErrAbortTwice
 	}
 	return nil

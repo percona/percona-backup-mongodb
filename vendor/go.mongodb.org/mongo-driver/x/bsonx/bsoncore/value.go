@@ -924,14 +924,13 @@ func escapeString(s string) string {
 
 func formatDouble(f float64) string {
 	var s string
-	switch {
-	case math.IsInf(f, 1):
+	if math.IsInf(f, 1) {
 		s = "Infinity"
-	case math.IsInf(f, -1):
+	} else if math.IsInf(f, -1) {
 		s = "-Infinity"
-	case math.IsNaN(f):
+	} else if math.IsNaN(f) {
 		s = "NaN"
-	default:
+	} else {
 		// Print exactly one decimalType place for integers; otherwise, print as many are necessary to
 		// perfectly represent it.
 		s = strconv.FormatFloat(f, 'G', -1, 64)
@@ -954,7 +953,9 @@ func (ss sortableString) Less(i, j int) bool {
 }
 
 func (ss sortableString) Swap(i, j int) {
-	ss[i], ss[j] = ss[j], ss[i]
+	oldI := ss[i]
+	ss[i] = ss[j]
+	ss[j] = oldI
 }
 
 func sortStringAlphebeticAscending(s string) string {

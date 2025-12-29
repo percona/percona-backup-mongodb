@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 )
@@ -13,7 +13,7 @@ func Test_splitByBaseSnapshot(t *testing.T) {
 	tl := oplog.Timeline{Start: 3, End: 7}
 
 	t.Run("lastWrite is nil", func(t *testing.T) {
-		lastWrite := bsonv2.Timestamp{}
+		lastWrite := bson.Timestamp{}
 		got := splitByBaseSnapshot(lastWrite, tl)
 
 		want := []pitrRange{
@@ -24,7 +24,7 @@ func Test_splitByBaseSnapshot(t *testing.T) {
 	})
 
 	t.Run("lastWrite > tl.End", func(t *testing.T) {
-		lastWrite := bsonv2.Timestamp{T: tl.End + 1}
+		lastWrite := bson.Timestamp{T: tl.End + 1}
 		got := splitByBaseSnapshot(lastWrite, tl)
 
 		want := []pitrRange{
@@ -35,7 +35,7 @@ func Test_splitByBaseSnapshot(t *testing.T) {
 	})
 
 	t.Run("lastWrite = tl.End", func(t *testing.T) {
-		lastWrite := bsonv2.Timestamp{T: tl.End}
+		lastWrite := bson.Timestamp{T: tl.End}
 		got := splitByBaseSnapshot(lastWrite, tl)
 
 		want := []pitrRange{
@@ -46,7 +46,7 @@ func Test_splitByBaseSnapshot(t *testing.T) {
 	})
 
 	t.Run("lastWrite < tl.Start", func(t *testing.T) {
-		lastWrite := bsonv2.Timestamp{T: tl.Start - 1}
+		lastWrite := bson.Timestamp{T: tl.Start - 1}
 		got := splitByBaseSnapshot(lastWrite, tl)
 
 		want := []pitrRange{
@@ -57,7 +57,7 @@ func Test_splitByBaseSnapshot(t *testing.T) {
 	})
 
 	t.Run("lastWrite = tl.Start", func(t *testing.T) {
-		lastWrite := bsonv2.Timestamp{T: tl.Start}
+		lastWrite := bson.Timestamp{T: tl.Start}
 		got := splitByBaseSnapshot(lastWrite, tl)
 
 		want := []pitrRange{
@@ -74,7 +74,7 @@ func Test_splitByBaseSnapshot(t *testing.T) {
 	})
 
 	t.Run("tl.Start < lastWrite < tl.End", func(t *testing.T) {
-		lastWrite := bsonv2.Timestamp{T: 5}
+		lastWrite := bson.Timestamp{T: 5}
 		got := splitByBaseSnapshot(lastWrite, tl)
 
 		want := []pitrRange{

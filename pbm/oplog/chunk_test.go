@@ -5,38 +5,38 @@ import (
 	"strings"
 	"testing"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestPITRTimelines(t *testing.T) {
 	chunks := []OplogChunk{
 		{
-			StartTS: bsonv2.Timestamp{1, 0},
-			EndTS:   bsonv2.Timestamp{10, 0},
+			StartTS: bson.Timestamp{1, 0},
+			EndTS:   bson.Timestamp{10, 0},
 		},
 		{
-			StartTS: bsonv2.Timestamp{10, 0},
-			EndTS:   bsonv2.Timestamp{10, 0},
+			StartTS: bson.Timestamp{10, 0},
+			EndTS:   bson.Timestamp{10, 0},
 		},
 		{
-			StartTS: bsonv2.Timestamp{10, 0},
-			EndTS:   bsonv2.Timestamp{20, 0},
+			StartTS: bson.Timestamp{10, 0},
+			EndTS:   bson.Timestamp{20, 0},
 		},
 		{
-			StartTS: bsonv2.Timestamp{30, 0},
-			EndTS:   bsonv2.Timestamp{40, 0},
+			StartTS: bson.Timestamp{30, 0},
+			EndTS:   bson.Timestamp{40, 0},
 		},
 		{
-			StartTS: bsonv2.Timestamp{666, 0},
-			EndTS:   bsonv2.Timestamp{779, 0},
+			StartTS: bson.Timestamp{666, 0},
+			EndTS:   bson.Timestamp{779, 0},
 		},
 		{
-			StartTS: bsonv2.Timestamp{777, 0},
-			EndTS:   bsonv2.Timestamp{988, 0},
+			StartTS: bson.Timestamp{777, 0},
+			EndTS:   bson.Timestamp{988, 0},
 		},
 		{
-			StartTS: bsonv2.Timestamp{888, 0},
-			EndTS:   bsonv2.Timestamp{1000, 0},
+			StartTS: bson.Timestamp{888, 0},
+			EndTS:   bson.Timestamp{1000, 0},
 		},
 	}
 

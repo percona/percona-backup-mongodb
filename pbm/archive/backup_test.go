@@ -10,9 +10,9 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 var mClient *mongo.Client
@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("conn string error: %v", err)
 	}
-	mClient, err = mongo.Connect(ctx, options.Client().ApplyURI(connStr))
+	mClient, err = mongo.Connect(options.Client().ApplyURI(connStr))
 	if err != nil {
 		log.Fatalf("mongo client connect error: %v", err)
 	}

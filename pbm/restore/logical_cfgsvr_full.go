@@ -6,9 +6,8 @@ import (
 	"io"
 	"path"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -349,7 +348,7 @@ func (r *Restore) cleanUpConfigChunks(ctx context.Context) error {
 	excSessFilter := bson.M{}
 	if sessBson != nil {
 		if subtype, uuid, ok := sessBson.Lookup("uuid").BinaryOK(); ok {
-			uuid := bsonv2.Binary{Subtype: subtype, Data: uuid}
+			uuid := bson.Binary{Subtype: subtype, Data: uuid}
 			excSessFilter["uuid"] = bson.M{"$ne": uuid}
 		}
 	}

@@ -52,7 +52,8 @@ const (
 
 // Validate determines if the provided ServerAPIVersion is currently supported by the driver.
 func (sav ServerAPIVersion) Validate() error {
-	if sav == ServerAPIVersion1 {
+	switch sav {
+	case ServerAPIVersion1:
 		return nil
 	}
 	return fmt.Errorf("api version %q not supported; this driver version only supports API version \"1\"", sav)

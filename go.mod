@@ -34,7 +34,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/testcontainers/testcontainers-go/modules/minio v0.34.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.39.0
-	go.mongodb.org/mongo-driver v1.17.4
+	go.mongodb.org/mongo-driver v1.16.0
 	go.mongodb.org/mongo-driver/v2 v2.4.1
 	golang.org/x/mod v0.28.0
 	golang.org/x/sync v0.17.0

@@ -11,12 +11,11 @@ import (
 	"testing"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/percona/percona-backup-mongodb/pbm/bsonlib"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 )
 
@@ -30,7 +29,7 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 		noUUIDns:        noUUID,
 		preserveUUIDopt: true,
 		preserveUUID:    true,
-		indexCatalog:    idx.NewIndexCatalog(),
+		indexCatalog:    bsonlib.NewIndexCatalog(),
 		filter:          DefaultOpFilter,
 	}
 }
@@ -43,8 +42,8 @@ func newMDBTestClient() *mdbTestClient {
 	return &mdbTestClient{applyOpsInv: []map[string]string{}}
 }
 
-func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (bsonv2.Binary, error) {
-	return bsonv2.Binary{Subtype: 0x00, Data: []byte{0x01, 0x02, 0x03}}, nil
+func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (bson.Binary, error) {
+	return bson.Binary{Subtype: 0x00, Data: []byte{0x01, 0x02, 0x03}}, nil
 }
 
 func (d *mdbTestClient) ensureCollExists(_ string) error {
@@ -76,7 +75,7 @@ func TestIsOpForCloning(t *testing.T) {
 
 	testCases := []struct {
 		desc         string
-		entry        *db.Oplog
+		entry        *Record
 		isForCloning bool
 	}{
 		// i op
@@ -145,7 +144,7 @@ func TestIsOpForCloning(t *testing.T) {
 func TestIsOpAllowed(t *testing.T) {
 	testCases := []struct {
 		desc      string
-		entry     *db.Oplog
+		entry     *Record
 		opAllowed bool
 	}{
 		{
@@ -226,7 +225,7 @@ func TestIsConfigCollectionsDocAllowed(t *testing.T) {
 	tUUID2 := "06f587d338174590ad1cadd65bf9ee4a"
 	testCases := []struct {
 		desc         string
-		entry        *db.Oplog
+		entry        *Record
 		sessUUID     string
 		wantSessUUID string
 		opAllowed    bool
@@ -303,7 +302,7 @@ func TestIsConfigCollectionsDocAllowed(t *testing.T) {
 func TestIsConfigChunksDocAllowed(t *testing.T) {
 	testCases := []struct {
 		desc      string
-		entry     *db.Oplog
+		entry     *Record
 		uuid      string
 		opAllowed bool
 	}{
@@ -354,7 +353,7 @@ func TestIsRoutingDocExcluded(t *testing.T) {
 	tUUID2 := "06f587d338174590ad1cadd65bf9ee4a"
 	testCases := []struct {
 		desc         string
-		entry        *db.Oplog
+		entry        *Record
 		sessUUID     string
 		wantSessUUID string
 		excluded     bool
@@ -635,7 +634,7 @@ func useTestFile(t *testing.T, testFileName string) io.ReadCloser {
 	return io.NopCloser(b)
 }
 
-func createInsertOp(t *testing.T, ns string) *db.Oplog {
+func createInsertOp(t *testing.T, ns string) *Record {
 	t.Helper()
 	iOpJSON := `
 		{
@@ -714,7 +713,7 @@ func createInsertOp(t *testing.T, ns string) *db.Oplog {
 	return replaceNsWithinOpEntry(t, iOpJSON, ns)
 }
 
-func createInsertSimpleOp(t *testing.T, ns string) *db.Oplog {
+func createInsertSimpleOp(t *testing.T, ns string) *Record {
 	t.Helper()
 	iOpJSON := `
 		{
@@ -770,7 +769,7 @@ func createInsertSimpleOp(t *testing.T, ns string) *db.Oplog {
 	return replaceNsWithinOpEntry(t, iOpJSON, ns)
 }
 
-func createUpdateOp(t *testing.T, ns string) *db.Oplog {
+func createUpdateOp(t *testing.T, ns string) *Record {
 	t.Helper()
 
 	uOpJSON := `
@@ -844,7 +843,7 @@ func createUpdateOp(t *testing.T, ns string) *db.Oplog {
 	return replaceNsWithinOpEntry(t, uOpJSON, ns)
 }
 
-func createDeleteOp(t *testing.T, ns string) *db.Oplog {
+func createDeleteOp(t *testing.T, ns string) *Record {
 	t.Helper()
 
 	dOpJSON := `
@@ -911,10 +910,10 @@ func createDeleteOp(t *testing.T, ns string) *db.Oplog {
 	return replaceNsWithinOpEntry(t, dOpJSON, ns)
 }
 
-func replaceNsWithinOpEntry(t *testing.T, jsonEntry, ns string) *db.Oplog {
+func replaceNsWithinOpEntry(t *testing.T, jsonEntry, ns string) *Record {
 	t.Helper()
 
-	oe := db.Oplog{}
+	oe := Record{}
 	err := bson.UnmarshalExtJSON([]byte(jsonEntry), false, &oe)
 	if err != nil {
 		t.Errorf("err while unmarshal from json: %v", err)
@@ -926,8 +925,8 @@ func replaceNsWithinOpEntry(t *testing.T, jsonEntry, ns string) *db.Oplog {
 	return &oe
 }
 
-func configSettingsBalancerEntry() *db.Oplog {
-	return &db.Oplog{
+func configSettingsBalancerEntry() *Record {
+	return &Record{
 		Operation: "i",
 		Namespace: "config.settings",
 		Object:    bson.D{{"_id", "balancer"}, {"mode", "off"}, {"stopped", true}},
@@ -935,16 +934,16 @@ func configSettingsBalancerEntry() *db.Oplog {
 	}
 }
 
-func configSettingsAutomergeEntry() *db.Oplog {
-	return &db.Oplog{
+func configSettingsAutomergeEntry() *Record {
+	return &Record{
 		Operation: "u",
 		Namespace: "config.settings",
 		Query:     bson.D{{"_id", "automerge"}},
 	}
 }
 
-func configSettingsAnyOtherEntry() *db.Oplog {
-	return &db.Oplog{
+func configSettingsAnyOtherEntry() *Record {
+	return &Record{
 		Operation: "i",
 		Namespace: "config.settings",
 		Object:    bson.D{{"_id", "chunksize"}, {"value", 128}},
@@ -952,27 +951,27 @@ func configSettingsAnyOtherEntry() *db.Oplog {
 	}
 }
 
-func createConfigCollectionsEntry(shardedColl, collUUID string) *db.Oplog {
+func createConfigCollectionsEntry(shardedColl, collUUID string) *Record {
 	uuid, _ := hex.DecodeString(collUUID)
-	return &db.Oplog{
+	return &Record{
 		Operation: "i",
 		Namespace: "config.collections",
 		Object: bson.D{
 			{"_id", shardedColl},
-			{"uuid", bsonv2.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
+			{"uuid", bson.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
 		},
 	}
 }
 
-func createConfigChunksEntry(uuid string) *db.Oplog {
+func createConfigChunksEntry(uuid string) *Record {
 	uuidDecoded, _ := hex.DecodeString(uuid)
 	id, _ := hex.DecodeString("some id")
-	return &db.Oplog{
+	return &Record{
 		Operation: "i",
 		Namespace: "config.chunks",
 		Object: bson.D{
 			{"_id", id},
-			{"uuid", bsonv2.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
+			{"uuid", bson.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
 			{"shard", "rsX"},
 		},
 	}

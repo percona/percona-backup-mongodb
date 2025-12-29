@@ -22,19 +22,18 @@ import (
 
 // CreateSearchIndexes performs a createSearchIndexes operation.
 type CreateSearchIndexes struct {
-	authenticator driver.Authenticator
-	indexes       bsoncore.Document
-	session       *session.Client
-	clock         *session.ClusterClock
-	collection    string
-	monitor       *event.CommandMonitor
-	crypt         driver.Crypt
-	database      string
-	deployment    driver.Deployment
-	selector      description.ServerSelector
-	result        CreateSearchIndexesResult
-	serverAPI     *driver.ServerAPIOptions
-	timeout       *time.Duration
+	indexes    bsoncore.Document
+	session    *session.Client
+	clock      *session.ClusterClock
+	collection string
+	monitor    *event.CommandMonitor
+	crypt      driver.Crypt
+	database   string
+	deployment driver.Deployment
+	selector   description.ServerSelector
+	result     CreateSearchIndexesResult
+	serverAPI  *driver.ServerAPIOptions
+	timeout    *time.Duration
 }
 
 // CreateSearchIndexResult represents a single search index result in CreateSearchIndexesResult.
@@ -117,7 +116,6 @@ func (csi *CreateSearchIndexes) Execute(ctx context.Context) error {
 		Selector:          csi.selector,
 		ServerAPI:         csi.serverAPI,
 		Timeout:           csi.timeout,
-		Authenticator:     csi.authenticator,
 	}.Execute(ctx)
 
 }
@@ -237,15 +235,5 @@ func (csi *CreateSearchIndexes) Timeout(timeout *time.Duration) *CreateSearchInd
 	}
 
 	csi.timeout = timeout
-	return csi
-}
-
-// Authenticator sets the authenticator to use for this operation.
-func (csi *CreateSearchIndexes) Authenticator(authenticator driver.Authenticator) *CreateSearchIndexes {
-	if csi == nil {
-		csi = new(CreateSearchIndexes)
-	}
-
-	csi.authenticator = authenticator
 	return csi
 }

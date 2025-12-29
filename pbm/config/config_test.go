@@ -12,9 +12,9 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -313,7 +313,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("conn string error: %v", err)
 	}
 	connStr += "&directConnection=true"
-	mClient, err := mongo.Connect(ctx, options.Client().ApplyURI(connStr))
+	mClient, err := mongo.Connect(options.Client().ApplyURI(connStr))
 	if err != nil {
 		log.Fatalf("mongo client connect error: %v", err)
 	}

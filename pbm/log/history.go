@@ -7,11 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -24,10 +22,10 @@ type LogRequest struct {
 }
 
 type Entry struct {
-	ObjID   primitive.ObjectID `bson:"-" json:"-"` // to get sense of mgs total ordering while reading logs
-	TS      int64              `bson:"ts" json:"ts"`
-	Tns     int                `bson:"ns" json:"-"`
-	TZone   int                `bson:"tz" json:"-"`
+	ObjID   bson.ObjectID `bson:"-" json:"-"` // to get sense of mgs total ordering while reading logs
+	TS      int64         `bson:"ts" json:"ts"`
+	Tns     int           `bson:"ns" json:"-"`
+	TZone   int           `bson:"tz" json:"-"`
 	LogKeys `bson:",inline" json:",inline"`
 	Msg     string `bson:"msg" json:"msg"`
 }
@@ -77,13 +75,13 @@ func AsUTC(ts int64) string {
 }
 
 type LogKeys struct {
-	Severity Severity         `bson:"s" json:"s"`
-	RS       string           `bson:"rs" json:"rs"`
-	Node     string           `bson:"node" json:"node"`
-	Event    string           `bson:"e" json:"e"`
-	ObjName  string           `bson:"eobj" json:"eobj"`
-	Epoch    bsonv2.Timestamp `bson:"ep,omitempty" json:"ep,omitempty"`
-	OPID     string           `bson:"opid,omitempty" json:"opid,omitempty"`
+	Severity Severity       `bson:"s" json:"s"`
+	RS       string         `bson:"rs" json:"rs"`
+	Node     string         `bson:"node" json:"node"`
+	Event    string         `bson:"e" json:"e"`
+	ObjName  string         `bson:"eobj" json:"eobj"`
+	Epoch    bson.Timestamp `bson:"ep,omitempty" json:"ep,omitempty"`
+	OPID     string         `bson:"opid,omitempty" json:"opid,omitempty"`
 }
 
 type Entries struct {

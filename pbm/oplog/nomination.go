@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -17,11 +16,11 @@ import (
 
 // PITRMeta contains all operational data about PITR execution process.
 type PITRMeta struct {
-	StartTS    int64               `bson:"start_ts" json:"start_ts"`
-	Hb         bsonv2.Timestamp `bson:"hb" json:"hb"`
-	Status     Status              `bson:"status" json:"status"`
-	Nomination []PITRNomination    `bson:"n" json:"n"`
-	Replsets   []PITRReplset       `bson:"replsets" json:"replsets"`
+	StartTS    int64            `bson:"start_ts" json:"start_ts"`
+	Hb         bson.Timestamp   `bson:"hb" json:"hb"`
+	Status     Status           `bson:"status" json:"status"`
+	Nomination []PITRNomination `bson:"n" json:"n"`
+	Replsets   []PITRReplset    `bson:"replsets" json:"replsets"`
 }
 
 // PITRNomination is used to choose (nominate and elect) member(s)
@@ -108,7 +107,7 @@ func SetClusterStatus(ctx context.Context, conn connect.Client, status Status) e
 				"status":   status,
 				"replsets": []PITRReplset{},
 			}}},
-			options.Update().SetUpsert(true),
+			options.UpdateOne().SetUpsert(true),
 		)
 	return errors.Wrap(err, "update pitr doc to status")
 }
@@ -137,7 +136,7 @@ func SetReadyRSStatus(ctx context.Context, conn connect.Client, rs, node string)
 			ctx,
 			bson.D{},
 			bson.D{{"$addToSet", bson.M{"replsets": repliset}}},
-			options.Update().SetUpsert(true),
+			options.UpdateOne().SetUpsert(true),
 		)
 	return errors.Wrap(err, "update pitr doc for RS ready status")
 }
@@ -155,7 +154,7 @@ func SetErrorRSStatus(ctx context.Context, conn connect.Client, rs, node, errTex
 			ctx,
 			bson.D{},
 			bson.D{{"$addToSet", bson.M{"replsets": repliset}}},
-			options.Update().SetUpsert(true),
+			options.UpdateOne().SetUpsert(true),
 		)
 	return errors.Wrap(err, "update pitr doc for RS error status")
 }
@@ -187,7 +186,7 @@ func SetPITRNomination(ctx context.Context, conn connect.Client, rs string) erro
 			ctx,
 			bson.D{},
 			bson.D{{"$addToSet", bson.M{"n": n}}},
-			options.Update().SetUpsert(true),
+			options.UpdateOne().SetUpsert(true),
 		)
 	return errors.Wrap(err, "update pitr nomination")
 }

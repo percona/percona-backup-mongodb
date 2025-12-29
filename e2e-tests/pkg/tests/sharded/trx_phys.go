@@ -4,12 +4,12 @@ import (
 	"context"
 	"log"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
 func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
@@ -51,12 +51,14 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 		log.Fatalln("ERROR: GenData:", err)
 	}
 
+	txnOpts := options.Transaction().
+		SetReadPreference(readpref.Primary()).
+		SetReadConcern(readconcern.Majority()).
+		SetWriteConcern(writeconcern.Majority())
 	sess, err := conn.StartSession(
 		options.Session().
-			SetDefaultReadPreference(readpref.Primary()).
 			SetCausalConsistency(true).
-			SetDefaultReadConcern(readconcern.Majority()).
-			SetDefaultWriteConcern(writeconcern.Majority()))
+			SetDefaultTransactionOptions(txnOpts))
 	if err != nil {
 		log.Fatalln("ERROR: start session:", err)
 	}
@@ -82,17 +84,17 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 	// distributed transaction that commits before the backup ends
 	// should be visible after restore
 	log.Println("Run trx1")
-	_, _ = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
-		c.trxSet(sc, 30, col)
-		c.trxSet(sc, 530, col)
-		c.trxSet(sc, 130, col)
-		c.trxSet(sc, 131, col)
-		c.trxSet(sc, 630, col)
-		c.trxSet(sc, 631, col)
-		c.trxSet(sc, 110, col)
-		c.trxSet(sc, 730, col)
-		c.trxSet(sc, 3000, col)
-		c.trxSet(sc, 3001, col)
+	_, _ = sess.WithTransaction(ctx, func(ctx context.Context) (interface{}, error) {
+		c.trxSet(ctx, 30, col)
+		c.trxSet(ctx, 530, col)
+		c.trxSet(ctx, 130, col)
+		c.trxSet(ctx, 131, col)
+		c.trxSet(ctx, 630, col)
+		c.trxSet(ctx, 631, col)
+		c.trxSet(ctx, 110, col)
+		c.trxSet(ctx, 730, col)
+		c.trxSet(ctx, 3000, col)
+		c.trxSet(ctx, 3001, col)
 
 		return nil, nil //nolint:nilnil
 	})
@@ -102,32 +104,32 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 	log.Println("Run trx2")
 	// distributed transaction that commits after the backup ends
 	// should NOT be visible after the restore
-	_ = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
+	_ = mongo.WithSession(ctx, sess, func(ctx context.Context) error {
 		err := sess.StartTransaction()
 		if err != nil {
 			log.Fatalln("ERROR: start transaction:", err)
 		}
 		defer func() {
 			if err != nil {
-				_ = sess.AbortTransaction(sc)
+				_ = sess.AbortTransaction(ctx)
 				log.Fatalln("ERROR: transaction:", err)
 			}
 		}()
 
-		c.trxSet(sc, 0, col)
-		c.trxSet(sc, 89, col)
-		c.trxSet(sc, 180, col)
+		c.trxSet(ctx, 0, col)
+		c.trxSet(ctx, 89, col)
+		c.trxSet(ctx, 180, col)
 
 		log.Println("Waiting for the backup to done")
 		bcp.WaitDone()
 		log.Println("Backup done")
 
-		c.trxSet(sc, 99, col)
-		c.trxSet(sc, 199, col)
-		c.trxSet(sc, 2001, col)
+		c.trxSet(ctx, 99, col)
+		c.trxSet(ctx, 199, col)
+		c.trxSet(ctx, 2001, col)
 
 		log.Println("Committing the transaction")
-		err = sess.CommitTransaction(sc)
+		err = sess.CommitTransaction(ctx)
 		if err != nil {
 			log.Fatalln("ERROR: commit in transaction:", err)
 		}

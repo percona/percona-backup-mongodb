@@ -8,10 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
@@ -89,7 +88,7 @@ func (b *Backup) doLogical(
 		b.leadConn.MongoOptions().WriteConcern,
 		b.SlicerInterval(),
 		rsMeta.FirstWriteTS,
-		func(ctx context.Context, w io.WriterTo, from, till bsonv2.Timestamp) (int64, error) {
+		func(ctx context.Context, w io.WriterTo, from, till bson.Timestamp) (int64, error) {
 			filename := rsMeta.OplogName + "/" + FormatChunkName(from, till, bcp.Compression)
 
 			bytesPerSecond, err := getOplogBytesPerSecond(ctx, b.nodeConn)
@@ -266,8 +265,8 @@ func dropTMPcoll(ctx context.Context, uri string) error {
 	return nil
 }
 
-func waitForWrite(ctx context.Context, m *mongo.Client, ts bsonv2.Timestamp) error {
-	var lw bsonv2.Timestamp
+func waitForWrite(ctx context.Context, m *mongo.Client, ts bson.Timestamp) error {
+	var lw bson.Timestamp
 	var err error
 
 	for i := 0; i < 21; i++ {
@@ -286,7 +285,7 @@ func waitForWrite(ctx context.Context, m *mongo.Client, ts bsonv2.Timestamp) err
 }
 
 //nolint:nonamedreturns
-func copyUsersNRolles(ctx context.Context, uri string) (lastWrite bsonv2.Timestamp, err error) {
+func copyUsersNRolles(ctx context.Context, uri string) (lastWrite bson.Timestamp, err error) {
 	cn, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
@@ -519,16 +518,16 @@ func getOplogBytesPerSecond(ctx context.Context, m *mongo.Client) (float64, erro
 }
 
 // oplogTimestamp returns the timestamp of the first (sort=1) or last (sort=-1) document in the oplog.
-func oplogTimestamp(ctx context.Context, coll *mongo.Collection, sort int) (bsonv2.Timestamp, error) {
+func oplogTimestamp(ctx context.Context, coll *mongo.Collection, sort int) (bson.Timestamp, error) {
 	var doc bson.M
 	err := coll.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "$natural", Value: sort}})).Decode(&doc)
 	if err != nil {
-		return bsonv2.Timestamp{}, errors.Wrap(err, "query oplog timestamp")
+		return bson.Timestamp{}, errors.Wrap(err, "query oplog timestamp")
 	}
 
-	ts, ok := doc["ts"].(bsonv2.Timestamp)
+	ts, ok := doc["ts"].(bson.Timestamp)
 	if !ok {
-		return bsonv2.Timestamp{}, errors.New("missing or invalid 'ts' field")
+		return bson.Timestamp{}, errors.New("missing or invalid 'ts' field")
 	}
 
 	return ts, nil

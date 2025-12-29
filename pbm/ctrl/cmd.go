@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	bsonv2 "go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -60,24 +60,24 @@ func (c Command) String() string {
 	}
 }
 
-type OPID bsonv2.ObjectID
+type OPID bson.ObjectID
 
 func ParseOPID(s string) (OPID, error) {
-	o, err := bsonv2.ObjectIDFromHex(s)
+	o, err := bson.ObjectIDFromHex(s)
 	if err != nil {
-		return OPID(bsonv2.NilObjectID), err
+		return OPID(bson.NilObjectID), err
 	}
 	return OPID(o), nil
 }
 
-var NilOPID = OPID(bsonv2.NilObjectID)
+var NilOPID = OPID(bson.NilObjectID)
 
 func (o OPID) String() string {
-	return bsonv2.ObjectID(o).Hex()
+	return bson.ObjectID(o).Hex()
 }
 
-func (o OPID) Obj() bsonv2.ObjectID {
-	return bsonv2.ObjectID(o)
+func (o OPID) Obj() bson.ObjectID {
+	return bson.ObjectID(o)
 }
 
 type Cmd struct {
@@ -163,11 +163,11 @@ type RestoreCmd struct {
 	NumParallelColls    *int32 `bson:"numParallelColls,omitempty"`
 	NumInsertionWorkers *int32 `bson:"numInsertionWorkers,omitempty"`
 
-	OplogTS bsonv2.Timestamp `bson:"oplogTS,omitempty"`
+	OplogTS bson.Timestamp `bson:"oplogTS,omitempty"`
 
 	External bool             `bson:"external"`
 	ExtConf  topo.ExternOpts  `bson:"extConf"`
-	ExtTS    bsonv2.Timestamp `bson:"extTS"`
+	ExtTS    bson.Timestamp `bson:"extTS"`
 }
 
 func (r RestoreCmd) String() string {
@@ -190,8 +190,8 @@ func (r RestoreCmd) String() string {
 
 type ReplayCmd struct {
 	Name  string            `bson:"name"`
-	Start bsonv2.Timestamp  `bson:"start,omitempty"`
-	End   bsonv2.Timestamp  `bson:"end,omitempty"`
+	Start bson.Timestamp  `bson:"start,omitempty"`
+	End   bson.Timestamp  `bson:"end,omitempty"`
 	RSMap map[string]string `bson:"rsMap,omitempty"`
 }
 
@@ -211,7 +211,7 @@ type DeletePITRCmd struct {
 }
 
 type CleanupCmd struct {
-	OlderThan bsonv2.Timestamp `bson:"olderThan"`
+	OlderThan bson.Timestamp `bson:"olderThan"`
 	Profile   string           `bson:"profile"`
 }
 
