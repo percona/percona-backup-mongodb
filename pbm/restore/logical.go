@@ -304,6 +304,7 @@ func (r *Restore) Snapshot(
 	}
 	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
 		oplogOption.nss = []string{"config.databases"}
+		oplogOption.nss = append(oplogOption.nss, nss...)
 		oplogOption.filter = newConfigsvrOpFilter(nss)
 	}
 
