@@ -292,7 +292,6 @@ type applyOplogOption struct {
 	nss           []string
 	cloudNS       snapshot.CloneNS
 	unsafe        bool
-	filter        oplog.OpFilter
 	sessUUID      string
 	usersAndRoles bool
 }
@@ -330,7 +329,7 @@ func applyOplog(
 	node *mongo.Client,
 	ranges []oplogRange,
 	options *applyOplogOption,
-	sharded bool,
+	info *topo.NodeInfo,
 	ic *idx.IndexCatalog,
 	setTxn setcommittedTxnFn,
 	getTxn getcommittedTxnFn,
@@ -357,8 +356,8 @@ func applyOplog(
 		return nil, errors.Wrap(err, "create oplog")
 	}
 
+	oplogRestore.SetNodeInfo(info)
 	oplogRestore.SetSelectiveUsersAndRolesRestore(options.usersAndRoles)
-	oplogRestore.SetOpFilter(options.filter)
 	oplogRestore.SetLogEvent(log)
 
 	var startTS, endTS primitive.Timestamp
@@ -406,7 +405,7 @@ func applyOplog(
 	}
 
 	// dealing with dist txns
-	if sharded {
+	if info.IsSharded() {
 		uc, c := oplogRestore.TxnLeftovers()
 		stat.ShardUncommitted = len(uc)
 		go func() {

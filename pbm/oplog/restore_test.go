@@ -31,7 +31,6 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 		preserveUUIDopt: true,
 		preserveUUID:    true,
 		indexCatalog:    idx.NewIndexCatalog(),
-		filter:          DefaultOpFilter,
 	}
 }
 

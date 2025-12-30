@@ -1738,7 +1738,7 @@ func (r *PhysRestore) replayOplog(
 		nodeConn,
 		oplogRanges,
 		&oplogOption,
-		r.nodeInfo.IsSharded(),
+		r.nodeInfo,
 		nil,
 		r.setcommittedTxn,
 		r.getcommittedTxn,

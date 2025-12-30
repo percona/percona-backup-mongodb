@@ -26,6 +26,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -38,12 +39,6 @@ import (
 )
 
 type Record = db.Oplog
-
-// OpFilter can be used to filter out oplog records by content.
-// Useful for apply only subset of operations depending on conditions
-type OpFilter func(*Record) bool
-
-func DefaultOpFilter(*Record) bool { return true }
 
 var excludeFromOplog = []string{
 	"config.rangeDeletions",
@@ -183,12 +178,12 @@ type OplogRestore struct {
 
 	unsafe bool
 
-	filter   OpFilter
 	cloneNS  cloneNS
 	sessUUID string
 
 	usersAndRoles bool
 	log           log.LogEvent
+	nodeInfo      *topo.NodeInfo
 }
 
 const saveLastDistTxns = 100
@@ -234,19 +229,13 @@ func NewOplogRestore(
 		txn:               ctxn,
 		txnSyncErr:        txnErr,
 		unsafe:            unsafe,
-		filter:            DefaultOpFilter,
 		txnData:           make(map[string]Txn),
 		txnCommit:         newCQueue(saveLastDistTxns),
 	}, nil
 }
 
-// SetOpFilter allows to restrict skip ops by specific conditions
-func (o *OplogRestore) SetOpFilter(f OpFilter) {
-	if f == nil {
-		f = DefaultOpFilter
-	}
-
-	o.filter = f
+func (o *OplogRestore) SetNodeInfo(i *topo.NodeInfo) {
+	o.nodeInfo = i
 }
 
 func (o *OplogRestore) SetSelectiveUsersAndRolesRestore(u bool) {
@@ -522,6 +511,10 @@ func isConfigChunksDocAllowed(oe *Record, sessUUID string) bool {
 	return true
 }
 
+func (o *OplogRestore) isSelective() bool {
+	return o.includeNS != nil && o.includeNS[""] == nil
+}
+
 func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
 	if !o.usersAndRoles || (oe.Namespace != "admin.system.users" && oe.Namespace != "admin.system.roles") {
 		return false
@@ -542,13 +535,43 @@ func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
 	return ret
 }
 
+func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
+	if !o.nodeInfo.IsSharded() || !o.isSelective() {
+		return false
+	}
+
+	if oe.Namespace != "config.databases" {
+		return false
+	}
+
+	for _, e := range oe.Query {
+		if e.Key != "_id" {
+			continue
+		}
+
+		d, ok := e.Value.(string)
+		if !ok {
+			return false
+		}
+		_, ok = o.includeNS[d]
+		return ok
+	}
+
+	return false
+}
+
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
 	if o.includeNS == nil || o.includeNS[""] != nil {
 		return true
 	}
 
 	if o.isUserOrRoleOp(oe) {
-		o.log.Debug("User/Role operation selected")
+		o.log.Debug("%q operation selected", oe.Namespace)
+		return true
+	}
+
+	if o.isSelectiveConfigDatabasesOp(oe) {
+		o.log.Debug("%q operation selected", oe.Namespace)
 		return true
 	}
 
@@ -672,10 +695,6 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 	if o.isOpExcluded(&oe) || !isOpAllowed(&oe) ||
 		!o.isOpSelected(&oe) || !o.isOpForCloning(&oe) ||
 		isRoutingDocExcluded(&oe, &o.sessUUID) {
-		return nil
-	}
-
-	if !o.filter(&oe) {
 		return nil
 	}
 
