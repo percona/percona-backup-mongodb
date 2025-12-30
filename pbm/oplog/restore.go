@@ -516,7 +516,11 @@ func (o *OplogRestore) isSelective() bool {
 }
 
 func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
-	if !o.usersAndRoles || (oe.Namespace != "admin.system.users" && oe.Namespace != "admin.system.roles") {
+	if !o.usersAndRoles || !o.isSelective() {
+		return false
+	}
+
+	if oe.Namespace != "admin.system.users" && oe.Namespace != "admin.system.roles" {
 		return false
 	}
 
@@ -561,7 +565,7 @@ func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
 }
 
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
-	if o.includeNS == nil || o.includeNS[""] != nil {
+	if !o.isSelective() {
 		return true
 	}
 
