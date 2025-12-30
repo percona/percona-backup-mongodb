@@ -165,8 +165,6 @@ type OplogRestore struct {
 	// the queue of last N committed transactions
 	txnCommit *cqueue
 
-	txn        chan phys.RestoreTxn
-	txnSyncErr chan error
 	// The `T` part of the last applied op's Timestamp.
 	// Keeping just `T` allows atomic use as we only care
 	// if we've moved further in general. No need in
@@ -195,8 +193,6 @@ func NewOplogRestore(
 	sv *version.MongoVersion,
 	unsafe,
 	preserveUUID bool,
-	ctxn chan phys.RestoreTxn,
-	txnErr chan error,
 ) (*OplogRestore, error) {
 	matcher, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
@@ -226,8 +222,6 @@ func NewOplogRestore(
 		indexCatalog:      ic,
 		excludeNS:         matcher,
 		noUUIDns:          noUUID,
-		txn:               ctxn,
-		txnSyncErr:        txnErr,
 		unsafe:            unsafe,
 		txnData:           make(map[string]Txn),
 		txnCommit:         newCQueue(saveLastDistTxns),

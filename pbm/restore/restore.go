@@ -339,19 +339,12 @@ func applyOplog(
 	log := log.LogEventFromContext(ctx)
 	log.Info("starting oplog replay")
 
-	var (
-		ctxn       chan phys.RestoreTxn
-		txnSyncErr chan error
-	)
-
 	oplogRestore, err := oplog.NewOplogRestore(
 		node,
 		ic,
 		mgoV,
 		options.unsafe,
-		true,
-		ctxn,
-		txnSyncErr)
+		true)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}
