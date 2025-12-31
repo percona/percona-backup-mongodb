@@ -24,13 +24,12 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 	noUUID, _ := ns.NewMatcher(dontPreserveUUID)
 	matcher, _ := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	return &OplogRestore{
-		mdb:             mdb,
-		ver:             &db.Version{7, 0, 0},
-		excludeNS:       matcher,
-		noUUIDns:        noUUID,
-		preserveUUIDopt: true,
-		preserveUUID:    true,
-		indexCatalog:    idx.NewIndexCatalog(),
+		mdb:          mdb,
+		ver:          &db.Version{7, 0, 0},
+		excludeNS:    matcher,
+		noUUIDns:     noUUID,
+		preserveUUID: true,
+		indexCatalog: idx.NewIndexCatalog(),
 	}
 }
 

@@ -343,8 +343,7 @@ func applyOplog(
 		node,
 		ic,
 		mgoV,
-		options.unsafe,
-		true)
+		options.unsafe)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}

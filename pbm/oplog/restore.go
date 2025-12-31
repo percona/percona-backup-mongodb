@@ -152,7 +152,6 @@ type OplogRestore struct {
 	mdb               mDBCl
 	ver               *db.Version
 	needIdxWorkaround bool
-	preserveUUIDopt   bool
 	startTS           primitive.Timestamp
 	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
@@ -191,8 +190,7 @@ func NewOplogRestore(
 	m *mongo.Client,
 	ic *idx.IndexCatalog,
 	sv *version.MongoVersion,
-	unsafe,
-	preserveUUID bool,
+	unsafe bool,
 ) (*OplogRestore, error) {
 	matcher, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
@@ -216,8 +214,7 @@ func NewOplogRestore(
 	return &OplogRestore{
 		mdb:               newMDB(m),
 		ver:               ver,
-		preserveUUIDopt:   preserveUUID,
-		preserveUUID:      preserveUUID,
+		preserveUUID:      true,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      ic,
 		excludeNS:         matcher,
@@ -728,7 +725,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 func (o *OplogRestore) setPreserveUUID(oe db.Oplog) error {
 	// optimization - not to parse namespace if it remains the same
 	if o.cnamespase != oe.Namespace {
-		o.preserveUUID = o.preserveUUIDopt
+		o.preserveUUID = true
 
 		// if this is a create operation, the namespace would be
 		// inside the object to create
