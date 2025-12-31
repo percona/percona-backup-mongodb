@@ -343,12 +343,12 @@ func applyOplog(
 		node,
 		ic,
 		mgoV,
+		info,
 		options.unsafe)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}
 
-	oplogRestore.SetNodeInfo(info)
 	oplogRestore.SetSelectiveUsersAndRolesRestore(options.usersAndRoles)
 	oplogRestore.SetLogEvent(log)
 

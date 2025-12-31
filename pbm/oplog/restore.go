@@ -190,6 +190,7 @@ func NewOplogRestore(
 	m *mongo.Client,
 	ic *idx.IndexCatalog,
 	sv *version.MongoVersion,
+	nodeInfo *topo.NodeInfo,
 	unsafe bool,
 ) (*OplogRestore, error) {
 	matcher, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
@@ -222,11 +223,8 @@ func NewOplogRestore(
 		unsafe:            unsafe,
 		txnData:           make(map[string]Txn),
 		txnCommit:         newCQueue(saveLastDistTxns),
+		nodeInfo:          nodeInfo,
 	}, nil
-}
-
-func (o *OplogRestore) SetNodeInfo(i *topo.NodeInfo) {
-	o.nodeInfo = i
 }
 
 func (o *OplogRestore) SetSelectiveUsersAndRolesRestore(u bool) {
