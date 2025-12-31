@@ -191,6 +191,7 @@ func NewOplogRestore(
 	ic *idx.IndexCatalog,
 	sv *version.MongoVersion,
 	nodeInfo *topo.NodeInfo,
+	log log.LogEvent,
 	unsafe bool,
 ) (*OplogRestore, error) {
 	matcher, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
@@ -224,15 +225,12 @@ func NewOplogRestore(
 		txnData:           make(map[string]Txn),
 		txnCommit:         newCQueue(saveLastDistTxns),
 		nodeInfo:          nodeInfo,
+		log:               log,
 	}, nil
 }
 
 func (o *OplogRestore) SetSelectiveUsersAndRolesRestore(u bool) {
 	o.usersAndRoles = u
-}
-
-func (o *OplogRestore) SetLogEvent(l log.LogEvent) {
-	o.log = l
 }
 
 // SetTimeframe sets boundaries for the replayed operations. All operations

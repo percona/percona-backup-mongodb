@@ -339,18 +339,12 @@ func applyOplog(
 	log := log.LogEventFromContext(ctx)
 	log.Info("starting oplog replay")
 
-	oplogRestore, err := oplog.NewOplogRestore(
-		node,
-		ic,
-		mgoV,
-		info,
-		options.unsafe)
+	oplogRestore, err := oplog.NewOplogRestore(node, ic, mgoV, info, log, options.unsafe)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}
 
 	oplogRestore.SetSelectiveUsersAndRolesRestore(options.usersAndRoles)
-	oplogRestore.SetLogEvent(log)
 
 	var startTS, endTS primitive.Timestamp
 	if options.start != nil {
