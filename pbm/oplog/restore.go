@@ -502,7 +502,7 @@ func (o *OplogRestore) isSelective() bool {
 	return o.includeNS != nil && o.includeNS[""] == nil
 }
 
-func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
+func (o *OplogRestore) isSelectiveUserOrRoleOp(oe *Record) bool {
 	if !o.usersAndRoles || !o.isSelective() {
 		return false
 	}
@@ -511,6 +511,7 @@ func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
 		return false
 	}
 
+	// there is either o._id (create/drop) or o2._id (update) in the form of <db>.name
 	var object bson.D
 	switch oe.Operation {
 	case "i":
@@ -567,7 +568,7 @@ func (o *OplogRestore) isOpSelected(oe *Record) bool {
 		return true
 	}
 
-	if o.isUserOrRoleOp(oe) {
+	if o.isSelectiveUserOrRoleOp(oe) {
 		o.log.Debug("%q operation selected", oe.Namespace)
 		return true
 	}
