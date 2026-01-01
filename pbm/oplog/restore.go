@@ -537,7 +537,7 @@ func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
 }
 
 func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
-	if !o.nodeInfo.IsSharded() || !o.isSelective() {
+	if !o.nodeInfo.IsConfigSrv() || !o.isSelective() {
 		return false
 	}
 
@@ -545,6 +545,7 @@ func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
 		return false
 	}
 
+	// create/drop database and movePrimary ops contain o2._id with the database name
 	for _, e := range oe.Query {
 		if e.Key != "_id" {
 			continue
