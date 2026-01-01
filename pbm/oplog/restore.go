@@ -511,19 +511,29 @@ func (o *OplogRestore) isUserOrRoleOp(oe *Record) bool {
 		return false
 	}
 
-	ret := false
-	for _, e := range oe.Object {
-		if e.Key == "db" {
-			d, ok := e.Value.(string)
-			if !ok {
-				return false
-			}
-			colls := o.includeNS[d]
+	var object bson.D
+	switch oe.Operation {
+	case "i":
+		object = oe.Object
+	case "d":
+		object = oe.Object
+	case "u":
+		object = oe.Query
+	default:
+		return false
+	}
+
+	for _, e := range object {
+		if e.Key == "_id" {
+			ns, _ := e.Value.(string)
+			db, _, _ := strings.Cut(ns, ".")
+
+			colls := o.includeNS[db]
 			return colls != nil && colls[""]
 		}
 	}
 
-	return ret
+	return false
 }
 
 func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
