@@ -563,6 +563,31 @@ func TestApply(t *testing.T) {
 					"mydb.collection1",
 				},
 			},
+			{
+				desc:          "config.databases ops should be processed on config server",
+				oplogFile:     "ops_admin_databases",
+				csvr:          true,
+				usersAndRoles: false,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i", "i", "u", "d"},
+				resNS: []string{
+					"config.databases",
+					"mydb.collection1",
+					"config.databases",
+					"config.databases",
+				},
+			},
+			{
+				desc:          "config.databases ops should be ignored on regular shards",
+				oplogFile:     "ops_admin_databases",
+				csvr:          false,
+				usersAndRoles: false,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i"},
+				resNS: []string{
+					"mydb.collection1",
+				},
+			},
 		}
 
 		for _, tC := range testCases {
