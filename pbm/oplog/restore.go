@@ -192,7 +192,6 @@ func NewOplogRestore(
 	sv *version.MongoVersion,
 	nodeInfo *topo.NodeInfo,
 	log log.LogEvent,
-	unsafe bool,
 ) (*OplogRestore, error) {
 	matcher, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
@@ -221,12 +220,15 @@ func NewOplogRestore(
 		indexCatalog:      ic,
 		excludeNS:         matcher,
 		noUUIDns:          noUUID,
-		unsafe:            unsafe,
 		txnData:           make(map[string]Txn),
 		txnCommit:         newCQueue(saveLastDistTxns),
 		nodeInfo:          nodeInfo,
 		log:               log,
 	}, nil
+}
+
+func (o *OplogRestore) SetUnsafeMode(unsafe bool) {
+	o.unsafe = unsafe
 }
 
 func (o *OplogRestore) SetSelectiveUsersAndRolesRestore(u bool) {
