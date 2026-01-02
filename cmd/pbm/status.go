@@ -593,6 +593,7 @@ func getStorageStat(
 			Type:       bcp.Type,
 			SrcBackup:  bcp.SrcBackup,
 			Profile:    bcp.Store.Name,
+			StoreName:  bcp.Store.Name,
 		}
 		if err := bcp.Error(); err != nil {
 			snpsht.Err = err

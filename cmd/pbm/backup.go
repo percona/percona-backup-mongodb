@@ -322,8 +322,10 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 }
 
 type bcpDesc struct {
-	Name               string          `json:"name" yaml:"name"`
-	Profile            string          `json:"profile,omitempty" yaml:"profile,omitempty"`
+	Name    string `json:"name" yaml:"name"`
+	Profile string `json:"profile,omitempty" yaml:"profile,omitempty"`
+	// StorageName exists only for backwards compatibility and will be removed (use Profile instead)
+	StorageName        string          `json:"storage_name,omitempty" yaml:"storage_name,omitempty"`
 	StorageType        storage.Type    `json:"storage_type,omitempty" yaml:"storage_type,omitempty"`
 	OPID               string          `json:"opid" yaml:"opid"`
 	Type               defs.BackupType `json:"type" yaml:"type"`
@@ -418,6 +420,7 @@ func describeBackup(
 	rv := &bcpDesc{
 		Name:               bcp.Name,
 		Profile:            bcp.Store.Name,
+		StorageName:        bcp.Store.Name,
 		StorageType:        bcp.Store.Type,
 		OPID:               bcp.OPID,
 		Type:               bcp.Type,
