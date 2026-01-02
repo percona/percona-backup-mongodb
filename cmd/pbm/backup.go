@@ -49,9 +49,14 @@ type backupOut struct {
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf(
-		"Backup %q saved to remote store (profile: %q, path: %q)", b.Name, b.Profile, b.StoragePath,
-	)
+	pInfo := ""
+	if b.Profile == "" {
+		pInfo = fmt.Sprintf("(path: %q)", b.StoragePath)
+	} else {
+		pInfo = fmt.Sprintf("(profile: %q, path: %q)", b.Profile, b.StoragePath)
+
+	}
+	return fmt.Sprintf("Backup %q saved to remote store %s", b.Name, pInfo)
 }
 
 type externBcpOut struct {
