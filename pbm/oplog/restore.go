@@ -500,10 +500,13 @@ func isConfigChunksDocAllowed(oe *Record, sessUUID string) bool {
 	return true
 }
 
+// isSelective returns true if only entries for selected namespaces should be replayed
 func (o *OplogRestore) isSelective() bool {
 	return o.includeNS != nil && o.includeNS[""] == nil
 }
 
+// isSelectiveUserOrRoleOp returns true if selective replay is enabled, user/roles should be restored,
+// and user/role operation relates to one of the included namespaces
 func (o *OplogRestore) isSelectiveUserOrRoleOp(oe *Record) bool {
 	if !o.usersAndRoles || !o.isSelective() {
 		return false
@@ -516,9 +519,7 @@ func (o *OplogRestore) isSelectiveUserOrRoleOp(oe *Record) bool {
 	// there is either o._id (create/drop) or o2._id (update) in the form of <db>.name
 	var object bson.D
 	switch oe.Operation {
-	case "i":
-		object = oe.Object
-	case "d":
+	case "i", "d":
 		object = oe.Object
 	case "u":
 		object = oe.Query
@@ -539,12 +540,14 @@ func (o *OplogRestore) isSelectiveUserOrRoleOp(oe *Record) bool {
 	return false
 }
 
+// isSelectiveConfigDatabasesOp returns true if selective replay is enabled, the current node is config server,
+// and the given oplog entry is both -- from config.databsaes and related to one of the included namespaces.
 func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
 	if !o.nodeInfo.IsConfigSrv() || !o.isSelective() {
 		return false
 	}
 
-	if oe.Namespace != "config.databases" {
+	if oe.Namespace != defs.ConfigDatabasesNS {
 		return false
 	}
 
@@ -565,18 +568,21 @@ func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
 	return false
 }
 
+// isOpSelected will return true if oplog entry passes selection criteria;
+// For non-selective replay all entries will pass, otherwise only operations
+// in included namespaces and allowed operation will be pass. There are
+// exceptions to this rule such as user/rele related operations or
+// operations in system collections at config server nodes that are required.
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
 	if !o.isSelective() {
 		return true
 	}
 
 	if o.isSelectiveUserOrRoleOp(oe) {
-		o.log.Debug("%q operation selected", oe.Namespace)
 		return true
 	}
 
 	if o.isSelectiveConfigDatabasesOp(oe) {
-		o.log.Debug("%q operation selected", oe.Namespace)
 		return true
 	}
 
