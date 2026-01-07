@@ -163,9 +163,6 @@ func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, 
 
 		return nssRestore
 	}
-	if util.IsSelective(nssBackup) {
-		return nssBackup
-	}
 
 	return nssBackup
 }
@@ -302,11 +299,6 @@ func (r *Restore) Snapshot(
 		cloudNS:  cloneNS,
 		sessUUID: sysSessionsUUID,
 	}
-	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-		oplogOption.nss = []string{"config.databases"}
-		oplogOption.nss = append(oplogOption.nss, nss...)
-		oplogOption.filter = newConfigsvrOpFilter(nss)
-	}
 
 	err = r.applyOplog(ctx, oplogRanges, oplogOption)
 	if err != nil {
@@ -327,32 +319,6 @@ func (r *Restore) Snapshot(
 	}
 
 	return r.Done(ctx)
-}
-
-// newConfigsvrOpFilter filters out not needed ops during selective backup on configsvr
-func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
-	selected := util.MakeSelectedPred(nss)
-
-	return func(r *oplog.Record) bool {
-		if selected(r.Namespace) {
-			return true
-		}
-		if r.Namespace != "config.databases" {
-			return false
-		}
-
-		// create/drop database and movePrimary ops contain o2._id with the database name
-		for _, e := range r.Query {
-			if e.Key != "_id" {
-				continue
-			}
-
-			db, _ := e.Value.(string)
-			return selected(db)
-		}
-
-		return false
-	}
 }
 
 // PITR do the Point-in-Time Recovery
@@ -494,16 +460,13 @@ func (r *Restore) PITR(
 		{chunks: chunks, storage: r.oplogStg},
 	}
 	oplogOption := applyOplogOption{
-		end:      &cmd.OplogTS,
-		nss:      nss,
-		cloudNS:  cloneNS,
-		sessUUID: sysSessionsUUID,
+		end:           &cmd.OplogTS,
+		nss:           nss,
+		cloudNS:       cloneNS,
+		sessUUID:      sysSessionsUUID,
+		usersAndRoles: bool(usersAndRolesOpt),
 	}
-	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-		oplogOption.nss = []string{"config.databases"}
-		oplogOption.nss = append(oplogOption.nss, nss...)
-		oplogOption.filter = newConfigsvrOpFilter(nss)
-	}
+
 	err = r.applyOplog(ctx, oplogRanges, &oplogOption)
 	if err != nil {
 		return err
@@ -1501,7 +1464,7 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 		r.nodeConn,
 		ranges,
 		options,
-		r.nodeInfo.IsSharded(),
+		r.nodeInfo,
 		r.indexCatalog,
 		r.setcommittedTxn,
 		r.getcommittedTxn,

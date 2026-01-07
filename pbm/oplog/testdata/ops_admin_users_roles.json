@@ -1,0 +1,472 @@
+[
+  {
+    "op": "i",
+    "ns": "admin.system.users",
+    "ui": {
+      "$binary": {
+        "base64": "f774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": "mydb.testuser",
+      "user": "testuser",
+      "db": "mydb",
+      "credentials": {
+        "SCRAM-SHA-256": {
+          "iterationCount": 15000,
+          "salt": "c2FsdA==",
+          "storedKey": "a2V5MQ==",
+          "serverKey": "a2V5Mg=="
+        }
+      },
+      "roles": [
+        {
+          "role": "readWrite",
+          "db": "mydb"
+        }
+      ]
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733050,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:50.000Z"
+    }
+  },
+  {
+    "op": "i",
+    "ns": "mydb.collection1",
+    "ui": {
+      "$binary": {
+        "base64": "f774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": {
+        "$oid": "6728e3fcedfb509c06f01301"
+      },
+      "name": "document1",
+      "value": 100
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733051,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:51.000Z"
+    }
+  },
+  {
+    "op": "u",
+    "ns": "admin.system.users",
+    "ui": {
+      "$binary": {
+        "base64": "f774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "$v": 2,
+      "diff": {
+        "u": {
+          "roles": [
+            {
+              "role": "readWrite",
+              "db": "mydb"
+            },
+            {
+              "role": "dbAdmin",
+              "db": "mydb"
+            }
+          ]
+        }
+      }
+    },
+    "o2": {
+      "_id": "mydb.testuser"
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733052,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:52.000Z"
+    }
+  },
+  {
+    "op": "i",
+    "ns": "admin.system.roles",
+    "ui": {
+      "$binary": {
+        "base64": "f774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": "mydb.customRole",
+      "role": "customRole",
+      "db": "mydb",
+      "privileges": [
+        {
+          "resource": {
+            "db": "mydb",
+            "collection": ""
+          },
+          "actions": ["find", "insert"]
+        }
+      ],
+      "roles": []
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733053,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:53.000Z"
+    }
+  },
+  {
+    "op": "i",
+    "ns": "mydb.collection1",
+    "ui": {
+      "$binary": {
+        "base64": "f774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": {
+        "$oid": "6728e3fcedfb509c06f01302"
+      },
+      "name": "document2",
+      "value": 200
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733054,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:54.000Z"
+    }
+  },
+  {
+    "op": "u",
+    "ns": "admin.system.roles",
+    "ui": {
+      "$binary": {
+        "base64": "f774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "$v": 2,
+      "diff": {
+        "u": {
+          "privileges": [
+            {
+              "resource": {
+                "db": "mydb",
+                "collection": ""
+              },
+              "actions": ["find", "insert", "update"]
+            }
+          ]
+        }
+      }
+    },
+    "o2": {
+      "_id": "mydb.customRole"
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733055,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:55.000Z"
+    }
+  },
+  {
+    "op": "i",
+    "ns": "admin.system.users",
+    "ui": {
+      "$binary": {
+        "base64": "a774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": "otherdb.otheruser",
+      "user": "otheruser",
+      "db": "otherdb",
+      "credentials": {
+        "SCRAM-SHA-256": {
+          "iterationCount": 15000,
+          "salt": "b3RoZXI=",
+          "storedKey": "b3RoZXIx",
+          "serverKey": "b3RoZXIy"
+        }
+      },
+      "roles": [
+        {
+          "role": "read",
+          "db": "otherdb"
+        }
+      ]
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733056,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:56.000Z"
+    }
+  },
+  {
+    "op": "i",
+    "ns": "admin.system.roles",
+    "ui": {
+      "$binary": {
+        "base64": "a774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": "otherdb.otherRole",
+      "role": "otherRole",
+      "db": "otherdb",
+      "privileges": [
+        {
+          "resource": {
+            "db": "otherdb",
+            "collection": ""
+          },
+          "actions": ["find"]
+        }
+      ],
+      "roles": []
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733057,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:57.000Z"
+    }
+  },
+  {
+    "op": "c",
+    "ns": "admin.$cmd",
+    "o": {
+      "applyOps": [
+        {
+          "op": "d",
+          "ns": "admin.system.roles",
+          "ui": {
+            "$binary": {
+              "base64": "f774YvKERIKXSJVH+xCtPw==",
+              "subType": "04"
+            }
+          },
+          "o": {
+            "_id": "mydb.oldRole"
+          }
+        }
+      ]
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733058,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:58.000Z"
+    }
+  },
+  {
+    "op": "c",
+    "ns": "admin.$cmd",
+    "o": {
+      "applyOps": [
+        {
+          "op": "d",
+          "ns": "admin.system.users",
+          "ui": {
+            "$binary": {
+              "base64": "f774YvKERIKXSJVH+xCtPw==",
+              "subType": "04"
+            }
+          },
+          "o": {
+            "_id": "mydb.olduser"
+          }
+        }
+      ]
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733059,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:10:59.000Z"
+    }
+  },
+  {
+    "op": "u",
+    "ns": "admin.system.users",
+    "ui": {
+      "$binary": {
+        "base64": "a774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "$v": 2,
+      "diff": {
+        "u": {
+          "roles": [
+            {
+              "role": "read",
+              "db": "otherdb"
+            },
+            {
+              "role": "readWrite",
+              "db": "otherdb"
+            }
+          ]
+        }
+      }
+    },
+    "o2": {
+      "_id": "otherdb.otheruser"
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733060,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:11:00.000Z"
+    }
+  },
+  {
+    "op": "i",
+    "ns": "otherdb.collection2",
+    "ui": {
+      "$binary": {
+        "base64": "a774YvKERIKXSJVH+xCtPw==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": {
+        "$oid": "6728e3fcedfb509c06f01303"
+      },
+      "name": "document3",
+      "value": 300
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1730733061,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "1"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": "2024-11-04T15:11:01.000Z"
+    }
+  }
+]
