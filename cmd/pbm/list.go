@@ -23,12 +23,12 @@ import (
 )
 
 type listOpts struct {
-	restore  bool
-	unbacked bool
-	full     bool
-	size     int
-	profile  string
-	rsMap    string
+	restore     bool
+	unbacked    bool
+	full        bool
+	size        int
+	profileFlag ProfileFlag
+	rsMap       string
 }
 
 type restoreStatus struct {
@@ -114,7 +114,7 @@ func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listO
 		return restoreList(ctx, conn, pbm, int64(l.size))
 	}
 
-	return backupList(ctx, conn, l.size, l.full, l.unbacked, l.profile, rsMap)
+	return backupList(ctx, conn, l.size, l.full, l.unbacked, l.profileFlag.Value, rsMap)
 }
 
 func findLock(ctx context.Context, pbm *sdk.Client) (*sdk.OpLock, error) {
@@ -259,7 +259,7 @@ func backupList(
 	conn connect.Client,
 	size int,
 	full, unbacked bool,
-	profile string,
+	profile config.ProfileRef,
 	rsMap map[string]string,
 ) (backupListOut, error) {
 	var list backupListOut
@@ -293,7 +293,7 @@ func backupList(
 func getSnapshotList(
 	ctx context.Context,
 	conn connect.Client,
-	profile string,
+	profile config.ProfileRef,
 	size int,
 	rsMap map[string]string,
 ) ([]snapshotStat, error) {

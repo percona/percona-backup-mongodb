@@ -685,12 +685,17 @@ func (app *pbmApp) buildDiagnosticCmd() *cobra.Command {
 }
 
 func (app *pbmApp) buildListCmd() *cobra.Command {
-	listOptions := listOpts{}
+	listOptions := listOpts{
+		profileFlag: NewProfileFlagA(),
+	}
 
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "Backup list",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			if err := listOptions.profileFlag.Validate(app.ctx, app.conn); err != nil {
+				return nil, err
+			}
 			return runList(app.ctx, app.conn, app.pbm, &listOptions)
 		}),
 	}
@@ -699,8 +704,8 @@ func (app *pbmApp) buildListCmd() *cobra.Command {
 	listCmd.Flags().BoolVar(&listOptions.unbacked, "unbacked", false, "Show unbacked oplog ranges")
 	listCmd.Flags().BoolVarP(&listOptions.full, "full", "f", false, "Show extended restore info")
 	listCmd.Flags().IntVar(&listOptions.size, "size", 0, "Show last N backups")
-	listCmd.Flags().StringVar(
-		&listOptions.profile, "profile", "",
+	listCmd.Flags().Var(
+		&listOptions.profileFlag, "profile",
 		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
 	)
 	listCmd.Flags().StringVar(&listOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
@@ -924,7 +929,9 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 		"cluster", "pitr", "running", "backups",
 	}
 
-	statusOpts := statusOptions{}
+	statusOpts := statusOptions{
+		profileFlag: NewProfileFlagA(),
+	}
 
 	statusCmd := &cobra.Command{
 		Use:     "status",
@@ -936,13 +943,15 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 					return nil, err
 				}
 			}
-
+			if err := statusOpts.profileFlag.Validate(app.ctx, app.conn); err != nil {
+				return nil, err
+			}
 			return status(app.ctx, app.conn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
 		}),
 	}
 
-	statusCmd.Flags().StringVar(
-		&statusOpts.profile, "profile", "",
+	statusCmd.Flags().Var(
+		&statusOpts.profileFlag, "profile",
 		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
 	)
 	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
