@@ -14,6 +14,32 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
+const (
+	ProfileRefDefault ProfileRef = "default"
+	ProfileRefAll     ProfileRef = "*"
+)
+
+type ProfileRef string
+
+func (p ProfileRef) Name() string {
+	if p.IsDefault() {
+		return ""
+	}
+	return string(p)
+}
+
+func (p ProfileRef) SameAs(r ProfileRef) bool {
+	return p.Name() == r.Name()
+}
+
+func (p ProfileRef) IsDefault() bool {
+	return p.SameAs(ProfileRefDefault)
+}
+
+func (p ProfileRef) IsAll() bool {
+	return p.SameAs(ProfileRefAll)
+}
+
 func ListProfiles(ctx context.Context, m connect.Client) ([]Config, error) {
 	cur, err := m.ConfigCollection().Find(ctx, bson.D{
 		{"profile", true},

@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	stds3 "github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/stretchr/testify/assert"
@@ -42,10 +42,10 @@ func TestMetadataEncodeDecodeWithMinio(t *testing.T) {
 		t.Fatalf("failed to get endpoint: %s", err)
 	}
 
-	defaultConfig, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion("us-east-1"),
-		config.WithBaseEndpoint(endpoint),
-		config.WithCredentialsProvider(
+	defaultConfig, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion("us-east-1"),
+		awsconfig.WithBaseEndpoint(endpoint),
+		awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", ""),
 		),
 	)
@@ -121,8 +121,8 @@ func TestBackupsList(t *testing.T) {
 	TestEnv.Reset(t)
 	now := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 
-	backups := map[string][]bcp{
-		"": {
+	backups := map[config.ProfileRef][]bcp{
+		config.ProfileRefDefault: {
 			{Name: "a1", LWT: now.Add(-20 * time.Minute)},
 			{Name: "a2", LWT: now.Add(-15 * time.Minute)},
 			{Name: "a3", LWT: now.Add(-10 * time.Minute)},
@@ -132,51 +132,54 @@ func TestBackupsList(t *testing.T) {
 			{Name: "b2", LWT: now.Add(-10 * time.Minute)},
 		},
 	}
-	stgs := stgsFromTestBackups(t, backups)
 
-	expected := make([]BackupMeta, 0)
-	for profile, bcps := range backups {
-		for _, bcp := range bcps {
-			meta := insertTestBcpMeta(t, TestEnv, stgs[profile], bcp)
-			expected = append(expected, meta)
-		}
-	}
-	sort.Slice(expected, func(i, j int) bool {
-		return expected[i].StartTS < expected[j].StartTS
-	})
-	expectedNamesAll, expectedNamesByProfile := bcpNames(expected)
+	expectedNames := prepareBackupList(t, backups)
 
 	for profile := range backups {
-		tName := profile
-		if profile == "" {
-			tName = "default"
-		}
-
-		t.Run(fmt.Sprintf("List backups in profile %q", tName), func(t *testing.T) {
-			var expectedNames []string
-			if profile == "" {
-				expectedNames = expectedNamesAll
-			} else {
-				expectedNames = expectedNamesByProfile[profile]
-			}
-
-			actual, err := BackupsList(t.Context(), TestEnv.Client, profile, 0)
-			assert.NoError(t, err)
-			actualNames, _ := bcpNames(actual)
-			assert.ElementsMatchf(t, expectedNames, actualNames,
-				"Expectged backups %v, got %v, for profile %q", expectedNamesAll, actualNames, profile,
-			)
+		t.Run(fmt.Sprintf("List backups in profile %s", profile), func(t *testing.T) {
+			testExpectedList(t, profile, expectedNames[profile])
 		})
 	}
 
+	t.Run("List all backups", func(t *testing.T) {
+		testExpectedList(t, config.ProfileRefAll, expectedNames[config.ProfileRefAll])
+	})
 }
 
-func bcpNames(backups []BackupMeta) ([]string, map[string][]string) {
-	var all = make([]string, len(backups))
-	var byProfile = make(map[string][]string)
-	for i, b := range backups {
-		all[i] = b.Name
-		byProfile[b.Store.Name] = append(byProfile[b.Store.Name], b.Name)
+func testExpectedList(t *testing.T, p config.ProfileRef, expected []string) {
+	list, err := BackupsList(t.Context(), TestEnv.Client, p, 0)
+	assert.NoError(t, err)
+	actual := bcpNames(list)
+	assert.ElementsMatchf(t, expected, actual, "Expectged backups %v, got %v", expected, actual)
+}
+
+func prepareBackupList(t *testing.T, backups map[config.ProfileRef][]bcp) map[config.ProfileRef][]string {
+	names := make(map[config.ProfileRef][]string)
+
+	for profile, bcps := range backups {
+		stg := TestEnv.PbmStorage
+		if !profile.IsDefault() {
+			stg = TempStorageProfile(t, profile.Name())
+		}
+
+		var expected []BackupMeta
+		for _, bcp := range bcps {
+			meta := insertTestBcpMeta(t, TestEnv, stg, bcp)
+			expected = append(expected, meta)
+		}
+
+		pnames := bcpNames(expected)
+		names[profile] = append(names[profile], pnames...)
+		names[config.ProfileRefAll] = append(names[config.ProfileRefAll], pnames...)
 	}
-	return all, byProfile
+
+	return names
+}
+
+func bcpNames(backups []BackupMeta) []string {
+	var names []string
+	for _, b := range backups {
+		names = append(names, b.Name)
+	}
+	return names
 }

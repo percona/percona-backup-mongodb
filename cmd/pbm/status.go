@@ -29,10 +29,10 @@ import (
 )
 
 type statusOptions struct {
-	profile  string
-	rsMap    string
-	sections []string
-	priority bool
+	profileFlag ProfileFlag
+	rsMap       string
+	sections    []string
+	priority    bool
 }
 
 type statusOut struct {
@@ -106,16 +106,6 @@ func status(
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
-	if opts.profile != "" {
-		_, err := config.GetProfile(ctx, conn, opts.profile)
-		if err != nil {
-			if errors.Is(err, config.ErrMissedConfigProfile) {
-				return nil, errors.Errorf("profile %q is not found", opts.profile)
-			}
-			return nil, errors.Wrap(err, "get profile")
-		}
-	}
-
 	out := statusOut{
 		data: []*statusSect{
 			{
@@ -134,7 +124,7 @@ func status(
 			{
 				"backups", "Backups", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, pbm, opts.profile, rsMap)
+					return getStorageStat(ctx, conn, opts.profileFlag.Value, rsMap)
 				},
 			},
 		},
@@ -540,8 +530,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	pbm *sdk.Client,
-	profile string,
+	profile config.ProfileRef,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -643,8 +632,8 @@ func getStorageStat(
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	// for main profile also fetch PITR chunks
-	if profile == "" {
+	// for default storage also fetch PITR chunks
+	if profile.IsDefault() || profile.IsAll() {
 		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 		if err != nil {
 			return s, errors.Wrap(err, "get PITR chunks")
