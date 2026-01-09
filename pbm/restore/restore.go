@@ -287,13 +287,13 @@ func chunks(
 }
 
 type applyOplogOption struct {
-	start    *primitive.Timestamp
-	end      *primitive.Timestamp
-	nss      []string
-	cloudNS  snapshot.CloneNS
-	unsafe   bool
-	filter   oplog.OpFilter
-	sessUUID string
+	start         *primitive.Timestamp
+	end           *primitive.Timestamp
+	nss           []string
+	cloudNS       snapshot.CloneNS
+	unsafe        bool
+	sessUUID      string
+	usersAndRoles bool
 }
 
 type (
@@ -329,7 +329,7 @@ func applyOplog(
 	node *mongo.Client,
 	ranges []oplogRange,
 	options *applyOplogOption,
-	sharded bool,
+	info *topo.NodeInfo,
 	ic *idx.IndexCatalog,
 	setTxn setcommittedTxnFn,
 	getTxn getcommittedTxnFn,
@@ -339,24 +339,13 @@ func applyOplog(
 	log := log.LogEventFromContext(ctx)
 	log.Info("starting oplog replay")
 
-	var (
-		ctxn       chan phys.RestoreTxn
-		txnSyncErr chan error
-	)
-
-	oplogRestore, err := oplog.NewOplogRestore(
-		node,
-		ic,
-		mgoV,
-		options.unsafe,
-		true,
-		ctxn,
-		txnSyncErr)
+	oplogRestore, err := oplog.NewOplogRestore(node, ic, mgoV, info, log)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}
 
-	oplogRestore.SetOpFilter(options.filter)
+	oplogRestore.SetUnsafeMode(options.unsafe)
+	oplogRestore.SetSelectiveUsersAndRolesRestore(options.usersAndRoles)
 
 	var startTS, endTS primitive.Timestamp
 	if options.start != nil {
@@ -403,7 +392,7 @@ func applyOplog(
 	}
 
 	// dealing with dist txns
-	if sharded {
+	if info.IsSharded() {
 		uc, c := oplogRestore.TxnLeftovers()
 		stat.ShardUncommitted = len(uc)
 		go func() {

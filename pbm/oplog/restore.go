@@ -25,6 +25,8 @@ import (
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -37,12 +39,6 @@ import (
 )
 
 type Record = db.Oplog
-
-// OpFilter can be used to filter out oplog records by content.
-// Useful for apply only subset of operations depending on conditions
-type OpFilter func(*Record) bool
-
-func DefaultOpFilter(*Record) bool { return true }
 
 var excludeFromOplog = []string{
 	"config.rangeDeletions",
@@ -156,7 +152,6 @@ type OplogRestore struct {
 	mdb               mDBCl
 	ver               *db.Version
 	needIdxWorkaround bool
-	preserveUUIDopt   bool
 	startTS           primitive.Timestamp
 	endTS             primitive.Timestamp
 	indexCatalog      *idx.IndexCatalog
@@ -169,8 +164,6 @@ type OplogRestore struct {
 	// the queue of last N committed transactions
 	txnCommit *cqueue
 
-	txn        chan phys.RestoreTxn
-	txnSyncErr chan error
 	// The `T` part of the last applied op's Timestamp.
 	// Keeping just `T` allows atomic use as we only care
 	// if we've moved further in general. No need in
@@ -182,9 +175,12 @@ type OplogRestore struct {
 
 	unsafe bool
 
-	filter   OpFilter
 	cloneNS  cloneNS
 	sessUUID string
+
+	usersAndRoles bool
+	log           log.LogEvent
+	nodeInfo      *topo.NodeInfo
 }
 
 const saveLastDistTxns = 100
@@ -194,10 +190,8 @@ func NewOplogRestore(
 	m *mongo.Client,
 	ic *idx.IndexCatalog,
 	sv *version.MongoVersion,
-	unsafe,
-	preserveUUID bool,
-	ctxn chan phys.RestoreTxn,
-	txnErr chan error,
+	nodeInfo *topo.NodeInfo,
+	log log.LogEvent,
 ) (*OplogRestore, error) {
 	matcher, err := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	if err != nil {
@@ -221,28 +215,24 @@ func NewOplogRestore(
 	return &OplogRestore{
 		mdb:               newMDB(m),
 		ver:               ver,
-		preserveUUIDopt:   preserveUUID,
-		preserveUUID:      preserveUUID,
+		preserveUUID:      true,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      ic,
 		excludeNS:         matcher,
 		noUUIDns:          noUUID,
-		txn:               ctxn,
-		txnSyncErr:        txnErr,
-		unsafe:            unsafe,
-		filter:            DefaultOpFilter,
 		txnData:           make(map[string]Txn),
 		txnCommit:         newCQueue(saveLastDistTxns),
+		nodeInfo:          nodeInfo,
+		log:               log,
 	}, nil
 }
 
-// SetOpFilter allows to restrict skip ops by specific conditions
-func (o *OplogRestore) SetOpFilter(f OpFilter) {
-	if f == nil {
-		f = DefaultOpFilter
-	}
+func (o *OplogRestore) SetUnsafeMode(unsafe bool) {
+	o.unsafe = unsafe
+}
 
-	o.filter = f
+func (o *OplogRestore) SetSelectiveUsersAndRolesRestore(u bool) {
+	o.usersAndRoles = u
 }
 
 // SetTimeframe sets boundaries for the replayed operations. All operations
@@ -510,8 +500,89 @@ func isConfigChunksDocAllowed(oe *Record, sessUUID string) bool {
 	return true
 }
 
+// isSelective returns true if only entries for selected namespaces should be replayed
+func (o *OplogRestore) isSelective() bool {
+	return o.includeNS != nil && o.includeNS[""] == nil
+}
+
+// isSelectiveUserOrRoleOp returns true if selective replay is enabled, user/roles should be restored,
+// and user/role operation relates to one of the included namespaces
+func (o *OplogRestore) isSelectiveUserOrRoleOp(oe *Record) bool {
+	if !o.usersAndRoles || !o.isSelective() {
+		return false
+	}
+
+	if oe.Namespace != "admin.system.users" && oe.Namespace != "admin.system.roles" {
+		return false
+	}
+
+	// there is either o._id (create/drop) or o2._id (update) in the form of <db>.name
+	var object bson.D
+	switch oe.Operation {
+	case "i", "d":
+		object = oe.Object
+	case "u":
+		object = oe.Query
+	default:
+		return false
+	}
+
+	for _, e := range object {
+		if e.Key == "_id" {
+			ns, _ := e.Value.(string)
+			db, _, _ := strings.Cut(ns, ".")
+
+			colls := o.includeNS[db]
+			return colls != nil && colls[""]
+		}
+	}
+
+	return false
+}
+
+// isSelectiveConfigDatabasesOp returns true if selective replay is enabled, the current node is config server,
+// and the given oplog entry is both -- from config.databsaes and related to one of the included namespaces.
+func (o *OplogRestore) isSelectiveConfigDatabasesOp(oe *Record) bool {
+	if !o.nodeInfo.IsConfigSrv() || !o.isSelective() {
+		return false
+	}
+
+	if oe.Namespace != defs.ConfigDatabasesNS {
+		return false
+	}
+
+	// create/drop database and movePrimary ops contain o2._id with the database name
+	for _, e := range oe.Query {
+		if e.Key != "_id" {
+			continue
+		}
+
+		d, ok := e.Value.(string)
+		if !ok {
+			return false
+		}
+		_, ok = o.includeNS[d]
+		return ok
+	}
+
+	return false
+}
+
+// isOpSelected will return true if oplog entry passes selection criteria;
+// For non-selective replay all entries will pass, otherwise only operations
+// in included namespaces and allowed operation will be pass. There are
+// exceptions to this rule such as user/rele related operations or
+// operations in system collections at config server nodes that are required.
 func (o *OplogRestore) isOpSelected(oe *Record) bool {
-	if o.includeNS == nil || o.includeNS[""] != nil {
+	if !o.isSelective() {
+		return true
+	}
+
+	if o.isSelectiveUserOrRoleOp(oe) {
+		return true
+	}
+
+	if o.isSelectiveConfigDatabasesOp(oe) {
 		return true
 	}
 
@@ -638,10 +709,6 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 		return nil
 	}
 
-	if !o.filter(&oe) {
-		return nil
-	}
-
 	if oe.Operation == "c" && len(oe.Object) > 0 &&
 		(oe.Object[0].Key == "startIndexBuild" || oe.Object[0].Key == "abortIndexBuild") {
 		return nil
@@ -674,7 +741,7 @@ func (o *OplogRestore) handleOp(oe db.Oplog) error {
 func (o *OplogRestore) setPreserveUUID(oe db.Oplog) error {
 	// optimization - not to parse namespace if it remains the same
 	if o.cnamespase != oe.Namespace {
-		o.preserveUUID = o.preserveUUIDopt
+		o.preserveUUID = true
 
 		// if this is a create operation, the namespace would be
 		// inside the object to create
