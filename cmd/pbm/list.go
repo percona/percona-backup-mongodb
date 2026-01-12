@@ -297,7 +297,7 @@ func getSnapshotList(
 	size int,
 	rsMap map[string]string,
 ) ([]snapshotStat, error) {
-	bcps, err := backup.BackupsList(ctx, conn, profile, int64(size))
+	bcps, err := backup.BackupsList(ctx, conn, &profile, int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}

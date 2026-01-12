@@ -29,7 +29,7 @@ import (
 )
 
 type statusOptions struct {
-	profile  string
+	profile  *string
 	rsMap    string
 	sections []string
 	priority bool
@@ -531,7 +531,7 @@ func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
 	pbm *sdk.Client,
-	profile string,
+	profile *string,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -633,7 +633,7 @@ func getStorageStat(
 	}
 
 	// for main profile also fetch PITR chunks
-	if profile == "" {
+	if profile == nil {
 		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 		if err != nil {
 			return s, errors.Wrap(err, "get PITR chunks")

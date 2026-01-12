@@ -160,7 +160,7 @@ func TestBackupsList(t *testing.T) {
 				expectedNames = expectedNamesByProfile[profile]
 			}
 
-			actual, err := BackupsList(t.Context(), TestEnv.Client, profile, 0)
+			actual, err := BackupsList(t.Context(), TestEnv.Client, &profile, 0)
 			assert.NoError(t, err)
 			actualNames, _ := bcpNames(actual)
 			assert.ElementsMatchf(t, expectedNames, actualNames,

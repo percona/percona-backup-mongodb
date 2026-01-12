@@ -937,12 +937,17 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 				}
 			}
 
+			if cmd.Flags().Changed("profile") {
+				val, _ := cmd.Flags().GetString("profile")
+				statusOpts.profile = &val
+			}
+
 			return status(app.ctx, app.conn, app.pbm, app.mURL, statusOpts, app.pbmOutF == outJSONpretty)
 		}),
 	}
 
-	statusCmd.Flags().StringVar(
-		&statusOpts.profile, "profile", "",
+	statusCmd.Flags().String(
+		"profile", "",
 		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
 	)
 	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)

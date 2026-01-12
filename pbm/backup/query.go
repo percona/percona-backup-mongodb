@@ -380,11 +380,23 @@ func findBaseSnapshotLWImpl(
 	return bcp.LastWriteTS, errors.Wrap(err, "decode")
 }
 
-func BackupsList(ctx context.Context, conn connect.Client, profile string, limit int64) ([]BackupMeta, error) {
-	filter := bson.M{}
-	if profile != "" {
-		filter["store.name"] = profile
+// ProfileFilter return a query filter based on the store profile name
+func profileFilter(profile *string) bson.D {
+	if profile == nil {
+		return bson.D{}
 	}
+	switch *profile {
+	case "default", "":
+		// main profile: store.profile can be either unset or false
+		return bson.D{{Key: "store.profile", Value: bson.M{"$ne": true}}}
+	default:
+		// profile: check the name
+		return bson.D{{Key: "store.name", Value: string(*profile)}}
+	}
+}
+
+func BackupsList(ctx context.Context, conn connect.Client, profile *string, limit int64) ([]BackupMeta, error) {
+	filter := profileFilter(profile)
 	cur, err := conn.BcpCollection().Find(
 		ctx,
 		filter,
