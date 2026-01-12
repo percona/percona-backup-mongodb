@@ -1,6 +1,6 @@
 module github.com/percona/percona-backup-mongodb
 
-go 1.25.1
+go 1.25.5
 
 require (
 	cloud.google.com/go/storage v1.56.2
@@ -35,8 +35,8 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/minio v0.34.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.39.0
 	go.mongodb.org/mongo-driver v1.17.4
-	golang.org/x/mod v0.28.0
-	golang.org/x/sync v0.17.0
+	golang.org/x/mod v0.30.0
+	golang.org/x/sync v0.19.0
 	google.golang.org/api v0.249.0
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -147,13 +147,13 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.42.0 // indirect
+	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
-	golang.org/x/net v0.44.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.31.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
-	golang.org/x/term v0.35.0 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/term v0.38.0 // indirect
+	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/time v0.13.0 // indirect
 	google.golang.org/genproto v0.0.0-20250908214217-97024824d090 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250908214217-97024824d090 // indirect
