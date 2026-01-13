@@ -36,6 +36,34 @@ func setupNewDB(ctx context.Context, conn connect.Client) error {
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return errors.Wrap(err, "ensure log collection")
 	}
+	_, err = conn.LogCollection().Indexes().CreateMany(
+		ctx,
+		[]mongo.IndexModel{
+			// OPID queries (internal, used constantly)
+			// CommandLastError after every operation
+			{
+				Keys:    bson.D{{"opid", 1}, {"ts", -1}},
+				Options: options.Index().SetName("opid_ts"),
+			},
+
+			// PITR Epoch queries (internal, frequent)
+			// Used by status command to check PITR health
+			{
+				Keys:    bson.D{{"ep", 1}, {"rs", 1}, {"e", 1}, {"s", 1}, {"ts", -1}},
+				Options: options.Index().SetName("epoch_rs_event_severity_ts"),
+			},
+
+			// Event queries (user-facing, occasional)
+			// Helps event-based queries, can cover some severity queries via prefix
+			{
+				Keys:    bson.D{{"e", 1}, {"s", 1}, {"rs", 1}, {"ts", -1}},
+				Options: options.Index().SetName("event_severity_rs_ts"),
+			},
+		},
+	)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return errors.Wrap(err, "ensure log index")
+	}
 
 	err = conn.AdminCommand(
 		ctx,
