@@ -1273,32 +1273,9 @@ func (r *PhysRestore) Snapshot(
 		}
 	}
 
-	l.Info("preparing data")
-	err = r.prepareData()
-	if err != nil {
-		return errors.Wrap(err, "prepare data")
+	if err = r.patchSysData(l, pitr, oplogRanges, &stats); err != nil {
+		return err
 	}
-
-	l.Info("recovering oplog as standalone")
-	err = r.recoverStandalone()
-	if err != nil {
-		return errors.Wrap(err, "recover oplog as standalone")
-	}
-
-	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
-		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, &stats)
-		if err != nil {
-			return errors.Wrap(err, "replay pitr oplog")
-		}
-	}
-
-	l.Info("clean-up and reset replicaset config")
-	err = r.resetRS()
-	if err != nil {
-		return errors.Wrap(err, "clean-up, rs_reset")
-	}
-
 	l.Info("restore on node succeed")
 	// The node at this stage was restored successfully, so we shouldn't
 	// clean up dbPath nor write error status for the node whatever happens
@@ -1327,6 +1304,43 @@ func (r *PhysRestore) Snapshot(
 	err = r.dumpMeta(meta, stat, "")
 	if err != nil {
 		return errors.Wrap(err, "writing restore meta to storage")
+	}
+
+	return nil
+}
+
+// patchSysData performs system files/collections related patching
+// using few mongod restarts.
+func (r *PhysRestore) patchSysData(
+	l log.LogEvent,
+	pitr primitive.Timestamp,
+	oplogRanges []oplogRange,
+	stats *phys.RestoreShardStat,
+) error {
+	l.Info("preparing data")
+	err := r.prepareData()
+	if err != nil {
+		return errors.Wrap(err, "prepare data")
+	}
+
+	l.Info("recovering oplog as standalone")
+	err = r.recoverStandalone()
+	if err != nil {
+		return errors.Wrap(err, "recover oplog as standalone")
+	}
+
+	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
+		l.Info("replaying pitr oplog")
+		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, stats)
+		if err != nil {
+			return errors.Wrap(err, "replay pitr oplog")
+		}
+	}
+
+	l.Info("clean-up and reset replicaset config")
+	err = r.resetRS()
+	if err != nil {
+		return errors.Wrap(err, "clean-up, rs_reset")
 	}
 
 	return nil
