@@ -49,6 +49,7 @@ const (
 	defaultRSdbpath   = "/data/db"
 	defaultCSRSdbpath = "/data/configdb"
 	fallbackDir       = ".fallbacksync"
+	bcpDir            = "__dir__"
 
 	mongofslock = "mongod.lock"
 
@@ -2411,8 +2412,6 @@ func (r *PhysRestore) setTmpConf(xopts *topo.MongodOpts) error {
 
 	return nil
 }
-
-const bcpDir = "__dir__"
 
 // Sets replset files that have to be copied to the target during the restore.
 // For non-incremental backups it's just the content of backups files (data) and
