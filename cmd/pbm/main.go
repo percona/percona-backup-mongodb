@@ -1149,8 +1149,10 @@ func tsUTC(ts int64) string {
 }
 
 type snapshotStat struct {
-	Name        string           `json:"name"`
-	Profile     string           `json:"profile,omitempty"`
+	Name    string `json:"name"`
+	Profile string `json:"profile,omitempty"`
+	// StoreName exists only for backwards compatibility and will be removed (use Profile instead)
+	StoreName   string           `json:"storage,omitempty"`
 	Namespaces  []string         `json:"nss,omitempty"`
 	Size        int64            `json:"size,omitempty"`
 	Status      defs.Status      `json:"status"`
