@@ -1200,55 +1200,8 @@ func (r *PhysRestore) Snapshot(
 			return errors.Wrapf(err, "moving to state %s", defs.StatusCopyReady)
 		}
 
-		l.Info("waiting for the datadir to be copied")
-		_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
-		if err != nil {
-			return errors.Wrapf(err, "check %s state", defs.StatusCopyDone)
-		}
-
-		// try to read replset meta from the backup and use its data
-		setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-		rsMetaFilename := fmt.Sprintf(defs.ExternalRsMetaFile, setName)
-		rsMetaF := filepath.Join(r.dbpath, rsMetaFilename)
-		conff, err := os.Open(rsMetaF)
-		var needFiles []backup.File
-		if err == nil {
-			rsMeta := &backup.BackupReplset{}
-			err := json.NewDecoder(conff).Decode(rsMeta)
-			if err != nil {
-				return errors.Wrap(err, "decode replset meta from the backup")
-			}
-			l.Debug("got rs meta from the backup")
-			if r.restoreTS.T == 0 {
-				r.restoreTS = rsMeta.LastWriteTS
-			}
-			excfg = rsMeta.MongodOpts
-
-			if version.HasFilelistFile(rsMeta.PBMVersion) {
-				filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
-				f, err := os.Open(filelistPath)
-				if err != nil {
-					return errors.Wrapf(err, "open filelist %q", filelistPath)
-				}
-				defer f.Close()
-
-				filelist, err := backup.ReadFilelist(f)
-				f.Close()
-				if err != nil {
-					return errors.Wrap(err, "parse filelist")
-				}
-
-				rsMeta.Files = filelist
-			}
-
-			needFiles = rsMeta.Files
-		} else {
-			l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
-		}
-
-		err = r.cleanupDatadir(needFiles)
-		if err != nil {
-			return errors.Wrap(err, "cleanup datadir")
+		if err = r.doExternalRestore(l, excfg); err != nil {
+			return err
 		}
 	} else {
 		l.Info("copying backup data")
@@ -1305,6 +1258,66 @@ func (r *PhysRestore) Snapshot(
 	err = r.dumpMeta(meta, stat, "")
 	if err != nil {
 		return errors.Wrap(err, "writing restore meta to storage")
+	}
+
+	return nil
+}
+
+// doExternalRestore executes external restore flow.
+// It updates excfg param with mongod options found within snapshot metadata.
+func (r *PhysRestore) doExternalRestore(
+	l log.LogEvent,
+	excfg *topo.MongodOpts,
+) error {
+	l.Info("waiting for the datadir to be copied")
+	_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
+	if err != nil {
+		return errors.Wrapf(err, "check %s state", defs.StatusCopyDone)
+	}
+
+	// try to read replset meta from the backup and use its data
+	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	rsMetaFilename := fmt.Sprintf(defs.ExternalRsMetaFile, setName)
+	rsMetaF := filepath.Join(r.dbpath, rsMetaFilename)
+	conff, err := os.Open(rsMetaF)
+	var needFiles []backup.File
+	if err == nil {
+		rsMeta := &backup.BackupReplset{}
+		err := json.NewDecoder(conff).Decode(rsMeta)
+		if err != nil {
+			return errors.Wrap(err, "decode replset meta from the backup")
+		}
+		l.Debug("got rs meta from the backup")
+		if r.restoreTS.T == 0 {
+			r.restoreTS = rsMeta.LastWriteTS
+		}
+		excfg = rsMeta.MongodOpts
+
+		if version.HasFilelistFile(rsMeta.PBMVersion) {
+			filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
+			f, err := os.Open(filelistPath)
+			if err != nil {
+				return errors.Wrapf(err, "open filelist %q", filelistPath)
+			}
+			defer f.Close()
+
+			filelist, err := backup.ReadFilelist(f)
+			f.Close()
+			if err != nil {
+				return errors.Wrap(err, "parse filelist")
+			}
+
+			rsMeta.Files = filelist
+		}
+
+		needFiles = rsMeta.Files
+	} else {
+		l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
+	}
+
+	err = r.cleanupDatadir(needFiles)
+	if err != nil {
+		return errors.Wrap(err, "cleanup datadir")
 	}
 
 	return nil
