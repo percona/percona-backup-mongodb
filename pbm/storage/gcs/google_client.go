@@ -34,15 +34,15 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 
 	creds, err := json.Marshal(ServiceAccountCredentials{
 		Type:                "service_account",
-		PrivateKey:          cfg.Credentials.PrivateKey,
-		ClientEmail:         cfg.Credentials.ClientEmail,
+		PrivateKey:          string(cfg.Credentials.PrivateKey),
+		ClientEmail:         string(cfg.Credentials.ClientEmail),
 		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
 		TokenURI:            "https://oauth2.googleapis.com/token",
 		UniverseDomain:      "googleapis.com",
 		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
 		ClientCertURL: fmt.Sprintf(
 			"https://www.googleapis.com/robot/v1/metadata/x509/%s",
-			cfg.Credentials.ClientEmail,
+			string(cfg.Credentials.ClientEmail),
 		),
 	})
 	if err != nil {
