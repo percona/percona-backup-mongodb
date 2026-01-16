@@ -31,7 +31,7 @@ type Config struct {
 
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
+	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
@@ -44,9 +44,9 @@ type Config struct {
 }
 
 type SSE struct {
-	EncryptionMethod    string `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
-	EncryptionAlgorithm string `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
-	EncryptionKeyID     string `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
+	EncryptionMethod    string          `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
+	EncryptionAlgorithm string          `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
+	EncryptionKeyID     EncryptionKeyID `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
 }
 
 type Retryer struct {
@@ -56,11 +56,11 @@ type Retryer struct {
 }
 
 type Credentials struct {
-	AccessKeyID     string `bson:"accessKeyId" json:"accessKeyId,omitempty" yaml:"accessKeyId,omitempty"`
-	AccessKeySecret string `bson:"accessKeySecret" json:"accessKeySecret,omitempty" yaml:"accessKeySecret,omitempty"`
-	SecurityToken   string `bson:"securityToken" json:"securityToken,omitempty" yaml:"securityToken,omitempty"`
-	RoleARN         string `bson:"roleArn,omitempty" json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
-	SessionName     string `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
+	AccessKeyID     AccessKeyID     `bson:"accessKeyId" json:"accessKeyId,omitempty" yaml:"accessKeyId,omitempty"`
+	AccessKeySecret AccessKeySecret `bson:"accessKeySecret" json:"accessKeySecret,omitempty" yaml:"accessKeySecret,omitempty"`
+	SecurityToken   SecurityToken   `bson:"securityToken" json:"securityToken,omitempty" yaml:"securityToken,omitempty"`
+	RoleARN         RoleARN         `bson:"roleArn,omitempty" json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
+	SessionName     SessionName     `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
 }
 
 // IsSameStorage identifies the same instance of the OSS storage.
@@ -149,6 +149,102 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	return defaultMaxObjSizeGB
 }
 
+type EncryptionKeyID string
+
+func (e EncryptionKeyID) MarshalJSON() ([]byte, error) {
+	if e == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (e EncryptionKeyID) MarshalYAML() (any, error) {
+	if e == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type AccessKeyID string
+
+func (a AccessKeyID) MarshalJSON() ([]byte, error) {
+	if a == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (a AccessKeyID) MarshalYAML() (any, error) {
+	if a == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type AccessKeySecret string
+
+func (a AccessKeySecret) MarshalJSON() ([]byte, error) {
+	if a == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (a AccessKeySecret) MarshalYAML() (any, error) {
+	if a == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type SecurityToken string
+
+func (s SecurityToken) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (s SecurityToken) MarshalYAML() (any, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type RoleARN string
+
+func (r RoleARN) MarshalJSON() ([]byte, error) {
+	if r == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (r RoleARN) MarshalYAML() (any, error) {
+	if r == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type SessionName string
+
+func (s SessionName) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (s SessionName) MarshalYAML() (any, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
 func newCred(config *Config) (*cred, error) {
 	var credentialsProvider providers.CredentialsProvider
 	var err error
@@ -159,14 +255,14 @@ func newCred(config *Config) (*cred, error) {
 
 	if config.Credentials.SecurityToken != "" {
 		credentialsProvider, err = providers.NewStaticSTSCredentialsProviderBuilder().
-			WithAccessKeyId(config.Credentials.AccessKeyID).
-			WithAccessKeySecret(config.Credentials.AccessKeySecret).
-			WithSecurityToken(config.Credentials.SecurityToken).
+			WithAccessKeyId(string(config.Credentials.AccessKeyID)).
+			WithAccessKeySecret(string(config.Credentials.AccessKeySecret)).
+			WithSecurityToken(string(config.Credentials.SecurityToken)).
 			Build()
 	} else {
 		credentialsProvider, err = providers.NewStaticAKCredentialsProviderBuilder().
-			WithAccessKeyId(config.Credentials.AccessKeyID).
-			WithAccessKeySecret(config.Credentials.AccessKeySecret).
+			WithAccessKeyId(string(config.Credentials.AccessKeyID)).
+			WithAccessKeySecret(string(config.Credentials.AccessKeySecret)).
 			Build()
 	}
 	if err != nil {
@@ -177,8 +273,8 @@ func newCred(config *Config) (*cred, error) {
 		internalProvider := credentialsProvider
 		credentialsProvider, err = providers.NewRAMRoleARNCredentialsProviderBuilder().
 			WithCredentialsProvider(internalProvider).
-			WithRoleArn(config.Credentials.RoleARN).
-			WithRoleSessionName(config.Credentials.SessionName).
+			WithRoleArn(string(config.Credentials.RoleARN)).
+			WithRoleSessionName(string(config.Credentials.SessionName)).
 			WithDurationSeconds(defaultSessionDurationSeconds).
 			Build()
 		if err != nil {
