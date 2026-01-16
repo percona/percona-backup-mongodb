@@ -55,7 +55,7 @@ func TestMinio(t *testing.T) {
 		},
 	}
 	minioCl, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.Credentials.AccessKeyID, cfg.Credentials.SecretAccessKey, ""),
+		Creds:  credentials.NewStaticV4(string(cfg.Credentials.AccessKeyID), string(cfg.Credentials.SecretAccessKey), ""),
 		Secure: false,
 	})
 	if err != nil {

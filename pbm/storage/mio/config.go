@@ -13,7 +13,7 @@ type Config struct {
 	EndpointMap map[string]string `bson:"endpointMap,omitempty" json:"endpointMap,omitempty" yaml:"endpointMap,omitempty"`
 	Bucket      string            `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string            `bson:"prefix" json:"prefix" yaml:"prefix"`
-	Credentials Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	Credentials Credentials       `bson:"credentials" json:"credentials" yaml:"credentials"`
 	Secure      bool              `bson:"secure" json:"secure" yaml:"secure"`
 	DebugTrace  bool              `bson:"debugTrace,omitempty" json:"debugTrace,omitempty" yaml:"debugTrace,omitempty"`
 
@@ -29,10 +29,10 @@ type Config struct {
 }
 
 type Credentials struct {
-	SigVer          string `bson:"signature-ver" json:"signature-ver,omitempty" yaml:"signature-ver,omitempty"`
-	AccessKeyID     string `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
-	SecretAccessKey string `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
-	SessionToken    string `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
+	SigVer          string          `bson:"signature-ver" json:"signature-ver,omitempty" yaml:"signature-ver,omitempty"`
+	AccessKeyID     AccessKeyID     `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
+	SecretAccessKey SecretAccessKey  `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
+	SessionToken    SessionToken    `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
 }
 
 type Retryer struct {
@@ -133,4 +133,52 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
+}
+
+type AccessKeyID string
+
+func (a AccessKeyID) MarshalJSON() ([]byte, error) {
+	if a == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (a AccessKeyID) MarshalYAML() (any, error) {
+	if a == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type SecretAccessKey string
+
+func (s SecretAccessKey) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (s SecretAccessKey) MarshalYAML() (any, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type SessionToken string
+
+func (s SessionToken) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (s SessionToken) MarshalYAML() (any, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return "***", nil
 }
