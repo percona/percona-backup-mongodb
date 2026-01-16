@@ -50,7 +50,7 @@ type Config struct {
 	ForcePathStyle       *bool             `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
 	Bucket               string            `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix               string            `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials          Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	Credentials          Credentials       `bson:"credentials" json:"credentials" yaml:"credentials"`
 	ServerSideEncryption *AWSsse           `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 	UploadPartSize       int               `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts       int32             `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
@@ -116,7 +116,23 @@ type AWSsse struct {
 	SseCustomerAlgorithm string `bson:"sseCustomerAlgorithm" json:"sseCustomerAlgorithm" yaml:"sseCustomerAlgorithm"`
 	// If SseCustomerAlgorithm is set, this must be a base64 encoded key compatible with the algorithm
 	// specified in the SseCustomerAlgorithm field.
-	SseCustomerKey string `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
+	SseCustomerKey SseCustomerKey `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
+}
+
+type SseCustomerKey string
+
+func (s SseCustomerKey) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (s SseCustomerKey) MarshalYAML() (any, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return "***", nil
 }
 
 func (cfg *Config) Clone() *Config {
@@ -287,14 +303,94 @@ func SDKLogLevel(levels string, out io.Writer) aws.ClientLogMode {
 }
 
 type Credentials struct {
-	AccessKeyID     string `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
-	SecretAccessKey string `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
-	SessionToken    string `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
+	AccessKeyID     AccessKeyID     `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
+	SecretAccessKey SecretAccessKey `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
+	SessionToken    SessionToken    `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
 	Vault           struct {
-		Server string `bson:"server" json:"server,omitempty" yaml:"server"`
-		Secret string `bson:"secret" json:"secret,omitempty" yaml:"secret"`
-		Token  string `bson:"token" json:"token,omitempty" yaml:"token"`
+		Server string      `bson:"server" json:"server,omitempty" yaml:"server"`
+		Secret VaultSecret `bson:"secret" json:"secret,omitempty" yaml:"secret"`
+		Token  VaultToken  `bson:"token" json:"token,omitempty" yaml:"token"`
 	} `bson:"vault" json:"vault" yaml:"vault,omitempty"`
+}
+
+type AccessKeyID string
+
+func (a AccessKeyID) MarshalJSON() ([]byte, error) {
+	if a == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (a AccessKeyID) MarshalYAML() (any, error) {
+	if a == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type SecretAccessKey string
+
+func (s SecretAccessKey) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (s SecretAccessKey) MarshalYAML() (any, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type SessionToken string
+
+func (s SessionToken) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (s SessionToken) MarshalYAML() (any, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type VaultSecret string
+
+func (v VaultSecret) MarshalJSON() ([]byte, error) {
+	if v == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (v VaultSecret) MarshalYAML() (any, error) {
+	if v == "" {
+		return nil, nil
+	}
+	return "***", nil
+}
+
+type VaultToken string
+
+func (v VaultToken) MarshalJSON() ([]byte, error) {
+	if v == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+func (v VaultToken) MarshalYAML() (any, error) {
+	if v == "" {
+		return nil, nil
+	}
+	return "***", nil
 }
 
 type S3 struct {
@@ -412,11 +508,11 @@ func (s *S3) Save(name string, data io.Reader, options ...storage.Option) error 
 			putInput.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
 			putInput.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			decodedKey, err := base64.StdEncoding.DecodeString(string(sse.SseCustomerKey))
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
-			putInput.SSECustomerKey = aws.String(sse.SseCustomerKey)
+			putInput.SSECustomerKey = aws.String(string(sse.SseCustomerKey))
 			keyMD5 := md5.Sum(decodedKey)
 			putInput.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 		}
@@ -510,11 +606,11 @@ func (s *S3) Copy(src, dst string) error {
 			copyOpts.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
 			copyOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-			decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			decodedKey, err := base64.StdEncoding.DecodeString(string(sse.SseCustomerKey))
 			if err != nil {
 				return errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 			}
-			copyOpts.SSECustomerKey = aws.String(sse.SseCustomerKey)
+			copyOpts.SSECustomerKey = aws.String(string(sse.SseCustomerKey))
 			keyMD5 := md5.Sum(decodedKey)
 			copyOpts.SSECustomerKeyMD5 = aws.String(base64.StdEncoding.EncodeToString(keyMD5[:]))
 
@@ -552,8 +648,8 @@ func (s *S3) FileStat(name string) (storage.FileInfo, error) {
 	sse := s.opts.ServerSideEncryption
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
 		headOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		headOpts.SSECustomerKey = aws.String(sse.SseCustomerKey)
+		decodedKey, err := base64.StdEncoding.DecodeString(string(sse.SseCustomerKey))
+		headOpts.SSECustomerKey = aws.String(string(sse.SseCustomerKey))
 		if err != nil {
 			return inf, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
@@ -652,9 +748,9 @@ func (s *S3) buildLoadOptions() []func(*config.LoadOptions) error {
 
 	if s.opts.Credentials.AccessKeyID != "" && s.opts.Credentials.SecretAccessKey != "" {
 		staticProv := credentials.NewStaticCredentialsProvider(
-			s.opts.Credentials.AccessKeyID,
-			s.opts.Credentials.SecretAccessKey,
-			s.opts.Credentials.SessionToken,
+			string(s.opts.Credentials.AccessKeyID),
+			string(s.opts.Credentials.SecretAccessKey),
+			string(s.opts.Credentials.SessionToken),
 		)
 		cfgOpts = append(cfgOpts, config.WithCredentialsProvider(staticProv))
 	}
