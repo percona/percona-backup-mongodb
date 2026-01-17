@@ -116,23 +116,7 @@ type AWSsse struct {
 	SseCustomerAlgorithm string `bson:"sseCustomerAlgorithm" json:"sseCustomerAlgorithm" yaml:"sseCustomerAlgorithm"`
 	// If SseCustomerAlgorithm is set, this must be a base64 encoded key compatible with the algorithm
 	// specified in the SseCustomerAlgorithm field.
-	SseCustomerKey SseCustomerKey `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
-}
-
-type SseCustomerKey string
-
-func (s SseCustomerKey) MarshalJSON() ([]byte, error) {
-	if s == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (s SseCustomerKey) MarshalYAML() (any, error) {
-	if s == "" {
-		return nil, nil
-	}
-	return "***", nil
+	SseCustomerKey storage.MaskedString `bson:"sseCustomerKey" json:"sseCustomerKey" yaml:"sseCustomerKey"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -303,94 +287,14 @@ func SDKLogLevel(levels string, out io.Writer) aws.ClientLogMode {
 }
 
 type Credentials struct {
-	AccessKeyID     AccessKeyID     `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
-	SecretAccessKey SecretAccessKey `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
-	SessionToken    SessionToken    `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
+	AccessKeyID     storage.MaskedString `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
+	SecretAccessKey storage.MaskedString `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
+	SessionToken    storage.MaskedString `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
 	Vault           struct {
-		Server string      `bson:"server" json:"server,omitempty" yaml:"server"`
-		Secret VaultSecret `bson:"secret" json:"secret,omitempty" yaml:"secret"`
-		Token  VaultToken  `bson:"token" json:"token,omitempty" yaml:"token"`
+		Server string               `bson:"server" json:"server,omitempty" yaml:"server"`
+		Secret storage.MaskedString `bson:"secret" json:"secret,omitempty" yaml:"secret"`
+		Token  storage.MaskedString `bson:"token" json:"token,omitempty" yaml:"token"`
 	} `bson:"vault" json:"vault" yaml:"vault,omitempty"`
-}
-
-type AccessKeyID string
-
-func (a AccessKeyID) MarshalJSON() ([]byte, error) {
-	if a == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (a AccessKeyID) MarshalYAML() (any, error) {
-	if a == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type SecretAccessKey string
-
-func (s SecretAccessKey) MarshalJSON() ([]byte, error) {
-	if s == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (s SecretAccessKey) MarshalYAML() (any, error) {
-	if s == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type SessionToken string
-
-func (s SessionToken) MarshalJSON() ([]byte, error) {
-	if s == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (s SessionToken) MarshalYAML() (any, error) {
-	if s == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type VaultSecret string
-
-func (v VaultSecret) MarshalJSON() ([]byte, error) {
-	if v == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (v VaultSecret) MarshalYAML() (any, error) {
-	if v == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type VaultToken string
-
-func (v VaultToken) MarshalJSON() ([]byte, error) {
-	if v == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (v VaultToken) MarshalYAML() (any, error) {
-	if v == "" {
-		return nil, nil
-	}
-	return "***", nil
 }
 
 type S3 struct {

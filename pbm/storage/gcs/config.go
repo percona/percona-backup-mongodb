@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 //nolint:lll
@@ -23,12 +24,12 @@ type Config struct {
 
 type Credentials struct {
 	// JSON credentials (service account)
-	ClientEmail ClientEmail `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
-	PrivateKey  PrivateKey  `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+	ClientEmail storage.MaskedString `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
+	PrivateKey  storage.MaskedString `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
 
 	// HMAC credentials for XML API (S3 compatibility)
-	HMACAccessKey HMACAccessKey `bson:"hmacAccessKey" json:"hmacAccessKey,omitempty" yaml:"hmacAccessKey,omitempty"`
-	HMACSecret    HMACSecret    `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
+	HMACAccessKey storage.MaskedString `bson:"hmacAccessKey" json:"hmacAccessKey,omitempty" yaml:"hmacAccessKey,omitempty"`
+	HMACSecret    storage.MaskedString `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
 }
 
 //nolint:lll
@@ -163,66 +164,3 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	return defaultMaxObjSizeGB
 }
 
-type ClientEmail string
-
-func (c ClientEmail) MarshalJSON() ([]byte, error) {
-	if c == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (c ClientEmail) MarshalYAML() (any, error) {
-	if c == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type PrivateKey string
-
-func (p PrivateKey) MarshalJSON() ([]byte, error) {
-	if p == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (p PrivateKey) MarshalYAML() (any, error) {
-	if p == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type HMACAccessKey string
-
-func (h HMACAccessKey) MarshalJSON() ([]byte, error) {
-	if h == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (h HMACAccessKey) MarshalYAML() (any, error) {
-	if h == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type HMACSecret string
-
-func (h HMACSecret) MarshalJSON() ([]byte, error) {
-	if h == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (h HMACSecret) MarshalYAML() (any, error) {
-	if h == "" {
-		return nil, nil
-	}
-	return "***", nil
-}

@@ -10,6 +10,8 @@ import (
 	osscred "github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/retry"
 	"github.com/aliyun/credentials-go/credentials/providers"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 const (
@@ -46,7 +48,7 @@ type Config struct {
 type SSE struct {
 	EncryptionMethod    string          `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
 	EncryptionAlgorithm string          `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
-	EncryptionKeyID     EncryptionKeyID `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
+	EncryptionKeyID     storage.MaskedString `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
 }
 
 type Retryer struct {
@@ -56,11 +58,11 @@ type Retryer struct {
 }
 
 type Credentials struct {
-	AccessKeyID     AccessKeyID     `bson:"accessKeyId" json:"accessKeyId,omitempty" yaml:"accessKeyId,omitempty"`
-	AccessKeySecret AccessKeySecret `bson:"accessKeySecret" json:"accessKeySecret,omitempty" yaml:"accessKeySecret,omitempty"`
-	SecurityToken   SecurityToken   `bson:"securityToken" json:"securityToken,omitempty" yaml:"securityToken,omitempty"`
-	RoleARN         RoleARN         `bson:"roleArn,omitempty" json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
-	SessionName     SessionName     `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
+	AccessKeyID     storage.MaskedString `bson:"accessKeyId" json:"accessKeyId,omitempty" yaml:"accessKeyId,omitempty"`
+	AccessKeySecret storage.MaskedString `bson:"accessKeySecret" json:"accessKeySecret,omitempty" yaml:"accessKeySecret,omitempty"`
+	SecurityToken   storage.MaskedString `bson:"securityToken" json:"securityToken,omitempty" yaml:"securityToken,omitempty"`
+	RoleARN         storage.MaskedString `bson:"roleArn,omitempty" json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
+	SessionName     storage.MaskedString `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
 }
 
 // IsSameStorage identifies the same instance of the OSS storage.
@@ -149,101 +151,7 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	return defaultMaxObjSizeGB
 }
 
-type EncryptionKeyID string
 
-func (e EncryptionKeyID) MarshalJSON() ([]byte, error) {
-	if e == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (e EncryptionKeyID) MarshalYAML() (any, error) {
-	if e == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type AccessKeyID string
-
-func (a AccessKeyID) MarshalJSON() ([]byte, error) {
-	if a == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (a AccessKeyID) MarshalYAML() (any, error) {
-	if a == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type AccessKeySecret string
-
-func (a AccessKeySecret) MarshalJSON() ([]byte, error) {
-	if a == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (a AccessKeySecret) MarshalYAML() (any, error) {
-	if a == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type SecurityToken string
-
-func (s SecurityToken) MarshalJSON() ([]byte, error) {
-	if s == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (s SecurityToken) MarshalYAML() (any, error) {
-	if s == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type RoleARN string
-
-func (r RoleARN) MarshalJSON() ([]byte, error) {
-	if r == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (r RoleARN) MarshalYAML() (any, error) {
-	if r == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
-
-type SessionName string
-
-func (s SessionName) MarshalJSON() ([]byte, error) {
-	if s == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (s SessionName) MarshalYAML() (any, error) {
-	if s == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
 
 func newCred(config *Config) (*cred, error) {
 	var credentialsProvider providers.CredentialsProvider

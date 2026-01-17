@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 //nolint:lll
@@ -22,7 +23,7 @@ type Config struct {
 }
 
 type Credentials struct {
-	Key Key `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
+	Key storage.MaskedString `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }
 
 // Retryer is configuration for retry behavior described:
@@ -127,18 +128,3 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	return defaultMaxObjSizeGB
 }
 
-type Key string
-
-func (k Key) MarshalJSON() ([]byte, error) {
-	if k == "" {
-		return []byte(`""`), nil
-	}
-	return []byte(`"***"`), nil
-}
-
-func (k Key) MarshalYAML() (any, error) {
-	if k == "" {
-		return nil, nil
-	}
-	return "***", nil
-}
