@@ -370,3 +370,26 @@ func RetryableWrite(stg Storage, name string, data []byte) error {
 
 	return err
 }
+
+// MaskedString is a string that is masked when marshaled to JSON or YAML.
+// It's used for sensitive data like passwords, tokens, etc.
+// When that string is marshaled in bson, it shuldn't be masked!
+type MaskedString string
+
+// MarshalJSON implements the json.Marshaler interface.
+// It returns "***" for non-empty strings, hiding the actual value.
+func (s MaskedString) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+// MarshalYAML implements the yaml.Marshaler interface.
+// It returns "***" for non-empty strings, hiding the actual value.
+func (s MaskedString) MarshalYAML() (any, error) {
+	if s == "" {
+		return "", nil
+	}
+	return "***", nil
+}
