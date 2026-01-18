@@ -98,7 +98,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			l.Error("get storage: %v", err)
 			return
 		}
-		l.Info("deleting backups (profile: %q) older than %v", d.Profile, t)
+		l.Info("deleting backups older than %v %s", t, util.LogProfileArg(d.Profile))
 		err = backup.DeleteBackupBefore(ctx, a.leadConn, stg, d.Profile, bcpType, t)
 		if err != nil {
 			l.Error("deleting: %v", err)
@@ -331,7 +331,7 @@ func (a *Agent) deleteBackups(
 
 	for _, b := range backups {
 		eg.Go(func() error {
-			l.Info("deleting backup %q (profile: %q)", b.Name, b.Store.Name)
+			l.Info("deleting backup %q %s", b.Name, util.LogProfileArg(b.Store.Name))
 			err := backup.DeleteBackupData(ctx, a.leadConn, stg, b.Name)
 			return errors.Wrapf(err, "delete backup %q", b.Name)
 		})
