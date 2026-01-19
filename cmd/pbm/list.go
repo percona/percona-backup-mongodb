@@ -114,7 +114,7 @@ func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listO
 		return restoreList(ctx, conn, pbm, int64(l.size))
 	}
 
-	return backupList(ctx, conn, l.size, l.full, l.unbacked, l.profileFlag.Value, rsMap)
+	return backupList(ctx, conn, l.size, l.full, l.unbacked, l.profileFlag.Value(), rsMap)
 }
 
 func findLock(ctx context.Context, pbm *sdk.Client) (*sdk.OpLock, error) {
@@ -259,7 +259,7 @@ func backupList(
 	conn connect.Client,
 	size int,
 	full, unbacked bool,
-	profile config.ProfileRef,
+	profile config.ProfileName,
 	rsMap map[string]string,
 ) (backupListOut, error) {
 	var list backupListOut
@@ -270,21 +270,18 @@ func backupList(
 		return list, errors.Wrap(err, "get snapshots")
 	}
 
-	// for profile skip PITR information
-	if profile != "" {
-		return list, nil
-	}
+	// for default profile include PITR information
+	if profile.IsDefaultOrWildcard() {
+		list.PITR = &pitrListOut{}
+		list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
+		if err != nil {
+			return list, errors.Wrap(err, "get PITR ranges")
+		}
 
-	// for main profile include PITR information
-	list.PITR = &pitrListOut{}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
-	if err != nil {
-		return list, errors.Wrap(err, "get PITR ranges")
-	}
-
-	list.PITR.On, _, err = config.IsPITREnabled(ctx, conn)
-	if err != nil {
-		return list, errors.Wrap(err, "check if PITR is on")
+		list.PITR.On, _, err = config.IsPITREnabled(ctx, conn)
+		if err != nil {
+			return list, errors.Wrap(err, "check if PITR is on")
+		}
 	}
 
 	return list, nil
@@ -293,7 +290,7 @@ func backupList(
 func getSnapshotList(
 	ctx context.Context,
 	conn connect.Client,
-	profile config.ProfileRef,
+	profile config.ProfileName,
 	size int,
 	rsMap map[string]string,
 ) ([]snapshotStat, error) {

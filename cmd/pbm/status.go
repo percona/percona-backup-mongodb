@@ -124,7 +124,7 @@ func status(
 			{
 				"backups", "Backups", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, opts.profileFlag.Value, rsMap)
+					return getStorageStat(ctx, conn, opts.profileFlag.Value(), rsMap)
 				},
 			},
 		},
@@ -530,7 +530,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	profile config.ProfileRef,
+	profile config.ProfileName,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -633,7 +633,7 @@ func getStorageStat(
 	}
 
 	// for default storage also fetch PITR chunks
-	if profile.IsDefault() || profile.IsAll() {
+	if profile.IsDefaultOrWildcard() {
 		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 		if err != nil {
 			return s, errors.Wrap(err, "get PITR chunks")

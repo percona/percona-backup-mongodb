@@ -121,8 +121,8 @@ func TestBackupsList(t *testing.T) {
 	TestEnv.Reset(t)
 	now := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 
-	backups := map[config.ProfileRef][]bcp{
-		config.ProfileRefDefault: {
+	backups := map[string][]bcp{
+		"": {
 			{Name: "a1", LWT: now.Add(-20 * time.Minute)},
 			{Name: "a2", LWT: now.Add(-15 * time.Minute)},
 			{Name: "a3", LWT: now.Add(-10 * time.Minute)},
@@ -142,24 +142,25 @@ func TestBackupsList(t *testing.T) {
 	}
 
 	t.Run("List all backups", func(t *testing.T) {
-		testExpectedList(t, config.ProfileRefAll, expectedNames[config.ProfileRefAll])
+		testExpectedList(t, "*", expectedNames["*"])
 	})
 }
 
-func testExpectedList(t *testing.T, p config.ProfileRef, expected []string) {
-	list, err := BackupsList(t.Context(), TestEnv.Client, p, 0)
+func testExpectedList(t *testing.T, p string, expected []string) {
+	profile := config.NewProfileName(p)
+	list, err := BackupsList(t.Context(), TestEnv.Client, profile, 0)
 	assert.NoError(t, err)
 	actual := bcpNames(list)
 	assert.ElementsMatchf(t, expected, actual, "Expectged backups %v, got %v", expected, actual)
 }
 
-func prepareBackupList(t *testing.T, backups map[config.ProfileRef][]bcp) map[config.ProfileRef][]string {
-	names := make(map[config.ProfileRef][]string)
+func prepareBackupList(t *testing.T, backups map[string][]bcp) map[string][]string {
+	names := make(map[string][]string)
 
 	for profile, bcps := range backups {
 		stg := TestEnv.PbmStorage
-		if !profile.IsDefault() {
-			stg = TempStorageProfile(t, profile.Name())
+		if profile != "" {
+			stg = TempStorageProfile(t, profile)
 		}
 
 		var expected []BackupMeta
@@ -170,7 +171,7 @@ func prepareBackupList(t *testing.T, backups map[config.ProfileRef][]bcp) map[co
 
 		pnames := bcpNames(expected)
 		names[profile] = append(names[profile], pnames...)
-		names[config.ProfileRefAll] = append(names[config.ProfileRefAll], pnames...)
+		names["*"] = append(names["*"], pnames...)
 	}
 
 	return names

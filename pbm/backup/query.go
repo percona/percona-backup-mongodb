@@ -382,9 +382,9 @@ func findBaseSnapshotLWImpl(
 }
 
 // ProfileFilter return a query filter based on the store profile name
-func ProfileFilter(profile config.ProfileRef) bson.D {
+func ProfileFilter(profile config.ProfileName) bson.D {
 	switch {
-	case profile.IsAll():
+	case profile.IsWildcard():
 		return bson.D{}
 	case profile.IsDefault():
 		return bson.D{{Key: "store.profile", Value: bson.M{"$ne": true}}}
@@ -396,7 +396,7 @@ func ProfileFilter(profile config.ProfileRef) bson.D {
 func BackupsList(
 	ctx context.Context,
 	conn connect.Client,
-	profile config.ProfileRef,
+	profile config.ProfileName,
 	limit int64,
 ) ([]BackupMeta, error) {
 	filter := ProfileFilter(profile)

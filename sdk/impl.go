@@ -101,7 +101,7 @@ func (c *Client) RemoveConfigProfile(ctx context.Context, name string) (CommandI
 }
 
 func (c *Client) GetAllBackups(ctx context.Context) ([]BackupMetadata, error) {
-	return backup.BackupsList(ctx, c.conn, config.ProfileRefAll, 0)
+	return backup.BackupsList(ctx, c.conn, config.ProfileNameWildcard, 0)
 }
 
 func (c *Client) GetAllRestores(
