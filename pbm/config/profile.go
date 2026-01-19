@@ -14,30 +14,71 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
-const (
-	ProfileRefDefault ProfileRef = "default"
-	ProfileRefAll     ProfileRef = "*"
+var (
+	ProfileNameDefault     = ProfileName{value: ""}
+	ProfileNameWildcard    = ProfileName{value: "*"}
+	ErrProfileNameWildcard = errors.New("wildcard profile name")
 )
 
-type ProfileRef string
+type ProfileName struct {
+	value string
+}
 
-func (p ProfileRef) Name() string {
-	if p.IsDefault() {
-		return ""
+func NewProfileName(name string) ProfileName {
+	switch name {
+	case "*":
+		return ProfileNameWildcard
+	case "", "default":
+		return ProfileNameDefault
+	default:
+		return ProfileName{value: name}
 	}
-	return string(p)
 }
 
-func (p ProfileRef) SameAs(r ProfileRef) bool {
-	return p.Name() == r.Name()
+func (p ProfileName) DisplayName() string {
+	if p.IsDefault() {
+		return "default"
+	}
+	return p.value
 }
 
-func (p ProfileRef) IsDefault() bool {
-	return p.SameAs(ProfileRefDefault)
+func (p ProfileName) Name() string {
+	return p.value
 }
 
-func (p ProfileRef) IsAll() bool {
-	return p.SameAs(ProfileRefAll)
+func (p ProfileName) Equals(o ProfileName) bool {
+	return p.value == o.value
+}
+
+func (p ProfileName) IsWildcard() bool {
+	return p.Equals(ProfileNameWildcard)
+}
+
+func (p ProfileName) IsDefault() bool {
+	return p.Equals(ProfileNameDefault)
+}
+
+func (p ProfileName) IsDefaultOrWildcard() bool {
+	return p.IsDefault() || p.IsWildcard()
+}
+
+func (p ProfileName) Exists(ctx context.Context, conn connect.Client) error {
+	if p.IsWildcard() {
+		return ErrProfileNameWildcard
+	}
+
+	_, err := GetProfiledConfig(ctx, conn, p.value)
+	if err != nil {
+		if errors.Is(err, ErrMissedConfig) {
+			return errors.New("no config set. Set config with <pbm config>")
+		}
+		if errors.Is(err, ErrMissedConfigProfile) {
+			return errors.Errorf("profile %q is not found", p.value)
+		}
+		return errors.Wrap(err, "get config")
+	}
+
+	return nil
 }
 
 func ListProfiles(ctx context.Context, m connect.Client) ([]Config, error) {

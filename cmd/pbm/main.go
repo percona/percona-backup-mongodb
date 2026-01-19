@@ -686,7 +686,7 @@ func (app *pbmApp) buildDiagnosticCmd() *cobra.Command {
 
 func (app *pbmApp) buildListCmd() *cobra.Command {
 	listOptions := listOpts{
-		profileFlag: NewProfileFlagA(),
+		profileFlag: NewProfileFlagWildcard(),
 	}
 
 	listCmd := &cobra.Command{
@@ -930,7 +930,7 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 	}
 
 	statusOpts := statusOptions{
-		profileFlag: NewProfileFlagA(),
+		profileFlag: NewProfileFlagWildcard(),
 	}
 
 	statusCmd := &cobra.Command{

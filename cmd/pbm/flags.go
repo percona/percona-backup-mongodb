@@ -2,33 +2,24 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"slices"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
-
-var ErrNotAllowedProfileRef = errors.New("profile value not allowed")
 
 // ProfileFlag is a CLI flag that can be used to set a profile name.
 // It implements the pflag.Value interface (used by Cobra).
 type ProfileFlag struct {
-	Value    config.ProfileRef
-	excludes []config.ProfileRef
+	value config.ProfileName
 }
 
 func (p *ProfileFlag) String() string {
-	return fmt.Sprint(p.Value)
+	return p.value.DisplayName()
 }
 
 func (p *ProfileFlag) Set(s string) error {
-	v := config.ProfileRef(s)
-	if slices.ContainsFunc(p.excludes, v.SameAs) {
-		return ErrNotAllowedProfileRef
-	}
-	p.Value = v
+	v := config.NewProfileName(s)
+	p.value = v
 	return nil
 }
 
@@ -36,44 +27,30 @@ func (p *ProfileFlag) Type() string {
 	return "string"
 }
 
+func (p *ProfileFlag) Value() config.ProfileName {
+	return p.value
+}
+
 // Validate checks whether this is either a wildcard or a reference to valid config
 func (p *ProfileFlag) Validate(ctx context.Context, conn connect.Client) error {
-	// wildcard is valid
-	if p.Value.IsAll() {
+	if p.value.IsWildcard() {
 		return nil
 	}
 
-	// otherwise check if config exists
-	_, err := config.GetProfiledConfig(ctx, conn, p.Value.Name())
-	if err != nil {
-		if errors.Is(err, config.ErrMissedConfig) {
-			return errors.New("no config set. Set config with <pbm config>")
-		}
-		if errors.Is(err, config.ErrMissedConfigProfile) {
-			return errors.Errorf("profile %q is not found", p.Value.Name())
-		}
-		return errors.Wrap(err, "get config")
-	}
-
-	return nil
+	return p.value.Exists(ctx, conn)
 }
 
 // NewProfileFlag creates a new profile flag with an initial value
-func NewProfileFlag(v config.ProfileRef, excludes ...config.ProfileRef) ProfileFlag {
-	return ProfileFlag{Value: v, excludes: excludes}
+func NewProfileFlag(v config.ProfileName) ProfileFlag {
+	return ProfileFlag{value: v}
 }
 
-// NewProfileFlagD is the same as NewProfileFlag with default profile as initial value
-func NewProfileFlagD(excludes ...config.ProfileRef) ProfileFlag {
-	return NewProfileFlag(config.ProfileRefDefault, excludes...)
+// NewProfileFlagDefault is the same as NewProfileFlag with default profile as initial value
+func NewProfileFlagDefault() ProfileFlag {
+	return NewProfileFlag(config.ProfileNameDefault)
 }
 
-// NewProfileFlagA is the same as NewProfileFlag with wildcard as initial value
-func NewProfileFlagA(excludes ...config.ProfileRef) ProfileFlag {
-	return NewProfileFlag(config.ProfileRefAll, excludes...)
-}
-
-// NewProfileFlagE is the same as NewProfileFlag but disallows default and wildcard references
-func NewProfileFlagE(name string) ProfileFlag {
-	return NewProfileFlag(config.ProfileRef(name), config.ProfileRefDefault, config.ProfileRefAll)
+// NewProfileFlagWildcard is the same as NewProfileFlag with wildcard as initial value
+func NewProfileFlagWildcard() ProfileFlag {
+	return NewProfileFlag(config.ProfileNameWildcard)
 }
