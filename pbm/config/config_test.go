@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
+	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -464,4 +465,48 @@ func boolPtr(b bool) *bool {
 
 func floatPtr(f float64) *float64 {
 	return &f
+}
+
+func TestProfileName(t *testing.T) {
+	t.Run("ProfileNameDefault is correct", func(t *testing.T) {
+		assert.Equal(t, "default", ProfileNameDefault.DisplayName())
+		assert.Equal(t, "", ProfileNameDefault.Name())
+		assert.True(t, ProfileNameDefault.IsDefault())
+		assert.True(t, ProfileNameDefault.IsDefaultOrWildcard())
+		assert.False(t, ProfileNameDefault.IsWildcard())
+	})
+
+	t.Run("ProfileNameWildcard is correct", func(t *testing.T) {
+		assert.Equal(t, "*", ProfileNameWildcard.DisplayName())
+		assert.Equal(t, "*", ProfileNameWildcard.Name())
+		assert.False(t, ProfileNameWildcard.IsDefault())
+		assert.True(t, ProfileNameWildcard.IsDefaultOrWildcard())
+		assert.True(t, ProfileNameWildcard.IsWildcard())
+		// Wildcard should immediately return Error
+		assert.ErrorIs(t, ProfileNameWildcard.Exists(t.Context(), nil), ErrProfileNameWildcard)
+	})
+
+	t.Run("new default", func(t *testing.T) {
+		pn := NewProfileName("default")
+		assert.True(t, ProfileNameDefault.Equals(pn))
+	})
+
+	t.Run("new empty string", func(t *testing.T) {
+		pn := NewProfileName("")
+		assert.True(t, ProfileNameDefault.Equals(pn))
+	})
+
+	t.Run("new wildcard", func(t *testing.T) {
+		pn := NewProfileName("*")
+		assert.True(t, ProfileNameWildcard.Equals(pn))
+	})
+
+	t.Run("new name", func(t *testing.T) {
+		pn := NewProfileName("test")
+		assert.Equal(t, "test", pn.Name())
+		assert.Equal(t, "test", pn.DisplayName())
+		assert.False(t, pn.IsDefault())
+		assert.False(t, pn.IsDefaultOrWildcard())
+		assert.False(t, pn.IsWildcard())
+	})
 }
