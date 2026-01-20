@@ -23,12 +23,12 @@ import (
 )
 
 type listOpts struct {
-	restore     bool
-	unbacked    bool
-	full        bool
-	size        int
-	profileFlag ProfileFlag
-	rsMap       string
+	restore  bool
+	unbacked bool
+	full     bool
+	size     int
+	profile  ProfileFlag
+	rsMap    string
 }
 
 type restoreStatus struct {
@@ -98,6 +98,10 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 }
 
 func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listOpts) (fmt.Stringer, error) {
+	if err := l.profile.Validate(ctx, conn); err != nil {
+		return nil, err
+	}
+
 	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
@@ -114,7 +118,7 @@ func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listO
 		return restoreList(ctx, conn, pbm, int64(l.size))
 	}
 
-	return backupList(ctx, conn, l.size, l.full, l.unbacked, l.profileFlag.Value(), rsMap)
+	return backupList(ctx, conn, l.size, l.full, l.unbacked, l.profile, rsMap)
 }
 
 func findLock(ctx context.Context, pbm *sdk.Client) (*sdk.OpLock, error) {
@@ -259,7 +263,7 @@ func backupList(
 	conn connect.Client,
 	size int,
 	full, unbacked bool,
-	profile config.ProfileName,
+	profile ProfileFlag,
 	rsMap map[string]string,
 ) (backupListOut, error) {
 	var list backupListOut
@@ -287,17 +291,32 @@ func backupList(
 	return list, nil
 }
 
+func filterByProfile(backups []backup.BackupMeta, profile ProfileFlag) []backup.BackupMeta {
+	if profile.IsWildcard() {
+		return backups
+	}
+
+	var filtered []backup.BackupMeta
+	for _, b := range backups {
+		if b.Store.Name == profile.Value() {
+			filtered = append(filtered, b)
+		}
+	}
+	return filtered
+}
+
 func getSnapshotList(
 	ctx context.Context,
 	conn connect.Client,
-	profile config.ProfileName,
+	profile ProfileFlag,
 	size int,
 	rsMap map[string]string,
 ) ([]snapshotStat, error) {
-	bcps, err := backup.BackupsList(ctx, conn, profile, int64(size))
+	bcps, err := backup.BackupsList(ctx, conn, int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
+	bcps = filterByProfile(bcps, profile)
 
 	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {

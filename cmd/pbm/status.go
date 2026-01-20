@@ -29,10 +29,10 @@ import (
 )
 
 type statusOptions struct {
-	profileFlag ProfileFlag
-	rsMap       string
-	sections    []string
-	priority    bool
+	profile  ProfileFlag
+	rsMap    string
+	sections []string
+	priority bool
 }
 
 type statusOut struct {
@@ -106,6 +106,10 @@ func status(
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
+	if err := opts.profile.Validate(ctx, conn); err != nil {
+		return nil, err
+	}
+
 	out := statusOut{
 		data: []*statusSect{
 			{
@@ -124,7 +128,7 @@ func status(
 			{
 				"backups", "Backups", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, opts.profileFlag.Value(), rsMap)
+					return getStorageStat(ctx, conn, opts.profile, rsMap)
 				},
 			},
 		},
@@ -530,7 +534,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	profile config.ProfileName,
+	profile ProfileFlag,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -544,10 +548,11 @@ func getStorageStat(
 	s.Region = cfg.Storage.Region()
 	s.Path = cfg.Storage.Path()
 
-	bcps, err := backup.BackupsList(ctx, conn, profile, 0)
+	bcps, err := backup.BackupsList(ctx, conn, 0)
 	if err != nil {
 		return s, errors.Wrap(err, "get backups list")
 	}
+	bcps = filterByProfile(bcps, profile)
 
 	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
 	if err != nil {
