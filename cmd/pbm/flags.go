@@ -5,52 +5,104 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+)
+
+const (
+	ProfileValueDefault  = ""
+	ProfileNameDefault   = "default"
+	ProfileValueWildcard = "*"
+	ProfileNameWildcard  = ProfileValueWildcard
 )
 
 // ProfileFlag is a CLI flag that can be used to set a profile name.
 // It implements the pflag.Value interface (used by Cobra).
 type ProfileFlag struct {
-	value config.ProfileName
+	value string
 }
 
 func (p *ProfileFlag) String() string {
-	return p.value.DisplayName()
-}
-
-func (p *ProfileFlag) Set(s string) error {
-	v := config.NewProfileName(s)
-	p.value = v
-	return nil
+	return p.Value()
 }
 
 func (p *ProfileFlag) Type() string {
 	return "string"
 }
 
-func (p *ProfileFlag) Value() config.ProfileName {
+func (p *ProfileFlag) Set(s string) error {
+	switch s {
+	case ProfileNameWildcard:
+		p.value = ProfileValueWildcard
+	case ProfileValueDefault, ProfileNameDefault:
+		p.value = ProfileValueDefault
+	default:
+		p.value = s
+	}
+	return nil
+}
+
+func (p *ProfileFlag) Value() string {
+	return p.value
+}
+
+func (p *ProfileFlag) IsWildcard() bool {
+	return p.value == ProfileValueWildcard
+}
+
+func (p *ProfileFlag) IsDefault() bool {
+	return p.value == ProfileValueDefault
+}
+
+func (p *ProfileFlag) IsDefaultOrWildcard() bool {
+	return p.IsDefault() || p.IsWildcard()
+}
+
+func (p *ProfileFlag) DisplayName() string {
+	if p.IsDefault() {
+		return ProfileNameDefault
+	}
+	if p.IsWildcard() {
+		return ProfileNameWildcard
+	}
 	return p.value
 }
 
 // Validate checks whether this is either a wildcard or a reference to valid config
 func (p *ProfileFlag) Validate(ctx context.Context, conn connect.Client) error {
-	if p.value.IsWildcard() {
+	if p.IsWildcard() {
 		return nil
 	}
+	return p.ValidateExists(ctx, conn)
+}
 
-	return p.value.Exists(ctx, conn)
+func (p *ProfileFlag) ValidateExists(ctx context.Context, conn connect.Client) error {
+	_, err := config.GetProfiledConfig(ctx, conn, p.value)
+	if err != nil {
+		if errors.Is(err, config.ErrMissedConfig) {
+			return errors.New("no config set. Set config with <pbm config>")
+		}
+		if errors.Is(err, config.ErrMissedConfigProfile) {
+			return errors.Errorf("profile %q is not found", p.value)
+		}
+		return errors.Wrap(err, "get config")
+	}
+
+	return nil
 }
 
 // NewProfileFlag creates a new profile flag with an initial value
-func NewProfileFlag(v config.ProfileName) ProfileFlag {
-	return ProfileFlag{value: v}
+func NewProfileFlag(v string) ProfileFlag {
+	pf := ProfileFlag{}
+	_ = pf.Set(v)
+	return pf
 }
 
 // NewProfileFlagDefault is the same as NewProfileFlag with default profile as initial value
 func NewProfileFlagDefault() ProfileFlag {
-	return NewProfileFlag(config.ProfileNameDefault)
+	return NewProfileFlag(ProfileValueDefault)
 }
 
 // NewProfileFlagWildcard is the same as NewProfileFlag with wildcard as initial value
 func NewProfileFlagWildcard() ProfileFlag {
-	return NewProfileFlag(config.ProfileNameWildcard)
+	return NewProfileFlag(ProfileValueWildcard)
 }

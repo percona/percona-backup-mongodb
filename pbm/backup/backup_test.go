@@ -3,19 +3,17 @@ package backup
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	stds3 "github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/stretchr/testify/assert"
@@ -42,10 +40,10 @@ func TestMetadataEncodeDecodeWithMinio(t *testing.T) {
 		t.Fatalf("failed to get endpoint: %s", err)
 	}
 
-	defaultConfig, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion("us-east-1"),
-		awsconfig.WithBaseEndpoint(endpoint),
-		awsconfig.WithCredentialsProvider(
+	defaultConfig, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion("us-east-1"),
+		config.WithBaseEndpoint(endpoint),
+		config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", ""),
 		),
 	)
@@ -133,29 +131,22 @@ func TestBackupsList(t *testing.T) {
 		},
 	}
 
-	expectedNames := prepareBackupList(t, backups)
+	expected := prepareBackupList(t, backups)
+	actual, err := BackupsList(t.Context(), TestEnv.Client, 0)
 
-	for profile := range backups {
-		t.Run(fmt.Sprintf("List backups in profile %s", profile), func(t *testing.T) {
-			testExpectedList(t, profile, expectedNames[profile])
-		})
-	}
-
-	t.Run("List all backups", func(t *testing.T) {
-		testExpectedList(t, "*", expectedNames["*"])
-	})
-}
-
-func testExpectedList(t *testing.T, p string, expected []string) {
-	profile := config.NewProfileName(p)
-	list, err := BackupsList(t.Context(), TestEnv.Client, profile, 0)
 	assert.NoError(t, err)
-	actual := bcpNames(list)
-	assert.ElementsMatchf(t, expected, actual, "Expectged backups %v, got %v", expected, actual)
+	assertExpectedBackupList(t, expected, actual)
 }
 
-func prepareBackupList(t *testing.T, backups map[string][]bcp) map[string][]string {
-	names := make(map[string][]string)
+func assertExpectedBackupList(t *testing.T, expectedMeta, actualMeta []BackupMeta) {
+	t.Helper()
+	expected := bcpNames(expectedMeta)
+	actual := bcpNames(actualMeta)
+	assert.ElementsMatch(t, expected, actual)
+}
+
+func prepareBackupList(t *testing.T, backups map[string][]bcp) []BackupMeta {
+	var inserted []BackupMeta
 
 	for profile, bcps := range backups {
 		stg := TestEnv.PbmStorage
@@ -163,18 +154,13 @@ func prepareBackupList(t *testing.T, backups map[string][]bcp) map[string][]stri
 			stg = TempStorageProfile(t, profile)
 		}
 
-		var expected []BackupMeta
 		for _, bcp := range bcps {
 			meta := insertTestBcpMeta(t, TestEnv, stg, bcp)
-			expected = append(expected, meta)
+			inserted = append(inserted, meta)
 		}
-
-		pnames := bcpNames(expected)
-		names[profile] = append(names[profile], pnames...)
-		names["*"] = append(names["*"], pnames...)
 	}
 
-	return names
+	return inserted
 }
 
 func bcpNames(backups []BackupMeta) []string {

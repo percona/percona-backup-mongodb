@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -381,28 +380,14 @@ func findBaseSnapshotLWImpl(
 	return bcp.LastWriteTS, errors.Wrap(err, "decode")
 }
 
-// ProfileFilter return a query filter based on the store profile name
-func ProfileFilter(profile config.ProfileName) bson.D {
-	switch {
-	case profile.IsWildcard():
-		return bson.D{}
-	case profile.IsDefault():
-		return bson.D{{Key: "store.profile", Value: bson.M{"$ne": true}}}
-	default:
-		return bson.D{{Key: "store.name", Value: profile.Name()}}
-	}
-}
-
 func BackupsList(
 	ctx context.Context,
 	conn connect.Client,
-	profile config.ProfileName,
 	limit int64,
 ) ([]BackupMeta, error) {
-	filter := ProfileFilter(profile)
 	cur, err := conn.BcpCollection().Find(
 		ctx,
-		filter,
+		bson.M{},
 		options.Find().SetLimit(limit).SetSort(bson.D{{"start_ts", -1}}),
 	)
 	if err != nil {
