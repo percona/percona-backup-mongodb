@@ -19,6 +19,7 @@ const (
 // It implements the pflag.Value interface (used by Cobra).
 type ProfileFlag struct {
 	value string
+	set   bool
 }
 
 func (p *ProfileFlag) String() string {
@@ -29,7 +30,7 @@ func (p *ProfileFlag) Type() string {
 	return "string"
 }
 
-func (p *ProfileFlag) Set(s string) error {
+func (p *ProfileFlag) SetValue(s string) {
 	switch s {
 	case ProfileNameWildcard:
 		p.value = ProfileValueWildcard
@@ -38,7 +39,16 @@ func (p *ProfileFlag) Set(s string) error {
 	default:
 		p.value = s
 	}
+}
+
+func (p *ProfileFlag) Set(s string) error {
+	p.SetValue(s)
+	p.set = true
 	return nil
+}
+
+func (p *ProfileFlag) IsSet() bool {
+	return p.set
 }
 
 func (p *ProfileFlag) Value() string {
@@ -55,6 +65,10 @@ func (p *ProfileFlag) IsDefault() bool {
 
 func (p *ProfileFlag) IsDefaultOrWildcard() bool {
 	return p.IsDefault() || p.IsWildcard()
+}
+
+func (p *ProfileFlag) IsProfile() bool {
+	return !p.IsDefaultOrWildcard()
 }
 
 func (p *ProfileFlag) DisplayName() string {
@@ -93,7 +107,7 @@ func (p *ProfileFlag) ValidateExists(ctx context.Context, conn connect.Client) e
 // NewProfileFlag creates a new profile flag with an initial value
 func NewProfileFlag(v string) ProfileFlag {
 	pf := ProfileFlag{}
-	_ = pf.Set(v)
+	pf.SetValue(v)
 	return pf
 }
 
