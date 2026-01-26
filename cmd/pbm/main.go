@@ -427,7 +427,7 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Show configuration profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			showConfigProfileOpts.name = args[0]
+			_ = showConfigProfileOpts.name.Set(args[0])
 			return handleShowConfigProfiles(app.ctx, app.pbm, showConfigProfileOpts)
 		}),
 	}
@@ -440,7 +440,7 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Save configuration profile",
 		Args:  cobra.ExactArgs(2),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			addConfigProfileOpts.name = args[0]
+			_ = addConfigProfileOpts.name.Set(args[0])
 
 			f, err := os.Open(args[1])
 			if err != nil {
@@ -471,7 +471,7 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Remove configuration profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			removeConfigProfileOpts.name = args[0]
+			_ = removeConfigProfileOpts.name.Set(args[0])
 			return handleRemoveConfigProfile(app.ctx, app.pbm, removeConfigProfileOpts)
 		}),
 	}
@@ -491,7 +491,7 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Sync backup list from configuration profile",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
 			if len(args) == 1 {
-				syncConfigProfileOpts.name = args[0]
+				_ = syncConfigProfileOpts.name.Set(args[0])
 			}
 			return handleSyncConfigProfile(app.ctx, app.pbm, syncConfigProfileOpts)
 		}),
