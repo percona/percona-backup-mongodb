@@ -382,12 +382,12 @@ func TestConfig(t *testing.T) {
 			{
 				desc:  "credentials.clientEmail",
 				param: "storage.gcs.credentials.clientEmail",
-				val:   wantCfg.Storage.GCS.Credentials.ClientEmail,
+				val:   string(wantCfg.Storage.GCS.Credentials.ClientEmail),
 			},
 			{
 				desc:  "credentials.privateKey",
 				param: "storage.gcs.credentials.privateKey",
-				val:   wantCfg.Storage.GCS.Credentials.PrivateKey,
+				val:   string(wantCfg.Storage.GCS.Credentials.PrivateKey),
 			},
 			{
 				desc:  "chunkSize",

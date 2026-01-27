@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
@@ -210,6 +211,8 @@ func (l *loggerImpl) output(
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
+	msg = strings.TrimRightFunc(msg, unicode.IsSpace)
+
 	//nolint:gosmopolitan
 	_, tz := time.Now().Local().Zone()
 	t := time.Now().UTC()

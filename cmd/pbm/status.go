@@ -106,6 +106,16 @@ func status(
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
+	if opts.profile != "" {
+		_, err := config.GetProfile(ctx, conn, opts.profile)
+		if err != nil {
+			if errors.Is(err, config.ErrMissedConfigProfile) {
+				return nil, errors.Errorf("profile %q is not found", opts.profile)
+			}
+			return nil, errors.Wrap(err, "get profile")
+		}
+	}
+
 	out := statusOut{
 		data: []*statusSect{
 			{
@@ -593,6 +603,7 @@ func getStorageStat(
 			Type:       bcp.Type,
 			SrcBackup:  bcp.SrcBackup,
 			Profile:    bcp.Store.Name,
+			StoreName:  bcp.Store.Name,
 		}
 		if err := bcp.Error(); err != nil {
 			snpsht.Err = err
