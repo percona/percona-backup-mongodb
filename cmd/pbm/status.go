@@ -638,7 +638,7 @@ func getStorageStat(
 	}
 
 	// for default storage also fetch PITR chunks
-	if profile.IsDefaultOrWildcard() {
+	if !profile.IsSet() || profile.IsDefault() {
 		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 		if err != nil {
 			return s, errors.Wrap(err, "get PITR chunks")

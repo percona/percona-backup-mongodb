@@ -523,5 +523,5 @@ func waitForDelete(
 
 	stopProgress()
 	fmt.Println("[done]")
-	return runList(ctx, conn, pbm, &listOpts{profile: NewProfileFlagWildcard()})
+	return runList(ctx, conn, pbm, &listOpts{})
 }
