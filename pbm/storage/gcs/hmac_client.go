@@ -40,7 +40,7 @@ func newHMACClient(cfg *Config, l log.LogEvent) (*hmacClient, error) {
 	}
 
 	minioClient, err := minio.New(gcsEndpointURL, &minio.Options{
-		Creds: credentials.NewStaticV2(cfg.Credentials.HMACAccessKey, cfg.Credentials.HMACSecret, ""),
+		Creds: credentials.NewStaticV2(string(cfg.Credentials.HMACAccessKey), string(cfg.Credentials.HMACSecret), ""),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "create minio client for GCS HMAC")
