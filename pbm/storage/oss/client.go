@@ -45,9 +45,10 @@ type Config struct {
 	ServerSideEncryption *SSE `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 }
 
+//nolint:lll
 type SSE struct {
-	EncryptionMethod    string          `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
-	EncryptionAlgorithm string          `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
+	EncryptionMethod    string               `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
+	EncryptionAlgorithm string               `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
 	EncryptionKeyID     storage.MaskedString `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
 }
 
@@ -57,6 +58,7 @@ type Retryer struct {
 	BaseDelay   time.Duration `bson:"baseDelay" json:"baseDelay" yaml:"baseDelay"`
 }
 
+//nolint:lll
 type Credentials struct {
 	AccessKeyID     storage.MaskedString `bson:"accessKeyId" json:"accessKeyId,omitempty" yaml:"accessKeyId,omitempty"`
 	AccessKeySecret storage.MaskedString `bson:"accessKeySecret" json:"accessKeySecret,omitempty" yaml:"accessKeySecret,omitempty"`
@@ -150,8 +152,6 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	}
 	return defaultMaxObjSizeGB
 }
-
-
 
 func newCred(config *Config) (*cred, error) {
 	var credentialsProvider providers.CredentialsProvider

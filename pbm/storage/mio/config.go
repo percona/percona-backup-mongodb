@@ -30,11 +30,12 @@ type Config struct {
 	ForcePathStyle        *bool `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
 }
 
+//nolint:lll
 type Credentials struct {
-	SigVer          string          `bson:"signature-ver" json:"signature-ver,omitempty" yaml:"signature-ver,omitempty"`
-	AccessKeyID     storage.MaskedString     `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
-	SecretAccessKey storage.MaskedString  `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
-	SessionToken    storage.MaskedString    `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
+	SigVer          string               `bson:"signature-ver" json:"signature-ver,omitempty" yaml:"signature-ver,omitempty"`
+	AccessKeyID     storage.MaskedString `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
+	SecretAccessKey storage.MaskedString `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
+	SessionToken    storage.MaskedString `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
 }
 
 type Retryer struct {
@@ -136,4 +137,3 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	}
 	return defaultMaxObjSizeGB
 }
-

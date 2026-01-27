@@ -163,4 +163,3 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	}
 	return defaultMaxObjSizeGB
 }
-

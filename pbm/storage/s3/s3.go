@@ -286,6 +286,7 @@ func SDKLogLevel(levels string, out io.Writer) aws.ClientLogMode {
 	return logLevel
 }
 
+//nolint:lll
 type Credentials struct {
 	AccessKeyID     storage.MaskedString `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
 	SecretAccessKey storage.MaskedString `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
