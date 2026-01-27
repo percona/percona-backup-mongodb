@@ -52,6 +52,7 @@ type restoreOpts struct {
 	rsMap           string
 	conf            string
 	ts              string
+	exit            bool
 	fallback        *bool
 	allowPartlyDone *bool
 
@@ -456,6 +457,7 @@ func doRestore(
 			UsersAndRoles:       o.usersAndRoles,
 			RSMap:               rsMapping,
 			External:            o.extern,
+			Exit:                o.exit,
 			Fallback:            o.fallback,
 			AllowPartlyDone:     o.allowPartlyDone,
 		},

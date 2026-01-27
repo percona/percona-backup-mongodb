@@ -168,6 +168,7 @@ type RestoreCmd struct {
 	External bool                `bson:"external"`
 	ExtConf  topo.ExternOpts     `bson:"extConf"`
 	ExtTS    primitive.Timestamp `bson:"extTS"`
+	Exit     bool                `bson:"exit"`
 }
 
 func (r RestoreCmd) String() string {
@@ -183,6 +184,9 @@ func (r RestoreCmd) String() string {
 	}
 	if r.OplogTS.T > 0 {
 		bcp += fmt.Sprintf(" point-in-time: <%d,%d>", r.OplogTS.T, r.OplogTS.I)
+	}
+	if r.Exit {
+		bcp += " exit=true"
 	}
 
 	return fmt.Sprintf("name: %s, %s", r.Name, bcp)
