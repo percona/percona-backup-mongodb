@@ -248,7 +248,9 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 		string(defs.ExternalBackup),
 	}
 
-	backupOptions := backupOpts{}
+	backupOptions := backupOpts{
+		profile: NewProfileFlagDefault(),
+	}
 
 	backupCmd := &cobra.Command{
 		Use:   "backup",
@@ -281,8 +283,8 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	backupCmd.Flags().BoolVar(
 		&backupOptions.base, "base", false, "Is this a base for incremental backups",
 	)
-	backupCmd.Flags().StringVar(
-		&backupOptions.profile, "profile", "", "Config profile name",
+	backupCmd.Flags().Var(
+		&backupOptions.profile, "profile", "Config profile name",
 	)
 	backupCmd.Flags().IntSliceVar(
 		&backupOptions.compressionLevel, "compression-level", nil, "Compression level (specific to the compression type)",
@@ -333,7 +335,9 @@ func (app *pbmApp) buildCancelBackupCmd() *cobra.Command {
 }
 
 func (app *pbmApp) buildCleanupCmd() *cobra.Command {
-	cleanupOpts := cleanupOptions{}
+	cleanupOpts := cleanupOptions{
+		profile: NewProfileFlagDefault(),
+	}
 
 	cleanupCmd := &cobra.Command{
 		Use:   "cleanup",
@@ -359,9 +363,8 @@ func (app *pbmApp) buildCleanupCmd() *cobra.Command {
 	cleanupCmd.Flags().BoolVar(
 		&cleanupOpts.dryRun, "dry-run", false, "Report but do not delete",
 	)
-	cleanupCmd.Flags().StringVar(
-		&cleanupOpts.profile, "profile", "",
-		"Name of the PBM profile to use for cleanup. Uses the default profile if omitted.",
+	cleanupCmd.Flags().Var(
+		&cleanupOpts.profile, "profile", "Name of the PBM profile used as a filter.",
 	)
 
 	return cleanupCmd
@@ -535,7 +538,9 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 		string(backup.SelectiveBackup),
 	}
 
-	deleteBcpOptions := deleteBcpOpts{}
+	deleteBcpOptions := deleteBcpOpts{
+		profile: NewProfileFlagDefault(),
+	}
 
 	deleteBcpCmd := &cobra.Command{
 		Use:   "delete-backup [name]",
@@ -549,6 +554,9 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 
 			if len(args) == 1 {
 				deleteBcpOptions.name = args[0]
+				if cmd.Flags().Changed("profile") {
+					return nil, errors.New("cannot use [name] with --profile")
+				}
 			}
 
 			return deleteBackup(app.ctx, app.conn, app.pbm, &deleteBcpOptions)
@@ -575,9 +583,9 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 	deleteBcpCmd.Flags().BoolVar(
 		&deleteBcpOptions.dryRun, "dry-run", false, "Report but do not delete",
 	)
-	deleteBcpCmd.Flags().StringVar(
-		&deleteBcpOptions.profile, "profile", "",
-		"Name of the PBM profile to use for delete. Uses the default profile if omitted.",
+	deleteBcpCmd.Flags().Var(
+		&deleteBcpOptions.profile, "profile",
+		"Name of the PBM profile used to filter the backup list when using --older-then.",
 	)
 
 	return deleteBcpCmd
