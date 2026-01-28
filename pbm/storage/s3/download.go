@@ -172,8 +172,8 @@ func (s *S3) getChunk(fname string, buf *storage.Arena, cli *s3.Client, start, e
 	sse := s.opts.ServerSideEncryption
 	if sse != nil && sse.SseCustomerAlgorithm != "" {
 		getObjOpts.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-		decodedKey, err := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
-		getObjOpts.SSECustomerKey = aws.String(sse.SseCustomerKey)
+		decodedKey, err := base64.StdEncoding.DecodeString(string(sse.SseCustomerKey))
+		getObjOpts.SSECustomerKey = aws.String(string(sse.SseCustomerKey))
 		if err != nil {
 			return nil, errors.Wrap(err, "SseCustomerAlgorithm specified with invalid SseCustomerKey")
 		}
@@ -204,7 +204,7 @@ func (s *S3) getChunk(fname string, buf *storage.Arena, cli *s3.Client, start, e
 			s3obj.SSEKMSKeyId = aws.String(sse.KmsKeyID)
 		} else if sse.SseCustomerAlgorithm != "" {
 			s3obj.SSECustomerAlgorithm = aws.String(sse.SseCustomerAlgorithm)
-			decodedKey, _ := base64.StdEncoding.DecodeString(sse.SseCustomerKey)
+			decodedKey, _ := base64.StdEncoding.DecodeString(string(sse.SseCustomerKey))
 			// We don't pass in the key in this case, just the MD5 hash of the key
 			// for verification
 			// s3obj.SSECustomerKey = aws.String(string(decodedKey))

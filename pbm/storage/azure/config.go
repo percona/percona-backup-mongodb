@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 //nolint:lll
@@ -16,13 +17,13 @@ type Config struct {
 	EndpointURL    string            `bson:"endpointUrl" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
 	EndpointURLMap map[string]string `bson:"endpointUrlMap,omitempty" json:"endpointUrlMap,omitempty" yaml:"endpointUrlMap,omitempty"`
 	Prefix         string            `bson:"prefix" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials    Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	Credentials    Credentials       `bson:"credentials" json:"credentials" yaml:"credentials"`
 	Retryer        *Retryer          `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 	MaxObjSizeGB   *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 }
 
 type Credentials struct {
-	Key string `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
+	Key storage.MaskedString `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
 }
 
 // Retryer is configuration for retry behavior described:

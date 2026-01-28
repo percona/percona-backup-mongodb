@@ -63,7 +63,7 @@ func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 }
 
 func (b *Blob) client() (*azblob.Client, error) {
-	cred, err := azblob.NewSharedKeyCredential(b.cfg.Account, b.cfg.Credentials.Key)
+	cred, err := azblob.NewSharedKeyCredential(b.cfg.Account, string(b.cfg.Credentials.Key))
 	if err != nil {
 		return nil, errors.Wrap(err, "create credentials")
 	}

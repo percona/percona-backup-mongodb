@@ -427,7 +427,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Show configuration profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			showConfigProfileOpts.name = args[0]
+			err := showConfigProfileOpts.name.Set(args[0])
+			if err != nil {
+				return nil, err
+			}
 			return handleShowConfigProfiles(app.ctx, app.pbm, showConfigProfileOpts)
 		}),
 	}
@@ -440,8 +443,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Save configuration profile",
 		Args:  cobra.ExactArgs(2),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			addConfigProfileOpts.name = args[0]
-
+			err := addConfigProfileOpts.name.Set(args[0])
+			if err != nil {
+				return nil, err
+			}
 			f, err := os.Open(args[1])
 			if err != nil {
 				return nil, errors.Wrap(err, "open config file")
@@ -471,7 +476,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Remove configuration profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			removeConfigProfileOpts.name = args[0]
+			err := removeConfigProfileOpts.name.Set(args[0])
+			if err != nil {
+				return nil, err
+			}
 			return handleRemoveConfigProfile(app.ctx, app.pbm, removeConfigProfileOpts)
 		}),
 	}
@@ -491,7 +499,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Sync backup list from configuration profile",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
 			if len(args) == 1 {
-				syncConfigProfileOpts.name = args[0]
+				err := syncConfigProfileOpts.name.Set(args[0])
+				if err != nil {
+					return nil, err
+				}
 			}
 			return handleSyncConfigProfile(app.ctx, app.pbm, syncConfigProfileOpts)
 		}),
@@ -699,9 +710,9 @@ func (app *pbmApp) buildListCmd() *cobra.Command {
 	listCmd.Flags().BoolVar(&listOptions.unbacked, "unbacked", false, "Show unbacked oplog ranges")
 	listCmd.Flags().BoolVarP(&listOptions.full, "full", "f", false, "Show extended restore info")
 	listCmd.Flags().IntVar(&listOptions.size, "size", 0, "Show last N backups")
-	listCmd.Flags().StringVar(
-		&listOptions.profile, "profile", "",
-		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
+	listCmd.Flags().Var(
+		&listOptions.profile, "profile",
+		"Name of the PBM profile used to filter the backup list.",
 	)
 	listCmd.Flags().StringVar(&listOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, listCmd.Flags().Lookup(RSMappingFlag))
@@ -941,9 +952,9 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 		}),
 	}
 
-	statusCmd.Flags().StringVar(
-		&statusOpts.profile, "profile", "",
-		"Name of the PBM profile used to filter the backup list. By default all profiles are listed.",
+	statusCmd.Flags().Var(
+		&statusOpts.profile, "profile",
+		"Name of the PBM profile used to filter the backup list.",
 	)
 	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, statusCmd.Flags().Lookup(RSMappingFlag))
