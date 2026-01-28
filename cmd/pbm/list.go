@@ -27,7 +27,7 @@ type listOpts struct {
 	unbacked bool
 	full     bool
 	size     int
-	profile  string
+	profile  ProfileFlag
 	rsMap    string
 }
 
@@ -98,6 +98,10 @@ func (r restoreListOut) MarshalJSON() ([]byte, error) {
 }
 
 func runList(ctx context.Context, conn connect.Client, pbm *sdk.Client, l *listOpts) (fmt.Stringer, error) {
+	if err := l.profile.Validate(ctx, conn); err != nil {
+		return nil, err
+	}
+
 	rsMap, err := parseRSNamesMapping(l.rsMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
@@ -259,7 +263,7 @@ func backupList(
 	conn connect.Client,
 	size int,
 	full, unbacked bool,
-	profile string,
+	profile ProfileFlag,
 	rsMap map[string]string,
 ) (backupListOut, error) {
 	var list backupListOut
@@ -270,37 +274,49 @@ func backupList(
 		return list, errors.Wrap(err, "get snapshots")
 	}
 
-	// for profile skip PITR information
-	if profile != "" {
-		return list, nil
-	}
+	// for default profile include PITR information
+	if !profile.IsSet() || profile.IsDefault() {
+		list.PITR = &pitrListOut{}
+		list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
+		if err != nil {
+			return list, errors.Wrap(err, "get PITR ranges")
+		}
 
-	// for main profile include PITR information
-	list.PITR = &pitrListOut{}
-	list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
-	if err != nil {
-		return list, errors.Wrap(err, "get PITR ranges")
-	}
-
-	list.PITR.On, _, err = config.IsPITREnabled(ctx, conn)
-	if err != nil {
-		return list, errors.Wrap(err, "check if PITR is on")
+		list.PITR.On, _, err = config.IsPITREnabled(ctx, conn)
+		if err != nil {
+			return list, errors.Wrap(err, "check if PITR is on")
+		}
 	}
 
 	return list, nil
 }
 
+func filterByProfile(backups []backup.BackupMeta, profile ProfileFlag) []backup.BackupMeta {
+	if !profile.IsSet() {
+		return backups
+	}
+
+	var filtered []backup.BackupMeta
+	for _, b := range backups {
+		if b.Store.Name == profile.Value() {
+			filtered = append(filtered, b)
+		}
+	}
+	return filtered
+}
+
 func getSnapshotList(
 	ctx context.Context,
 	conn connect.Client,
-	profile string,
+	profile ProfileFlag,
 	size int,
 	rsMap map[string]string,
 ) ([]snapshotStat, error) {
-	bcps, err := backup.BackupsList(ctx, conn, profile, int64(size))
+	bcps, err := backup.BackupsList(ctx, conn, int64(size))
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get backups list")
 	}
+	bcps = filterByProfile(bcps, profile)
 
 	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {

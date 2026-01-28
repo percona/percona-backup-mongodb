@@ -15,11 +15,11 @@ import (
 )
 
 type showConfigProfileOptions struct {
-	name string
+	name ProfileFlag
 }
 
 type addConfigProfileOptions struct {
-	name     string
+	name     ProfileFlag
 	file     *os.File
 	sync     bool
 	wait     bool
@@ -27,13 +27,13 @@ type addConfigProfileOptions struct {
 }
 
 type removeConfigProfileOptions struct {
-	name     string
+	name     ProfileFlag
 	wait     bool
 	waitTime time.Duration
 }
 
 type syncConfigProfileOptions struct {
-	name     string
+	name     ProfileFlag
 	all      bool
 	clear    bool
 	wait     bool
@@ -77,14 +77,17 @@ func handleShowConfigProfiles(
 	pbm *sdk.Client,
 	opts showConfigProfileOptions,
 ) (fmt.Stringer, error) {
-	if opts.name == "" {
+	if !opts.name.IsSet() {
 		return nil, errors.New("argument `profile-name` should not be empty")
 	}
+	if !opts.name.IsProfile() {
+		return nil, errors.New("argument `profile-name` should be a non default profile")
+	}
 
-	profile, err := pbm.GetConfigProfile(ctx, opts.name)
+	profile, err := pbm.GetConfigProfile(ctx, opts.name.Value())
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfigProfile) {
-			err = errors.Errorf("profile %q is not found", opts.name)
+			err = errors.Errorf("profile %q is not found", opts.name.Value())
 		}
 		return nil, err
 	}
@@ -97,8 +100,11 @@ func handleAddConfigProfile(
 	pbm *sdk.Client,
 	opts addConfigProfileOptions,
 ) (fmt.Stringer, error) {
-	if opts.name == "" {
+	if !opts.name.IsSet() {
 		return nil, errors.New("argument `profile-name` should not be empty")
+	}
+	if !opts.name.IsProfile() {
+		return nil, errors.New("argument `profile-name` should be a non default profile")
 	}
 	if err := checkForAnotherOperation(ctx, pbm); err != nil {
 		return nil, err
@@ -117,13 +123,13 @@ func handleAddConfigProfile(
 		return nil, errors.Wrap(err, "parse config")
 	}
 
-	_, err = pbm.GetConfigProfile(ctx, opts.name)
+	_, err = pbm.GetConfigProfile(ctx, opts.name.Value())
 	if err != nil {
 		if !errors.Is(err, config.ErrMissedConfigProfile) {
 			return nil, errors.Wrap(err, "find saved profile")
 		}
 	} else {
-		cid, err := pbm.RemoveConfigProfile(ctx, opts.name)
+		cid, err := pbm.RemoveConfigProfile(ctx, opts.name.Value())
 		if err != nil {
 			return nil, errors.Wrap(err, "clear profile list")
 		}
@@ -133,7 +139,7 @@ func handleAddConfigProfile(
 		}
 	}
 
-	cid, err := pbm.AddConfigProfile(ctx, opts.name, cfg)
+	cid, err := pbm.AddConfigProfile(ctx, opts.name.Value(), cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "add config profile")
 	}
@@ -143,7 +149,7 @@ func handleAddConfigProfile(
 	}
 
 	if opts.sync {
-		cid, err := pbm.SyncFromExternalStorage(ctx, opts.name)
+		cid, err := pbm.SyncFromExternalStorage(ctx, opts.name.Value())
 		if err != nil {
 			return nil, errors.Wrap(err, "sync")
 		}
@@ -163,22 +169,25 @@ func handleRemoveConfigProfile(
 	pbm *sdk.Client,
 	opts removeConfigProfileOptions,
 ) (fmt.Stringer, error) {
-	if opts.name == "" {
+	if !opts.name.IsSet() {
 		return nil, errors.New("argument `profile-name` should not be empty")
+	}
+	if !opts.name.IsProfile() {
+		return nil, errors.New("argument `profile-name` should be a non default profile")
 	}
 	if err := checkForAnotherOperation(ctx, pbm); err != nil {
 		return nil, err
 	}
 
-	_, err := pbm.GetConfigProfile(ctx, opts.name)
+	_, err := pbm.GetConfigProfile(ctx, opts.name.Value())
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfigProfile) {
-			err = errors.Errorf("profile %q is not found", opts.name)
+			err = errors.Errorf("profile %q is not found", opts.name.Value())
 		}
 		return nil, err
 	}
 
-	cid, err := pbm.RemoveConfigProfile(ctx, opts.name)
+	cid, err := pbm.RemoveConfigProfile(ctx, opts.name.Value())
 	if err != nil {
 		return nil, errors.Wrap(err, "sdk: remove config profile")
 	}
@@ -208,11 +217,14 @@ func handleSyncConfigProfile(
 	pbm *sdk.Client,
 	opts syncConfigProfileOptions,
 ) (fmt.Stringer, error) {
-	if !opts.all && opts.name == "" {
+	if !opts.all && !opts.name.IsSet() {
 		return nil, errors.New("<profile-name> or --all must be provided")
 	}
-	if opts.all && opts.name != "" {
+	if opts.all && opts.name.IsSet() {
 		return nil, errors.New("ambiguous: <profile-name> and --all are provided")
+	}
+	if !opts.all && !opts.name.IsProfile() {
+		return nil, errors.New("argument `profile-name` should be a non default profile")
 	}
 
 	if err := checkForAnotherOperation(ctx, pbm); err != nil {
@@ -226,13 +238,13 @@ func handleSyncConfigProfile(
 		if opts.all {
 			cid, err = pbm.ClearSyncFromAllExternalStorages(ctx)
 		} else {
-			cid, err = pbm.ClearSyncFromExternalStorage(ctx, opts.name)
+			cid, err = pbm.ClearSyncFromExternalStorage(ctx, opts.name.Value())
 		}
 	} else {
 		if opts.all {
 			cid, err = pbm.SyncFromAllExternalStorages(ctx)
 		} else {
-			cid, err = pbm.SyncFromExternalStorage(ctx, opts.name)
+			cid, err = pbm.SyncFromExternalStorage(ctx, opts.name.Value())
 		}
 	}
 	if err != nil {

@@ -29,7 +29,7 @@ import (
 )
 
 type statusOptions struct {
-	profile  string
+	profile  ProfileFlag
 	rsMap    string
 	sections []string
 	priority bool
@@ -106,14 +106,8 @@ func status(
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
-	if opts.profile != "" {
-		_, err := config.GetProfile(ctx, conn, opts.profile)
-		if err != nil {
-			if errors.Is(err, config.ErrMissedConfigProfile) {
-				return nil, errors.Errorf("profile %q is not found", opts.profile)
-			}
-			return nil, errors.Wrap(err, "get profile")
-		}
+	if err := opts.profile.Validate(ctx, conn); err != nil {
+		return nil, err
 	}
 
 	out := statusOut{
@@ -134,7 +128,7 @@ func status(
 			{
 				"backups", "Backups", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, pbm, opts.profile, rsMap)
+					return getStorageStat(ctx, conn, opts.profile, rsMap)
 				},
 			},
 		},
@@ -540,8 +534,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	pbm *sdk.Client,
-	profile string,
+	profile ProfileFlag,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -555,10 +548,11 @@ func getStorageStat(
 	s.Region = cfg.Storage.Region()
 	s.Path = cfg.Storage.Path()
 
-	bcps, err := backup.BackupsList(ctx, conn, profile, 0)
+	bcps, err := backup.BackupsList(ctx, conn, 0)
 	if err != nil {
 		return s, errors.Wrap(err, "get backups list")
 	}
+	bcps = filterByProfile(bcps, profile)
 
 	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
 	if err != nil {
@@ -643,8 +637,8 @@ func getStorageStat(
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	// for main profile also fetch PITR chunks
-	if profile == "" {
+	// for default storage also fetch PITR chunks
+	if !profile.IsSet() || profile.IsDefault() {
 		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 		if err != nil {
 			return s, errors.Wrap(err, "get PITR chunks")
