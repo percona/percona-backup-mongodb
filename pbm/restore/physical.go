@@ -371,6 +371,7 @@ func (r *PhysRestore) waitClusterStatus() (defs.Status, error) {
 	errF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusError)
 	doneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusDone)
 	partlyDoneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusPartlyDone)
+	copyReadyF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusCopyReady)
 	hbF := fmt.Sprintf("%s.%s", r.syncPathCluster, syncHbSuffix)
 
 	tk := time.NewTicker(time.Second * 5)
@@ -396,6 +397,13 @@ func (r *PhysRestore) waitClusterStatus() (defs.Status, error) {
 			return defs.StatusPartlyDone, nil
 		} else if !errors.Is(err, storage.ErrNotExist) {
 			r.log.Error("error while reading %s file", partlyDoneF)
+		}
+
+		_, err = r.stg.FileStat(copyReadyF)
+		if err == nil {
+			return defs.StatusCopyReady, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", copyReadyF)
 		}
 
 		err = r.checkHB(hbF)
