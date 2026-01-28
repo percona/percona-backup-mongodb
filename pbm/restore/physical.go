@@ -388,14 +388,14 @@ func (r *PhysRestore) waitClusterStatus() (defs.Status, error) {
 		if err == nil {
 			return defs.StatusDone, nil
 		} else if !errors.Is(err, storage.ErrNotExist) {
-			r.log.Error("error while reading %s file", errF)
+			r.log.Error("error while reading %s file", doneF)
 		}
 
 		_, err = r.stg.FileStat(partlyDoneF)
 		if err == nil {
 			return defs.StatusPartlyDone, nil
 		} else if !errors.Is(err, storage.ErrNotExist) {
-			r.log.Error("error while reading %s file", errF)
+			r.log.Error("error while reading %s file", partlyDoneF)
 		}
 
 		err = r.checkHB(hbF)
