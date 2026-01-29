@@ -159,7 +159,11 @@ func runBackup(
 	showProgress := outf == outText
 
 	if showProgress {
-		fmt.Printf("Starting backup %q (profile %q)", b.name, b.profile)
+		pinfo := ""
+		if b.profile != "" {
+			pinfo = fmt.Sprintf(" (profile: %q)", b.profile)
+		}
+		fmt.Printf("Starting backup %q%s", b.name, pinfo)
 	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
