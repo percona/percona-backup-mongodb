@@ -31,7 +31,7 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 	var err error
 
 	if cfg.Credentials.PrivateKey != "" && cfg.Credentials.ClientEmail != "" {
-		creds, err := json.Marshal(ServiceAccountCredentials{
+		creds, merr := json.Marshal(ServiceAccountCredentials{
 			Type:                "service_account",
 			PrivateKey:          string(cfg.Credentials.PrivateKey),
 			ClientEmail:         string(cfg.Credentials.ClientEmail),
@@ -44,8 +44,8 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 				string(cfg.Credentials.ClientEmail),
 			),
 		})
-		if err != nil {
-			return nil, errors.Wrap(err, "marshal GCS credentials")
+		if merr != nil {
+			return nil, errors.Wrap(merr, "marshal GCS credentials")
 		}
 		cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
 	} else {
