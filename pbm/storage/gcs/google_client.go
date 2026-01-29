@@ -11,6 +11,7 @@ import (
 
 	storagegcs "cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
@@ -54,7 +55,16 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		}
 		cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
 	} else {
-		// Default to Workload Identity / ADC if no credentials are provided
+		// No explicit credentials — validate ADC resolves to allowed type (Workload Identity)
+		// We only check the credentials type, the scoped used hear doesn't really matter
+		adc, adcErr := google.FindDefaultCredentials(ctx, storagegcs.ScopeReadOnly)
+		if adcErr != nil {
+			return nil, fmt.Errorf("finding default credentials: %w", err)
+		}
+		adcErr = validateDefaultCredentialType(adc)
+		if adcErr != nil {
+			return nil, fmt.Errorf("validate default credential type: %w", err)
+		}
 		cli, err = storagegcs.NewClient(ctx)
 	}
 
@@ -79,6 +89,27 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		cfg:          cfg,
 		log:          l,
 	}, nil
+}
+
+// validateDefaultCredentialType validates that credentials are of type "external_account" used for Workload Identity
+func validateDefaultCredentialType(creds *google.Credentials) error {
+	// Empty JSON means metadata server (GKE/GCE Workload Identity)
+	if len(creds.JSON) == 0 {
+		return nil
+	}
+
+	var jsonCreds struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(creds.JSON, &jsonCreds); err != nil {
+		return fmt.Errorf("parsing default credentials: %w", err)
+	}
+
+	if jsonCreds.Type != "external_account" {
+		msg := "unsupported type %q; use Workload Identity or explicit config credentials"
+		return fmt.Errorf(msg, jsonCreds.Type)
+	}
+	return nil
 }
 
 // shouldRetryExtended extends default shouldRetry with mainly
