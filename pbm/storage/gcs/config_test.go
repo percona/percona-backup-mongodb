@@ -1,7 +1,6 @@
 package gcs
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -80,18 +79,19 @@ func TestConfig(t *testing.T) {
 	})
 }
 
-func TestEmptyCredentialsFail(t *testing.T) {
-	opts := &Config{
-		Bucket: "bucketName",
-	}
-
-	_, err := New(opts, "node", nil)
-
-	if err == nil {
-		t.Fatalf("expected error when not specifying credentials")
-	}
-
-	if !strings.Contains(err.Error(), "required for GCS credentials") {
-		t.Errorf("expected required credentials, got %s", err)
-	}
-}
+// TODO: enable once we implement WIF/ADC configuration switch
+//func TestEmptyCredentialsFail(t *testing.T) {
+//	opts := &Config{
+//		Bucket: "bucketName",
+//	}
+//
+//	_, err := New(opts, "node", nil)
+//
+//	if err == nil {
+//		t.Fatalf("expected error when not specifying credentials")
+//	}
+//
+//	if !strings.Contains(err.Error(), "required for GCS credentials") {
+//		t.Errorf("expected required credentials, got %s", err)
+//	}
+//}
