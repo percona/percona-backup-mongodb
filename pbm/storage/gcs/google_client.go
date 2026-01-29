@@ -27,29 +27,32 @@ type googleClient struct {
 
 func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 	ctx := context.Background()
+	var cli *storagegcs.Client
+	var err error
 
-	if cfg.Credentials.PrivateKey == "" || cfg.Credentials.ClientEmail == "" {
-		return nil, errors.New("clientEmail and privateKey are required for GCS credentials")
+	if cfg.Credentials.PrivateKey != "" && cfg.Credentials.ClientEmail != "" {
+		creds, err := json.Marshal(ServiceAccountCredentials{
+			Type:                "service_account",
+			PrivateKey:          string(cfg.Credentials.PrivateKey),
+			ClientEmail:         string(cfg.Credentials.ClientEmail),
+			AuthURI:             "https://accounts.google.com/o/oauth2/auth",
+			TokenURI:            "https://oauth2.googleapis.com/token",
+			UniverseDomain:      "googleapis.com",
+			AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
+			ClientCertURL: fmt.Sprintf(
+				"https://www.googleapis.com/robot/v1/metadata/x509/%s",
+				string(cfg.Credentials.ClientEmail),
+			),
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal GCS credentials")
+		}
+		cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+	} else {
+		// Default to Workload Identity / ADC if no credentials are provided
+		cli, err = storagegcs.NewClient(ctx)
 	}
 
-	creds, err := json.Marshal(ServiceAccountCredentials{
-		Type:                "service_account",
-		PrivateKey:          string(cfg.Credentials.PrivateKey),
-		ClientEmail:         string(cfg.Credentials.ClientEmail),
-		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
-		TokenURI:            "https://oauth2.googleapis.com/token",
-		UniverseDomain:      "googleapis.com",
-		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
-		ClientCertURL: fmt.Sprintf(
-			"https://www.googleapis.com/robot/v1/metadata/x509/%s",
-			string(cfg.Credentials.ClientEmail),
-		),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal GCS credentials")
-	}
-
-	cli, err := storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
 	if err != nil {
 		return nil, errors.Wrap(err, "new GCS client")
 	}
