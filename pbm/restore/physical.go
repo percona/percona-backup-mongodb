@@ -65,6 +65,7 @@ const (
 	hbFrameSec          = 60 * 2
 	syncHbSuffix        = "hb"
 	syncHbCleanupSuffix = "cleanup.hb"
+	extDumpSuffix       = "ext.dump"
 	hbCleanupFrame      = 15 * time.Second
 	hbCleanupTimeout    = 3
 )
@@ -1203,9 +1204,18 @@ func (r *PhysRestore) Snapshot(
 	var stats phys.RestoreShardStat
 
 	if cmd.External {
+		if err = r.extDumpFromPhysRestore(); err != nil {
+			return errors.Wrap(err, "dumping state for external restore")
+		}
+
 		_, err = r.toState(defs.StatusCopyReady)
 		if err != nil {
 			return errors.Wrapf(err, "moving to state %s", defs.StatusCopyReady)
+		}
+
+		if cmd.Exit {
+			r.log.Info("exiting in %s state during external restore", defs.StatusCopyReady)
+			return nil
 		}
 
 		if err = r.doExternalRestore(l, excfg); err != nil {
@@ -2857,6 +2867,67 @@ func (r *PhysRestore) MarkAsFallback() error {
 	}
 
 	return nil
+}
+
+type extDump struct {
+	DBpath   string
+	TmpPort  int
+	RSConfig *topo.RSConfig
+	Shards   map[string]string
+	CfgConn  string
+	StartTS  int64
+	SecOpts  *topo.MongodOptsSec
+
+	Name      string
+	Opid      string
+	NodeInfo  *topo.NodeInfo
+	RestoreTS primitive.Timestamp
+	ConfOpts  *config.RestoreConf
+	Mongod    string
+
+	SyncPathNode       string
+	SyncPathNodeStat   string
+	SyncPathRS         string
+	SyncPathCluster    string
+	SyncPathPeers      map[string]struct{}
+	SyncPathShards     map[string]struct{}
+	SyncPathDataShards map[string]struct{}
+
+	RSMap map[string]string
+}
+
+// extDumpFromPhysRestore creates external restore dump file on the storage.
+func (r *PhysRestore) extDumpFromPhysRestore() error {
+	ed, err := json.Marshal(extDump{
+		DBpath:             r.dbpath,
+		TmpPort:            r.tmpPort,
+		RSConfig:           r.rsConf,
+		Shards:             r.shards,
+		CfgConn:            r.cfgConn,
+		StartTS:            r.startTS,
+		SecOpts:            r.secOpts,
+		Name:               r.name,
+		Opid:               r.opid,
+		NodeInfo:           r.nodeInfo,
+		RestoreTS:          r.restoreTS,
+		ConfOpts:           r.confOpts,
+		Mongod:             r.mongod,
+		SyncPathNode:       r.syncPathNode,
+		SyncPathNodeStat:   r.syncPathNodeStat,
+		SyncPathRS:         r.syncPathRS,
+		SyncPathCluster:    r.syncPathCluster,
+		SyncPathPeers:      r.syncPathPeers,
+		SyncPathShards:     r.syncPathDataShards,
+		SyncPathDataShards: r.syncPathDataShards,
+		RSMap:              r.rsMap,
+	})
+	if err != nil {
+		return errors.Wrap(err, "marshal external dump state")
+	}
+
+	extDumpF := r.syncPathNode + "." + extDumpSuffix
+	err = storage.RetryableWrite(r.stg, extDumpF, ed)
+	return errors.Wrapf(err, "write external dump state to: %s", extDumpF)
 }
 
 // moveAll moves fromDir content (files and dirs) to toDir content.
