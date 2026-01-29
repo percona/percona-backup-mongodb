@@ -30,6 +30,11 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 	var cli *storagegcs.Client
 	var err error
 
+	if !cfg.Credentials.WorkloadIdentity && (cfg.Credentials.PrivateKey == "" || cfg.Credentials.ClientEmail == "") {
+		errMsg := "clientEmail and privateKey are required for GCS credentials when workloadIdentity is not enabled"
+		return nil, errors.New(errMsg)
+	}
+
 	if cfg.Credentials.PrivateKey != "" && cfg.Credentials.ClientEmail != "" {
 		creds, merr := json.Marshal(ServiceAccountCredentials{
 			Type:                "service_account",
