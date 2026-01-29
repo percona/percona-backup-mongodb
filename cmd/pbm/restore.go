@@ -544,7 +544,7 @@ func doRestore(
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
-	stg, err := getRestoreMetaStg(o.cfg, node)
+	stg, err := restore.GetRestoreMetaStg(o.cfg, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -690,22 +690,6 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
-	buf, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to read config file")
-	}
-
-	var cfg config.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to  unmarshal config file")
-	}
-
-	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(&cfg.Storage, node, l)
-}
-
 func describeRestore(
 	ctx context.Context,
 	conn connect.Client,
@@ -718,7 +702,7 @@ func describeRestore(
 		res  describeRestoreResult
 	)
 	if o.cfg != "" {
-		stg, err := getRestoreMetaStg(o.cfg, node)
+		stg, err := restore.GetRestoreMetaStg(o.cfg, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
