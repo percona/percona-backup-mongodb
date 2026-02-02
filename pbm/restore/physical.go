@@ -2268,7 +2268,14 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		}
 	}
 
-	err = r.hb()
+	r.startHB(l)
+
+	return nil
+}
+
+// startHB starts heartbeats in separate go routine.
+func (r *PhysRestore) startHB(l log.LogEvent) {
+	err := r.hb()
 	if err != nil {
 		l.Error("send init heartbeat: %v", err)
 	}
@@ -2293,8 +2300,6 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 			}
 		}
 	}()
-
-	return nil
 }
 
 func (r *PhysRestore) hb() error {
