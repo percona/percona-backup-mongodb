@@ -17,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
@@ -26,6 +27,7 @@ const mongoConnFlag = "mongodb-uri"
 func main() {
 	rootCmd := rootCommand()
 	rootCmd.AddCommand(versionCommand())
+	rootCmd.AddCommand(restoreFinishCommand())
 	rootCmd.AddCommand(util.CompletionCommand())
 
 	if err := rootCmd.Execute(); err != nil {
@@ -152,6 +154,53 @@ func versionCommand() *cobra.Command {
 	versionCmd.Flags().StringVar(&versionFormat, "format", "", "Output format <json or \"\">")
 
 	return versionCmd
+}
+
+func restoreFinishCommand() *cobra.Command {
+	var (
+		configPath   string
+		rsName       string
+		nodeName     string
+		dbConfigPath string
+	)
+
+	restoreFinishCmd := &cobra.Command{
+		Use:   "restore-finish <restore_name>",
+		Short: "Finish external restore (after the agent restart)",
+		Args:  cobra.ExactArgs(1),
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if configPath == "" {
+				return errors.New("required flag \"config\" not set")
+			}
+			if rsName == "" {
+				return errors.New("required flag \"rs\" is not set")
+			}
+			if nodeName == "" {
+				return errors.New("required flag \"node\" not set")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			restoreName := args[0]
+		},
+	}
+
+	restoreFinishCmd.Flags().StringVarP(&configPath, "config", "c", "",
+		"Path to the PBM's config YAML file")
+	_ = restoreFinishCmd.MarkFlagRequired("config")
+
+	restoreFinishCmd.Flags().StringVarP(&rsName, "rs", "", "",
+		"Replicaset name of the target cluster (cluster to restore to)")
+	_ = restoreFinishCmd.MarkFlagRequired("rs")
+
+	restoreFinishCmd.Flags().StringVar(&nodeName, "node", "",
+		"Node name of the target cluster (cluster to restore to)")
+	_ = restoreFinishCmd.MarkFlagRequired("node")
+
+	restoreFinishCmd.Flags().StringVar(&dbConfigPath, "db-config", "",
+		"Path to the mongod config file")
+
+	return restoreFinishCmd
 }
 
 func isValidLogLevel(logLevel string) bool {
