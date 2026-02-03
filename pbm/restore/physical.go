@@ -1378,6 +1378,17 @@ func (r *PhysRestore) patchSysData(
 	return nil
 }
 
+// patchSysDataExt is wrapper for patchSysData for external restore.
+// Both PITR and restore statistic is not used in that flow.
+func (r *PhysRestore) patchSysDataExt(l log.LogEvent) error {
+	return r.patchSysData(
+		l,
+		primitive.Timestamp{},
+		nil,
+		&phys.RestoreShardStat{},
+	)
+}
+
 var rmFromDatadir = map[string]struct{}{
 	"WiredTiger.lock":    {},
 	"WiredTiger.turtle":  {},
