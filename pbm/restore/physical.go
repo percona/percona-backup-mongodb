@@ -2946,6 +2946,111 @@ func (r *PhysRestore) extDumpFromPhysRestore() error {
 	return errors.Wrapf(err, "write external dump state to: %s", extDumpF)
 }
 
+// PhysRestoreFinish provides logic for agent's restore-finish command.
+// It's used in external restore flow, after the restart of the agent.
+func PhysRestoreFinish(restoreName, cfgPath, mongoCfg, rs, node string) error {
+	logger := log.NewWithOpts(nil, rs, node, &log.Opts{})
+	defer logger.Close()
+	l := logger.NewEvent(string(ctrl.CmdRestore), restoreName, "", primitive.Timestamp{})
+
+	r, err := physRestoreFromExtDump(l, restoreName, cfgPath, mongoCfg, rs, node)
+	if err != nil {
+		return errors.Wrap(err, "creating restore object from storage dump")
+	}
+
+	r.startHB(l)
+
+	if err = r.doExternalRestore(l, &topo.MongodOpts{}); err != nil {
+		return errors.Wrap(err, "finish external restore")
+	}
+
+	err = r.setTmpConf(nil)
+	if err != nil {
+		return errors.Wrap(err, "set tmp config")
+	}
+
+	if r.restoreTS.T == 0 {
+		l.Info("restore timestamp isn't set, get latest common ts for the cluster")
+		r.restoreTS, err = r.agreeCommonRestoreTS()
+		if err != nil {
+			return errors.Wrap(err, "get common restore timestamp")
+		}
+	}
+
+	if err = r.patchSysDataExt(l); err != nil {
+		return err
+	}
+	l.Info("restore on node succeed")
+
+	_, err = r.toState(defs.StatusDone)
+	if err != nil {
+		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
+	}
+
+
+	return nil
+}
+
+// physRestoreFromExtDump creates PhysRestore object from dump on the storage.
+// This contstructor is used in external restore flow when restore state dump is
+// storad on the backup storage due to agent's restart option.
+func physRestoreFromExtDump(
+	l log.LogEvent,
+	restoreName,
+	cfgPath,
+	mongoCfg,
+	rs,
+	node string,
+) (*PhysRestore, error) {
+	stg, err := GetRestoreMetaStg(cfgPath, node)
+	if err != nil {
+		return nil, errors.Wrap(err, "get storage")
+	}
+
+	extDumpF := fmt.Sprintf("%s/%s/rs.%s/node.%s.%s",
+		defs.PhysRestoresDir, restoreName, rs, node, extDumpSuffix)
+	src, err := stg.SourceReader(extDumpF)
+	if err != nil {
+		return nil, errors.Wrapf(err, "get file %s", extDumpF)
+	}
+
+	var extDump extDump
+	err = json.NewDecoder(src).Decode(&extDump)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode external dump %s", extDumpF)
+	}
+
+	physRestore := PhysRestore{
+		stg: stg,
+		log: l,
+
+		dbpath:             extDump.DBpath,
+		tmpPort:            extDump.TmpPort,
+		rsConf:             extDump.RSConfig,
+		shards:             extDump.Shards,
+		cfgConn:            extDump.CfgConn,
+		startTS:            extDump.StartTS,
+		secOpts:            extDump.SecOpts,
+		name:               extDump.Name,
+		opid:               extDump.Opid,
+		nodeInfo:           extDump.NodeInfo,
+		restoreTS:          extDump.RestoreTS,
+		confOpts:           extDump.ConfOpts,
+		mongod:             extDump.Mongod,
+		syncPathNode:       extDump.SyncPathNode,
+		syncPathNodeStat:   extDump.SyncPathNodeStat,
+		syncPathRS:         extDump.SyncPathRS,
+		syncPathCluster:    extDump.SyncPathCluster,
+		syncPathPeers:      extDump.SyncPathPeers,
+		syncPathShards:     extDump.SyncPathShards,
+		syncPathDataShards: extDump.SyncPathDataShards,
+		rsMap:              extDump.RSMap,
+	}
+	// todo: create mongoCfg (create it later)
+
+	return &physRestore, nil
+}
+
 // moveAll moves fromDir content (files and dirs) to toDir content.
 // It ignores all files/dirs specified within toIgnore slice.
 func moveAll(fromDir, toDir string, toIgnore []string, l log.LogEvent) error {
