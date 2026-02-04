@@ -2948,11 +2948,7 @@ func (r *PhysRestore) extDumpFromPhysRestore() error {
 
 // PhysRestoreFinish provides logic for agent's restore-finish command.
 // It's used in external restore flow, after the restart of the agent.
-func PhysRestoreFinish(restoreName, cfgPath, mongoCfg, rs, node string) error {
-	logger := log.NewWithOpts(nil, rs, node, &log.Opts{})
-	defer logger.Close()
-	l := logger.NewEvent(string(ctrl.CmdRestore), restoreName, "", primitive.Timestamp{})
-
+func PhysRestoreFinish(l log.LogEvent, restoreName, cfgPath, mongoCfg, rs, node string) error {
 	r, err := physRestoreFromExtDump(l, restoreName, cfgPath, mongoCfg, rs, node)
 	if err != nil {
 		return errors.Wrap(err, "creating restore object from storage dump")

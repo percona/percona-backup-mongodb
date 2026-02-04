@@ -13,8 +13,10 @@ import (
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
@@ -165,8 +167,8 @@ func restoreFinishCommand() *cobra.Command {
 	)
 
 	restoreFinishCmd := &cobra.Command{
-		Use:   "restore-finish <restore_name>",
-		Short: "Finish external restore (after the agent restart)",
+		Use:   "restore-finish [restore_name]",
+		Short: "Finish external restore (after the agent's restart)",
 		Args:  cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if configPath == "" {
@@ -182,6 +184,23 @@ func restoreFinishCommand() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			restoreName := args[0]
+
+			logOpts := buildLogOpts()
+			logger := log.NewWithOpts(nil, rsName, nodeName, logOpts)
+			defer logger.Close()
+			l := logger.NewEvent(
+				string(ctrl.CmdRestore),
+				restoreName,
+				"",
+				primitive.Timestamp{},
+			)
+
+			if err := restore.PhysRestoreFinish(l, restoreName, configPath, dbConfigPath, rsName, nodeName); err != nil {
+				l.Error("restore-finish failed: %v", err)
+				return errors.Wrap(err, "agent's restore finish command")
+			}
+
+			return nil
 		},
 	}
 
