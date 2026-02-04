@@ -86,6 +86,10 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 	})
 
 	for _, f := range rfiles {
+		if strings.HasSuffix(f.Name, extDumpSuffix) {
+			// exclude external restore dump files
+			continue
+		}
 		parts := strings.SplitN(f.Name, ".", 2)
 		if len(parts) != 2 {
 			continue
