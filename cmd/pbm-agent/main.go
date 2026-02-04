@@ -195,7 +195,14 @@ func restoreFinishCommand() *cobra.Command {
 				primitive.Timestamp{},
 			)
 
-			if err := restore.PhysRestoreFinish(l, restoreName, configPath, dbConfigPath, rsName, nodeName); err != nil {
+			extFinishCmd := &restore.ExtFinishCmd{
+				RestoreName: restoreName,
+				CfgPath:     configPath,
+				RS:          rsName,
+				Node:        nodeName,
+				DBCfgPath:   dbConfigPath,
+			}
+			if err := restore.PhysRestoreFinish(l, extFinishCmd); err != nil {
 				l.Error("restore-finish failed: %v", err)
 				return errors.Wrap(err, "agent's restore finish command")
 			}

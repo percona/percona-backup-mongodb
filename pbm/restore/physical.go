@@ -2946,10 +2946,18 @@ func (r *PhysRestore) extDumpFromPhysRestore() error {
 	return errors.Wrapf(err, "write external dump state to: %s", extDumpF)
 }
 
+type ExtFinishCmd struct {
+	RestoreName string
+	CfgPath     string
+	RS          string
+	Node        string
+	DBCfgPath   string
+}
+
 // PhysRestoreFinish provides logic for agent's restore-finish command.
 // It's used in external restore flow, after the restart of the agent.
-func PhysRestoreFinish(l log.LogEvent, restoreName, cfgPath, mongoCfg, rs, node string) error {
-	r, err := physRestoreFromExtDump(l, restoreName, cfgPath, mongoCfg, rs, node)
+func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
+	r, err := physRestoreFromExtDump(l, cmd)
 	if err != nil {
 		return errors.Wrap(err, "creating restore object from storage dump")
 	}
@@ -2992,19 +3000,15 @@ func PhysRestoreFinish(l log.LogEvent, restoreName, cfgPath, mongoCfg, rs, node 
 // storad on the backup storage due to agent's restart option.
 func physRestoreFromExtDump(
 	l log.LogEvent,
-	restoreName,
-	cfgPath,
-	mongoCfg,
-	rs,
-	node string,
+	cmd *ExtFinishCmd,
 ) (*PhysRestore, error) {
-	stg, err := GetRestoreMetaStg(cfgPath, node)
+	stg, err := GetRestoreMetaStg(cmd.CfgPath, cmd.Node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
 
 	extDumpF := fmt.Sprintf("%s/%s/rs.%s/node.%s.%s",
-		defs.PhysRestoresDir, restoreName, rs, node, extDumpSuffix)
+		defs.PhysRestoresDir, cmd.RestoreName, cmd.RS, cmd.Node, extDumpSuffix)
 	src, err := stg.SourceReader(extDumpF)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get file %s", extDumpF)
