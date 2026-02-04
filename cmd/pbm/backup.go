@@ -33,7 +33,7 @@ type backupOpts struct {
 	base             bool
 	compression      string
 	compressionLevel []int
-	profile          string
+	profile          ProfileFlag
 	ns               string
 	wait             bool
 	waitTime         time.Duration
@@ -117,13 +117,13 @@ func runBackup(
 		return nil, err
 	}
 
-	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
+	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile.Value())
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfig) {
 			return nil, errors.New("no config set. Set config with <pbm config>")
 		}
 		if errors.Is(err, config.ErrMissedConfigProfile) {
-			return nil, errors.Errorf("profile %q is not found", b.profile)
+			return nil, errors.Errorf("profile %q is not found", b.profile.Name())
 		}
 		return nil, errors.Wrap(err, "get config")
 	}
@@ -149,7 +149,7 @@ func runBackup(
 			CompressionLevel: level,
 			NumParallelColls: numParallelColls,
 			Filelist:         b.externList,
-			Profile:          b.profile,
+			Profile:          b.profile.Value(),
 		},
 	})
 	if err != nil {
@@ -159,7 +159,11 @@ func runBackup(
 	showProgress := outf == outText
 
 	if showProgress {
-		fmt.Printf("Starting backup %q (profile %q)", b.name, b.profile)
+		pinfo := ""
+		if b.profile.IsProfile() {
+			pinfo = fmt.Sprintf(" (profile: %q)", b.profile.Name())
+		}
+		fmt.Printf("Starting backup %q%s", b.name, pinfo)
 	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
