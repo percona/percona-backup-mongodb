@@ -1218,7 +1218,7 @@ func (r *PhysRestore) Snapshot(
 			return nil
 		}
 
-		if err = r.doExternalRestore(l, excfg); err != nil {
+		if err = r.doExternalRestore(l, &excfg); err != nil {
 			return err
 		}
 	} else {
@@ -1281,11 +1281,11 @@ func (r *PhysRestore) Snapshot(
 	return nil
 }
 
-// doExternalRestore executes external restore flow.
-// It updates excfg param with mongod options found within snapshot metadata.
+// doExternalRestore executes external restore flow. It initializes
+// excfg param with mongod options found within snapshot metadata.
 func (r *PhysRestore) doExternalRestore(
 	l log.LogEvent,
-	excfg *topo.MongodOpts,
+	excfg **topo.MongodOpts,
 ) error {
 	l.Info("waiting for the datadir to be copied")
 	_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
@@ -1309,7 +1309,7 @@ func (r *PhysRestore) doExternalRestore(
 		if r.restoreTS.T == 0 {
 			r.restoreTS = rsMeta.LastWriteTS
 		}
-		excfg = rsMeta.MongodOpts
+		*excfg = rsMeta.MongodOpts
 
 		if version.HasFilelistFile(rsMeta.PBMVersion) {
 			filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
@@ -2957,6 +2957,8 @@ type ExtFinishCmd struct {
 // PhysRestoreFinish provides logic for agent's restore-finish command.
 // It's used in external restore flow, after the restart of the agent.
 func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
+	l.Info("processing restore-finish command for restore: %s", cmd.RestoreName)
+
 	r, err := physRestoreFromExtDump(l, cmd)
 	if err != nil {
 		return errors.Wrap(err, "creating restore object from storage dump")
@@ -2964,11 +2966,23 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 
 	r.startHB(l)
 
-	if err = r.doExternalRestore(l, &topo.MongodOpts{}); err != nil {
+	var excfg *topo.MongodOpts
+	if err = r.doExternalRestore(l, &excfg); err != nil {
 		return errors.Wrap(err, "finish external restore")
 	}
 
-	err = r.setTmpConf(nil)
+	if cmd.DBCfgPath != "" {
+		mongodCfg, err := GetMongodConfig(cmd.DBCfgPath)
+		if err != nil {
+			return errors.Wrap(err, "get external mongod config")
+		}
+		if excfg == nil {
+			excfg = &topo.MongodOpts{}
+		}
+		excfg.Security = mongodCfg.Security
+	}
+
+	err = r.setTmpConf(excfg)
 	if err != nil {
 		return errors.Wrap(err, "set tmp config")
 	}
@@ -2993,6 +3007,19 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 
 
 	return nil
+}
+
+func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
+	mOpts := &topo.MongodOpts{}
+	buf, err := os.ReadFile(mongodCfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to read mongod config file")
+	}
+	err = yaml.UnmarshalStrict(buf, mOpts)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to unmarshal mongod config file")
+	}
+	return mOpts, nil
 }
 
 // physRestoreFromExtDump creates PhysRestore object from dump on the storage.
