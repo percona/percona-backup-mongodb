@@ -585,7 +585,7 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 	)
 	deleteBcpCmd.Flags().Var(
 		&deleteBcpOptions.profile, "profile",
-		"Name of the PBM profile used to filter the backup list when using --older-then.",
+		"Name of the PBM profile used to filter the backup list when using --older-than.",
 	)
 
 	return deleteBcpCmd
