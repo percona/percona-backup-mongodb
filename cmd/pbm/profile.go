@@ -172,22 +172,21 @@ func handleRemoveConfigProfile(
 	if !opts.name.IsSet() {
 		return nil, errors.New("argument `profile-name` should not be empty")
 	}
-	if !opts.name.IsProfile() {
-		return nil, errors.New("argument `profile-name` should be a non default profile")
-	}
 	if err := checkForAnotherOperation(ctx, pbm); err != nil {
 		return nil, err
 	}
 
-	_, err := pbm.GetConfigProfile(ctx, opts.name.Value())
+	// We purposefully check opts.name.Name() instead of Value()
+	// in order to allowed profile named "default" to be deleted if it exists.
+	_, err := pbm.GetConfigProfile(ctx, opts.name.Name())
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfigProfile) {
-			err = errors.Errorf("profile %q is not found", opts.name.Value())
+			err = errors.Errorf("profile %q is not found", opts.name.Name())
 		}
 		return nil, err
 	}
 
-	cid, err := pbm.RemoveConfigProfile(ctx, opts.name.Value())
+	cid, err := pbm.RemoveConfigProfile(ctx, opts.name.Name())
 	if err != nil {
 		return nil, errors.Wrap(err, "sdk: remove config profile")
 	}
