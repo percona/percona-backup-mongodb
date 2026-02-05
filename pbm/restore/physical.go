@@ -2987,12 +2987,8 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 		return errors.Wrap(err, "set tmp config")
 	}
 
-	if r.restoreTS.T == 0 {
-		l.Info("restore timestamp isn't set, get latest common ts for the cluster")
-		r.restoreTS, err = r.agreeCommonRestoreTS()
-		if err != nil {
-			return errors.Wrap(err, "get common restore timestamp")
-		}
+	if r.restoreTS.IsZero() {
+		return errors.New("common restore timestamp is not set for snapshot restore")
 	}
 
 	if err = r.patchSysDataExt(l); err != nil {
