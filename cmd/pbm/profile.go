@@ -81,7 +81,7 @@ func handleShowConfigProfiles(
 		return nil, errors.New("argument `profile-name` should not be empty")
 	}
 	if !opts.name.IsProfile() {
-		return nil, errors.New("argument `profile-name` should be a non default profile")
+		return nil, errors.New("argument `profile-name` should not be \"main\"")
 	}
 
 	profile, err := pbm.GetConfigProfile(ctx, opts.name.Value())
@@ -104,7 +104,7 @@ func handleAddConfigProfile(
 		return nil, errors.New("argument `profile-name` should not be empty")
 	}
 	if !opts.name.IsProfile() {
-		return nil, errors.New("argument `profile-name` should be a non default profile")
+		return nil, errors.New("argument `profile-name` should not be \"main\"")
 	}
 	if err := checkForAnotherOperation(ctx, pbm); err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func handleRemoveConfigProfile(
 	}
 
 	// We purposefully check opts.name.Name() instead of Value()
-	// in order to allowed profile named "default" to be deleted if it exists.
+	// in order to allowed profile named "main" to be deleted if it exists.
 	_, err := pbm.GetConfigProfile(ctx, opts.name.Name())
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfigProfile) {
@@ -223,7 +223,7 @@ func handleSyncConfigProfile(
 		return nil, errors.New("ambiguous: <profile-name> and --all are provided")
 	}
 	if !opts.all && !opts.name.IsProfile() {
-		return nil, errors.New("argument `profile-name` should be a non default profile")
+		return nil, errors.New("argument `profile-name` should not be \"main\"")
 	}
 
 	if err := checkForAnotherOperation(ctx, pbm); err != nil {

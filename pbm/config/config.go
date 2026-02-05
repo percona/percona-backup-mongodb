@@ -536,7 +536,7 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 }
 
 // SetConfig stores config doc within the database.
-// It also applies default storage parameters depending on the type of storage
+// It also applies main storage parameters depending on the type of storage
 // and assigns those possible default values to the cfg parameter.
 func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	if err := cfg.Storage.Cast(); err != nil {

@@ -249,7 +249,7 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	}
 
 	backupOptions := backupOpts{
-		profile: NewProfileFlagDefault(),
+		profile: NewProfileFlagMain(),
 	}
 
 	backupCmd := &cobra.Command{
@@ -336,7 +336,7 @@ func (app *pbmApp) buildCancelBackupCmd() *cobra.Command {
 
 func (app *pbmApp) buildCleanupCmd() *cobra.Command {
 	cleanupOpts := cleanupOptions{
-		profile: NewProfileFlagDefault(),
+		profile: NewProfileFlagMain(),
 	}
 
 	cleanupCmd := &cobra.Command{
@@ -539,7 +539,7 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 	}
 
 	deleteBcpOptions := deleteBcpOpts{
-		profile: NewProfileFlagDefault(),
+		profile: NewProfileFlagMain(),
 	}
 
 	deleteBcpCmd := &cobra.Command{

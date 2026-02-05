@@ -463,7 +463,7 @@ type pitrRanges struct {
 }
 
 func (s storageStat) String() string {
-	ret := fmt.Sprintln("Default storage:")
+	ret := fmt.Sprintln("Main storage:")
 	ret += fmt.Sprintf("  %-10s  %s\n", "Type:", s.Type)
 	if s.Region != "" {
 		ret += fmt.Sprintf("  %-10s  %s\n", "Region:", s.Region)
@@ -666,8 +666,8 @@ func getStorageStat(
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	// for default storage also fetch PITR chunks
-	if !profile.IsSet() || profile.IsDefault() {
+	// for main storage also fetch PITR chunks
+	if !profile.IsSet() || profile.IsMain() {
 		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 		if err != nil {
 			return s, errors.Wrap(err, "get PITR chunks")

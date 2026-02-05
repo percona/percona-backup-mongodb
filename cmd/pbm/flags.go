@@ -40,7 +40,7 @@ func (p *ProfileFlag) Value() string {
 		// unset value can never match actual profile
 		return "\x00*"
 	}
-	if p.IsDefault() {
+	if p.IsMain() {
 		return ""
 	}
 	return *p.value
@@ -53,12 +53,12 @@ func (p *ProfileFlag) Name() string {
 	return *p.value
 }
 
-func (p *ProfileFlag) IsDefault() bool {
-	return p.IsSet() && *p.value == "default"
+func (p *ProfileFlag) IsMain() bool {
+	return p.IsSet() && *p.value == "main"
 }
 
 func (p *ProfileFlag) IsProfile() bool {
-	return p.IsSet() && !p.IsDefault()
+	return p.IsSet() && !p.IsMain()
 }
 
 // Validate checks whether this is either a wildcard or a reference to valid config
@@ -93,7 +93,7 @@ func NewProfileFlag(v string) ProfileFlag {
 	return pf
 }
 
-// NewProfileFlagDefault is the same as NewProfileFlag with default profile as initial value
-func NewProfileFlagDefault() ProfileFlag {
-	return NewProfileFlag("default")
+// NewProfileFlagMain is the same as NewProfileFlag with default profile as initial value
+func NewProfileFlagMain() ProfileFlag {
+	return NewProfileFlag("main")
 }
