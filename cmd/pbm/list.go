@@ -290,7 +290,7 @@ func backupList(
 	}
 
 	// for default profile include PITR information
-	if !profile.IsSet() || profile.IsDefault() {
+	if !profile.IsSet() || profile.IsMain() {
 		list.PITR = &pitrListOut{}
 		list.PITR.Ranges, list.PITR.RsRanges, err = getPitrList(ctx, conn, size, full, unbacked, rsMap)
 		if err != nil {
