@@ -2419,6 +2419,9 @@ func (r *PhysRestore) setTmpConf(xopts *topo.MongodOpts) error {
 	opts.Storage = *topo.NewMongodOptsStorage()
 	if xopts != nil {
 		opts.Storage = xopts.Storage
+		if xopts.Security != nil {
+			opts.Security = xopts.Security
+		}
 	} else if r.bcp != nil {
 		setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 		for _, v := range r.bcp.Replsets {
@@ -2933,7 +2936,7 @@ func (r *PhysRestore) extDumpFromPhysRestore() error {
 		SyncPathRS:         r.syncPathRS,
 		SyncPathCluster:    r.syncPathCluster,
 		SyncPathPeers:      r.syncPathPeers,
-		SyncPathShards:     r.syncPathDataShards,
+		SyncPathShards:     r.syncPathShards,
 		SyncPathDataShards: r.syncPathDataShards,
 		RSMap:              r.rsMap,
 	})

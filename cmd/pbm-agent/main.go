@@ -167,9 +167,10 @@ func restoreFinishCommand() *cobra.Command {
 	)
 
 	restoreFinishCmd := &cobra.Command{
-		Use:   "restore-finish [restore_name]",
-		Short: "Finish external restore (after the agent's restart)",
-		Args:  cobra.ExactArgs(1),
+		Use:          "restore-finish [restore_name]",
+		Short:        "Finish external restore (after the agent's restart)",
+		SilenceUsage: true,
+		Args:         cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if configPath == "" {
 				return errors.New("required flag \"config\" not set")
