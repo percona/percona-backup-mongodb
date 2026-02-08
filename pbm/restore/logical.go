@@ -146,12 +146,16 @@ func (r *Restore) exit(ctx context.Context, err error) {
 
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
 // restore namespace, cloning options and option whether we should restore users&roles
-func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, usingUsersAndRoles bool) []string {
+func resolveNamespace(
+	nssBackup, nssRestore []string,
+	cloneNS snapshot.CloneNS,
+	usingUsersAndRolesBackup, usingUsersAndRolesRestore bool,
+) []string {
 	if cloneNS.IsSpecified() {
 		return []string{cloneNS.FromNS}
 	}
 	if util.IsSelective(nssRestore) {
-		if usingUsersAndRoles {
+		if usingUsersAndRolesRestore {
 			var nss []string
 			nss = append(nss, nssRestore...)
 			nss = append(nss,
@@ -164,6 +168,17 @@ func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, 
 		return nssRestore
 	}
 
+	// Full restore from selective backup should include users & roles
+	if util.IsSelective(nssBackup) && usingUsersAndRolesBackup {
+		var nss []string
+		nss = append(nss, nssBackup...)
+		nss = append(nss,
+			defs.DB+"."+defs.TmpUsersCollection,
+			defs.DB+"."+defs.TmpRolesCollection,
+		)
+		return nss
+	}
+
 	return nssBackup
 }
 
@@ -171,16 +186,16 @@ func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, 
 func shouldRestoreUsersAndRoles(
 	nssBackup, nssRestore []string,
 	cloneNS snapshot.CloneNS,
-	usingUsersAndRoles bool,
+	usingUsersAndRolesBackup, usingUsersAndRolesRestore bool,
 ) restoreUsersAndRolesOption {
 	if cloneNS.IsSpecified() {
 		return false
 	}
-	if util.IsSelective(nssBackup) {
+	if util.IsSelective(nssBackup) && !usingUsersAndRolesBackup {
 		return false
 	}
 	if util.IsSelective(nssRestore) {
-		return restoreUsersAndRolesOption(usingUsersAndRoles)
+		return restoreUsersAndRolesOption(usingUsersAndRolesRestore)
 	}
 
 	return true
@@ -218,11 +233,13 @@ func (r *Restore) Snapshot(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 	usersAndRolesOpt := shouldRestoreUsersAndRoles(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 
 	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
@@ -362,11 +379,13 @@ func (r *Restore) PITR(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 	usersAndRolesOpt := shouldRestoreUsersAndRoles(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {

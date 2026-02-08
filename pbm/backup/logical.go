@@ -112,11 +112,11 @@ func (b *Backup) doLogical(
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck
 
-	if !util.IsSelective(bcp.Namespaces) {
+	if !util.IsSelective(bcp.Namespaces) || bcp.UsersAndRoles {
 		// Save users and roles to the tmp collections so the restore would copy that data
 		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
 		// see: https://jira.percona.com/browse/PBM-636 and comments
-		lw, err := copyUsersNRolles(ctx, b.brief.URI)
+		lw, err := copyUsersNRolles(ctx, b.brief.URI, bcp.Namespaces)
 		if err != nil {
 			return errors.Wrap(err, "copy users and roles for the restore")
 		}
@@ -152,6 +152,12 @@ func (b *Backup) doLogical(
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
 	if util.IsSelective(bcp.Namespaces) {
+		if bcp.UsersAndRoles {
+			bcp.Namespaces = append(bcp.Namespaces,
+				defs.DB+"."+defs.TmpUsersCollection,
+				defs.DB+"."+defs.TmpRolesCollection,
+			)
+		}
 		if inf.IsConfigSrv() {
 			chunkSelector, err := createBackupChunkSelector(ctx, b.leadConn, bcp.Namespaces)
 			if err != nil {
@@ -286,7 +292,7 @@ func waitForWrite(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) 
 }
 
 //nolint:nonamedreturns
-func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Timestamp, err error) {
+func copyUsersNRolles(ctx context.Context, uri string, nss []string) (lastWrite primitive.Timestamp, err error) {
 	cn, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
@@ -298,10 +304,11 @@ func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Time
 		return lastWrite, errors.Wrap(err, "drop tmp collections before copy")
 	}
 
+	filter := util.MakeDBMatchFilter(nss)
 	err = copyColl(ctx,
 		cn.Database("admin").Collection("system.roles"),
 		cn.Database(defs.DB).Collection(defs.TmpRolesCollection),
-		bson.M{},
+		filter,
 	)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "copy admin.system.roles")
@@ -309,7 +316,7 @@ func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Time
 	err = copyColl(ctx,
 		cn.Database("admin").Collection("system.users"),
 		cn.Database(defs.DB).Collection(defs.TmpUsersCollection),
-		bson.M{},
+		filter,
 	)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "copy admin.system.users")

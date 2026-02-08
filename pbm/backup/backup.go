@@ -110,11 +110,12 @@ func (b *Backup) Init(
 	}
 
 	meta := &BackupMeta{
-		Type:        b.typ,
-		OPID:        opid.String(),
-		Name:        bcp.Name,
-		Namespaces:  bcp.Namespaces,
-		Compression: bcp.Compression,
+		Type:             b.typ,
+		OPID:             opid.String(),
+		Name:             bcp.Name,
+		Namespaces:       bcp.Namespaces,
+		SelUsersAndRoles: bcp.UsersAndRoles,
+		Compression:      bcp.Compression,
 		Store: Storage{
 			Name:        b.config.Name,
 			IsProfile:   b.config.IsProfile,
