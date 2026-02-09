@@ -487,7 +487,7 @@ func doRestore(
 		}
 		err = yaml.UnmarshalStrict(buf, &cmd.Restore.ExtConf)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+			return nil, errors.Wrap(err, "unable to unmarshal config file")
 		}
 	}
 

@@ -339,7 +339,7 @@ func GetRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
 	var cfg config.Config
 	err = yaml.UnmarshalStrict(buf, &cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to  unmarshal config file")
+		return nil, errors.Wrap(err, "unable to unmarshal config file")
 	}
 
 	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})

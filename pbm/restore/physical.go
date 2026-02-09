@@ -1299,7 +1299,7 @@ func (r *PhysRestore) Snapshot(
 
 // prepareExtRestore prepares external restore before providing new snapshot of data.
 // It fetches and returns exernal mongod configuration when it exists as part of external backup.
-// Additonally it sets restoreTS and clean up data dir from unneeded files.
+// Additionally it sets restoreTS and clean up data dir from unneeded files.
 func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error) {
 	l.Info("waiting for the datadir to be copied")
 	_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
@@ -1315,6 +1315,7 @@ func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error
 	var needFiles []backup.File
 	var extCfg *topo.MongodOpts
 	if err == nil {
+		defer conff.Close()
 		rsMeta := &backup.BackupReplset{}
 		err := json.NewDecoder(conff).Decode(rsMeta)
 		if err != nil {
@@ -1335,7 +1336,6 @@ func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error
 			defer f.Close()
 
 			filelist, err := backup.ReadFilelist(f)
-			f.Close()
 			if err != nil {
 				return nil, errors.Wrap(err, "parse filelist")
 			}
@@ -3049,8 +3049,8 @@ func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
 }
 
 // physRestoreFromExtDump creates PhysRestore object from dump on the storage.
-// This contstructor is used in external restore flow when restore state dump is
-// storad on the backup storage due to agent's restart option.
+// This constructor is used in external restore flow when restore state dump is
+// stored on the backup storage due to agent's restart option.
 func physRestoreFromExtDump(
 	l log.LogEvent,
 	cmd *ExtFinishCmd,
@@ -3066,6 +3066,7 @@ func physRestoreFromExtDump(
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "get file %s", extDumpF)
 	}
+	defer src.Close()
 
 	var extDump extDump
 	err = json.NewDecoder(src).Decode(&extDump)
