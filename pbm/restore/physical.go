@@ -1037,6 +1037,25 @@ func (l *logBuff) Flush() error {
 	return l.flush()
 }
 
+// enableLogBuffer enables log buffer property for the logger instance.
+// With log buffer, PBM dumps it to the storage once the buffer is full.
+func (r *PhysRestore) enableLogBuff(logger log.Logger, isRestoreFinish bool) {
+	path := fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
+	if isRestoreFinish {
+		path += ".restore-finish"
+	}
+	logger.SefBuffer(&logBuff{
+		buf:   &bytes.Buffer{},
+		path:  path,
+		limit: 1 << 20, // 1Mb
+		write: func(name string, data io.Reader) error {
+			// Logger should be disabled due to: PBM-1531
+			return r.stg.Save(name, data, storage.UseLogger(false))
+		},
+	})
+	logger.PauseMgo()
+}
+
 // Snapshot restores data from the physical snapshot.
 //
 // Initial sync and coordination between nodes happens via `admin.pbmRestore`
@@ -1152,19 +1171,8 @@ func (r *PhysRestore) Snapshot(
 	}
 	l.Debug("%s", defs.StatusStarting)
 
-	// don't write logs to the mongo anymore
-	// but dump it on storage
 	logger := log.FromContext(ctx)
-	logger.SefBuffer(&logBuff{
-		buf:   &bytes.Buffer{},
-		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
-		limit: 1 << 20, // 1Mb
-		write: func(name string, data io.Reader) error {
-			// Logger should be disabled due to: PBM-1531
-			return r.stg.Save(name, data, storage.UseLogger(false))
-		},
-	})
-	logger.PauseMgo()
+	r.enableLogBuff(logger, false)
 
 	_, err = r.toState(defs.StatusRunning)
 	if err != nil {
@@ -2966,6 +2974,10 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	if err != nil {
 		return errors.Wrap(err, "creating restore object from storage dump")
 	}
+
+	// enable buffered logger for restore finish
+	logger := l.GetLogger()
+	r.enableLogBuff(logger, true)
 
 	r.startHB(l)
 
