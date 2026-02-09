@@ -221,6 +221,9 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			l.Error("reset epoch: %v", err)
 		}
 		l.Debug("epoch set to %v", epch)
+	} else if bcpType == defs.ExternalBackup && r.Exit {
+		// external restore is wip so just exit
+		return
 	}
 
 	l.Info("recovery successfully finished")

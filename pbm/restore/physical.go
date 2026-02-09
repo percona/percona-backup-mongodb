@@ -1112,6 +1112,10 @@ func (r *PhysRestore) Snapshot(
 
 	var progress nodeStatus
 	defer func() {
+		if cmd.Exit && err == nil {
+			// nothing to cleanup in case of successful ext restore with exit
+			return
+		}
 		if err != nil && !errors.Is(err, ErrNoDataForShard) {
 			r.MarkFailed(err)
 		}
@@ -2968,7 +2972,8 @@ type ExtFinishCmd struct {
 // PhysRestoreFinish provides logic for agent's restore-finish command.
 // It's used in external restore flow, after the restart of the agent.
 func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
-	l.Info("processing restore-finish command for restore: %s", cmd.RestoreName)
+	l.Info("processing restore-finish command for restore: %s, rs: %s, node: %s",
+		cmd.RestoreName, cmd.RS, cmd.Node)
 
 	r, err := physRestoreFromExtDump(l, cmd)
 	if err != nil {
