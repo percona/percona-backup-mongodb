@@ -1216,7 +1216,7 @@ func (r *PhysRestore) Snapshot(
 	var stats phys.RestoreShardStat
 
 	if cmd.External {
-		if err = r.extDumpFromPhysRestore(); err != nil {
+		if err = r.extDumpFromPhysRestore(meta); err != nil {
 			return errors.Wrap(err, "dumping state for external restore")
 		}
 
@@ -1271,7 +1271,6 @@ func (r *PhysRestore) Snapshot(
 	if err != nil {
 		if r.nodeInfo.IsLeader() {
 			// before returning try to create meta
-			r.log.Info("writing restore meta")
 			merr := r.dumpMeta(meta, stat, "")
 			if merr != nil {
 				r.log.Warning("writing restore meta to storage: %v", merr)
@@ -1285,7 +1284,6 @@ func (r *PhysRestore) Snapshot(
 		r.log.Warning("write download stat: %v", err)
 	}
 
-	r.log.Info("writing restore meta")
 	err = r.dumpMeta(meta, stat, "")
 	if err != nil {
 		return errors.Wrap(err, "writing restore meta to storage")
@@ -1470,6 +1468,8 @@ func (r *PhysRestore) writeStat(stat any) error {
 }
 
 func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) error {
+	r.log.Info("writing restore meta")
+
 	name := fmt.Sprintf("%s/%s.json", defs.PhysRestoresDir, meta.Name)
 	_, err := r.stg.FileStat(name)
 	if err == nil {
@@ -2922,10 +2922,12 @@ type extDump struct {
 	SyncPathDataShards map[string]struct{}
 
 	RSMap map[string]string
+
+	RestoreMeta *RestoreMeta
 }
 
 // extDumpFromPhysRestore creates external restore dump file on the storage.
-func (r *PhysRestore) extDumpFromPhysRestore() error {
+func (r *PhysRestore) extDumpFromPhysRestore(restoreMeta *RestoreMeta) error {
 	ed, err := json.Marshal(extDump{
 		DBpath:             r.dbpath,
 		TmpPort:            r.tmpPort,
@@ -2948,6 +2950,7 @@ func (r *PhysRestore) extDumpFromPhysRestore() error {
 		SyncPathShards:     r.syncPathShards,
 		SyncPathDataShards: r.syncPathDataShards,
 		RSMap:              r.rsMap,
+		RestoreMeta:        restoreMeta,
 	})
 	if err != nil {
 		return errors.Wrap(err, "marshal external dump state")
@@ -2972,7 +2975,7 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	l.Info("processing restore-finish command for restore: %s, rs: %s, node: %s",
 		cmd.RestoreName, cmd.RS, cmd.Node)
 
-	r, err := physRestoreFromExtDump(l, cmd)
+	r, meta, err := physRestoreFromExtDump(l, cmd)
 	if err != nil {
 		return errors.Wrap(err, "creating restore object from storage dump")
 	}
@@ -3002,9 +3005,21 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	}
 	l.Info("restore on node succeed")
 
-	_, err = r.toState(defs.StatusDone)
+	s, err := r.toState(defs.StatusDone)
 	if err != nil {
+		if r.nodeInfo.IsLeader() {
+			// before returning try to create meta
+			merr := r.dumpMeta(meta, s, "")
+			if merr != nil {
+				r.log.Warning("writing restore meta to storage: %v", merr)
+			}
+		}
+
 		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
+	}
+	err = r.dumpMeta(meta, s, "")
+	if err != nil {
+		return errors.Wrap(err, "writing restore meta to storage")
 	}
 
 	return nil
@@ -3029,23 +3044,23 @@ func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
 func physRestoreFromExtDump(
 	l log.LogEvent,
 	cmd *ExtFinishCmd,
-) (*PhysRestore, error) {
+) (*PhysRestore, *RestoreMeta, error) {
 	stg, err := GetRestoreMetaStg(cmd.CfgPath, cmd.Node)
 	if err != nil {
-		return nil, errors.Wrap(err, "get storage")
+		return nil, nil, errors.Wrap(err, "get storage")
 	}
 
 	extDumpF := fmt.Sprintf("%s/%s/rs.%s/node.%s.%s",
 		defs.PhysRestoresDir, cmd.RestoreName, cmd.RS, cmd.Node, extDumpSuffix)
 	src, err := stg.SourceReader(extDumpF)
 	if err != nil {
-		return nil, errors.Wrapf(err, "get file %s", extDumpF)
+		return nil, nil, errors.Wrapf(err, "get file %s", extDumpF)
 	}
 
 	var extDump extDump
 	err = json.NewDecoder(src).Decode(&extDump)
 	if err != nil {
-		return nil, errors.Wrapf(err, "decode external dump %s", extDumpF)
+		return nil, nil, errors.Wrapf(err, "decode external dump %s", extDumpF)
 	}
 
 	physRestore := PhysRestore{
@@ -3073,17 +3088,18 @@ func physRestoreFromExtDump(
 		syncPathDataShards: extDump.SyncPathDataShards,
 		rsMap:              extDump.RSMap,
 	}
+	restoreMeta := extDump.RestoreMeta
 
 	// set security opts
 	if cmd.DBCfgPath != "" {
 		mongodCfg, err := GetMongodConfig(cmd.DBCfgPath)
 		if err != nil {
-			return nil, errors.Wrap(err, "invalid mongod config for security options")
+			return nil, nil, errors.Wrap(err, "invalid mongod config for security options")
 		}
 		physRestore.secOpts = mongodCfg.Security
 	}
 
-	return &physRestore, nil
+	return &physRestore, restoreMeta, nil
 }
 
 // moveAll moves fromDir content (files and dirs) to toDir content.
