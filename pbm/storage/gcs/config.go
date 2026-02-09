@@ -22,7 +22,11 @@ type Config struct {
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
+//nolint:lll
 type Credentials struct {
+	// Workload Identity Federation (allows missing JSON/HMAC credentials)
+	WorkloadIdentity bool `bson:"workloadIdentity,omitempty" json:"workloadIdentity,omitempty" yaml:"workloadIdentity,omitempty"`
+
 	// JSON credentials (service account)
 	ClientEmail storage.MaskedString `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
 	PrivateKey  storage.MaskedString `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
