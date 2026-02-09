@@ -120,7 +120,8 @@ type PhysRestore struct {
 
 	stopHB chan struct{}
 
-	log log.LogEvent
+	log     log.LogEvent
+	logBuff *logBuff
 
 	rsMap           map[string]string
 	fallback        bool
@@ -1037,22 +1038,26 @@ func (l *logBuff) Flush() error {
 	return l.flush()
 }
 
-// enableLogBuffer enables log buffer property for the logger instance.
+// enableLogBuff enables log buffer with start ordinal number: 0.
+func (r *PhysRestore) enableLogBuff(logger log.Logger) {
+	r.enableLogBuffWithOrdinal(logger, 0)
+}
+
+// enableLogBufferWithOrdinal enables log buffer property for the logger instance.
 // With log buffer, PBM dumps it to the storage once the buffer is full.
-func (r *PhysRestore) enableLogBuff(logger log.Logger, isRestoreFinish bool) {
-	path := fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me)
-	if isRestoreFinish {
-		path += ".restore-finish"
-	}
-	logger.SefBuffer(&logBuff{
+// Ordinal is log number suffix that's added after the buffer is full.
+func (r *PhysRestore) enableLogBuffWithOrdinal(logger log.Logger, ordinal int) {
+	r.logBuff = &logBuff{
 		buf:   &bytes.Buffer{},
-		path:  path,
+		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
+		cnt:   ordinal,
 		write: func(name string, data io.Reader) error {
 			// Logger should be disabled due to: PBM-1531
 			return r.stg.Save(name, data, storage.UseLogger(false))
 		},
-	})
+	}
+	logger.SefBuffer(r.logBuff)
 	logger.PauseMgo()
 }
 
@@ -1176,7 +1181,7 @@ func (r *PhysRestore) Snapshot(
 	l.Debug("%s", defs.StatusStarting)
 
 	logger := log.FromContext(ctx)
-	r.enableLogBuff(logger, false)
+	r.enableLogBuff(logger)
 
 	_, err = r.toState(defs.StatusRunning)
 	if err != nil {
@@ -2897,6 +2902,8 @@ func (r *PhysRestore) MarkAsFallback() error {
 	return nil
 }
 
+// extDump is during external restore to dump temp state
+// between restarts of pbm-agent.
 type extDump struct {
 	DBpath   string
 	TmpPort  int
@@ -2924,10 +2931,16 @@ type extDump struct {
 	RSMap map[string]string
 
 	RestoreMeta *RestoreMeta
+	LogOrdinal  int
 }
 
 // extDumpFromPhysRestore creates external restore dump file on the storage.
 func (r *PhysRestore) extDumpFromPhysRestore(restoreMeta *RestoreMeta) error {
+	logOrdinal := 0
+	if r.logBuff != nil {
+		logOrdinal = r.logBuff.cnt
+	}
+
 	ed, err := json.Marshal(extDump{
 		DBpath:             r.dbpath,
 		TmpPort:            r.tmpPort,
@@ -2951,6 +2964,7 @@ func (r *PhysRestore) extDumpFromPhysRestore(restoreMeta *RestoreMeta) error {
 		SyncPathDataShards: r.syncPathDataShards,
 		RSMap:              r.rsMap,
 		RestoreMeta:        restoreMeta,
+		LogOrdinal:         logOrdinal,
 	})
 	if err != nil {
 		return errors.Wrap(err, "marshal external dump state")
@@ -2979,10 +2993,6 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	if err != nil {
 		return errors.Wrap(err, "creating restore object from storage dump")
 	}
-
-	// enable buffered logger for restore finish
-	logger := l.GetLogger()
-	r.enableLogBuff(logger, true)
 
 	r.startHB(l)
 
@@ -3089,6 +3099,9 @@ func physRestoreFromExtDump(
 		rsMap:              extDump.RSMap,
 	}
 	restoreMeta := extDump.RestoreMeta
+
+	logger := l.GetLogger()
+	physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal)
 
 	// set security opts
 	if cmd.DBCfgPath != "" {
