@@ -1212,7 +1212,7 @@ func (r *PhysRestore) Snapshot(
 	// own (which sets the no-return point).
 	progress |= restoreStared
 
-	var excfg *topo.MongodOpts
+	var extCfg *topo.MongodOpts
 	var stats phys.RestoreShardStat
 
 	if cmd.External {
@@ -1230,8 +1230,9 @@ func (r *PhysRestore) Snapshot(
 			return nil
 		}
 
-		if err = r.doExternalRestore(l, &excfg); err != nil {
-			return err
+		extCfg, err = r.prepareExtRestore(l)
+		if err != nil {
+			return errors.Wrapf(err, "prepare ext restore")
 		}
 	} else {
 		l.Info("copying backup data")
@@ -1242,9 +1243,9 @@ func (r *PhysRestore) Snapshot(
 	}
 
 	if o, ok := cmd.ExtConf[r.nodeInfo.SetName]; ok {
-		excfg = &o
+		extCfg = &o
 	}
-	err = r.setTmpConf(excfg)
+	err = r.setTmpConf(extCfg)
 	if err != nil {
 		return errors.Wrap(err, "set tmp config")
 	}
@@ -1293,16 +1294,14 @@ func (r *PhysRestore) Snapshot(
 	return nil
 }
 
-// doExternalRestore executes external restore flow. It initializes
-// excfg param with mongod options found within snapshot metadata.
-func (r *PhysRestore) doExternalRestore(
-	l log.LogEvent,
-	excfg **topo.MongodOpts,
-) error {
+// prepareExtRestore prepares external restore before providing new snapshot of data.
+// It fetches and returns exernal mongod configuration when it exists as part of external backup.
+// Additonally it sets restoreTS and clean up data dir from unneeded files.
+func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error) {
 	l.Info("waiting for the datadir to be copied")
 	_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
 	if err != nil {
-		return errors.Wrapf(err, "check %s state", defs.StatusCopyDone)
+		return nil, errors.Wrapf(err, "check %s state", defs.StatusCopyDone)
 	}
 
 	// try to read replset meta from the backup and use its data
@@ -1311,30 +1310,31 @@ func (r *PhysRestore) doExternalRestore(
 	rsMetaF := filepath.Join(r.dbpath, rsMetaFilename)
 	conff, err := os.Open(rsMetaF)
 	var needFiles []backup.File
+	var extCfg *topo.MongodOpts
 	if err == nil {
 		rsMeta := &backup.BackupReplset{}
 		err := json.NewDecoder(conff).Decode(rsMeta)
 		if err != nil {
-			return errors.Wrap(err, "decode replset meta from the backup")
+			return nil, errors.Wrap(err, "decode replset meta from the backup")
 		}
 		l.Debug("got rs meta from the backup")
 		if r.restoreTS.T == 0 {
 			r.restoreTS = rsMeta.LastWriteTS
 		}
-		*excfg = rsMeta.MongodOpts
+		extCfg = rsMeta.MongodOpts
 
 		if version.HasFilelistFile(rsMeta.PBMVersion) {
 			filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
 			f, err := os.Open(filelistPath)
 			if err != nil {
-				return errors.Wrapf(err, "open filelist %q", filelistPath)
+				return nil, errors.Wrapf(err, "open filelist %q", filelistPath)
 			}
 			defer f.Close()
 
 			filelist, err := backup.ReadFilelist(f)
 			f.Close()
 			if err != nil {
-				return errors.Wrap(err, "parse filelist")
+				return nil, errors.Wrap(err, "parse filelist")
 			}
 
 			rsMeta.Files = filelist
@@ -1347,10 +1347,10 @@ func (r *PhysRestore) doExternalRestore(
 
 	err = r.cleanupDatadir(needFiles)
 	if err != nil {
-		return errors.Wrap(err, "cleanup datadir")
+		return nil, errors.Wrap(err, "cleanup datadir")
 	}
 
-	return nil
+	return extCfg, nil
 }
 
 // patchSysData performs system files/collections related patching
@@ -2431,9 +2431,6 @@ func (r *PhysRestore) setTmpConf(xopts *topo.MongodOpts) error {
 	opts.Storage = *topo.NewMongodOptsStorage()
 	if xopts != nil {
 		opts.Storage = xopts.Storage
-		if xopts.Security != nil {
-			opts.Security = xopts.Security
-		}
 	} else if r.bcp != nil {
 		setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 		for _, v := range r.bcp.Replsets {
@@ -2936,7 +2933,7 @@ func (r *PhysRestore) extDumpFromPhysRestore() error {
 		Shards:             r.shards,
 		CfgConn:            r.cfgConn,
 		StartTS:            r.startTS,
-		SecOpts:            r.secOpts,
+		SecOpts:            r.secOpts, // this should be removed
 		Name:               r.name,
 		Opid:               r.opid,
 		NodeInfo:           r.nodeInfo,
@@ -2986,20 +2983,9 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 
 	r.startHB(l)
 
-	var excfg *topo.MongodOpts
-	if err = r.doExternalRestore(l, &excfg); err != nil {
-		return errors.Wrap(err, "finish external restore")
-	}
-
-	if cmd.DBCfgPath != "" {
-		mongodCfg, err := GetMongodConfig(cmd.DBCfgPath)
-		if err != nil {
-			return errors.Wrap(err, "get external mongod config")
-		}
-		if excfg == nil {
-			excfg = &topo.MongodOpts{}
-		}
-		excfg.Security = mongodCfg.Security
+	excfg, err := r.prepareExtRestore(l)
+	if err != nil {
+		return errors.Wrap(err, "prepare ext restore for restore-finish")
 	}
 
 	err = r.setTmpConf(excfg)
@@ -3020,7 +3006,6 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	if err != nil {
 		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
 	}
-
 
 	return nil
 }
@@ -3073,7 +3058,6 @@ func physRestoreFromExtDump(
 		shards:             extDump.Shards,
 		cfgConn:            extDump.CfgConn,
 		startTS:            extDump.StartTS,
-		secOpts:            extDump.SecOpts,
 		name:               extDump.Name,
 		opid:               extDump.Opid,
 		nodeInfo:           extDump.NodeInfo,
@@ -3089,7 +3073,15 @@ func physRestoreFromExtDump(
 		syncPathDataShards: extDump.SyncPathDataShards,
 		rsMap:              extDump.RSMap,
 	}
-	// todo: create mongoCfg (create it later)
+
+	// set security opts
+	if cmd.DBCfgPath != "" {
+		mongodCfg, err := GetMongodConfig(cmd.DBCfgPath)
+		if err != nil {
+			return nil, errors.Wrap(err, "invalid mongod config for security options")
+		}
+		physRestore.secOpts = mongodCfg.Security
+	}
 
 	return &physRestore, nil
 }
