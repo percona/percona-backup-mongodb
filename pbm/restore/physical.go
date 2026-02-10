@@ -1297,9 +1297,10 @@ func (r *PhysRestore) Snapshot(
 	return nil
 }
 
-// prepareExtRestore prepares external restore before providing new snapshot of data.
-// It fetches and returns exernal mongod configuration when it exists as part of external backup.
-// Additionally it sets restoreTS and clean up data dir from unneeded files.
+// prepareExtRestore prepares an external restore after a new data snapshot is provided.
+// It fetches and returns the external mongod configuration if it exists as part of the
+// external backup. Additionally, it sets the restoreTS and cleans up unnecessary
+// files from the data directory.
 func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error) {
 	l.Info("waiting for the datadir to be copied")
 	_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
@@ -1356,8 +1357,8 @@ func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error
 	return extCfg, nil
 }
 
-// patchSysData performs system files/collections related patching
-// using few mongod restarts.
+// patchSysData performs system files/collections related patching data files.
+// It uses a few mongod restarts during that process.
 func (r *PhysRestore) patchSysData(
 	l log.LogEvent,
 	pitr primitive.Timestamp,
@@ -2904,8 +2905,8 @@ func (r *PhysRestore) MarkAsFallback() error {
 	return nil
 }
 
-// extDump is during external restore to dump temp state
-// between restarts of pbm-agent.
+// extDump persists the agent's temp state during an external restore
+// to ensure continuity between restarts.
 type extDump struct {
 	DBpath   string
 	TmpPort  int
@@ -2986,7 +2987,14 @@ type ExtFinishCmd struct {
 }
 
 // PhysRestoreFinish provides logic for agent's restore-finish command.
+//
 // It's used in external restore flow, after the restart of the agent.
+// The following main actions are done:
+//   - Restore state for the agent is created from ext.dump file from
+//     the backup storage.
+//   - After external snapshot is provided, backup metadata is obtained from it.
+//   - Patching DB data files using 3 restarts of mongod.
+//   - Creating restore meta info.
 func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	l.Info("processing restore-finish command for restore: %s, rs: %s, node: %s",
 		cmd.RestoreName, cmd.RS, cmd.Node)

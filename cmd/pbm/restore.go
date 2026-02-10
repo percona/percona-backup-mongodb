@@ -847,10 +847,10 @@ func validateFallbackOpts(o *restoreOpts) error {
 
 func validateExternalOpts(o *restoreOpts) error {
 	if !o.extern && o.exit {
-		return errors.New("agent's restart is only possible for external restore (--external).")
+		return errors.New("Agent's restart is only possible for external restore (--external).")
 	}
 	if !o.extern && o.conf != "" {
-		return errors.New("specifying mongod config is only possible for external restore (--external).")
+		return errors.New("Specifying mongod config is only possible for external restore (--external).")
 	}
 	return nil
 }
