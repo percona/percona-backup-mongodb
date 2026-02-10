@@ -311,10 +311,11 @@ func (r *Restore) Snapshot(
 		{chunks: chunks, storage: r.bcpStg},
 	}
 	oplogOption := &applyOplogOption{
-		end:      &bcp.LastWriteTS,
-		nss:      nss,
-		cloudNS:  cloneNS,
-		sessUUID: sysSessionsUUID,
+		end:           &bcp.LastWriteTS,
+		nss:           nss,
+		cloudNS:       cloneNS,
+		sessUUID:      sysSessionsUUID,
+		usersAndRoles: bool(usersAndRolesOpt),
 	}
 
 	err = r.applyOplog(ctx, oplogRanges, oplogOption)
