@@ -145,6 +145,9 @@ func runRestore(
 	if err := validateFallbackOpts(o); err != nil {
 		return nil, err
 	}
+	if err := validateExternalOpts(o); err != nil {
+		return nil, err
+	}
 
 	rsMap, err := parseRSNamesMapping(o.rsMap)
 	if err != nil {
@@ -838,6 +841,16 @@ func validateFallbackOpts(o *restoreOpts) error {
 		o.allowPartlyDone != nil && !*o.allowPartlyDone {
 		return errors.New("It's not possible to disable both --allow-partly-done " +
 			"and --fallback-enabled at the same time.")
+	}
+	return nil
+}
+
+func validateExternalOpts(o *restoreOpts) error {
+	if !o.extern && o.exit {
+		return errors.New("agent's restart is only possible for external restore (--external).")
+	}
+	if !o.extern && o.conf != "" {
+		return errors.New("specifying mongod config is only possible for external restore (--external).")
 	}
 	return nil
 }
