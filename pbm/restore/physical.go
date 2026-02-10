@@ -2313,6 +2313,7 @@ func (r *PhysRestore) startHB(l log.LogEvent) {
 		tk := time.NewTicker(time.Second * hbFrameSec)
 		defer func() {
 			tk.Stop()
+			r.stopHB = nil
 			l.Debug("heartbeats stopped")
 		}()
 
@@ -2377,6 +2378,7 @@ func (r *PhysRestore) startCleanupHb() {
 	tk := time.NewTicker(hbCleanupFrame)
 	defer func() {
 		tk.Stop()
+		r.stopHB = nil
 		r.log.Debug("cleaning heartbeats stopped")
 	}()
 
@@ -2995,6 +2997,11 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	}
 
 	r.startHB(l)
+	defer func() {
+		if r.stopHB != nil {
+			close(r.stopHB)
+		}
+	}()
 
 	excfg, err := r.prepareExtRestore(l)
 	if err != nil {
