@@ -52,6 +52,7 @@ type restoreOpts struct {
 	rsMap           string
 	conf            string
 	ts              string
+	exit            bool
 	fallback        *bool
 	allowPartlyDone *bool
 
@@ -142,6 +143,9 @@ func runRestore(
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 	if err := validateFallbackOpts(o); err != nil {
+		return nil, err
+	}
+	if err := validateExternalOpts(o); err != nil {
 		return nil, err
 	}
 
@@ -456,6 +460,7 @@ func doRestore(
 			UsersAndRoles:       o.usersAndRoles,
 			RSMap:               rsMapping,
 			External:            o.extern,
+			Exit:                o.exit,
 			Fallback:            o.fallback,
 			AllowPartlyDone:     o.allowPartlyDone,
 		},
@@ -485,7 +490,7 @@ func doRestore(
 		}
 		err = yaml.UnmarshalStrict(buf, &cmd.Restore.ExtConf)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+			return nil, errors.Wrap(err, "unable to unmarshal config file")
 		}
 	}
 
@@ -542,7 +547,7 @@ func doRestore(
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
-	stg, err := getRestoreMetaStg(o.cfg, node)
+	stg, err := restore.GetRestoreMetaStg(o.cfg, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -688,22 +693,6 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
-	buf, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to read config file")
-	}
-
-	var cfg config.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to  unmarshal config file")
-	}
-
-	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(&cfg.Storage, node, l)
-}
-
 func describeRestore(
 	ctx context.Context,
 	conn connect.Client,
@@ -716,7 +705,7 @@ func describeRestore(
 		res  describeRestoreResult
 	)
 	if o.cfg != "" {
-		stg, err := getRestoreMetaStg(o.cfg, node)
+		stg, err := restore.GetRestoreMetaStg(o.cfg, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -852,6 +841,16 @@ func validateFallbackOpts(o *restoreOpts) error {
 		o.allowPartlyDone != nil && !*o.allowPartlyDone {
 		return errors.New("It's not possible to disable both --allow-partly-done " +
 			"and --fallback-enabled at the same time.")
+	}
+	return nil
+}
+
+func validateExternalOpts(o *restoreOpts) error {
+	if !o.extern && o.exit {
+		return errors.New("Agent's restart is only possible for external restore (--external).")
+	}
+	if !o.extern && o.conf != "" {
+		return errors.New("Specifying mongod config is only possible for external restore (--external).")
 	}
 	return nil
 }

@@ -49,6 +49,7 @@ const (
 	defaultRSdbpath   = "/data/db"
 	defaultCSRSdbpath = "/data/configdb"
 	fallbackDir       = ".fallbacksync"
+	bcpDir            = "__dir__"
 
 	mongofslock = "mongod.lock"
 
@@ -64,6 +65,7 @@ const (
 	hbFrameSec          = 60 * 2
 	syncHbSuffix        = "hb"
 	syncHbCleanupSuffix = "cleanup.hb"
+	extDumpSuffix       = "ext.dump"
 	hbCleanupFrame      = 15 * time.Second
 	hbCleanupTimeout    = 3
 )
@@ -118,7 +120,8 @@ type PhysRestore struct {
 
 	stopHB chan struct{}
 
-	log log.LogEvent
+	log     log.LogEvent
+	logBuff *logBuff
 
 	rsMap           map[string]string
 	fallback        bool
@@ -370,6 +373,7 @@ func (r *PhysRestore) waitClusterStatus() (defs.Status, error) {
 	errF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusError)
 	doneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusDone)
 	partlyDoneF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusPartlyDone)
+	copyReadyF := fmt.Sprintf("%s.%s", r.syncPathCluster, defs.StatusCopyReady)
 	hbF := fmt.Sprintf("%s.%s", r.syncPathCluster, syncHbSuffix)
 
 	tk := time.NewTicker(time.Second * 5)
@@ -387,14 +391,21 @@ func (r *PhysRestore) waitClusterStatus() (defs.Status, error) {
 		if err == nil {
 			return defs.StatusDone, nil
 		} else if !errors.Is(err, storage.ErrNotExist) {
-			r.log.Error("error while reading %s file", errF)
+			r.log.Error("error while reading %s file", doneF)
 		}
 
 		_, err = r.stg.FileStat(partlyDoneF)
 		if err == nil {
 			return defs.StatusPartlyDone, nil
 		} else if !errors.Is(err, storage.ErrNotExist) {
-			r.log.Error("error while reading %s file", errF)
+			r.log.Error("error while reading %s file", partlyDoneF)
+		}
+
+		_, err = r.stg.FileStat(copyReadyF)
+		if err == nil {
+			return defs.StatusCopyReady, nil
+		} else if !errors.Is(err, storage.ErrNotExist) {
+			r.log.Error("error while reading %s file", copyReadyF)
 		}
 
 		err = r.checkHB(hbF)
@@ -1027,6 +1038,29 @@ func (l *logBuff) Flush() error {
 	return l.flush()
 }
 
+// enableLogBuff enables log buffer with start ordinal number: 0.
+func (r *PhysRestore) enableLogBuff(logger log.Logger) {
+	r.enableLogBuffWithOrdinal(logger, 0)
+}
+
+// enableLogBufferWithOrdinal enables log buffer property for the logger instance.
+// With log buffer, PBM dumps it to the storage once the buffer is full.
+// Ordinal is log number suffix that's added after the buffer is full.
+func (r *PhysRestore) enableLogBuffWithOrdinal(logger log.Logger, ordinal int) {
+	r.logBuff = &logBuff{
+		buf:   &bytes.Buffer{},
+		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
+		limit: 1 << 20, // 1Mb
+		cnt:   ordinal,
+		write: func(name string, data io.Reader) error {
+			// Logger should be disabled due to: PBM-1531
+			return r.stg.Save(name, data, storage.UseLogger(false))
+		},
+	}
+	logger.SefBuffer(r.logBuff)
+	logger.PauseMgo()
+}
+
 // Snapshot restores data from the physical snapshot.
 //
 // Initial sync and coordination between nodes happens via `admin.pbmRestore`
@@ -1083,6 +1117,10 @@ func (r *PhysRestore) Snapshot(
 
 	var progress nodeStatus
 	defer func() {
+		if cmd.Exit && err == nil {
+			// nothing to cleanup in case of successful ext restore with exit
+			return
+		}
 		if err != nil && !errors.Is(err, ErrNoDataForShard) {
 			r.MarkFailed(err)
 		}
@@ -1142,19 +1180,8 @@ func (r *PhysRestore) Snapshot(
 	}
 	l.Debug("%s", defs.StatusStarting)
 
-	// don't write logs to the mongo anymore
-	// but dump it on storage
 	logger := log.FromContext(ctx)
-	logger.SefBuffer(&logBuff{
-		buf:   &bytes.Buffer{},
-		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
-		limit: 1 << 20, // 1Mb
-		write: func(name string, data io.Reader) error {
-			// Logger should be disabled due to: PBM-1531
-			return r.stg.Save(name, data, storage.UseLogger(false))
-		},
-	})
-	logger.PauseMgo()
+	r.enableLogBuff(logger)
 
 	_, err = r.toState(defs.StatusRunning)
 	if err != nil {
@@ -1190,64 +1217,27 @@ func (r *PhysRestore) Snapshot(
 	// own (which sets the no-return point).
 	progress |= restoreStared
 
-	var excfg *topo.MongodOpts
+	var extCfg *topo.MongodOpts
 	var stats phys.RestoreShardStat
 
 	if cmd.External {
+		if err = r.extDumpFromPhysRestore(meta); err != nil {
+			return errors.Wrap(err, "dumping state for external restore")
+		}
+
 		_, err = r.toState(defs.StatusCopyReady)
 		if err != nil {
 			return errors.Wrapf(err, "moving to state %s", defs.StatusCopyReady)
 		}
 
-		l.Info("waiting for the datadir to be copied")
-		_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
-		if err != nil {
-			return errors.Wrapf(err, "check %s state", defs.StatusCopyDone)
+		if cmd.Exit {
+			r.log.Info("exiting in %s state during external restore", defs.StatusCopyReady)
+			return nil
 		}
 
-		// try to read replset meta from the backup and use its data
-		setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-		rsMetaFilename := fmt.Sprintf(defs.ExternalRsMetaFile, setName)
-		rsMetaF := filepath.Join(r.dbpath, rsMetaFilename)
-		conff, err := os.Open(rsMetaF)
-		var needFiles []backup.File
-		if err == nil {
-			rsMeta := &backup.BackupReplset{}
-			err := json.NewDecoder(conff).Decode(rsMeta)
-			if err != nil {
-				return errors.Wrap(err, "decode replset meta from the backup")
-			}
-			l.Debug("got rs meta from the backup")
-			if r.restoreTS.T == 0 {
-				r.restoreTS = rsMeta.LastWriteTS
-			}
-			excfg = rsMeta.MongodOpts
-
-			if version.HasFilelistFile(rsMeta.PBMVersion) {
-				filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
-				f, err := os.Open(filelistPath)
-				if err != nil {
-					return errors.Wrapf(err, "open filelist %q", filelistPath)
-				}
-				defer f.Close()
-
-				filelist, err := backup.ReadFilelist(f)
-				f.Close()
-				if err != nil {
-					return errors.Wrap(err, "parse filelist")
-				}
-
-				rsMeta.Files = filelist
-			}
-
-			needFiles = rsMeta.Files
-		} else {
-			l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
-		}
-
-		err = r.cleanupDatadir(needFiles)
+		extCfg, err = r.prepareExtRestore(l)
 		if err != nil {
-			return errors.Wrap(err, "cleanup datadir")
+			return errors.Wrapf(err, "prepare ext restore")
 		}
 	} else {
 		l.Info("copying backup data")
@@ -1258,9 +1248,9 @@ func (r *PhysRestore) Snapshot(
 	}
 
 	if o, ok := cmd.ExtConf[r.nodeInfo.SetName]; ok {
-		excfg = &o
+		extCfg = &o
 	}
-	err = r.setTmpConf(excfg)
+	err = r.setTmpConf(extCfg)
 	if err != nil {
 		return errors.Wrap(err, "set tmp config")
 	}
@@ -1273,32 +1263,9 @@ func (r *PhysRestore) Snapshot(
 		}
 	}
 
-	l.Info("preparing data")
-	err = r.prepareData()
-	if err != nil {
-		return errors.Wrap(err, "prepare data")
+	if err = r.patchSysData(l, pitr, oplogRanges, &stats); err != nil {
+		return err
 	}
-
-	l.Info("recovering oplog as standalone")
-	err = r.recoverStandalone()
-	if err != nil {
-		return errors.Wrap(err, "recover oplog as standalone")
-	}
-
-	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
-		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, &stats)
-		if err != nil {
-			return errors.Wrap(err, "replay pitr oplog")
-		}
-	}
-
-	l.Info("clean-up and reset replicaset config")
-	err = r.resetRS()
-	if err != nil {
-		return errors.Wrap(err, "clean-up, rs_reset")
-	}
-
 	l.Info("restore on node succeed")
 	// The node at this stage was restored successfully, so we shouldn't
 	// clean up dbPath nor write error status for the node whatever happens
@@ -1309,7 +1276,6 @@ func (r *PhysRestore) Snapshot(
 	if err != nil {
 		if r.nodeInfo.IsLeader() {
 			// before returning try to create meta
-			r.log.Info("writing restore meta")
 			merr := r.dumpMeta(meta, stat, "")
 			if merr != nil {
 				r.log.Warning("writing restore meta to storage: %v", merr)
@@ -1323,13 +1289,120 @@ func (r *PhysRestore) Snapshot(
 		r.log.Warning("write download stat: %v", err)
 	}
 
-	r.log.Info("writing restore meta")
 	err = r.dumpMeta(meta, stat, "")
 	if err != nil {
 		return errors.Wrap(err, "writing restore meta to storage")
 	}
 
 	return nil
+}
+
+// prepareExtRestore prepares an external restore after a new data snapshot is provided.
+// It fetches and returns the external mongod configuration if it exists as part of the
+// external backup. Additionally, it sets the restoreTS and cleans up unnecessary
+// files from the data directory.
+func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error) {
+	l.Info("waiting for the datadir to be copied")
+	_, err := r.waitFiles(defs.StatusCopyDone, map[string]struct{}{r.syncPathCluster: {}}, true)
+	if err != nil {
+		return nil, errors.Wrapf(err, "check %s state", defs.StatusCopyDone)
+	}
+
+	// try to read replset meta from the backup and use its data
+	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	rsMetaFilename := fmt.Sprintf(defs.ExternalRsMetaFile, setName)
+	rsMetaF := filepath.Join(r.dbpath, rsMetaFilename)
+	conff, err := os.Open(rsMetaF)
+	var needFiles []backup.File
+	var extCfg *topo.MongodOpts
+	if err == nil {
+		defer conff.Close()
+		rsMeta := &backup.BackupReplset{}
+		err := json.NewDecoder(conff).Decode(rsMeta)
+		if err != nil {
+			return nil, errors.Wrap(err, "decode replset meta from the backup")
+		}
+		l.Debug("got rs meta from the backup")
+		if r.restoreTS.T == 0 {
+			r.restoreTS = rsMeta.LastWriteTS
+		}
+		extCfg = rsMeta.MongodOpts
+
+		if version.HasFilelistFile(rsMeta.PBMVersion) {
+			filelistPath := filepath.Join(r.dbpath, backup.FilelistName)
+			f, err := os.Open(filelistPath)
+			if err != nil {
+				return nil, errors.Wrapf(err, "open filelist %q", filelistPath)
+			}
+			defer f.Close()
+
+			filelist, err := backup.ReadFilelist(f)
+			if err != nil {
+				return nil, errors.Wrap(err, "parse filelist")
+			}
+
+			rsMeta.Files = filelist
+		}
+
+		needFiles = rsMeta.Files
+	} else {
+		l.Info("open replset metadata file <%s>: %v. Continue without.", rsMetaF, err)
+	}
+
+	err = r.cleanupDatadir(needFiles)
+	if err != nil {
+		return nil, errors.Wrap(err, "cleanup datadir")
+	}
+
+	return extCfg, nil
+}
+
+// patchSysData performs system files/collections related patching data files.
+// It uses a few mongod restarts during that process.
+func (r *PhysRestore) patchSysData(
+	l log.LogEvent,
+	pitr primitive.Timestamp,
+	oplogRanges []oplogRange,
+	stats *phys.RestoreShardStat,
+) error {
+	l.Info("preparing data")
+	err := r.prepareData()
+	if err != nil {
+		return errors.Wrap(err, "prepare data")
+	}
+
+	l.Info("recovering oplog as standalone")
+	err = r.recoverStandalone()
+	if err != nil {
+		return errors.Wrap(err, "recover oplog as standalone")
+	}
+
+	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
+		l.Info("replaying pitr oplog")
+		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, stats)
+		if err != nil {
+			return errors.Wrap(err, "replay pitr oplog")
+		}
+	}
+
+	l.Info("clean-up and reset replicaset config")
+	err = r.resetRS()
+	if err != nil {
+		return errors.Wrap(err, "clean-up, rs_reset")
+	}
+
+	return nil
+}
+
+// patchSysDataExt is wrapper for patchSysData for external restore.
+// Both PITR and restore statistic is not used in that flow.
+func (r *PhysRestore) patchSysDataExt(l log.LogEvent) error {
+	return r.patchSysData(
+		l,
+		primitive.Timestamp{},
+		nil,
+		&phys.RestoreShardStat{},
+	)
 }
 
 var rmFromDatadir = map[string]struct{}{
@@ -1401,6 +1474,8 @@ func (r *PhysRestore) writeStat(stat any) error {
 }
 
 func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) error {
+	r.log.Info("writing restore meta")
+
 	name := fmt.Sprintf("%s/%s.json", defs.PhysRestoresDir, meta.Name)
 	_, err := r.stg.FileStat(name)
 	if err == nil {
@@ -2222,7 +2297,14 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		}
 	}
 
-	err = r.hb()
+	r.startHB(l)
+
+	return nil
+}
+
+// startHB starts heartbeats in separate go routine.
+func (r *PhysRestore) startHB(l log.LogEvent) {
+	err := r.hb()
 	if err != nil {
 		l.Error("send init heartbeat: %v", err)
 	}
@@ -2232,6 +2314,7 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		tk := time.NewTicker(time.Second * hbFrameSec)
 		defer func() {
 			tk.Stop()
+			r.stopHB = nil
 			l.Debug("heartbeats stopped")
 		}()
 
@@ -2247,8 +2330,6 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 			}
 		}
 	}()
-
-	return nil
 }
 
 func (r *PhysRestore) hb() error {
@@ -2298,6 +2379,7 @@ func (r *PhysRestore) startCleanupHb() {
 	tk := time.NewTicker(hbCleanupFrame)
 	defer func() {
 		tk.Stop()
+		r.stopHB = nil
 		r.log.Debug("cleaning heartbeats stopped")
 	}()
 
@@ -2397,8 +2479,6 @@ func (r *PhysRestore) setTmpConf(xopts *topo.MongodOpts) error {
 
 	return nil
 }
-
-const bcpDir = "__dir__"
 
 // Sets replset files that have to be copied to the target during the restore.
 // For non-incremental backups it's just the content of backups files (data) and
@@ -2823,6 +2903,232 @@ func (r *PhysRestore) MarkAsFallback() error {
 	}
 
 	return nil
+}
+
+// extDump persists the agent's temp state during an external restore
+// to ensure continuity between restarts.
+type extDump struct {
+	DBpath   string
+	TmpPort  int
+	RSConfig *topo.RSConfig
+	Shards   map[string]string
+	CfgConn  string
+	StartTS  int64
+	SecOpts  *topo.MongodOptsSec
+
+	Name      string
+	Opid      string
+	NodeInfo  *topo.NodeInfo
+	RestoreTS primitive.Timestamp
+	ConfOpts  *config.RestoreConf
+	Mongod    string
+
+	SyncPathNode       string
+	SyncPathNodeStat   string
+	SyncPathRS         string
+	SyncPathCluster    string
+	SyncPathPeers      map[string]struct{}
+	SyncPathShards     map[string]struct{}
+	SyncPathDataShards map[string]struct{}
+
+	RSMap map[string]string
+
+	RestoreMeta *RestoreMeta
+	LogOrdinal  int
+}
+
+// extDumpFromPhysRestore creates external restore dump file on the storage.
+func (r *PhysRestore) extDumpFromPhysRestore(restoreMeta *RestoreMeta) error {
+	logOrdinal := 0
+	if r.logBuff != nil {
+		logOrdinal = r.logBuff.cnt
+	}
+
+	ed, err := json.Marshal(extDump{
+		DBpath:             r.dbpath,
+		TmpPort:            r.tmpPort,
+		RSConfig:           r.rsConf,
+		Shards:             r.shards,
+		CfgConn:            r.cfgConn,
+		StartTS:            r.startTS,
+		SecOpts:            r.secOpts, // this should be removed
+		Name:               r.name,
+		Opid:               r.opid,
+		NodeInfo:           r.nodeInfo,
+		RestoreTS:          r.restoreTS,
+		ConfOpts:           r.confOpts,
+		Mongod:             r.mongod,
+		SyncPathNode:       r.syncPathNode,
+		SyncPathNodeStat:   r.syncPathNodeStat,
+		SyncPathRS:         r.syncPathRS,
+		SyncPathCluster:    r.syncPathCluster,
+		SyncPathPeers:      r.syncPathPeers,
+		SyncPathShards:     r.syncPathShards,
+		SyncPathDataShards: r.syncPathDataShards,
+		RSMap:              r.rsMap,
+		RestoreMeta:        restoreMeta,
+		LogOrdinal:         logOrdinal,
+	})
+	if err != nil {
+		return errors.Wrap(err, "marshal external dump state")
+	}
+
+	extDumpF := r.syncPathNode + "." + extDumpSuffix
+	err = storage.RetryableWrite(r.stg, extDumpF, ed)
+	return errors.Wrapf(err, "write external dump state to: %s", extDumpF)
+}
+
+type ExtFinishCmd struct {
+	RestoreName string
+	CfgPath     string
+	RS          string
+	Node        string
+	DBCfgPath   string
+}
+
+// PhysRestoreFinish provides logic for agent's restore-finish command.
+//
+// It's used in external restore flow, after the restart of the agent.
+// The following main actions are done:
+//   - Restore state for the agent is created from ext.dump file from
+//     the backup storage.
+//   - After external snapshot is provided, backup metadata is obtained from it.
+//   - Patching DB data files using 3 restarts of mongod.
+//   - Creating restore meta info.
+func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
+	l.Info("processing restore-finish command for restore: %s, rs: %s, node: %s",
+		cmd.RestoreName, cmd.RS, cmd.Node)
+
+	r, meta, err := physRestoreFromExtDump(l, cmd)
+	if err != nil {
+		return errors.Wrap(err, "creating restore object from storage dump")
+	}
+
+	r.startHB(l)
+	defer func() {
+		if r.stopHB != nil {
+			close(r.stopHB)
+		}
+	}()
+
+	excfg, err := r.prepareExtRestore(l)
+	if err != nil {
+		return errors.Wrap(err, "prepare ext restore for restore-finish")
+	}
+
+	err = r.setTmpConf(excfg)
+	if err != nil {
+		return errors.Wrap(err, "set tmp config")
+	}
+
+	if r.restoreTS.IsZero() {
+		return errors.New("common restore timestamp is not set for snapshot restore")
+	}
+
+	if err = r.patchSysDataExt(l); err != nil {
+		return err
+	}
+	l.Info("restore on node succeed")
+
+	s, err := r.toState(defs.StatusDone)
+	if err != nil {
+		if r.nodeInfo.IsLeader() {
+			// before returning try to create meta
+			merr := r.dumpMeta(meta, s, "")
+			if merr != nil {
+				r.log.Warning("writing restore meta to storage: %v", merr)
+			}
+		}
+
+		return errors.Wrapf(err, "moving to state %s", defs.StatusDone)
+	}
+	err = r.dumpMeta(meta, s, "")
+	if err != nil {
+		return errors.Wrap(err, "writing restore meta to storage")
+	}
+
+	return nil
+}
+
+func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
+	mOpts := &topo.MongodOpts{}
+	buf, err := os.ReadFile(mongodCfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to read mongod config file")
+	}
+	err = yaml.UnmarshalStrict(buf, mOpts)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to unmarshal mongod config file")
+	}
+	return mOpts, nil
+}
+
+// physRestoreFromExtDump creates PhysRestore object from dump on the storage.
+// This constructor is used in external restore flow when restore state dump is
+// stored on the backup storage due to agent's restart option.
+func physRestoreFromExtDump(
+	l log.LogEvent,
+	cmd *ExtFinishCmd,
+) (*PhysRestore, *RestoreMeta, error) {
+	stg, err := GetRestoreMetaStg(cmd.CfgPath, cmd.Node)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "get storage")
+	}
+
+	extDumpF := fmt.Sprintf("%s/%s/rs.%s/node.%s.%s",
+		defs.PhysRestoresDir, cmd.RestoreName, cmd.RS, cmd.Node, extDumpSuffix)
+	src, err := stg.SourceReader(extDumpF)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "get file %s", extDumpF)
+	}
+	defer src.Close()
+
+	var extDump extDump
+	err = json.NewDecoder(src).Decode(&extDump)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "decode external dump %s", extDumpF)
+	}
+
+	physRestore := PhysRestore{
+		stg: stg,
+		log: l,
+
+		dbpath:             extDump.DBpath,
+		tmpPort:            extDump.TmpPort,
+		rsConf:             extDump.RSConfig,
+		shards:             extDump.Shards,
+		cfgConn:            extDump.CfgConn,
+		startTS:            extDump.StartTS,
+		name:               extDump.Name,
+		opid:               extDump.Opid,
+		nodeInfo:           extDump.NodeInfo,
+		restoreTS:          extDump.RestoreTS,
+		confOpts:           extDump.ConfOpts,
+		mongod:             extDump.Mongod,
+		syncPathNode:       extDump.SyncPathNode,
+		syncPathNodeStat:   extDump.SyncPathNodeStat,
+		syncPathRS:         extDump.SyncPathRS,
+		syncPathCluster:    extDump.SyncPathCluster,
+		syncPathPeers:      extDump.SyncPathPeers,
+		syncPathShards:     extDump.SyncPathShards,
+		syncPathDataShards: extDump.SyncPathDataShards,
+		rsMap:              extDump.RSMap,
+	}
+	restoreMeta := extDump.RestoreMeta
+
+	logger := l.GetLogger()
+	physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal)
+
+	// set security opts
+	if cmd.DBCfgPath != "" {
+		mongodCfg, err := GetMongodConfig(cmd.DBCfgPath)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "invalid mongod config for security options")
+		}
+		physRestore.secOpts = mongodCfg.Security
+	}
+
+	return &physRestore, restoreMeta, nil
 }
 
 // moveAll moves fromDir content (files and dirs) to toDir content.

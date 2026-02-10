@@ -864,6 +864,10 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		&restoreOptions.ts, "ts", "",
 		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!",
 	)
+	restoreCmd.Flags().BoolVar(
+		&restoreOptions.exit, "exit", false,
+		"Agent will exit in copyReady phase allowing restart. External backups only!",
+	)
 	restoreCmd.Flags().Bool(
 		"fallback-enabled", false, "Enables/disables fallback strategy when performing a physical restore.",
 	)
