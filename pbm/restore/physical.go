@@ -3117,7 +3117,7 @@ func physRestoreFromExtDump(
 	restoreMeta := extDump.RestoreMeta
 
 	logger := l.GetLogger()
-	physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal)
+	physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal+1)
 
 	// set security opts
 	if cmd.DBCfgPath != "" {
