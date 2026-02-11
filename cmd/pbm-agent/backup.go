@@ -93,8 +93,10 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}
 
-	if cmd.Type == defs.LogicalBackup {
-		// wakeup the slicer to not wait for the tick
+	if cmd.Type == defs.LogicalBackup && cmd.Profile == "" {
+		// For backups to the main storage,
+		// wake up the slicer to not wait for the tick.
+		// This will slice and pause the main PITR
 		go a.sliceNow(opid)
 	}
 
