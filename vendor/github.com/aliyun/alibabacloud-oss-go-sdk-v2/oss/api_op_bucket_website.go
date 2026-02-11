@@ -11,7 +11,7 @@ type MirrorHeaders struct {
 	PassAll *bool `xml:"PassAll"`
 
 	// The headers to pass through to the origin. This parameter takes effect only when the value of RedirectType is Mirror. Each specified header can be up to 1,024 bytes in length and can contain only letters, digits, and hyphens (-). You can specify up to 10 headers.
-	Passs []string `xml:"Pass"`
+	Passes []string `xml:"Pass"`
 
 	// The headers that are not allowed to pass through to the origin. This parameter takes effect only when the value of RedirectType is Mirror. Each header can be up to 1,024 bytes in length and can contain only letters, digits, and hyphens (-). You can specify up to 10 headers. This parameter is used together with PassAll.
 	Removes []string `xml:"Remove"`
@@ -29,6 +29,14 @@ type RoutingRule struct {
 
 	// The operation to perform after the rule is matched.  This parameter must be specified if RoutingRule is specified.
 	Redirect *RoutingRuleRedirect `xml:"Redirect"`
+
+	// The Lua script config of this rule.
+	LuaConfig *RoutingRuleLuaConfig `xml:"LuaConfig"`
+}
+
+type RoutingRuleLuaConfig struct {
+	// The name of the Lua script.
+	Script *string `xml:"Script"`
 }
 
 type WebsiteConfiguration struct {
@@ -136,6 +144,131 @@ type RoutingRuleRedirect struct {
 
 	// This parameter plays the same role as PassQueryString and has a higher priority than PassQueryString. This parameter takes effect only when the value of RedirectType is Mirror. Default value: false.Valid values:*   true            *   false
 	MirrorPassQueryString *bool `xml:"MirrorPassQueryString"`
+
+	// The HTTP status codes that trigger the asynchronous pull mode in mirror-based back-to-origin.
+	MirrorAsyncStatus *int64 `xml:"MirrorAsyncStatus"`
+
+	// The authentication information for the origin server in mirror-based back-to-origin.
+	MirrorAuth *MirrorAuth `xml:"MirrorAuth"`
+
+	// The probe URL for mirror-based back-to-origin.
+	MirrorURLProbe *string `xml:"MirrorURLProbe"`
+
+	// Whether to allow take video snapshot in mirror-based back-to-origin.
+	MirrorAllowVideoSnapshot *bool `xml:"MirrorAllowVideoSnapshot"`
+
+	// The slave URL for mirror-based back-to-origin.
+	MirrorURLSlave *string `xml:"MirrorURLSlave"`
+
+	// The VPC ID for mirror-based back-to-origin express tunnel.
+	MirrorDstVpcId *string `xml:"MirrorDstVpcId"`
+
+	// Use LastModifiedTime of the file from origin.
+	MirrorUserLastModified *bool `xml:"MirrorUserLastModified"`
+
+	// Whether to use role for mirror-based back-to-origin.
+	MirrorUsingRole *bool `xml:"MirrorUsingRole"`
+
+	// Mirror-based back-to-origin with express tunnel.
+	MirrorIsExpressTunnel *bool `xml:"MirrorIsExpressTunnel"`
+
+	// Not save data in web-based back-to-origin.
+	MirrorProxyPass *bool `xml:"MirrorProxyPass"`
+
+	// The rules for setting tags when saving files during mirror-based back-to-origin.
+	MirrorTaggings *MirrorTaggings `xml:"MirrorTaggings"`
+
+	// The slave VPC ID for mirror-based back-to-origin express tunnel.
+	MirrorDstSlaveVpcId *string `xml:"MirrorDstSlaveVpcId"`
+
+	// The VPC region for mirror-based back-to-origin express tunnel.
+	MirrorDstRegion *string `xml:"MirrorDstRegion"`
+
+	// Used for determining the state of primary-secondary switching. The logic for primary-secondary switching is based on the error code returned by the origin server. If MirrorSwitchAllErrors is set to true, all status codes except the following are considered failures: 200, 206, 301, 302, 303, 307, 404. If it is set to false, only status codes in the 5xx range or timeouts are considered failures.
+	MirrorSwitchAllErrors *bool `xml:"MirrorSwitchAllErrors"`
+
+	// The tunnel ID for mirror-based back-to-origin.
+	MirrorTunnelId *string `xml:"MirrorTunnelId"`
+
+	// The role name used for mirror-based back-to-origin.
+	MirrorRole *string `xml:"MirrorRole"`
+
+	// Whether to allow get image information in mirror-based back-to-origin.
+	MirrorAllowGetImageInfo *bool `xml:"MirrorAllowGetImageInfo"`
+
+	// Whether to store the user defined metadata in mirror-based back-to-origin.
+	MirrorSaveOssMeta *bool `xml:"MirrorSaveOssMeta"`
+
+	// Whether to allow take HeadObject in mirror-based back-to-origin.
+	MirrorAllowHeadObject *bool `xml:"MirrorAllowHeadObject"`
+
+	// The container to store the configuration for multiple origins in mirror-based back-to-origin.
+	MirrorMultiAlternates *MirrorMultiAlternates `xml:"MirrorMultiAlternates"`
+
+	// Specify which status codes returned by the origin server should be passed through to the client along with the body. The value should be HTTP status codes such as 4xx, 5xx, etc., separated by commas (,), for example, 400,404. This setting takes effect only when RedirectType is set to Mirror. When OSS requests content from the origin server, if the origin server returns one of the status codes specified in this parameter, OSS will pass through the status code and body returned by the origin server to the client. If the 404 status code is specified in this parameter, the configured ErrorDocument will be ineffective.
+	TransparentMirrorResponseCodes *string `xml:"TransparentMirrorResponseCodes"`
+
+	// Container to store the rules for setting response headers in mirror-based back-to-origin.
+	MirrorReturnHeaders *MirrorReturnHeaders `xml:"MirrorReturnHeaders"`
+}
+
+type MirrorReturnHeaders struct {
+	// The rule list for setting response headers in mirror-based back-to-origin.
+	ReturnHeaders []ReturnHeader `xml:"ReturnHeader"`
+}
+
+type ReturnHeader struct {
+	// The response header.
+	Key *string `xml:"Key"`
+
+	// The rule for setting response header value for a specific header.
+	Value *string `xml:"Value"`
+}
+
+type MirrorMultiAlternates struct {
+	// The configuration list for multiple origins.
+	MirrorMultiAlternates []MirrorMultiAlternate `xml:"MirrorMultiAlternate"`
+}
+
+type MirrorMultiAlternate struct {
+	// The region for a specific origin.
+	MirrorMultiAlternateDstRegion *string `xml:"MirrorMultiAlternateDstRegion"`
+
+	// The distinct number of a specific origin.
+	MirrorMultiAlternateNumber *int64 `xml:"MirrorMultiAlternateNumber"`
+
+	// The URL for a specific origin.
+	MirrorMultiAlternateURL *string `xml:"MirrorMultiAlternateURL"`
+
+	// The VPC ID for a specific origin.
+	MirrorMultiAlternateVpcId *string `xml:"MirrorMultiAlternateVpcId"`
+}
+
+type MirrorAuth struct {
+	// The authentication type.
+	AuthType *string `xml:"AuthType"`
+
+	// The sign region for signature.
+	Region *string `xml:"Region"`
+
+	// The access key id for signature.
+	AccessKeyId *string `xml:"AccessKeyId"`
+
+	// The access key secret for signature.
+	AccessKeySecret *string `xml:"AccessKeySecret"`
+}
+
+type MirrorTaggings struct {
+	// The rule list for setting tags.
+	Taggings []MirrorTagging `xml:"Taggings"`
+}
+
+type MirrorTagging struct {
+	// The tag key.
+	Key *string `xml:"Key"`
+
+	// The rule for setting tag value for a specific tag key.
+	Value *string `xml:"Value"`
 }
 
 type RoutingRules struct {

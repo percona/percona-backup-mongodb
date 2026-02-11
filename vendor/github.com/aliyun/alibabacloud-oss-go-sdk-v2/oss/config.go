@@ -1,6 +1,7 @@
 package oss
 
 import (
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -115,6 +116,12 @@ type Config struct {
 
 	// The cloud box id is automatically extracted from endpoint.
 	EnableAutoDetectCloudBoxId *bool
+
+	// The account id
+	AccountId *string
+
+  // Local address to bind to for outgoing connections.
+	BindAddress net.IP
 }
 
 func NewConfig() *Config {
@@ -282,5 +289,15 @@ func (c *Config) WithCloudBoxId(value string) *Config {
 
 func (c *Config) WithEnableAutoDetectCloudBoxId(value bool) *Config {
 	c.EnableAutoDetectCloudBoxId = Ptr(value)
+	return c
+}
+
+func (c *Config) WithAccountId(value string) *Config {
+	c.AccountId = Ptr(value)
+	return c
+}
+  
+func (c *Config) WithBindAddress(value net.IP) *Config {
+	c.BindAddress = value
 	return c
 }

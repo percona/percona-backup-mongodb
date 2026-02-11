@@ -175,6 +175,33 @@ type MetaQueryFile struct {
 
 	// The ID of the customer master key (CMK) that is managed by Key Management Service (KMS).
 	ServerSideEncryptionKeyId *string `xml:"ServerSideEncryptionKeyId"`
+
+	// The description of the file.
+	Insights *MetaQueryFileInsights `xml:"Insights"`
+}
+
+type MetaQueryFileInsights struct {
+	// The description of the video file.
+	Video *MetaQueryFileInsightsVideo `xml:"Video"`
+
+	// The description of the image file.
+	Image *MetaQueryFileInsightsImage `xml:"Image"`
+}
+
+type MetaQueryFileInsightsVideo struct {
+	// A brief description.
+	Caption *string `xml:"Caption"`
+
+	// A detailed description.
+	Description *string `xml:"Description"`
+}
+
+type MetaQueryFileInsightsImage struct {
+	// A brief description.
+	Caption *string `xml:"Caption"`
+
+	// A detailed description.
+	Description *string `xml:"Description"`
 }
 
 type MetaQueryVideoStream struct {
@@ -294,11 +321,16 @@ type MetaQuery struct {
 	// The pagination token used to obtain information in the next request. The object information is returned in alphabetical order starting from the value of NextToken.
 	NextToken *string `xml:"NextToken"`
 
-	// The type of multimedia that you want to query. Valid values: image, video, audio, document
-	MediaType *string `xml:"MediaTypes>MediaType"`
+	// The container that stores the type of multimedia.
+	MediaTypes *MetaQueryMediaTypes `xml:"MediaTypes"`
 
 	//The query conditions
 	SimpleQuery *string `xml:"SimpleQuery"`
+}
+
+type MetaQueryMediaTypes struct {
+	// The type of multimedia that you want to query. Valid values: image, video, audio, document
+	MediaTypes []string `xml:"MediaType"`
 }
 
 type MetaQueryStatus struct {

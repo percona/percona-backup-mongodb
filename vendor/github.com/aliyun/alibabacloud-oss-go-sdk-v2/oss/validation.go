@@ -82,3 +82,16 @@ func isValidCopyDirective(value string) bool {
 	}
 	return false
 }
+
+// Exposed to external modules
+func IsValidRegion(region string) bool {
+	return isValidRegion(region)
+}
+
+func IsValidBucketName(bucketName *string) bool {
+	return isValidBucketName(bucketName)
+}
+
+func IsValidMethod(method string) bool {
+	return isValidMethod(method)
+}
