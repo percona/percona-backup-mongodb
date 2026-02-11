@@ -9,12 +9,16 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/alibabacloud-go/debug/debug"
+	credentials_go "github.com/aliyun/credentials-go"
 	"github.com/aliyun/credentials-go/credentials/internal/utils"
 )
+
+var defaultUserAgent = fmt.Sprintf("AlibabaCloud (%s; %s) Golang/%s Credentials/%s TeaDSL/1", runtime.GOOS, runtime.GOARCH, strings.Trim(runtime.Version(), "go"), credentials_go.PACKAGE_VERSION)
 
 type Request struct {
 	Method         string // http request method
@@ -82,6 +86,8 @@ func Do(req *Request) (res *Response, err error) {
 	if err != nil {
 		return
 	}
+
+	httpRequest.Header["User-Agent"] = []string{defaultUserAgent}
 
 	if req.Form != nil {
 		httpRequest.Header["Content-Type"] = []string{"application/x-www-form-urlencoded"}

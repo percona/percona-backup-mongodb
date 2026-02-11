@@ -37,7 +37,7 @@ func (c *Client) PutBucketPolicy(ctx context.Context, request *PutBucketPolicyRe
 		OpName: "PutBucketPolicy",
 		Method: "PUT",
 		Headers: map[string]string{
-			HTTPHeaderContentType: contentTypeXML,
+			HTTPHeaderContentType: contentTypeJSON,
 		},
 		Parameters: map[string]string{
 			"policy": "",
@@ -55,7 +55,7 @@ func (c *Client) PutBucketPolicy(ctx context.Context, request *PutBucketPolicyRe
 	}
 
 	result := &PutBucketPolicyResult{}
-	if err = c.unmarshalOutput(result, output, unmarshalBodyXmlMix); err != nil {
+	if err = c.unmarshalOutput(result, output, discardBody); err != nil {
 		return nil, c.toClientError(err, "UnmarshalOutputFail", output)
 	}
 	return result, err
@@ -154,7 +154,7 @@ func (c *Client) DeleteBucketPolicy(ctx context.Context, request *DeleteBucketPo
 	}
 
 	result := &DeleteBucketPolicyResult{}
-	if err = c.unmarshalOutput(result, output, unmarshalBodyXmlMix); err != nil {
+	if err = c.unmarshalOutput(result, output, discardBody); err != nil {
 		return nil, c.toClientError(err, "UnmarshalOutputFail", output)
 	}
 	return result, err

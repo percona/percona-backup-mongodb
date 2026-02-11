@@ -1,6 +1,7 @@
 package oss
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"hash"
@@ -14,17 +15,32 @@ import (
 )
 
 type DownloaderOptions struct {
+	// The part size.
 	PartSize int64
 
+	// The number of download tasks in parallel.
 	ParallelNum int
 
+	// Specifies whether to record the download progress in the checkpoint file. 
 	EnableCheckpoint bool
 
+	// The path in which the checkpoint file is stored. Example: /local/dir/.
+	// This parameter is valid only if EnableCheckpoint is set to true.
 	CheckpointDir string
 
+	// Specifies whether to verify the CRC-64 of the downloaded object when the download is resumed. 
+	// By default, the CRC-64 is not verified. 
+	// This parameter is valid only if EnableCheckpoint is set to true.
 	VerifyData bool
 
+	// Specifies whether to use a temporary file when you download an object.
+	// A temporary file is used by default.
+	// The object is downloaded to the temporary file. 
+	// Then, the temporary file is renamed and uses the same name as the object that you want to download.
 	UseTempFile bool
+
+	// In memory buffer size for writing. Automatically align to 4K (4*1024 bytes). 
+	WriteBufferSize int
 
 	ClientOptions []func(*Options)
 }
@@ -230,6 +246,12 @@ func (d *Downloader) newDelegate(ctx context.Context, request *GetObjectRequest,
 	}
 	if delegate.options.PartSize <= 0 {
 		delegate.options.PartSize = DefaultDownloadPartSize
+	}
+
+	if delegate.options.WriteBufferSize > 0 {
+		// align to 4K
+		const alignSize = 4*1024
+		delegate.options.WriteBufferSize = (delegate.options.WriteBufferSize + alignSize - 1) &^ (alignSize - 1)
 	}
 
 	return &delegate, nil
@@ -566,11 +588,25 @@ func (d *downloaderDelegate) downloadChunk(chunk downloaderChunk, hash hash.Hash
 		r = io.TeeReader(reader, hash)
 	}
 
-	n, err := io.Copy(&chunk, r)
+	var writer io.Writer = &chunk
+
+	if d.options.WriteBufferSize > 0 {
+		writer = bufio.NewWriterSize(writer, d.options.WriteBufferSize)
+	}
+
+	n, err := io.Copy(writer, r)
 	d.incrWritten(n)
 
 	if hash != nil {
 		crc64 = hash.Sum64()
+	}
+
+	// if buffering, flush to disk
+	if err == nil {
+		switch w := writer.(type) {
+		case *bufio.Writer:
+			err = w.Flush()
+		}
 	}
 
 	return downloadedChunk{

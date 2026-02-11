@@ -9,11 +9,11 @@ import (
 )
 
 type ServiceError struct {
-	XMLName   xml.Name `xml:"Error"`
-	Code      string   `xml:"Code"`
-	Message   string   `xml:"Message"`
-	RequestID string   `xml:"RequestId"`
-	EC        string   `xml:"EC"`
+	XMLName   xml.Name `xml:"Error" json:"-"`
+	Code      string   `xml:"Code" json:"Code"`
+	Message   string   `xml:"Message" json:"Message"`
+	RequestID string   `xml:"RequestId" json:"RequestId"`
+	EC        string   `xml:"EC" json:"EC"`
 
 	StatusCode    int
 	Snapshot      []byte

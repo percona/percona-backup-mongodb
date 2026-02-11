@@ -46,7 +46,7 @@ func (c *Client) PutBucketTags(ctx context.Context, request *PutBucketTagsReques
 		return nil, err
 	}
 	result := &PutBucketTagsResult{}
-	if err = c.unmarshalOutput(result, output, unmarshalBodyXmlMix); err != nil {
+	if err = c.unmarshalOutput(result, output, discardBody); err != nil {
 		return nil, c.toClientError(err, "UnmarshalOutputFail", output)
 	}
 
@@ -139,7 +139,7 @@ func (c *Client) DeleteBucketTags(ctx context.Context, request *DeleteBucketTags
 		return nil, err
 	}
 	result := &DeleteBucketTagsResult{}
-	if err = c.unmarshalOutput(result, output, unmarshalBodyXmlMix); err != nil {
+	if err = c.unmarshalOutput(result, output, discardBody); err != nil {
 		return nil, c.toClientError(err, "UnmarshalOutputFail", output)
 	}
 	return result, err
