@@ -139,7 +139,7 @@ func runRestore(
 	if err := validateNSFromNSTo(o); err != nil {
 		return nil, errors.Wrap(err, "parse --ns-from and --ns-to options")
 	}
-	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
+	if err := util.ValidateUsersAndRolesOpt(o.usersAndRoles, nss); err != nil {
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 	if err := validateFallbackOpts(o); err != nil {
@@ -792,19 +792,6 @@ func describeRestore(
 	}
 
 	return res, nil
-}
-
-func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
-	if !util.IsSelective(nss) && usersAndRoles {
-		return errors.New("Including users and roles are only allowed for selected database " +
-			"(use --ns flag for selective backup)")
-	}
-	if len(nss) >= 1 && util.ContainsSpecifiedColl(nss) && usersAndRoles {
-		return errors.New("Including users and roles are not allowed for specific collection. " +
-			"Use --ns='db.*' to specify the whole database instead.")
-	}
-
-	return nil
 }
 
 func validateNSFromNSTo(o *restoreOpts) error {

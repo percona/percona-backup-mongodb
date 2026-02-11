@@ -137,6 +137,7 @@ type BackupCmd struct {
 	NumParallelColls *int32                   `bson:"numParallelColls,omitempty"`
 	Filelist         bool                     `bson:"filelist,omitempty"`
 	Profile          string                   `bson:"profile,omitempty"`
+	UsersAndRoles    bool                     `bson:"usersAndRoles,omitempty"`
 }
 
 func (b BackupCmd) String() string {

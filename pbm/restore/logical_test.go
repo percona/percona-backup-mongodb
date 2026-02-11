@@ -29,10 +29,11 @@ func TestResolveNamespace(t *testing.T) {
 
 	t.Run("without users&roles", func(t *testing.T) {
 		testCases := []struct {
-			desc       string
-			nssBackup  []string
-			nssRestore []string
-			want       []string
+			desc               string
+			nssBackup          []string
+			nssRestore         []string
+			userAndRolesBackup bool // doesn't apply to full backups
+			want               []string
 		}{
 			{
 				desc:       "full backup -> full restore",
@@ -47,21 +48,43 @@ func TestResolveNamespace(t *testing.T) {
 				want:       []string{"d.c"},
 			},
 			{
-				desc:       "selective backup -> full restore",
-				nssBackup:  []string{"d.c"},
-				nssRestore: []string{},
-				want:       []string{"d.c"},
+				desc:               "selective backup (no usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: false,
+				want:               []string{"d.c"},
 			},
 			{
-				desc:       "selective backup -> selective restore",
-				nssBackup:  []string{"d.*"},
-				nssRestore: []string{"d.c"},
-				want:       []string{"d.c"},
+				desc:               "selective backup (usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: true,
+				want:               []string{"d.c", "admin.pbmRUsers", "admin.pbmRRoles"},
+			},
+			{
+				desc:               "selective backup (no usersAndRoles)-> selective restore",
+				nssBackup:          []string{"d.*"},
+				nssRestore:         []string{"d.c"},
+				userAndRolesBackup: false,
+				want:               []string{"d.c"},
+			},
+			{
+				desc:               "selective backup (usersAndRoles)-> selective restore",
+				nssBackup:          []string{"d.*"},
+				nssRestore:         []string{"d.c"},
+				userAndRolesBackup: true,
+				want:               []string{"d.c"},
 			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				got := resolveNamespace(tC.nssBackup, tC.nssRestore, snapshot.CloneNS{}, false)
+				got := resolveNamespace(
+					tC.nssBackup,
+					tC.nssRestore,
+					snapshot.CloneNS{},
+					tC.userAndRolesBackup,
+					false,
+				)
 				checkNS(t, got, tC.want)
 			})
 		}
@@ -69,10 +92,11 @@ func TestResolveNamespace(t *testing.T) {
 
 	t.Run("with users&roles", func(t *testing.T) {
 		testCases := []struct {
-			desc       string
-			nssBackup  []string
-			nssRestore []string
-			want       []string
+			desc               string
+			nssBackup          []string
+			nssRestore         []string
+			userAndRolesBackup bool // doesn't apply to full backups
+			want               []string
 		}{
 			{
 				desc:       "full backup -> full restore",
@@ -87,15 +111,29 @@ func TestResolveNamespace(t *testing.T) {
 				want:       []string{"d.c", "admin.pbmRUsers", "admin.pbmRRoles"},
 			},
 			{
-				desc:       "selective backup -> full restore",
-				nssBackup:  []string{"d.c"},
-				nssRestore: []string{},
-				want:       []string{"d.c"},
+				desc:               "selective backup (no usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: false,
+				want:               []string{"d.c"},
+			},
+			{
+				desc:               "selective backup (usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: true,
+				want:               []string{"d.c", "admin.pbmRUsers", "admin.pbmRRoles"},
 			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				got := resolveNamespace(tC.nssBackup, tC.nssRestore, snapshot.CloneNS{}, true)
+				got := resolveNamespace(
+					tC.nssBackup,
+					tC.nssRestore,
+					snapshot.CloneNS{},
+					tC.userAndRolesBackup,
+					true,
+				)
 				checkNS(t, got, tC.want)
 			})
 		}
@@ -103,12 +141,13 @@ func TestResolveNamespace(t *testing.T) {
 
 	t.Run("cloning collection", func(t *testing.T) {
 		testCases := []struct {
-			desc         string
-			nssBackup    []string
-			nsFrom       string
-			nsTo         string
-			userAndRoles bool
-			want         []string
+			desc                string
+			nssBackup           []string
+			nsFrom              string
+			nsTo                string
+			usersAndRolesBackup bool // doesn't apply to full backups
+			userAndRoles        bool
+			want                []string
 		}{
 			{
 				desc:      "full backup -> cloning collection",
@@ -118,11 +157,22 @@ func TestResolveNamespace(t *testing.T) {
 				want:      []string{"d.from"},
 			},
 			{
-				desc:      "selective backup -> cloning collection",
-				nssBackup: []string{"d.*", "a.b"},
-				nsFrom:    "d.from",
-				nsTo:      "d.to",
-				want:      []string{"d.from"},
+				desc:                "selective backup (no usersAndRoles) -> cloning collection",
+				nssBackup:           []string{"d.*", "a.b"},
+				nsFrom:              "d.from",
+				nsTo:                "d.to",
+				usersAndRolesBackup: false,
+				userAndRoles:        false,
+				want:                []string{"d.from"},
+			},
+			{
+				desc:                "selective backup (no usersAndRoles) -> cloning collection",
+				nssBackup:           []string{"d.*", "a.b"},
+				nsFrom:              "d.from",
+				nsTo:                "d.to",
+				usersAndRolesBackup: true,
+				userAndRoles:        false,
+				want:                []string{"d.from"},
 			},
 			{
 				desc:         "full backup -> cloning collection, users&roles are ignored",
@@ -133,12 +183,22 @@ func TestResolveNamespace(t *testing.T) {
 				want:         []string{"d.from"},
 			},
 			{
-				desc:         "selective backup -> cloning collection, users&roles are ignored",
-				nssBackup:    []string{"d.*", "a.b"},
-				nsFrom:       "d.from",
-				nsTo:         "d.to",
-				userAndRoles: true,
-				want:         []string{"d.from"},
+				desc:                "selective backup (no usersAndRoles) -> cloning collection, users&roles are ignored",
+				nssBackup:           []string{"d.*", "a.b"},
+				nsFrom:              "d.from",
+				nsTo:                "d.to",
+				usersAndRolesBackup: false,
+				userAndRoles:        true,
+				want:                []string{"d.from"},
+			},
+			{
+				desc:                "selective backup (usersAndRoles) -> cloning collection, users&roles are ignored",
+				nssBackup:           []string{"d.*", "a.b"},
+				nsFrom:              "d.from",
+				nsTo:                "d.to",
+				usersAndRolesBackup: true,
+				userAndRoles:        true,
+				want:                []string{"d.from"},
 			},
 		}
 		for _, tC := range testCases {
@@ -147,6 +207,7 @@ func TestResolveNamespace(t *testing.T) {
 					tC.nssBackup,
 					[]string{},
 					snapshot.CloneNS{FromNS: tC.nsFrom, ToNS: tC.nsTo},
+					tC.usersAndRolesBackup,
 					tC.userAndRoles)
 				checkNS(t, got, tC.want)
 			})
@@ -164,12 +225,13 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 
 	t.Run("without users&roles", func(t *testing.T) {
 		testCases := []struct {
-			desc       string
-			nssBackup  []string
-			nssRestore []string
-			nsFrom     string
-			nsTo       string
-			wantOpt    restoreUsersAndRolesOption
+			desc               string
+			nssBackup          []string
+			nssRestore         []string
+			nsFrom             string
+			nsTo               string
+			userAndRolesBackup bool // doesn't apply to full backups
+			wantOpt            restoreUsersAndRolesOption
 		}{
 			{
 				desc:       "full backup -> full restore",
@@ -184,10 +246,18 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 				wantOpt:    false,
 			},
 			{
-				desc:       "selective backup -> full restore",
-				nssBackup:  []string{"d.c"},
-				nssRestore: []string{},
-				wantOpt:    false,
+				desc:               "selective backup (no usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: false,
+				wantOpt:            false,
+			},
+			{
+				desc:               "selective backup (usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: true,
+				wantOpt:            true,
 			},
 			{
 				desc:       "full backup -> cloning collection",
@@ -212,6 +282,7 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 					tC.nssBackup,
 					tC.nssRestore,
 					snapshot.CloneNS{FromNS: tC.nsFrom, ToNS: tC.nsTo},
+					tC.userAndRolesBackup,
 					false)
 				checkOpt(t, gotOpt, tC.wantOpt)
 			})
@@ -220,10 +291,11 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 
 	t.Run("with users&roles", func(t *testing.T) {
 		testCases := []struct {
-			desc       string
-			nssBackup  []string
-			nssRestore []string
-			wantOpt    restoreUsersAndRolesOption
+			desc               string
+			nssBackup          []string
+			nssRestore         []string
+			userAndRolesBackup bool // doesn't apply to full backups
+			wantOpt            restoreUsersAndRolesOption
 		}{
 			{
 				desc:       "full backup -> full restore",
@@ -238,15 +310,29 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 				wantOpt:    true,
 			},
 			{
-				desc:       "selective backup -> full restore",
-				nssBackup:  []string{"d.c"},
-				nssRestore: []string{},
-				wantOpt:    false,
+				desc:               "selective backup (no usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: false,
+				wantOpt:            false,
+			},
+			{
+				desc:               "selective backup (usersAndRoles) -> full restore",
+				nssBackup:          []string{"d.c"},
+				nssRestore:         []string{},
+				userAndRolesBackup: true,
+				wantOpt:            true,
 			},
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
-				gotOpt := shouldRestoreUsersAndRoles(tC.nssBackup, tC.nssRestore, snapshot.CloneNS{}, true)
+				gotOpt := shouldRestoreUsersAndRoles(
+					tC.nssBackup,
+					tC.nssRestore,
+					snapshot.CloneNS{},
+					tC.userAndRolesBackup,
+					true,
+				)
 				checkOpt(t, gotOpt, tC.wantOpt)
 			})
 		}

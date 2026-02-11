@@ -295,6 +295,10 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	backupCmd.Flags().StringVar(
 		&backupOptions.ns, "ns", "", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`,
 	)
+	backupCmd.Flags().BoolVar(
+		&backupOptions.usersAndRoles, "with-users-and-roles", false,
+		"Includes users and roles for selected database (--ns flag)",
+	)
 	backupCmd.Flags().BoolVarP(
 		&backupOptions.wait, "wait", "w", false, "Wait for the backup to finish",
 	)

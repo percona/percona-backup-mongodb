@@ -38,6 +38,7 @@ type backupOpts struct {
 	wait             bool
 	waitTime         time.Duration
 	externList       bool
+	usersAndRoles    bool
 
 	numParallelColls int32
 }
@@ -108,6 +109,9 @@ func runBackup(
 	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
+	if err := util.ValidateUsersAndRolesOpt(b.usersAndRoles, nss); err != nil {
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
+	}
 
 	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {
 		return nil, errors.Wrap(err, "backup pre-check")
@@ -145,6 +149,7 @@ func runBackup(
 			IncrBase:         b.base,
 			Name:             b.name,
 			Namespaces:       nss,
+			UsersAndRoles:    b.usersAndRoles,
 			Compression:      compression,
 			CompressionLevel: level,
 			NumParallelColls: numParallelColls,
@@ -343,6 +348,7 @@ type bcpDesc struct {
 	LastWriteTime      string          `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string          `json:"last_transition_time" yaml:"last_transition_time"`
 	Namespaces         []string        `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+	SelUserAndRoles    bool            `json:"sel_user_and_roles" yaml:"sel_user_and_roles"`
 	MongoVersion       string          `json:"mongodb_version" yaml:"mongodb_version"`
 	FCV                string          `json:"fcv" yaml:"fcv"`
 	PBMVersion         string          `json:"pbm_version" yaml:"pbm_version"`
@@ -434,6 +440,7 @@ func describeBackup(
 		OPID:               bcp.OPID,
 		Type:               bcp.Type,
 		Namespaces:         bcp.Namespaces,
+		SelUserAndRoles:    bcp.SelUsersAndRoles,
 		MongoVersion:       bcp.MongoVersion,
 		FCV:                bcp.FCV,
 		PBMVersion:         bcp.PBMVersion,
