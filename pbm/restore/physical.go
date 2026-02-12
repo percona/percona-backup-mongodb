@@ -118,7 +118,8 @@ type PhysRestore struct {
 	// Non-ConfigServer shards
 	syncPathDataShards map[string]struct{}
 
-	stopHB chan struct{}
+	stopHB        chan struct{}
+	stopCleanupHB chan struct{}
 
 	log     log.LogEvent
 	logBuff *logBuff
@@ -235,7 +236,6 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 		r.log.Debug("rm tmp conf")
 		err := os.Remove(r.tmpConf.Name())
 		if err != nil {
-			r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
 		}
 	}
 
@@ -260,7 +260,7 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 		r.log.Warning("waiting for cluster status during cleanup: %v", err)
 	}
 
-	go r.startCleanupHb()
+	r.startCleanupHb()
 
 	defer func() {
 		if r.fallback {
@@ -271,6 +271,9 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 			}
 		}
 
+		if r.stopCleanupHB != nil {
+			close(r.stopCleanupHB)
+		}
 		if r.stopHB != nil {
 			close(r.stopHB)
 		}
@@ -2371,33 +2374,32 @@ func (r *PhysRestore) hbCleanup() error {
 // startCleanupHb generates cleanup hb for the purpose of detecting physical restore
 // cleanup activity.
 func (r *PhysRestore) startCleanupHb() {
-	if r.stopHB == nil {
-		return
-	}
-
 	err := r.hbCleanup()
 	if err != nil {
-		r.log.Warning("send heartbeat: %v", err)
+		r.log.Warning("send init cleanup heartbeat: %v", err)
 	}
 
-	tk := time.NewTicker(hbCleanupFrame)
-	defer func() {
-		tk.Stop()
-		r.stopHB = nil
-		r.log.Debug("cleaning heartbeats stopped")
-	}()
+	r.stopCleanupHB = make(chan struct{})
+	go func() {
+		tk := time.NewTicker(hbCleanupFrame)
+		defer func() {
+			tk.Stop()
+			r.stopCleanupHB = nil
+			r.log.Debug("cleanup heartbeats stopped")
+		}()
 
-	for {
-		select {
-		case <-tk.C:
-			err := r.hbCleanup()
-			if err != nil {
-				r.log.Warning("send heartbeat: %v", err)
+		for {
+			select {
+			case <-tk.C:
+				err := r.hbCleanup()
+				if err != nil {
+					r.log.Warning("send cleanup heartbeat: %v", err)
+				}
+			case <-r.stopCleanupHB:
+				return
 			}
-		case <-r.stopHB:
-			return
 		}
-	}
+	}()
 }
 
 func (r *PhysRestore) checkHB(file string) error {
