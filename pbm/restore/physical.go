@@ -751,7 +751,11 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 	}
 
 	if r.nodeInfo.IsClusterLeader() || status == defs.StatusDone {
-		r.log.Info("waiting for shards %v", r.syncPathShards)
+		if r.nodeInfo.IsSharded() {
+			r.log.Info("waiting for shards %v", r.syncPathShards)
+		} else {
+			r.log.Info("waiting for rs %v", r.syncPathShards)
+		}
 		cstat, err := r.waitFiles(status, maps.Clone(r.syncPathShards), true)
 		if err != nil {
 			return defs.StatusError, errors.Wrap(err, "wait for shards")
