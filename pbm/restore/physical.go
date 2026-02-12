@@ -232,12 +232,7 @@ func peekTmpPort(current int) (int, error) {
 //
 //nolint:nonamedreturns
 func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
-	if r.tmpConf != nil {
-		r.log.Debug("rm tmp conf")
-		err := os.Remove(r.tmpConf.Name())
-		if err != nil {
-		}
-	}
+	r.rmTmpConf()
 
 	// if there is no error, clean-up internal restore files
 	// internal log file(s) should stay in any case
@@ -2441,6 +2436,7 @@ func (r *PhysRestore) checkHB(file string) error {
 	return nil
 }
 
+// setTmpConf creates mongod tmp config file for patching data files.
 func (r *PhysRestore) setTmpConf(xopts *topo.MongodOpts) error {
 	opts := &topo.MongodOpts{}
 	opts.Storage = *topo.NewMongodOptsStorage()
@@ -2485,6 +2481,19 @@ func (r *PhysRestore) setTmpConf(xopts *topo.MongodOpts) error {
 	}
 
 	return nil
+}
+
+// rmTmpConf removes mongod tmp config file created with setTmpConf.
+func (r *PhysRestore) rmTmpConf() {
+	if r.tmpConf == nil {
+		return
+	}
+
+	r.log.Debug("rm tmp conf")
+	err := os.Remove(r.tmpConf.Name())
+	if err != nil {
+		r.log.Error("remove tmp config %s: %v", r.tmpConf.Name(), err)
+	}
 }
 
 // Sets replset files that have to be copied to the target during the restore.
@@ -3027,6 +3036,7 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 	if err != nil {
 		return errors.Wrap(err, "set tmp config")
 	}
+	defer r.rmTmpConf()
 
 	if r.restoreTS.IsZero() {
 		return errors.New("common restore timestamp is not set for snapshot restore")
