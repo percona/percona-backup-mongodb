@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	defaultScore     = 1.0
-	scoreForPrimary  = defaultScore / 2
-	scoreForHidden   = defaultScore * 2
+	DefaultScore     = 1.0
+	scoreForPrimary  = DefaultScore / 2
+	scoreForHidden   = DefaultScore * 2
 	scoreForExcluded = 0
 )
 
@@ -114,7 +114,7 @@ func CalcPriorityForNode(node *topo.NodeInfo) float64 {
 		return scoreForHidden
 	}
 
-	return defaultScore
+	return DefaultScore
 }
 
 // implicitPrioCalc provides priority calculation based on topology rules.
@@ -122,7 +122,7 @@ func CalcPriorityForNode(node *topo.NodeInfo) float64 {
 // applied for primary, secondary and hidden member.
 func implicitPrioCalc(a *topo.AgentStat, rule map[string]float64) float64 {
 	if coeff, ok := rule[a.Node]; ok && rule != nil {
-		return defaultScore * coeff
+		return DefaultScore * coeff
 	} else if a.State == defs.NodeStatePrimary {
 		return scoreForPrimary
 	} else if a.DelaySecs > 0 {
@@ -130,7 +130,7 @@ func implicitPrioCalc(a *topo.AgentStat, rule map[string]float64) float64 {
 	} else if a.Hidden {
 		return scoreForHidden
 	}
-	return defaultScore
+	return DefaultScore
 }
 
 // explicitPrioCalc uses priority numbers from configuration to calculate
@@ -139,7 +139,7 @@ func implicitPrioCalc(a *topo.AgentStat, rule map[string]float64) float64 {
 func explicitPrioCalc(a *topo.AgentStat, rule map[string]float64) float64 {
 	sc, ok := rule[a.Node]
 	if !ok || sc < 0 {
-		return defaultScore
+		return DefaultScore
 	}
 
 	return sc

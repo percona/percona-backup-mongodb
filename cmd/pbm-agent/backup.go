@@ -302,7 +302,7 @@ func (a *Agent) deprioritizePITRNodes(
 
 		// Only set if not already present (preserve previous priorities)
 		if _, exists := coefficients[pl.Node]; !exists {
-			coefficients[pl.Node] = 0.6 // low priority, making it a last resort
+			coefficients[pl.Node] = prio.DefaultScore - 0.1
 		}
 	}
 
