@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -703,11 +704,11 @@ func TestFullRestoreDBCleanup(t *testing.T) {
 		if len(db.dropDatabaseCalls) != 2 {
 			t.Fatalf("expected 2 dropDatabase calls, got %d", len(db.dropDatabaseCalls))
 		}
-		if db.dropDatabaseCalls[0] != "db1" {
-			t.Fatalf("expected dropDatabase call with db1, got %q", db.dropDatabaseCalls[0])
+		if !slices.Contains(db.dropDatabaseCalls, "db1") {
+			t.Fatal("expected dropDatabase call for db1")
 		}
-		if db.dropDatabaseCalls[1] != "db2" {
-			t.Fatalf("expected dropDatabase call with db2, got %q", db.dropDatabaseCalls[1])
+		if !slices.Contains(db.dropDatabaseCalls, "db2") {
+			t.Fatal("expected dropDatabase call for db2")
 		}
 	})
 
