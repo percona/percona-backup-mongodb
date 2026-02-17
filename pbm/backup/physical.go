@@ -739,7 +739,7 @@ func writeFile(
 
 	return &File{
 		Name:    src.Name,
-		Size:    fstat.Size(),
+		Size:    sz,
 		Fmode:   fstat.Mode(),
 		StgSize: finf.Size,
 		Off:     src.Off,
