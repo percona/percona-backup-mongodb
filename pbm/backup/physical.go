@@ -94,11 +94,17 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 		cur, err := bc.conn.Database("admin").Aggregate(ctx, mongo.Pipeline{
 			{{"$backupCursor", opts}},
 		})
-		if err != nil {
-			se, ok := err.(mongo.ServerError) //nolint:errorlint
-			if !ok {
-				return nil, err
-			}
+	if err != nil {
+    // Detect inMemory engine unsupported backupCursor
+    if strings.Contains(err.Error(), "$backupCursor") {
+        return nil, errors.New("physical backup is not supported for the inMemory storage engine")
+    }
+
+    se, ok := err.(mongo.ServerError)
+    if !ok {
+        return nil, err
+    }
+
 
 			retryableErr := false
 			if se.HasErrorCode(openConflictWithCheckpointErrCode) {
