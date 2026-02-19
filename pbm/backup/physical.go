@@ -549,7 +549,12 @@ func (b *Backup) uploadPhysical(
 	sizeUncompressed := int64(0)
 	for _, f := range filelist {
 		size += f.StgSize
-		sizeUncompressed += f.Size
+		if f.StgSize != 0 {
+			// maintain uncompressed size just for the files that have a disk footprint,
+			// backup meta might contains files which are unchanged from the previous
+			// inc/base backup
+			sizeUncompressed += f.Size
+		}
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
