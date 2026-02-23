@@ -511,16 +511,32 @@ func (b *Backup) uploadPhysical(
 	l log.LogEvent,
 ) error {
 	l.Info("uploading data")
-	dataFiles, err := uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
-		b.typ == defs.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
+	dataFiles, err := uploadFiles(
+		ctx,
+		data,
+		bcp.Name+"/"+rsMeta.Name,
+		dbpath,
+		b.typ == defs.IncrementalBackup,
+		stg,
+		bcp.Compression,
+		bcp.CompressionLevel,
+	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
 	}
 	l.Info("uploading data done")
 
 	l.Info("uploading journals")
-	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, dbpath,
-		false, stg, bcp.Compression, bcp.CompressionLevel, l)
+	ju, err := uploadFiles(
+		ctx,
+		jrnls,
+		bcp.Name+"/"+rsMeta.Name,
+		dbpath,
+		false,
+		stg,
+		bcp.Compression,
+		bcp.CompressionLevel,
+	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
 	}
@@ -533,7 +549,12 @@ func (b *Backup) uploadPhysical(
 	sizeUncompressed := int64(0)
 	for _, f := range filelist {
 		size += f.StgSize
-		sizeUncompressed += f.Size
+		if f.StgSize != 0 {
+			// maintain uncompressed size just for the files that have a disk footprint,
+			// backup meta might contains files which are unchanged from the previous
+			// inc/base backup
+			sizeUncompressed += f.Size
+		}
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
@@ -633,7 +654,6 @@ func uploadFiles(
 	stg storage.Storage,
 	comprT compress.CompressionType,
 	comprL *int,
-	l log.LogEvent,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -675,7 +695,7 @@ func uploadFiles(
 			continue
 		}
 
-		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
+		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
 		if err != nil {
 			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
@@ -690,7 +710,7 @@ func uploadFiles(
 		return data, nil
 	}
 
-	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
+	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
 	if err != nil {
 		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
@@ -708,7 +728,6 @@ func writeFile(
 	stg storage.Storage,
 	compression compress.CompressionType,
 	compressLevel *int,
-	l log.LogEvent,
 ) (*File, error) {
 	fstat, err := os.Stat(src.Name)
 	if err != nil {
@@ -739,7 +758,7 @@ func writeFile(
 
 	return &File{
 		Name:    src.Name,
-		Size:    fstat.Size(),
+		Size:    sz,
 		Fmode:   fstat.Mode(),
 		StgSize: finf.Size,
 		Off:     src.Off,
