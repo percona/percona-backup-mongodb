@@ -11,6 +11,7 @@ import (
 
 	storagegcs "cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
@@ -21,58 +22,111 @@ import (
 
 type googleClient struct {
 	bucketHandle *storagegcs.BucketHandle
-	opts         *Config
+	cfg          *Config
 	log          log.LogEvent
 }
 
-func newGoogleClient(opts *Config, l log.LogEvent) (*googleClient, error) {
+func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 	ctx := context.Background()
+	var cli *storagegcs.Client
+	var err error
 
-	if opts.Credentials.PrivateKey == "" || opts.Credentials.ClientEmail == "" {
-		return nil, errors.New("clientEmail and privateKey are required for GCS credentials")
+	if !cfg.Credentials.WorkloadIdentity && (cfg.Credentials.PrivateKey == "" || cfg.Credentials.ClientEmail == "") {
+		errMsg := "clientEmail and privateKey are required for GCS credentials when workloadIdentity is not enabled"
+		return nil, errors.New(errMsg)
 	}
 
-	creds, err := json.Marshal(ServiceAccountCredentials{
-		Type:                "service_account",
-		PrivateKey:          opts.Credentials.PrivateKey,
-		ClientEmail:         opts.Credentials.ClientEmail,
-		AuthURI:             "https://accounts.google.com/o/oauth2/auth",
-		TokenURI:            "https://oauth2.googleapis.com/token",
-		UniverseDomain:      "googleapis.com",
-		AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
-		ClientCertURL: fmt.Sprintf(
-			"https://www.googleapis.com/robot/v1/metadata/x509/%s",
-			opts.Credentials.ClientEmail,
-		),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal GCS credentials")
+	if cfg.Credentials.PrivateKey != "" && cfg.Credentials.ClientEmail != "" {
+		creds, merr := json.Marshal(ServiceAccountCredentials{
+			Type:                "service_account",
+			PrivateKey:          string(cfg.Credentials.PrivateKey),
+			ClientEmail:         string(cfg.Credentials.ClientEmail),
+			AuthURI:             "https://accounts.google.com/o/oauth2/auth",
+			TokenURI:            "https://oauth2.googleapis.com/token",
+			UniverseDomain:      "googleapis.com",
+			AuthProviderCertURL: "https://www.googleapis.com/oauth2/v1/certs",
+			ClientCertURL: fmt.Sprintf(
+				"https://www.googleapis.com/robot/v1/metadata/x509/%s",
+				string(cfg.Credentials.ClientEmail),
+			),
+		})
+		if merr != nil {
+			return nil, errors.Wrap(merr, "marshal GCS credentials")
+		}
+		cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+	} else {
+		// No explicit credentials — validate ADC resolves to allowed type (Workload Identity)
+		// We only check the credentials type, the scoped used hear doesn't really matter
+		adc, adcErr := google.FindDefaultCredentials(ctx, storagegcs.ScopeReadOnly)
+		if adcErr != nil {
+			return nil, fmt.Errorf("finding default credentials: %w", err)
+		}
+		adcErr = validateDefaultCredentialType(adc)
+		if adcErr != nil {
+			return nil, fmt.Errorf("validate default credential type: %w", err)
+		}
+		cli, err = storagegcs.NewClient(ctx)
 	}
 
-	cli, err := storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
 	if err != nil {
 		return nil, errors.Wrap(err, "new GCS client")
 	}
 
-	bh := cli.Bucket(opts.Bucket)
-
-	if opts.Retryer != nil {
-		bh = bh.Retryer(
+	bh := cli.Bucket(cfg.Bucket).
+		Retryer(
 			storagegcs.WithBackoff(gax.Backoff{
-				Initial:    opts.Retryer.BackoffInitial,
-				Max:        opts.Retryer.BackoffMax,
-				Multiplier: opts.Retryer.BackoffMultiplier,
+				Initial:    cfg.Retryer.BackoffInitial,
+				Max:        cfg.Retryer.BackoffMax,
+				Multiplier: cfg.Retryer.BackoffMultiplier,
 			}),
-
+			storagegcs.WithMaxAttempts(cfg.Retryer.MaxAttempts),
 			storagegcs.WithPolicy(storagegcs.RetryAlways),
+			storagegcs.WithErrorFunc(shouldRetryExtended),
 		)
-	}
 
 	return &googleClient{
 		bucketHandle: bh,
-		opts:         opts,
+		cfg:          cfg,
 		log:          l,
 	}, nil
+}
+
+// validateDefaultCredentialType validates that credentials are of type "external_account" used for Workload Identity
+func validateDefaultCredentialType(creds *google.Credentials) error {
+	// Empty JSON means metadata server (GKE/GCE Workload Identity)
+	if len(creds.JSON) == 0 {
+		return nil
+	}
+
+	var jsonCreds struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(creds.JSON, &jsonCreds); err != nil {
+		return fmt.Errorf("parsing default credentials: %w", err)
+	}
+
+	if jsonCreds.Type != "external_account" {
+		msg := "unsupported type %q; use Workload Identity or explicit config credentials"
+		return fmt.Errorf(msg, jsonCreds.Type)
+	}
+	return nil
+}
+
+// shouldRetryExtended extends default shouldRetry with mainly
+// `client connection lost` error from std library's http package.
+func shouldRetryExtended(err error) bool {
+	if err == nil {
+		return false
+	}
+	if storagegcs.ShouldRetry(err) {
+		return true
+	}
+	if strings.Contains(err.Error(), "http2: client connection lost") ||
+		strings.Contains(err.Error(), "connect: network is unreachable") {
+		return true
+	}
+
+	return false
 }
 
 func (g googleClient) save(name string, data io.Reader, options ...storage.Option) error {
@@ -87,10 +141,10 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 
 	partSize := storage.ComputePartSize(
 		opts.Size,
-		10<<20, // default: 10 MiB
+		defaultChunkSize,
 		align,
 		10_000,
-		int64(g.opts.ChunkSize),
+		int64(g.cfg.ChunkSize),
 	)
 
 	if rem := partSize % align; rem != 0 {
@@ -105,8 +159,9 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 	}
 
 	ctx := context.Background()
-	w := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).NewWriter(ctx)
+	w := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).NewWriter(ctx)
 	w.ChunkSize = int(partSize)
+	w.ChunkRetryDeadline = g.cfg.Retryer.ChunkRetryDeadline
 	if g.log != nil && opts.UseLogger {
 		w.ProgressFunc = func(written int64) {
 			if opts.Size > 0 {
@@ -133,7 +188,7 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 func (g googleClient) fileStat(name string) (storage.FileInfo, error) {
 	ctx := context.Background()
 
-	attrs, err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Attrs(ctx)
+	attrs, err := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).Attrs(ctx)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) {
 			return storage.FileInfo{}, storage.ErrNotExist
@@ -196,7 +251,7 @@ func (g googleClient) list(prefix, suffix string) ([]storage.FileInfo, error) {
 func (g googleClient) delete(name string) error {
 	ctx := context.Background()
 
-	err := g.bucketHandle.Object(path.Join(g.opts.Prefix, name)).Delete(ctx)
+	err := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).Delete(ctx)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) {
 			return storage.ErrNotExist
@@ -210,8 +265,8 @@ func (g googleClient) delete(name string) error {
 func (g googleClient) copy(src, dst string) error {
 	ctx := context.Background()
 
-	srcObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, src))
-	dstObj := g.bucketHandle.Object(path.Join(g.opts.Prefix, dst))
+	srcObj := g.bucketHandle.Object(path.Join(g.cfg.Prefix, src))
+	dstObj := g.bucketHandle.Object(path.Join(g.cfg.Prefix, dst))
 
 	_, err := g.fileStat(src)
 	if err == storage.ErrNotExist {
@@ -226,7 +281,7 @@ func (g googleClient) getPartialObject(name string, buf *storage.Arena, start, l
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
 
-	obj := g.bucketHandle.Object(path.Join(g.opts.Prefix, name))
+	obj := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name))
 	reader, err := obj.NewRangeReader(ctx, start, length)
 	if err != nil {
 		if errors.Is(err, storagegcs.ErrObjectNotExist) || isRangeNotSatisfiable(err) {

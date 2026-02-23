@@ -106,6 +106,11 @@ func SyncBackupList(
 	node string,
 ) error {
 	l := log.LogEventFromContext(ctx)
+	if profile == "" {
+		l.Info("syncing backup list for main storage")
+	} else {
+		l.Info("syncing backup list for profile %q", profile)
+	}
 
 	stg, err := util.StorageFromConfig(cfg, node, l)
 	if err != nil {

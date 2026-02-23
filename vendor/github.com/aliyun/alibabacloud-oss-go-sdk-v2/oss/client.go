@@ -52,6 +52,8 @@ type Options struct {
 	AuthMethod *AuthMethodType
 
 	AdditionalHeaders []string
+
+	EndpointProvider EndpointProvider
 }
 
 func (c Options) Copy() Options {
@@ -205,6 +207,9 @@ func resolveHTTPClient(cfg *Config, o *Options, inner *innerOptions) {
 		})
 		inner.BwTokenBuckets[BwTokenBucketSlotRx] = tb
 	}
+	if cfg.BindAddress != nil {
+		tcfg.BindAddr = cfg.BindAddress
+	}
 
 	o.HttpClient = transport.NewHttpClient(tcfg, custom...)
 }
@@ -354,8 +359,13 @@ func (c *Client) sendRequest(ctx context.Context, input *OperationInput, opts *O
 		}
 	}
 	// host & path
-	host, path := buildURL(input, opts)
-	strUrl := fmt.Sprintf("%s://%s%s", opts.Endpoint.Scheme, host, path)
+	var strUrl string
+	if opts.EndpointProvider != nil {
+		strUrl = opts.EndpointProvider.BuildURL(input)
+	} else {
+		host, path := buildURL(input, opts)
+		strUrl = fmt.Sprintf("%s://%s%s", opts.Endpoint.Scheme, host, path)
+	}
 
 	// querys
 	if len(input.Parameters) > 0 {
@@ -637,13 +647,26 @@ func tryConvertServiceError(response *http.Response) (err error) {
 		se.Message = fmt.Sprintf("The body of the response was not readable, due to :%s", err.Error())
 		return se
 	}
-	err = xml.Unmarshal(body, &se)
+	var tag string
+	if strings.EqualFold(contentTypeJSON, response.Header.Get(HTTPHeaderContentType)) {
+		type ErrorRoot struct {
+			Root json.RawMessage `json:"Error"`
+		}
+		var root ErrorRoot
+		if err = json.Unmarshal(body, &root); err == nil {
+			err = json.Unmarshal(root.Root, &se)
+		}
+		tag = "json"
+	} else {
+		err = xml.Unmarshal(body, &se)
+		tag = "xml"
+	}
 	if err != nil {
 		len := len(body)
 		if len > 256 {
 			len = 256
 		}
-		se.Message = fmt.Sprintf("Failed to parse xml from response body due to: %s. With part response body %s.", err.Error(), string(body[:len]))
+		se.Message = fmt.Sprintf("Failed to parse %s from response body due to: %s. With part response body %s.", tag, err.Error(), string(body[:len]))
 		return se
 	}
 	return se
@@ -905,15 +928,58 @@ func (c *Client) marshalInput(request any, input *OperationInput, handlers ...fu
 	return nil
 }
 
+func marshalRestoreObject(request any, input *OperationInput) error {
+	var builder strings.Builder
+	roRequest := request.(*RestoreObjectRequest)
+	if roRequest.RestoreRequest == nil {
+		return nil
+	}
+
+	restoreRequest := roRequest.RestoreRequest
+	builder.WriteString("<RestoreRequest>")
+	builder.WriteString("<Days>")
+	builder.WriteString(strconv.Itoa(int(restoreRequest.Days)))
+	builder.WriteString("</Days>")
+	if restoreRequest.JobParameters != nil {
+		builder.WriteString("<JobParameters>")
+		if restoreRequest.JobParameters.Tier != nil {
+			builder.WriteString("<Tier>")
+			builder.WriteString(*restoreRequest.JobParameters.Tier)
+			builder.WriteString("</Tier>")
+		}
+		builder.WriteString("</JobParameters>")
+	} else if restoreRequest.Tier != nil {
+		builder.WriteString("<JobParameters>")
+		builder.WriteString("<Tier>")
+		builder.WriteString(*restoreRequest.Tier)
+		builder.WriteString("</Tier>")
+		builder.WriteString("</JobParameters>")
+	}
+	builder.WriteString("</RestoreRequest>")
+	input.Body = strings.NewReader(builder.String())
+	return nil
+}
+
 func marshalDeleteObjects(request any, input *OperationInput) error {
 	var builder strings.Builder
 	delRequest := request.(*DeleteMultipleObjectsRequest)
+	objects := delRequest.Objects
+	quiet := delRequest.Quiet
+	if delRequest.Delete != nil {
+		objects = delRequest.Delete.Objects
+		quiet = delRequest.Delete.Quiet
+	}
+
+	if len(objects) == 0 {
+		return NewErrParamRequired("Objects")
+	}
+
 	builder.WriteString("<Delete>")
 	builder.WriteString("<Quiet>")
-	builder.WriteString(strconv.FormatBool(delRequest.Quiet))
+	builder.WriteString(strconv.FormatBool(quiet))
 	builder.WriteString("</Quiet>")
-	if len(delRequest.Objects) > 0 {
-		for _, object := range delRequest.Objects {
+	if len(objects) > 0 {
+		for _, object := range objects {
 			builder.WriteString("<Object>")
 			if object.Key != nil {
 				builder.WriteString("<Key>")
@@ -1494,6 +1560,16 @@ func (c *Client) getLogLevel() int {
 
 // Content-Type
 const (
-	contentTypeDefault string = "application/octet-stream"
-	contentTypeXML            = "application/xml"
+	contentTypeDefault = "application/octet-stream"
+	contentTypeXML     = "application/xml"
+	contentTypeJSON    = "application/json"
 )
+
+// Exposed to external modules
+func MarshalUpdateContentMd5(request any, input *OperationInput) error {
+	return updateContentMd5(request, input)
+}
+
+func UnmarshalDiscardBody(result any, output *OperationOutput) error {
+	return discardBody(result, output)
+}

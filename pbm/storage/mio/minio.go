@@ -96,15 +96,15 @@ func newMinio(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
 	var creds *credentials.Credentials
 	if cfg.Credentials.SigVer == "V2" {
 		creds = credentials.NewStaticV2(
-			cfg.Credentials.AccessKeyID,
-			cfg.Credentials.SecretAccessKey,
-			cfg.Credentials.SessionToken,
+			string(cfg.Credentials.AccessKeyID),
+			string(cfg.Credentials.SecretAccessKey),
+			string(cfg.Credentials.SessionToken),
 		)
 	} else {
 		creds = credentials.NewStaticV4(
-			cfg.Credentials.AccessKeyID,
-			cfg.Credentials.SecretAccessKey,
-			cfg.Credentials.SessionToken,
+			string(cfg.Credentials.AccessKeyID),
+			string(cfg.Credentials.SecretAccessKey),
+			string(cfg.Credentials.SessionToken),
 		)
 	}
 

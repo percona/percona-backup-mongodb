@@ -40,6 +40,7 @@ type BackupMeta struct {
 	ShardRemap map[string]string `bson:"shardRemap,omitempty" json:"shardRemap,omitempty"`
 
 	Namespaces       []string                 `bson:"nss,omitempty" json:"nss,omitempty"`
+	SelUsersAndRoles bool                     `bson:"sel_users_and_roles,omitempty" json:"sel_users_and_roles,omitempty"`
 	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
 	Store            Storage                  `bson:"store" json:"store"`

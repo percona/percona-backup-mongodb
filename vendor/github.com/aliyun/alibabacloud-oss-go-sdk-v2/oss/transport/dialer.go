@@ -25,6 +25,11 @@ func newDialer(cfg *Config) *Dialer {
 		postRead:  cfg.PostRead,
 		postWrite: cfg.PostWrite,
 	}
+
+	if cfg.BindAddr != nil {
+		dialer.Dialer.LocalAddr = &net.TCPAddr{IP: cfg.BindAddr}
+	}
+
 	return dialer
 }
 

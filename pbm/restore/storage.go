@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -11,12 +12,16 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gopkg.in/yaml.v2"
 
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 func GetPhysRestoreMeta(restoreName string, stg storage.Storage, l log.LogEvent) (*RestoreMeta, error) {
@@ -81,6 +86,10 @@ func ParsePhysRestoreStatus(restoreName string, stg storage.Storage, l log.LogEv
 	})
 
 	for _, f := range rfiles {
+		if strings.HasSuffix(f.Name, extDumpSuffix) {
+			// exclude external restore dump files
+			continue
+		}
 		parts := strings.SplitN(f.Name, ".", 2)
 		if len(parts) != 2 {
 			continue
@@ -316,4 +325,23 @@ func IsCleanupHbAlive(restoreName string, stg storage.Storage, tskew int64) (boo
 	}
 
 	return true, nil
+}
+
+// GetRestoreMetaStg creates Storage type based on provided config file path.
+// It's used during physical restore when mongod is down and config is not
+// available.
+func GetRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
+	buf, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to read config file")
+	}
+
+	var cfg config.Config
+	err = yaml.UnmarshalStrict(buf, &cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to unmarshal config file")
+	}
+
+	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
+	return util.StorageFromConfig(&cfg.Storage, node, l)
 }

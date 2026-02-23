@@ -112,7 +112,7 @@ func (g *GCS) sourceReader(fname string, arenas []*storage.Arena, cc, downloadCh
 				}
 
 			case err := <-pr.Errc:
-				exitErr = errors.Wrapf(err, "SourceReader: download '%s/%s'", g.opts.Bucket, fname)
+				exitErr = errors.Wrapf(err, "SourceReader: download '%s/%s'", g.cfg.Bucket, fname)
 				return
 			}
 		}

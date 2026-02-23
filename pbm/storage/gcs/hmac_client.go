@@ -21,26 +21,26 @@ import (
 
 type hmacClient struct {
 	client *minio.Client
-	opts   *Config
+	cfg    *Config
 	log    log.LogEvent
 }
 
-func newHMACClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
-	if opts.Credentials.HMACAccessKey == "" || opts.Credentials.HMACSecret == "" {
+func newHMACClient(cfg *Config, l log.LogEvent) (*hmacClient, error) {
+	if cfg.Credentials.HMACAccessKey == "" || cfg.Credentials.HMACSecret == "" {
 		return nil, errors.New("HMACAccessKey and HMACSecret are required for HMAC GCS credentials")
 	}
 
-	if opts.Retryer != nil {
-		if opts.Retryer.BackoffInitial > 0 {
-			minio.DefaultRetryUnit = opts.Retryer.BackoffInitial
+	if cfg.Retryer != nil {
+		if cfg.Retryer.BackoffInitial > 0 {
+			minio.DefaultRetryUnit = cfg.Retryer.BackoffInitial
 		}
-		if opts.Retryer.BackoffMax > 0 {
-			minio.DefaultRetryCap = opts.Retryer.BackoffMax
+		if cfg.Retryer.BackoffMax > 0 {
+			minio.DefaultRetryCap = cfg.Retryer.BackoffMax
 		}
 	}
 
 	minioClient, err := minio.New(gcsEndpointURL, &minio.Options{
-		Creds: credentials.NewStaticV2(opts.Credentials.HMACAccessKey, opts.Credentials.HMACSecret, ""),
+		Creds: credentials.NewStaticV2(string(cfg.Credentials.HMACAccessKey), string(cfg.Credentials.HMACSecret), ""),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "create minio client for GCS HMAC")
@@ -48,7 +48,7 @@ func newHMACClient(opts *Config, l log.LogEvent) (*hmacClient, error) {
 
 	return &hmacClient{
 		client: minioClient,
-		opts:   opts,
+		cfg:    cfg,
 		log:    l,
 	}, nil
 }
@@ -66,7 +66,7 @@ func (h hmacClient) save(name string, data io.Reader, options ...storage.Option)
 		10<<20, // default: 10 MiB
 		5<<20,  // min GCS XML part size
 		10_000,
-		int64(h.opts.ChunkSize),
+		int64(h.cfg.ChunkSize),
 	)
 
 	if h.log != nil && opts.UseLogger {
@@ -85,8 +85,8 @@ func (h hmacClient) save(name string, data io.Reader, options ...storage.Option)
 	}
 	putInfo, err := h.client.PutObject(
 		context.Background(),
-		h.opts.Bucket,
-		path.Join(h.opts.Prefix, name),
+		h.cfg.Bucket,
+		path.Join(h.cfg.Prefix, name),
 		dataWithCRC,
 		-1,
 		putOpts,
@@ -105,9 +105,9 @@ func (h hmacClient) save(name string, data io.Reader, options ...storage.Option)
 }
 
 func (h hmacClient) fileStat(name string) (storage.FileInfo, error) {
-	objectName := path.Join(h.opts.Prefix, name)
+	objectName := path.Join(h.cfg.Prefix, name)
 
-	object, err := h.client.StatObject(context.Background(), h.opts.Bucket, objectName, minio.StatObjectOptions{})
+	object, err := h.client.StatObject(context.Background(), h.cfg.Bucket, objectName, minio.StatObjectOptions{})
 	if err != nil {
 		respErr := minio.ToErrorResponse(err)
 		if respErr.Code == "NoSuchKey" || respErr.Code == "NotFound" {
@@ -134,7 +134,7 @@ func (h hmacClient) list(prefix, suffix string) ([]storage.FileInfo, error) {
 
 	var files []storage.FileInfo
 
-	for obj := range h.client.ListObjects(ctx, h.opts.Bucket, minio.ListObjectsOptions{
+	for obj := range h.client.ListObjects(ctx, h.cfg.Bucket, minio.ListObjectsOptions{
 		Prefix:    prefix,
 		Recursive: true,
 	}) {
@@ -162,9 +162,9 @@ func (h hmacClient) list(prefix, suffix string) ([]storage.FileInfo, error) {
 
 func (h hmacClient) delete(name string) error {
 	ctx := context.Background()
-	objectName := path.Join(h.opts.Prefix, name)
+	objectName := path.Join(h.cfg.Prefix, name)
 
-	err := h.client.RemoveObject(ctx, h.opts.Bucket, objectName, minio.RemoveObjectOptions{})
+	err := h.client.RemoveObject(ctx, h.cfg.Bucket, objectName, minio.RemoveObjectOptions{})
 	if err != nil {
 		respErr := minio.ToErrorResponse(err)
 		if respErr.Code == "NoSuchKey" || respErr.Code == "NotFound" {
@@ -182,12 +182,12 @@ func (h hmacClient) copy(src, dst string) error {
 
 	_, err := h.client.CopyObject(ctx,
 		minio.CopyDestOptions{
-			Bucket: h.opts.Bucket,
-			Object: path.Join(h.opts.Prefix, dst),
+			Bucket: h.cfg.Bucket,
+			Object: path.Join(h.cfg.Prefix, dst),
 		},
 		minio.CopySrcOptions{
-			Bucket: h.opts.Bucket,
-			Object: path.Join(h.opts.Prefix, src),
+			Bucket: h.cfg.Bucket,
+			Object: path.Join(h.cfg.Prefix, src),
 		},
 	)
 
@@ -198,7 +198,7 @@ func (h hmacClient) getPartialObject(name string, buf *storage.Arena, start, len
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
 
-	objectName := path.Join(h.opts.Prefix, name)
+	objectName := path.Join(h.cfg.Prefix, name)
 
 	opts := minio.GetObjectOptions{}
 
@@ -207,7 +207,7 @@ func (h hmacClient) getPartialObject(name string, buf *storage.Arena, start, len
 		return nil, errors.Wrap(err, "failed to set range on GetObjectOptions")
 	}
 
-	object, err := h.client.GetObject(ctx, h.opts.Bucket, objectName, opts)
+	object, err := h.client.GetObject(ctx, h.cfg.Bucket, objectName, opts)
 	if err != nil {
 		respErr := minio.ToErrorResponse(err)
 		if respErr.Code == "NoSuchKey" || respErr.Code == "InvalidRange" {

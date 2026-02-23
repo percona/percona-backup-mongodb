@@ -74,7 +74,7 @@ func (o *OSS) Save(name string, data io.Reader, options ...storage.Option) error
 		case ServerSideEncryptionKMS:
 			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionKMS)
 			req.ServerSideDataEncryption = oss.Ptr(sse.EncryptionAlgorithm)
-			req.ServerSideEncryptionKeyId = oss.Ptr(sse.EncryptionKeyID)
+			req.ServerSideEncryptionKeyId = oss.Ptr(string(sse.EncryptionKeyID))
 		default:
 			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionAes256)
 		}
@@ -232,7 +232,7 @@ func (o *OSS) Copy(src, dst string) error {
 		case ServerSideEncryptionKMS:
 			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionKMS)
 			req.ServerSideDataEncryption = oss.Ptr(sse.EncryptionAlgorithm)
-			req.ServerSideEncryptionKeyId = oss.Ptr(sse.EncryptionKeyID)
+			req.ServerSideEncryptionKeyId = oss.Ptr(string(sse.EncryptionKeyID))
 		default:
 			req.ServerSideEncryption = oss.Ptr(ServerSideEncryptionAes256)
 		}

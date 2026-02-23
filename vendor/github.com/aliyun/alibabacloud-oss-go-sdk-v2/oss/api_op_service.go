@@ -19,6 +19,15 @@ type ListBucketsRequest struct {
 	// The ID of the resource group.
 	ResourceGroupId *string `input:"header,x-oss-resource-group-id"`
 
+	// A tag key of target buckets. The listing results will only include Buckets that have been tagged with this key.
+	TagKey *string `input:"query,tag-key"`
+
+	// A tag value for the target buckets. If this parameter is specified in the request, the tag-key must also be specified. The listing results will only include Buckets that have been tagged with this key-value pair.
+	TagValue *string `input:"query,tag-value"`
+
+	// Tag list of target buckets. Only Buckets that match all the key-value pairs in the list will added into the listing results. The tagging parameter cannot be used with the tag-key and tag-value parameters in a request.
+	Tagging *string `input:"query,tagging"`
+
 	RequestCommon
 }
 

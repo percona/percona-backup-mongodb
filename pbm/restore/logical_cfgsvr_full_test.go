@@ -6,19 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	pbmlog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -26,38 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
-var leadConn connect.Client
-
 const configSystemSessionsUUID = "92e8635902a743a09cf410d4a2a4a576"
-
-func TestMain(m *testing.M) {
-	ctx := context.Background()
-	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:8.0.4-multi")
-	if err != nil {
-		log.Fatalf("error while creating mongo test container: %v", err)
-	}
-	connStr, err := mongodbContainer.ConnectionString(ctx)
-	if err != nil {
-		log.Fatalf("conn string error: %v", err)
-	}
-
-	leadConn, err = connect.Connect(ctx, connStr, "restore-test")
-	if err != nil {
-		log.Fatalf("mongo client connect error: %v", err)
-	}
-
-	code := m.Run()
-
-	err = leadConn.Disconnect(ctx)
-	if err != nil {
-		log.Fatalf("mongo client disconnect error: %v", err)
-	}
-	if err := testcontainers.TerminateContainer(mongodbContainer); err != nil {
-		log.Fatalf("failed to terminate container: %s", err)
-	}
-
-	os.Exit(code)
-}
 
 func TestFullRestoreConfigDatabases(t *testing.T) {
 	ctx := context.Background()

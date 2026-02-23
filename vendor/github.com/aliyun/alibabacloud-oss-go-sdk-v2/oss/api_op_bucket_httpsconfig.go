@@ -17,6 +17,18 @@ type TLS struct {
 type HttpsConfiguration struct {
 	// The container that stores TLS version configurations.
 	TLS *TLS `xml:"TLS"`
+
+	CipherSuite *CipherSuite `xml:"CipherSuite"`
+}
+
+type CipherSuite struct {
+	Enable *bool `xml:"Enable"`
+
+	StrongCipherSuite *bool `xml:"StrongCipherSuite"`
+
+	CustomCipherSuites []string `xml:"CustomCipherSuite"`
+
+	TLS13CustomCipherSuites []string `xml:"TLS13CustomCipherSuite"`
 }
 
 type GetBucketHttpsConfigRequest struct {

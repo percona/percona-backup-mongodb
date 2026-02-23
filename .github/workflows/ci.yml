@@ -34,6 +34,10 @@ on:
       - "packaging/**"
       - "version/**"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -49,11 +53,45 @@ jobs:
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
       MAKE_TARGET: 'build-cover'
     steps:
+      - name: Cleanup unnecessary software
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
+      - name: Determine test branch
+        id: test_branch
+        run: |
+          if [ -n "${{ github.event.inputs.tests_ver }}" ]; then
+            echo "branch=${{ github.event.inputs.tests_ver }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.event.pull_request.title }}" ]; then
+            PR_TITLE="${{ github.event.pull_request.title }}"
+            echo "PR title: $PR_TITLE"
+            BRANCH_TO_CHECK=$(echo "$PR_TITLE" | grep -oE 'PBM-[0-9]+' | head -1)
+            if [ -n "$BRANCH_TO_CHECK" ]; then
+              echo "Extracted branch pattern: $BRANCH_TO_CHECK"
+              if curl -sf "https://api.github.com/repos/Percona-QA/psmdb-testing/branches/$BRANCH_TO_CHECK" > /dev/null; then
+                echo "Branch $BRANCH_TO_CHECK found, using it"
+                echo "branch=$BRANCH_TO_CHECK" >> $GITHUB_OUTPUT
+              else
+                echo "Branch $BRANCH_TO_CHECK not found, falling back to main"
+                echo "branch=main" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "No PBM-XXXXX pattern found in PR title, using main"
+              echo "branch=main" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "branch=main" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout testing repo
         uses: actions/checkout@v4
         with:
           repository: Percona-QA/psmdb-testing
-          ref: ${{ github.event.inputs.tests_ver || 'main'}}
+          ref: ${{ steps.test_branch.outputs.branch }}
           path: psmdb-testing
 
       - name: Setup environment with PSMDB ${{ matrix.psmdb }} for PBM PR/branch ${{ github.event.pull_request.title || env.PR_NUMBER || env.PBM_BRANCH }}

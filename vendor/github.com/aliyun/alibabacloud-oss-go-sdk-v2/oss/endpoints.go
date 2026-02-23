@@ -60,3 +60,8 @@ func endpointFromRegion(region string, disableSSL bool, etype EndpointType) stri
 
 	return endpoint
 }
+
+// A interface for an endpoint provider.
+type EndpointProvider interface {
+	BuildURL(input *OperationInput) string
+}

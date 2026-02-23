@@ -734,6 +734,65 @@ func (c *Client) AppendObject(ctx context.Context, request *AppendObjectRequest,
 	return result, err
 }
 
+type SealAppendObjectRequest struct {
+	// Bucket name
+	Bucket *string `input:"host,bucket,required"`
+
+	// Name of the Appendable Object
+	Key *string `input:"path,key,required"`
+
+	// Used to specify the expected length of the file when the user wants to seal it.
+	Position *int64 `input:"query,position,required"`
+
+	RequestCommon
+}
+
+type SealAppendObjectResult struct {
+	// The time in GMT format when the SealAppendObject operation was first performed on the object.
+	// This timestamp does not change even if the operation is performed again.
+	SealedTime *string `output:"header,x-oss-sealed-time"`
+
+	ResultCommon
+}
+
+// SealAppendObject This operation stops writing to the Appendable Object, after which the user can configure lifecycle rules to change the storage class of the corresponding Appendable Object to Cold Archive or Deep Cold Archive.
+func (c *Client) SealAppendObject(ctx context.Context, request *SealAppendObjectRequest, optFns ...func(*Options)) (*SealAppendObjectResult, error) {
+	var err error
+	if request == nil {
+		request = &SealAppendObjectRequest{}
+	}
+	input := &OperationInput{
+		OpName: "SealAppendObject",
+		Method: "POST",
+		Headers: map[string]string{
+			HTTPHeaderContentType: contentTypeXML,
+		},
+		Parameters: map[string]string{
+			"seal": "",
+		},
+		Bucket: request.Bucket,
+		Key:    request.Key,
+	}
+
+	input.OpMetadata.Set(signer.SubResource, []string{"seal"})
+
+	if err = c.marshalInput(request, input, updateContentMd5); err != nil {
+		return nil, err
+	}
+	output, err := c.invokeOperation(ctx, input, optFns)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &SealAppendObjectResult{}
+
+	if err = c.unmarshalOutput(result, output, discardBody, unmarshalHeader); err != nil {
+		return nil, c.toClientError(err, "UnmarshalOutputFail", output)
+	}
+
+	return result, err
+}
+
 type DeleteObjectRequest struct {
 	// The name of the bucket.
 	Bucket *string `input:"host,bucket,required"`
@@ -788,6 +847,25 @@ func (c *Client) DeleteObject(ctx context.Context, request *DeleteObjectRequest,
 	return result, err
 }
 
+type DeleteObject struct {
+	// The name of the object that you want to delete.
+	Key *string `xml:"Key"`
+
+	// The version ID of the object that you want to delete.
+	VersionId *string `xml:"VersionId"`
+}
+
+type ObjectIdentifier = DeleteObject
+
+type Delete struct {
+	// The container that stores information about you want to delete objects.
+	Objects []ObjectIdentifier
+
+	// Specifies whether to enable the Quiet return mode.
+	// The DeleteMultipleObjects operation provides the following return modes: Valid value: true,false
+	Quiet bool
+}
+
 type DeleteMultipleObjectsRequest struct {
 	// The name of the bucket.
 	Bucket *string `input:"host,bucket,required"`
@@ -799,24 +877,23 @@ type DeleteMultipleObjectsRequest struct {
 	ContentLength int64 `input:"header,Content-Length"`
 
 	// The container that stores information about you want to delete objects.
-	Objects []DeleteObject `input:"nop,objects,required"`
+	// Objects will be deprecated and removed in the future. Use Delete.Objects instead.
+	// If both exist simultaneously, the value of Delete will take precedence.
+	Objects []DeleteObject
 
 	// Specifies whether to enable the Quiet return mode.
 	// The DeleteMultipleObjects operation provides the following return modes: Valid value: true,false
+	// Quiet will be deprecated and removed in the future. Use Delete.Quiet instead.
+	// If both exist simultaneously, the value of Delete will take precedence.
 	Quiet bool
 
 	// To indicate that the requester is aware that the request and data download will incur costs
 	RequestPayer *string `input:"header,x-oss-request-payer"`
 
+	// The container that stores information about you want to delete objects.
+	Delete *Delete
+
 	RequestCommon
-}
-
-type DeleteObject struct {
-	// The name of the object that you want to delete.
-	Key *string `xml:"Key"`
-
-	// The version ID of the object that you want to delete.
-	VersionId *string `xml:"VersionId"`
 }
 
 type DeleteMultipleObjectsResult struct {
@@ -1137,7 +1214,7 @@ type RestoreObjectRequest struct {
 	VersionId *string `input:"query,versionId"`
 
 	// The container that stores information about the RestoreObject request.
-	RestoreRequest *RestoreRequest `input:"body,RestoreRequest,xml"`
+	RestoreRequest *RestoreRequest //`input:"body,RestoreRequest,xml"`
 
 	// To indicate that the requester is aware that the request and data download will incur costs
 	RequestPayer *string `input:"header,x-oss-request-payer"`
@@ -1150,7 +1227,19 @@ type RestoreRequest struct {
 	Days int32 `xml:"Days"`
 
 	// The restoration priority of Cold Archive or Deep Cold Archive objects. Valid values:Expedited,Standard,Bulk
-	Tier *string `xml:"JobParameters>Tier"`
+	// Tier will be deprecated and removed in the future. Use JobParameters.Tier instead.
+	// If both exist simultaneously, the value of JobParameters will take precedence.
+	Tier *string //`xml:"JobParameters>Tier"`
+
+	// The container that stores the restoration priority coniguration.
+	// This configuration takes effect only when the request is sent to restore Cold Archive objects.
+	// If you do not specify the JobParameters parameter, the default restoration priority Standard is used.
+	JobParameters *JobParameters `xml:"JobParameters"`
+}
+
+type JobParameters struct {
+	// The restoration priority of Cold Archive or Deep Cold Archive objects. Valid values:Expedited,Standard,Bulk
+	Tier *string `xml:"Tier"`
 }
 
 type RestoreObjectResult struct {
@@ -1165,6 +1254,7 @@ type RestoreObjectResult struct {
 }
 
 // RestoreObject Restores Archive, Cold Archive, or Deep Cold Archive objects.
+// You are charged based on tier(restoration priority) when you restore object. For more information, see OSS document.
 func (c *Client) RestoreObject(ctx context.Context, request *RestoreObjectRequest, optFns ...func(*Options)) (*RestoreObjectResult, error) {
 	var err error
 	if request == nil {
@@ -1182,7 +1272,7 @@ func (c *Client) RestoreObject(ctx context.Context, request *RestoreObjectReques
 			"restore": "",
 		},
 	}
-	if err = c.marshalInput(request, input, updateContentMd5); err != nil {
+	if err = c.marshalInput(request, input, marshalRestoreObject, updateContentMd5); err != nil {
 		return nil, err
 	}
 
@@ -2232,12 +2322,12 @@ type PutObjectTaggingRequest struct {
 
 type Tagging struct {
 	// The container used to store a set of Tags.
-	TagSet *TagSet `xml:"TagSet"`
+	TagSet *TagSet `xml:"TagSet" json:"TagSet,omitempty"`
 }
 
 type TagSet struct {
 	// The tags.
-	Tags []Tag `xml:"Tag"`
+	Tags []Tag `xml:"Tag" json:"Tag,omitempty"`
 }
 
 type Tag struct {
@@ -2246,13 +2336,13 @@ type Tag struct {
 	// *  A tag key cannot start with `http://`, `https://`, or `Aliyun`.
 	// *  A tag key must be UTF-8 encoded.
 	// *  A tag key cannot be left empty.
-	Key *string `xml:"Key"`
+	Key *string `xml:"Key" json:"Key,omitempty"`
 
 	// The value of the tag that you want to add or modify.
 	// * A tag value can be up to 128 bytes in length.
 	// * A tag value must be UTF-8 encoded.
 	// * The tag value can be left empty.
-	Value *string `xml:"Value"`
+	Value *string `xml:"Value" json:"Value,omitempty"`
 }
 
 type PutObjectTaggingResult struct {
@@ -2467,7 +2557,7 @@ type AsyncProcessObjectRequest struct {
 	Key *string `input:"path,key,required"`
 
 	// Image async processing parameters
-	AsyncProcess *string `input:"x-async-oss-process,nop,required"`
+	AsyncProcess *string `input:"x-oss-async-process,nop,required"`
 
 	// To indicate that the requester is aware that the request and data download will incur costs
 	RequestPayer *string `input:"header,x-oss-request-payer"`
