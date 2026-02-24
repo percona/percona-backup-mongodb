@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -392,4 +393,12 @@ func (s MaskedString) MarshalYAML() (any, error) {
 		return "", nil
 	}
 	return "***", nil
+}
+
+// TrimSlashes removes leading and trailing '/' characters from a storage path
+// component (bucket, prefix, container). This prevents issues with S3-compatible
+// APIs where extra slashes in bucket names or prefixes cause signature errors
+// or object discovery failures.
+func TrimSlashes(s string) string {
+	return strings.Trim(s, "/")
 }

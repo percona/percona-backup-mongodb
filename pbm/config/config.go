@@ -542,6 +542,7 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	if err := cfg.Storage.Cast(); err != nil {
 		return errors.Wrap(err, "cast storage")
 	}
+	sanitizeStoragePaths(&cfg.Storage)
 
 	if cfg.Storage.Type == storage.S3 {
 		// call the function for notification purpose.
@@ -613,6 +614,10 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		return errors.Wrapf(err, "casting value of %s", key)
 	}
 
+	if isStoragePathKey(key) {
+		v = storage.TrimSlashes(v.(string))
+	}
+
 	// TODO: how to be with special case options like pitr.enabled
 	switch key {
 	case "pitr.enabled":
@@ -633,6 +638,50 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		bson.D{{"profile", nil}},
 		bson.M{"$set": bson.M{key: v}})
 	return errors.Wrap(err, "write to db")
+}
+
+// sanitizeStoragePaths trims leading/trailing slashes from bucket, container,
+// and prefix values in the storage config. Extra slashes in these values cause
+// S3-compatible API signature errors or backup discovery failures.
+func sanitizeStoragePaths(s *StorageConf) {
+	switch s.Type {
+	case storage.S3:
+		if s.S3 != nil {
+			s.S3.Bucket = storage.TrimSlashes(s.S3.Bucket)
+			s.S3.Prefix = storage.TrimSlashes(s.S3.Prefix)
+		}
+	case storage.Minio:
+		if s.Minio != nil {
+			s.Minio.Bucket = storage.TrimSlashes(s.Minio.Bucket)
+			s.Minio.Prefix = storage.TrimSlashes(s.Minio.Prefix)
+		}
+	case storage.GCS:
+		if s.GCS != nil {
+			s.GCS.Bucket = storage.TrimSlashes(s.GCS.Bucket)
+			s.GCS.Prefix = storage.TrimSlashes(s.GCS.Prefix)
+		}
+	case storage.Azure:
+		if s.Azure != nil {
+			s.Azure.Container = storage.TrimSlashes(s.Azure.Container)
+			s.Azure.Prefix = storage.TrimSlashes(s.Azure.Prefix)
+		}
+	case storage.OSS:
+		if s.OSS != nil {
+			s.OSS.Bucket = storage.TrimSlashes(s.OSS.Bucket)
+			s.OSS.Prefix = storage.TrimSlashes(s.OSS.Prefix)
+		}
+	}
+}
+
+// isStoragePathKey reports whether the config key refers to a storage
+// bucket, container, or prefix field that should have slashes trimmed.
+func isStoragePathKey(key string) bool {
+	if !strings.HasPrefix(key, "storage.") {
+		return false
+	}
+	return strings.HasSuffix(key, ".bucket") ||
+		strings.HasSuffix(key, ".container") ||
+		strings.HasSuffix(key, ".prefix")
 }
 
 func confSetPITR(ctx context.Context, m connect.Client, value bool) error {
