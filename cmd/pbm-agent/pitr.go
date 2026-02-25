@@ -297,6 +297,14 @@ func (a *Agent) pitr(ctx context.Context) error {
 		return nil
 	}
 
+	// If PITR is in a fatal error state (e.g. no base backup), skip
+	// nomination and wait cycles. A new backup is needed to clear this.
+	cStatus, serr := oplog.GetClusterStatus(ctx, a.leadConn)
+	if serr == nil && cStatus == oplog.StatusError {
+		l.Info("pitr is in error state, new backup is required to resume")
+		return nil
+	}
+
 	if nodeInfo.IsClusterLeader() {
 		// start monitor jobs on cluster leader
 		a.startMon(ctx, cfg)
@@ -336,8 +344,12 @@ func (a *Agent) pitr(ctx context.Context) error {
 	}
 
 	defer func() {
-		if err != nil {
-			l.Debug("setting RS error status for err: %v", err)
+		if err == nil {
+			return
+		}
+		l.Debug("setting RS error status for err: %v", err)
+		var fatalErr slicer.FatalSlicerError
+		if errors.As(err, &fatalErr) {
 			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error()); err != nil {
 				l.Error("error while setting error status: %v", err)
 			}
@@ -431,10 +443,19 @@ func (a *Agent) pitr(ctx context.Context) error {
 			monitorPrio,
 		)
 		if streamErr != nil {
-			l.Error("streaming oplog: %v", streamErr)
-			retErr := errors.Wrap(streamErr, "streaming oplog")
-			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
-				l.Error("setting RS status to StatusError: %v", err)
+			var movedErr slicer.OpMovedError
+			var fatalErr slicer.FatalSlicerError
+
+			switch {
+			case errors.As(streamErr, &movedErr):
+				l.Info("streaming stopped: %v", streamErr)
+			case errors.As(streamErr, &fatalErr):
+				l.Error("streaming oplog: %v", streamErr)
+				if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, streamErr.Error()); err != nil {
+					l.Error("setting RS status to StatusError: %v", err)
+				}
+			default:
+				l.Error("streaming oplog: %v", streamErr)
 			}
 		}
 
@@ -453,6 +474,16 @@ func (a *Agent) leadNomination(
 	cfgPrio config.Priority,
 ) {
 	l := log.LogEventFromContext(ctx)
+
+	status, err := oplog.GetClusterStatus(ctx, a.leadConn)
+	if err != nil && !errors.Is(err, errors.ErrNotFound) {
+		l.Error("get cluster status: %v", err)
+		return
+	}
+	if status == oplog.StatusError {
+		l.Info("pitr is in error state, new backup is required to resume")
+		return
+	}
 
 	l.Debug("checking locks in the whole cluster")
 	noLocks, err := a.waitAllOpLockRelease(ctx)
@@ -936,11 +967,14 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 				continue
 			}
 
-			l.Debug("error while executing pitr, pitr procedure will be restarted")
+			l.Debug("error while executing pitr, pitr procedure will be stopped")
 			err = oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusError)
 			if err != nil {
 				l.Error("error while setting cluster status Error: %v", err)
 			}
+			a.removePitr()
+			a.stopMon()
+			return
 
 		case <-ctx.Done():
 			return

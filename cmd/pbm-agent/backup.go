@@ -11,6 +11,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -258,6 +259,19 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	} else {
 		l.Info("backup finished")
+
+		// A successful backup creates a new PITR starting point.
+		// Clear any fatal PITR error so the supervisor can restart slicing.
+		if nodeInfo.IsLeader() {
+			status, serr := oplog.GetClusterStatus(ctx, a.leadConn)
+			if serr == nil && status == oplog.StatusError {
+				if ierr := oplog.SetClusterStatus(ctx, a.leadConn, oplog.StatusUnset); ierr != nil {
+					l.Warning("clear PITR error status: %v", ierr)
+				} else {
+					l.Info("PITR error state cleared after successful backup")
+				}
+			}
+		}
 	}
 }
 

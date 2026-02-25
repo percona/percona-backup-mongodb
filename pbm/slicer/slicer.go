@@ -84,7 +84,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 	lastBackup, err := backup.GetLastBackup(ctx, s.leadClient, nil)
 	if err != nil {
 		if errors.Is(err, errors.ErrNotFound) {
-			err = errors.New("no backup found. full backup is required to start PITR")
+			return FatalSlicerError{errors.New("no backup found. full backup is required to start PITR")}
 		}
 		return errors.Wrap(err, "get last backup")
 	}
@@ -98,9 +98,9 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		}
 	}
 	if rs == nil {
-		return errors.Errorf("no replset %q in the last backup %q. "+
+		return FatalSlicerError{errors.Errorf("no replset %q in the last backup %q. "+
 			"full backup is required to start PITR",
-			s.rs, lastBackup.Name)
+			s.rs, lastBackup.Name)}
 	}
 
 	lastRestore, err := restore.GetLastRestore(ctx, s.leadClient)
@@ -108,9 +108,9 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 		return errors.Wrap(err, "get last restore")
 	}
 	if lastRestore != nil && lastBackup.StartTS < lastRestore.StartTS {
-		return errors.Errorf("no backup found after the restored %s, "+
+		return FatalSlicerError{errors.Errorf("no backup found after the restored %s, "+
 			"a new backup is required to resume PITR",
-			lastRestore.Backup)
+			lastRestore.Backup)}
 	}
 
 	lastChunk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
@@ -220,7 +220,7 @@ func (s *Slicer) OplogOnlyCatchup(ctx context.Context) error {
 		return errors.Wrapf(err, "check oplog sufficiency for %v", lastChunk)
 	}
 	if !ok {
-		return oplog.InsuffRangeError{lastChunk.EndTS}
+		return FatalSlicerError{oplog.InsuffRangeError{lastChunk.EndTS}}
 	}
 
 	s.lastTS = lastChunk.EndTS
@@ -291,6 +291,16 @@ func (e OpMovedError) Is(err error) bool {
 	return ok
 }
 
+// FatalSlicerError wraps errors that are permanent and cannot be resolved
+// by retrying. PITR should not restart until the underlying issue is fixed
+// (e.g. a new backup is taken).
+type FatalSlicerError struct {
+	Err error
+}
+
+func (e FatalSlicerError) Error() string { return e.Err.Error() }
+func (e FatalSlicerError) Unwrap() error { return e.Err }
+
 // LogStartMsg message to log on successful streaming start
 const LogStartMsg = "start_ok"
 
@@ -321,7 +331,7 @@ func (s *Slicer) Stream(
 		return errors.Wrap(err, "check oplog sufficiency")
 	}
 	if !ok {
-		return oplog.InsuffRangeError{s.lastTS}
+		return FatalSlicerError{oplog.InsuffRangeError{s.lastTS}}
 	}
 	s.l.Debug(LogStartMsg)
 
