@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -19,9 +18,6 @@ func AskConfirmation(question string) error {
 		return errors.New("no tty")
 	}
 
-	if runtime.GOOS == "linux" {
-		question = fmt.Sprintf("\033[1;33m%s\033[0m", question) // Yellow text for Linux terminals
-	}
 	fmt.Printf("%s [y/N] ", question)
 
 	scanner := bufio.NewScanner(os.Stdin)
