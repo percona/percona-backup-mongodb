@@ -181,9 +181,15 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 	}
 
 	putOpts := minio.PutObjectOptions{
-		PartSize:   uint64(partSize),
-		NumThreads: uint(max(runtime.NumCPU()/2, 1)),
+		PartSize:              uint64(partSize),
+		NumThreads:            uint(max(runtime.NumCPU()/2, 1)),
+		ConcurrentStreamParts: true,
 	}
+	if opts.Size > 0 && opts.Size <= partSize {
+		// just optimization to not use it without the reason
+		putOpts.ConcurrentStreamParts = false
+	}
+
 	_, err := m.cl.PutObject(
 		context.Background(),
 		m.cfg.Bucket,
@@ -192,6 +198,11 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 		-1,
 		putOpts,
 	)
+	if err == io.EOF {
+		// this is minio issue related to ConcurrentStreamParts,
+		// so we'll just ignore it for now
+		return nil
+	}
 
 	return errors.Wrap(err, "upload using minio")
 }
