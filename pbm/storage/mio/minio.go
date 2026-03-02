@@ -190,7 +190,7 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 		putOpts.ConcurrentStreamParts = false
 	}
 
-	_, err := m.cl.PutObject(
+	upInf, err := m.cl.PutObject(
 		context.Background(),
 		m.cfg.Bucket,
 		path.Join(m.cfg.Prefix, name),
@@ -198,10 +198,23 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 		-1,
 		putOpts,
 	)
-	if err == io.EOF {
-		// this is minio issue related to ConcurrentStreamParts,
-		// so we'll just ignore it for now
-		return nil
+	if err == io.EOF && putOpts.ConcurrentStreamParts && upInf.Size == 0 {
+		// In case when conditions above are fulfilled,
+		// PBM hits minio issue related to ConcurrentStreamParts,
+		// so we'll just ignore it for now and try to retry it
+		// without ConcurrentStreamParts enabled.
+		// This handling should be removed after the fix is released:
+		// https://github.com/minio/minio-go/pull/2207
+		putOpts.ConcurrentStreamParts = false
+		_, err = m.cl.PutObject(
+			context.Background(),
+			m.cfg.Bucket,
+			path.Join(m.cfg.Prefix, name),
+			data,
+			-1,
+			putOpts,
+		)
+		return errors.Wrap(err, "retry upload using minio and disabled concurrent stream parts")
 	}
 
 	return errors.Wrap(err, "upload using minio")
