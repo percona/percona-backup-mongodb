@@ -98,6 +98,12 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		return
 	}
 
+	cfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		l.Error("get PBM configuration: %v", err)
+		return
+	}
+
 	// stop balancer during the restore
 	if a.brief.Sharded && nodeInfo.IsClusterLeader() {
 		bs, err := topo.GetBalancerStatus(ctx, a.leadConn)
@@ -107,7 +113,17 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		}
 
 		if bs.IsOn() {
-			err := topo.SetBalancerStatus(ctx, a.leadConn, topo.BalancerModeOff)
+			balancerCtx := ctx
+			balancerTimeout := cfg.BalancerWaitTimeout()
+			if balancerTimeout > 0 {
+				var cancel context.CancelFunc
+				balancerCtx, cancel = context.WithTimeout(ctx, balancerTimeout)
+				defer cancel()
+
+				l.Debug("stopping balancer with timeout %s", balancerTimeout)
+			}
+
+			err := topo.SetBalancerStatus(balancerCtx, a.leadConn, topo.BalancerModeOff)
 			if err != nil {
 				l.Error("set balancer off: %v", err)
 			}
@@ -154,12 +170,6 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		}
 		bcpType = bcp.Type
 		r.BackupName = bcp.Name
-	}
-
-	cfg, err := config.GetConfig(ctx, a.leadConn)
-	if err != nil {
-		l.Error("get PBM configuration: %v", err)
-		return
 	}
 
 	l.Info("recovery started")

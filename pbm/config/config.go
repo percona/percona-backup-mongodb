@@ -80,6 +80,10 @@ type Config struct {
 	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 
+	// BalancerWait is timeout (in minutes) to wait for the balancer to stop
+	// during backup or restore. 0 means wait indefinitely (default).
+	BalancerWait uint32 `bson:"balancerWait,omitempty" json:"balancerWait,omitempty" yaml:"balancerWait,omitempty"`
+
 	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
 
@@ -499,6 +503,12 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 	}
 
 	return time.Duration(*t.Starting) * time.Second
+}
+
+// BalancerWaitTimeout returns the timeout duration for waiting for the balancer to stop.
+// Returns 0 if not set, meaning PBM will wait indefinitely.
+func (c *Config) BalancerWaitTimeout() time.Duration {
+	return time.Duration(c.BalancerWait) * time.Minute
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {

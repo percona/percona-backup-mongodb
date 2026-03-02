@@ -288,7 +288,17 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 
 	if inf.IsSharded() && inf.IsLeader() {
 		if bcpm.BalancerStatus == topo.BalancerModeOn {
-			err = topo.SetBalancerStatus(ctx, b.leadConn, topo.BalancerModeOff)
+			balancerCtx := ctx
+			balancerTimeout := b.config.BalancerWaitTimeout()
+			if balancerTimeout > 0 {
+				var cancel context.CancelFunc
+				balancerCtx, cancel = context.WithTimeout(ctx, balancerTimeout)
+				defer cancel()
+
+				l.Debug("stopping balancer with timeout %s", balancerTimeout)
+			}
+
+			err = topo.SetBalancerStatus(balancerCtx, b.leadConn, topo.BalancerModeOff)
 			if err != nil {
 				return errors.Wrap(err, "set balancer OFF")
 			}
