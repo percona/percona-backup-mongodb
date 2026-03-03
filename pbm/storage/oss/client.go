@@ -10,6 +10,8 @@ import (
 	osscred "github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/retry"
 	"github.com/aliyun/credentials-go/credentials/providers"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 const (
@@ -31,7 +33,7 @@ type Config struct {
 
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
+	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
@@ -43,10 +45,11 @@ type Config struct {
 	ServerSideEncryption *SSE `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
 }
 
+//nolint:lll
 type SSE struct {
-	EncryptionMethod    string `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
-	EncryptionAlgorithm string `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
-	EncryptionKeyID     string `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
+	EncryptionMethod    string               `bson:"encryptionMethod,omitempty" json:"encryptionMethod,omitempty" yaml:"encryptionMethod,omitempty"`
+	EncryptionAlgorithm string               `bson:"encryptionAlgorithm,omitempty" json:"encryptionAlgorithm,omitempty" yaml:"encryptionAlgorithm,omitempty"`
+	EncryptionKeyID     storage.MaskedString `bson:"encryptionKeyId,omitempty" json:"encryptionKeyId,omitempty" yaml:"encryptionKeyId,omitempty"`
 }
 
 type Retryer struct {
@@ -55,12 +58,13 @@ type Retryer struct {
 	BaseDelay   time.Duration `bson:"baseDelay" json:"baseDelay" yaml:"baseDelay"`
 }
 
+//nolint:lll
 type Credentials struct {
-	AccessKeyID     string `bson:"accessKeyId" json:"accessKeyId,omitempty" yaml:"accessKeyId,omitempty"`
-	AccessKeySecret string `bson:"accessKeySecret" json:"accessKeySecret,omitempty" yaml:"accessKeySecret,omitempty"`
-	SecurityToken   string `bson:"securityToken" json:"securityToken,omitempty" yaml:"securityToken,omitempty"`
-	RoleARN         string `bson:"roleArn,omitempty" json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
-	SessionName     string `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
+	AccessKeyID     storage.MaskedString `bson:"accessKeyId" json:"accessKeyId,omitempty" yaml:"accessKeyId,omitempty"`
+	AccessKeySecret storage.MaskedString `bson:"accessKeySecret" json:"accessKeySecret,omitempty" yaml:"accessKeySecret,omitempty"`
+	SecurityToken   storage.MaskedString `bson:"securityToken" json:"securityToken,omitempty" yaml:"securityToken,omitempty"`
+	RoleARN         storage.MaskedString `bson:"roleArn,omitempty" json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
+	SessionName     storage.MaskedString `bson:"sessionName,omitempty" json:"sessionName,omitempty" yaml:"sessionName,omitempty"`
 }
 
 // IsSameStorage identifies the same instance of the OSS storage.
@@ -78,6 +82,10 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 	if cfg.Prefix != other.Prefix {
 		return false
 	}
+	if cfg.EndpointURL != other.EndpointURL {
+		return false
+	}
+
 	return true
 }
 
@@ -155,14 +163,14 @@ func newCred(config *Config) (*cred, error) {
 
 	if config.Credentials.SecurityToken != "" {
 		credentialsProvider, err = providers.NewStaticSTSCredentialsProviderBuilder().
-			WithAccessKeyId(config.Credentials.AccessKeyID).
-			WithAccessKeySecret(config.Credentials.AccessKeySecret).
-			WithSecurityToken(config.Credentials.SecurityToken).
+			WithAccessKeyId(string(config.Credentials.AccessKeyID)).
+			WithAccessKeySecret(string(config.Credentials.AccessKeySecret)).
+			WithSecurityToken(string(config.Credentials.SecurityToken)).
 			Build()
 	} else {
 		credentialsProvider, err = providers.NewStaticAKCredentialsProviderBuilder().
-			WithAccessKeyId(config.Credentials.AccessKeyID).
-			WithAccessKeySecret(config.Credentials.AccessKeySecret).
+			WithAccessKeyId(string(config.Credentials.AccessKeyID)).
+			WithAccessKeySecret(string(config.Credentials.AccessKeySecret)).
 			Build()
 	}
 	if err != nil {
@@ -173,8 +181,8 @@ func newCred(config *Config) (*cred, error) {
 		internalProvider := credentialsProvider
 		credentialsProvider, err = providers.NewRAMRoleARNCredentialsProviderBuilder().
 			WithCredentialsProvider(internalProvider).
-			WithRoleArn(config.Credentials.RoleARN).
-			WithRoleSessionName(config.Credentials.SessionName).
+			WithRoleArn(string(config.Credentials.RoleARN)).
+			WithRoleSessionName(string(config.Credentials.SessionName)).
 			WithDurationSeconds(defaultSessionDurationSeconds).
 			Build()
 		if err != nil {

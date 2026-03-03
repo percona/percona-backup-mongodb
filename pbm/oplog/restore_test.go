@@ -13,6 +13,8 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -24,14 +26,14 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 	noUUID, _ := ns.NewMatcher(dontPreserveUUID)
 	matcher, _ := ns.NewMatcher(append(snapshot.ExcludeFromRestore, excludeFromOplog...))
 	return &OplogRestore{
-		mdb:             mdb,
-		ver:             &db.Version{7, 0, 0},
-		excludeNS:       matcher,
-		noUUIDns:        noUUID,
-		preserveUUIDopt: true,
-		preserveUUID:    true,
-		indexCatalog:    idx.NewIndexCatalog(),
-		filter:          DefaultOpFilter,
+		mdb:          mdb,
+		ver:          &db.Version{7, 0, 0},
+		excludeNS:    matcher,
+		noUUIDns:     noUUID,
+		preserveUUID: true,
+		indexCatalog: idx.NewIndexCatalog(),
+		nodeInfo:     &topo.NodeInfo{},
+		log:          log.DiscardEvent,
 	}
 }
 
@@ -492,7 +494,144 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("selective restore", func(t *testing.T) {
-		// todo: add tests
+		testCases := []struct {
+			desc          string
+			oplogFile     string
+			csvr          bool     // is running on config server
+			usersAndRoles bool     // restore users and roles
+			nsFilter      []string // namespaces to restore
+			resOps        []string // expected operations
+			resNS         []string // expected namespaces
+		}{
+			{
+				desc:          "user/role ops should be replayed for selective restore",
+				oplogFile:     "ops_admin_users_roles",
+				csvr:          false,
+				usersAndRoles: true,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i", "i", "u", "i", "i", "u", "d", "d"},
+				resNS: []string{
+					"admin.system.users",
+					"mydb.collection1",
+					"admin.system.users",
+					"admin.system.roles",
+					"mydb.collection1",
+					"admin.system.roles",
+					"admin.system.roles",
+					"admin.system.users",
+				},
+			},
+			{
+				desc:          "user/role ops should not be replayed for selective restore",
+				oplogFile:     "ops_admin_users_roles",
+				csvr:          false,
+				usersAndRoles: false,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i", "i"},
+				resNS: []string{
+					"mydb.collection1",
+					"mydb.collection1",
+				},
+			},
+			{
+				desc:          "user/role ops should be replayed for selective restore on CfgSvr",
+				oplogFile:     "ops_admin_users_roles",
+				csvr:          true,
+				usersAndRoles: true,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i", "i", "u", "i", "i", "u", "d", "d"},
+				resNS: []string{
+					"admin.system.users",
+					"mydb.collection1",
+					"admin.system.users",
+					"admin.system.roles",
+					"mydb.collection1",
+					"admin.system.roles",
+					"admin.system.roles",
+					"admin.system.users",
+				},
+			},
+			{
+				desc:          "user/role ops should not be replayed for selective restore on CfgSvr",
+				oplogFile:     "ops_admin_users_roles",
+				csvr:          true,
+				usersAndRoles: false,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i", "i"},
+				resNS: []string{
+					"mydb.collection1",
+					"mydb.collection1",
+				},
+			},
+			{
+				desc:          "config.databases ops should be processed on config server",
+				oplogFile:     "ops_admin_databases",
+				csvr:          true,
+				usersAndRoles: false,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i", "i", "u", "d"},
+				resNS: []string{
+					"config.databases",
+					"mydb.collection1",
+					"config.databases",
+					"config.databases",
+				},
+			},
+			{
+				desc:          "config.databases ops should be ignored on regular shards",
+				oplogFile:     "ops_admin_databases",
+				csvr:          false,
+				usersAndRoles: false,
+				nsFilter:      []string{"mydb.*"},
+				resOps:        []string{"i"},
+				resNS: []string{
+					"mydb.collection1",
+				},
+			},
+		}
+
+		for _, tC := range testCases {
+			t.Run(tC.desc, func(t *testing.T) {
+				db := newMDBTestClient()
+				oRestore := newOplogRestoreTest(db)
+				oRestore.SetSelectiveUsersAndRolesRestore(tC.usersAndRoles)
+
+				if tC.csvr {
+					oRestore.nodeInfo = &topo.NodeInfo{
+						SetName:   "rs1",
+						ConfigSvr: 2,
+					}
+				}
+
+				// Set up selective restore filter if needed
+				if len(tC.nsFilter) > 0 {
+					oRestore.SetIncludeNS(tC.nsFilter)
+				}
+
+				fr := useTestFile(t, tC.oplogFile)
+
+				_, err := oRestore.Apply(fr)
+				if err != nil {
+					t.Fatalf("error while applying oplog: %v", err)
+				}
+
+				if len(tC.resOps) != len(db.applyOpsInv) {
+					t.Errorf("wrong number of applyOps invocation, want=%d, got=%d", len(tC.resOps), len(db.applyOpsInv))
+				}
+				for i, wantOp := range tC.resOps {
+					gotOp := db.applyOpsInv[i]["op"]
+					if wantOp != gotOp {
+						t.Errorf("wrong #%d. operation: want=%s, got=%s", i, wantOp, gotOp)
+					}
+				}
+				for i, wantNS := range tC.resNS {
+					gotNS := db.applyOpsInv[i]["ns"]
+					if wantNS != gotNS {
+						t.Errorf("wrong #%d. namespace: want=%s, got=%s", i, wantNS, gotNS)
+					}
+				}
+			})
+		}
 	})
 
 	t.Run("index restore", func(t *testing.T) {

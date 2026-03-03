@@ -137,6 +137,7 @@ type BackupCmd struct {
 	NumParallelColls *int32                   `bson:"numParallelColls,omitempty"`
 	Filelist         bool                     `bson:"filelist,omitempty"`
 	Profile          string                   `bson:"profile,omitempty"`
+	UsersAndRoles    bool                     `bson:"usersAndRoles,omitempty"`
 }
 
 func (b BackupCmd) String() string {
@@ -168,6 +169,7 @@ type RestoreCmd struct {
 	External bool                `bson:"external"`
 	ExtConf  topo.ExternOpts     `bson:"extConf"`
 	ExtTS    primitive.Timestamp `bson:"extTS"`
+	Exit     bool                `bson:"exit"`
 }
 
 func (r RestoreCmd) String() string {
@@ -177,6 +179,9 @@ func (r RestoreCmd) String() string {
 	}
 	if r.External {
 		bcp += "[external]"
+	}
+	if r.Exit {
+		bcp += " [exit]"
 	}
 	if r.ExtTS.T > 0 {
 		bcp += fmt.Sprintf(" external ts: <%d,%d>", r.ExtTS.T, r.ExtTS.I)
@@ -203,6 +208,7 @@ type DeleteBackupCmd struct {
 	Backup    string          `bson:"backup"`
 	OlderThan int64           `bson:"olderthan"`
 	Type      defs.BackupType `bson:"type"`
+	Profile   string          `bson:"profile"`
 }
 
 type DeletePITRCmd struct {
@@ -211,6 +217,7 @@ type DeletePITRCmd struct {
 
 type CleanupCmd struct {
 	OlderThan primitive.Timestamp `bson:"olderThan"`
+	Profile   string              `bson:"profile"`
 }
 
 func (d DeleteBackupCmd) String() string {

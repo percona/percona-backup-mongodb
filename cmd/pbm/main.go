@@ -248,7 +248,9 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 		string(defs.ExternalBackup),
 	}
 
-	backupOptions := backupOpts{}
+	backupOptions := backupOpts{
+		profile: NewProfileFlagMain(),
+	}
 
 	backupCmd := &cobra.Command{
 		Use:   "backup",
@@ -281,8 +283,8 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	backupCmd.Flags().BoolVar(
 		&backupOptions.base, "base", false, "Is this a base for incremental backups",
 	)
-	backupCmd.Flags().StringVar(
-		&backupOptions.profile, "profile", "", "Config profile name",
+	backupCmd.Flags().Var(
+		&backupOptions.profile, "profile", "Config profile name",
 	)
 	backupCmd.Flags().IntSliceVar(
 		&backupOptions.compressionLevel, "compression-level", nil, "Compression level (specific to the compression type)",
@@ -292,6 +294,10 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	)
 	backupCmd.Flags().StringVar(
 		&backupOptions.ns, "ns", "", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`,
+	)
+	backupCmd.Flags().BoolVar(
+		&backupOptions.usersAndRoles, "with-users-and-roles", false,
+		"Includes users and roles for selected database (--ns flag)",
 	)
 	backupCmd.Flags().BoolVarP(
 		&backupOptions.wait, "wait", "w", false, "Wait for the backup to finish",
@@ -333,9 +339,11 @@ func (app *pbmApp) buildCancelBackupCmd() *cobra.Command {
 }
 
 func (app *pbmApp) buildCleanupCmd() *cobra.Command {
-	cleanupOpts := cleanupOptions{}
+	cleanupOpts := cleanupOptions{
+		profile: NewProfileFlagMain(),
+	}
 
-	deletePitrCmd := &cobra.Command{
+	cleanupCmd := &cobra.Command{
 		Use:   "cleanup",
 		Short: "Delete Backups and PITR chunks",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
@@ -343,24 +351,27 @@ func (app *pbmApp) buildCleanupCmd() *cobra.Command {
 		}),
 	}
 
-	deletePitrCmd.Flags().StringVar(
+	cleanupCmd.Flags().StringVar(
 		&cleanupOpts.olderThan, "older-than", "",
 		fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat),
 	)
-	deletePitrCmd.Flags().BoolVarP(
+	cleanupCmd.Flags().BoolVarP(
 		&cleanupOpts.yes, "yes", "y", false, "Don't ask for confirmation",
 	)
-	deletePitrCmd.Flags().BoolVarP(
+	cleanupCmd.Flags().BoolVarP(
 		&cleanupOpts.wait, "wait", "w", false, "Wait for deletion done",
 	)
-	deletePitrCmd.Flags().DurationVar(
+	cleanupCmd.Flags().DurationVar(
 		&cleanupOpts.waitTime, "wait-time", 0, "Maximum wait time",
 	)
-	deletePitrCmd.Flags().BoolVar(
+	cleanupCmd.Flags().BoolVar(
 		&cleanupOpts.dryRun, "dry-run", false, "Report but do not delete",
 	)
+	cleanupCmd.Flags().Var(
+		&cleanupOpts.profile, "profile", "Name of the PBM profile used as a filter.",
+	)
 
-	return deletePitrCmd
+	return cleanupCmd
 }
 
 func (app *pbmApp) buildConfigCmd() *cobra.Command {
@@ -423,7 +434,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Show configuration profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			showConfigProfileOpts.name = args[0]
+			err := showConfigProfileOpts.name.Set(args[0])
+			if err != nil {
+				return nil, err
+			}
 			return handleShowConfigProfiles(app.ctx, app.pbm, showConfigProfileOpts)
 		}),
 	}
@@ -436,8 +450,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Save configuration profile",
 		Args:  cobra.ExactArgs(2),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			addConfigProfileOpts.name = args[0]
-
+			err := addConfigProfileOpts.name.Set(args[0])
+			if err != nil {
+				return nil, err
+			}
 			f, err := os.Open(args[1])
 			if err != nil {
 				return nil, errors.Wrap(err, "open config file")
@@ -467,7 +483,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Remove configuration profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			removeConfigProfileOpts.name = args[0]
+			err := removeConfigProfileOpts.name.Set(args[0])
+			if err != nil {
+				return nil, err
+			}
 			return handleRemoveConfigProfile(app.ctx, app.pbm, removeConfigProfileOpts)
 		}),
 	}
@@ -487,7 +506,10 @@ func (app *pbmApp) buildConfigProfileCmd() *cobra.Command {
 		Short: "Sync backup list from configuration profile",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
 			if len(args) == 1 {
-				syncConfigProfileOpts.name = args[0]
+				err := syncConfigProfileOpts.name.Set(args[0])
+				if err != nil {
+					return nil, err
+				}
 			}
 			return handleSyncConfigProfile(app.ctx, app.pbm, syncConfigProfileOpts)
 		}),
@@ -520,7 +542,9 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 		string(backup.SelectiveBackup),
 	}
 
-	deleteBcpOptions := deleteBcpOpts{}
+	deleteBcpOptions := deleteBcpOpts{
+		profile: NewProfileFlagMain(),
+	}
 
 	deleteBcpCmd := &cobra.Command{
 		Use:   "delete-backup [name]",
@@ -534,6 +558,9 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 
 			if len(args) == 1 {
 				deleteBcpOptions.name = args[0]
+				if cmd.Flags().Changed("profile") {
+					return nil, errors.New("cannot use [name] with --profile")
+				}
 			}
 
 			return deleteBackup(app.ctx, app.conn, app.pbm, &deleteBcpOptions)
@@ -559,6 +586,10 @@ func (app *pbmApp) buildDeleteBackupCmd() *cobra.Command {
 	)
 	deleteBcpCmd.Flags().BoolVar(
 		&deleteBcpOptions.dryRun, "dry-run", false, "Report but do not delete",
+	)
+	deleteBcpCmd.Flags().Var(
+		&deleteBcpOptions.profile, "profile",
+		"Name of the PBM profile used to filter the backup list when using --older-than.",
 	)
 
 	return deleteBcpCmd
@@ -691,7 +722,10 @@ func (app *pbmApp) buildListCmd() *cobra.Command {
 	listCmd.Flags().BoolVar(&listOptions.unbacked, "unbacked", false, "Show unbacked oplog ranges")
 	listCmd.Flags().BoolVarP(&listOptions.full, "full", "f", false, "Show extended restore info")
 	listCmd.Flags().IntVar(&listOptions.size, "size", 0, "Show last N backups")
-
+	listCmd.Flags().Var(
+		&listOptions.profile, "profile",
+		"Name of the PBM profile used to filter the backup list.",
+	)
 	listCmd.Flags().StringVar(&listOptions.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, listCmd.Flags().Lookup(RSMappingFlag))
 	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
@@ -834,6 +868,10 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		&restoreOptions.ts, "ts", "",
 		"MongoDB cluster time to restore to. In <T,I> format (e.g. 1682093090,9). External backups only!",
 	)
+	restoreCmd.Flags().BoolVar(
+		&restoreOptions.exit, "exit", false,
+		"Agent will exit in copyReady phase allowing restart. External backups only!",
+	)
 	restoreCmd.Flags().Bool(
 		"fallback-enabled", false, "Enables/disables fallback strategy when performing a physical restore.",
 	)
@@ -930,6 +968,10 @@ func (app *pbmApp) buildStatusCmd() *cobra.Command {
 		}),
 	}
 
+	statusCmd.Flags().Var(
+		&statusOpts.profile, "profile",
+		"Name of the PBM profile used to filter the backup list.",
+	)
 	statusCmd.Flags().StringVar(&statusOpts.rsMap, RSMappingFlag, "", RSMappingDoc)
 	_ = viper.BindPFlag(RSMappingFlag, statusCmd.Flags().Lookup(RSMappingFlag))
 	_ = viper.BindEnv(RSMappingFlag, RSMappingEnvVar)
@@ -1134,7 +1176,10 @@ func tsUTC(ts int64) string {
 }
 
 type snapshotStat struct {
-	Name        string           `json:"name"`
+	Name    string `json:"name"`
+	Profile string `json:"profile,omitempty"`
+	// StoreName exists only for backwards compatibility and will be removed (use Profile instead)
+	StoreName   string           `json:"storage,omitempty"`
 	Namespaces  []string         `json:"nss,omitempty"`
 	Size        int64            `json:"size,omitempty"`
 	Status      defs.Status      `json:"status"`
@@ -1145,7 +1190,6 @@ type snapshotStat struct {
 	PBMVersion  string           `json:"pbmVersion"`
 	Type        defs.BackupType  `json:"type"`
 	SrcBackup   string           `json:"src"`
-	StoreName   string           `json:"storage,omitempty"`
 }
 
 type pitrRange struct {

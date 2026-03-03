@@ -38,6 +38,7 @@ const (
 )
 
 const (
+	ConfigDB               = "config"
 	ConfigDatabasesNS      = "config.databases"
 	ConfigCollectionsNS    = "config.collections"
 	ConfigChunksNS         = "config.chunks"

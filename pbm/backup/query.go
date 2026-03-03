@@ -380,7 +380,11 @@ func findBaseSnapshotLWImpl(
 	return bcp.LastWriteTS, errors.Wrap(err, "decode")
 }
 
-func BackupsList(ctx context.Context, conn connect.Client, limit int64) ([]BackupMeta, error) {
+func BackupsList(
+	ctx context.Context,
+	conn connect.Client,
+	limit int64,
+) ([]BackupMeta, error) {
 	cur, err := conn.BcpCollection().Find(
 		ctx,
 		bson.M{},

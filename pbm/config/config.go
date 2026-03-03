@@ -120,77 +120,6 @@ func (c *Config) Clone() *Config {
 }
 
 func (c *Config) String() string {
-	c = c.Clone()
-
-	if c.Storage.S3 != nil {
-		if c.Storage.S3.Credentials.AccessKeyID != "" {
-			c.Storage.S3.Credentials.AccessKeyID = "***"
-		}
-		if c.Storage.S3.Credentials.SecretAccessKey != "" {
-			c.Storage.S3.Credentials.SecretAccessKey = "***"
-		}
-		if c.Storage.S3.Credentials.SessionToken != "" {
-			c.Storage.S3.Credentials.SessionToken = "***"
-		}
-		if c.Storage.S3.Credentials.Vault.Secret != "" {
-			c.Storage.S3.Credentials.Vault.Secret = "***"
-		}
-		if c.Storage.S3.Credentials.Vault.Token != "" {
-			c.Storage.S3.Credentials.Vault.Token = "***"
-		}
-		if c.Storage.S3.ServerSideEncryption != nil &&
-			c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
-			c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
-		}
-	}
-	if c.Storage.Minio != nil {
-		if c.Storage.Minio.Credentials.AccessKeyID != "" {
-			c.Storage.Minio.Credentials.AccessKeyID = "***"
-		}
-		if c.Storage.Minio.Credentials.SecretAccessKey != "" {
-			c.Storage.Minio.Credentials.SecretAccessKey = "***"
-		}
-		if c.Storage.Minio.Credentials.SessionToken != "" {
-			c.Storage.Minio.Credentials.SessionToken = "***"
-		}
-	}
-	if c.Storage.Azure != nil {
-		if c.Storage.Azure.Credentials.Key != "" {
-			c.Storage.Azure.Credentials.Key = "***"
-		}
-	}
-	if c.Storage.GCS != nil {
-		if c.Storage.GCS.Credentials.PrivateKey != "" {
-			c.Storage.GCS.Credentials.PrivateKey = "***"
-		}
-		if c.Storage.GCS.Credentials.ClientEmail != "" {
-			c.Storage.GCS.Credentials.ClientEmail = "***"
-		}
-		if c.Storage.GCS.Credentials.HMACAccessKey != "" {
-			c.Storage.GCS.Credentials.HMACAccessKey = "***"
-		}
-		if c.Storage.GCS.Credentials.HMACSecret != "" {
-			c.Storage.GCS.Credentials.HMACSecret = "***"
-		}
-	}
-	if c.Storage.OSS != nil {
-		if c.Storage.OSS.Credentials.AccessKeyID != "" {
-			c.Storage.OSS.Credentials.AccessKeyID = "***"
-		}
-		if c.Storage.OSS.Credentials.AccessKeySecret != "" {
-			c.Storage.OSS.Credentials.AccessKeySecret = "***"
-		}
-		if c.Storage.OSS.Credentials.SecurityToken != "" {
-			c.Storage.OSS.Credentials.SecurityToken = "***"
-		}
-		if c.Storage.OSS.Credentials.SessionName != "" {
-			c.Storage.OSS.Credentials.SessionName = "***"
-		}
-		if c.Storage.OSS.Credentials.RoleARN != "" {
-			c.Storage.OSS.Credentials.RoleARN = "***"
-		}
-	}
-
 	b, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Sprintln("error:", err)
@@ -607,7 +536,7 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 }
 
 // SetConfig stores config doc within the database.
-// It also applies default storage parameters depending on the type of storage
+// It also applies main storage parameters depending on the type of storage
 // and assigns those possible default values to the cfg parameter.
 func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	if err := cfg.Storage.Cast(); err != nil {

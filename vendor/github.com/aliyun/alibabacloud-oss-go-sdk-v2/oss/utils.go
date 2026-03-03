@@ -403,3 +403,12 @@ func EmptyFile(filename string) bool {
 	err := os.Truncate(filename, 0)
 	return err == nil
 }
+
+// Exposed to external modules
+func IsEmptyValue(v reflect.Value) bool {
+	return isEmptyValue(v)
+}
+
+func EscapePath(path string, encodeSep bool) string {
+	return escapePath(path, encodeSep)
+}

@@ -144,6 +144,7 @@ func MongoConnectWithOpts(ctx context.Context,
 
 	err = conn.Ping(ctx, nil)
 	if err != nil {
+		_ = conn.Disconnect(ctx)
 		return nil, nil, errors.Wrap(err, "ping")
 	}
 

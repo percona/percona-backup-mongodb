@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -490,4 +492,29 @@ func HasSingleTimelineToCover(chunks []OplogChunk, from, till uint32) bool {
 	}
 
 	return false
+}
+
+func DeleteChunkData(ctx context.Context, m connect.Client, stg storage.Storage, c OplogChunk) error {
+	l := log.LogEventFromContext(ctx)
+
+	err := stg.Delete(c.FName)
+	if err != nil && !errors.Is(err, storage.ErrNotExist) {
+		return errors.Wrapf(err, "delete pitr chunk '%s' (%v) from storage", c.FName, c)
+	}
+
+	_, err = m.PITRChunksCollection().DeleteOne(
+		ctx,
+		bson.D{
+			{"rs", c.RS},
+			{"start_ts", c.StartTS},
+			{"end_ts", c.EndTS},
+		},
+	)
+	if err != nil {
+		return errors.Wrap(err, "delete pitr chunk metadata")
+	}
+
+	l.Debug("deleted %s", c.FName)
+
+	return nil
 }

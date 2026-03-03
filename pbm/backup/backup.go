@@ -110,11 +110,12 @@ func (b *Backup) Init(
 	}
 
 	meta := &BackupMeta{
-		Type:        b.typ,
-		OPID:        opid.String(),
-		Name:        bcp.Name,
-		Namespaces:  bcp.Namespaces,
-		Compression: bcp.Compression,
+		Type:             b.typ,
+		OPID:             opid.String(),
+		Name:             bcp.Name,
+		Namespaces:       bcp.Namespaces,
+		SelUsersAndRoles: bcp.UsersAndRoles,
+		Compression:      bcp.Compression,
 		Store: Storage{
 			Name:        b.config.Name,
 			IsProfile:   b.config.IsProfile,
@@ -548,7 +549,12 @@ func (b *Backup) converged(
 				case defs.StatusCancelled:
 					return false, storage.ErrCancelled
 				case defs.StatusError:
-					return false, errors.Errorf("backup on shard %s failed with: %s", shard.Name, bmeta.Error())
+					if shard.Error == "" {
+						return false, errors.Errorf("backup on shard %s failed: %v",
+							shard.Name, bmeta.Error())
+					}
+					return false, errors.Errorf("backup on shard %s failed with %s: %v",
+						shard.Name, shard.Error, bmeta.Error())
 				}
 			}
 		}
@@ -600,7 +606,7 @@ func (b *Backup) waitForStatus(
 			case defs.StatusCancelled:
 				return storage.ErrCancelled
 			case defs.StatusError:
-				return errors.Errorf("cluster failed: %v", err)
+				return errors.Errorf("cluster failed: %v", bmeta.Error())
 			}
 		case <-tout:
 			return errors.New("no backup meta, looks like a leader failed to start")
@@ -649,8 +655,9 @@ func writeMeta(stg storage.Storage, meta *BackupMeta) error {
 	if err != nil {
 		return errors.Wrap(err, "marshal data")
 	}
+	lenMeta := int64(len(b))
 
-	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b))
+	err = stg.Save(meta.Name+defs.MetadataFileSuffix, bytes.NewReader(b), storage.Size(lenMeta))
 	return errors.Wrap(err, "write to store")
 }
 

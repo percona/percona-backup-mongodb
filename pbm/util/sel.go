@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
@@ -47,6 +48,19 @@ func ContainsSpecifiedColl(nss []string) bool {
 	return slices.ContainsFunc(nss, ContainsColl)
 }
 
+func ValidateUsersAndRolesOpt(usersAndRoles bool, nss []string) error {
+	if !IsSelective(nss) && usersAndRoles {
+		return errors.New("Including users and roles are only allowed for selected database " +
+			"(use --ns flag for selective backup)")
+	}
+	if len(nss) >= 1 && ContainsSpecifiedColl(nss) && usersAndRoles {
+		return errors.New("Including users and roles are not allowed for specific collection. " +
+			"Use --ns='db.*' to specify the whole database instead.")
+	}
+
+	return nil
+}
+
 func MakeSelectedPred(nss []string) archive.NSFilterFn {
 	if len(nss) == 0 {
 		return archive.DefaultNSFilter
@@ -75,6 +89,32 @@ func MakeSelectedPred(nss []string) archive.NSFilterFn {
 		db, coll, ok := strings.Cut(ns, ".")
 		return (m[""] != nil || m[db][""]) || (ok && m[db][coll])
 	}
+}
+
+// MakeDBMatchFilter builds a bson filter for the "db" field based on the
+// selected namespaces. Returns an empty filter if not selective.
+// Otherwise, returns a filter matching only the specific databases from
+// the namespace list.
+func MakeDBMatchFilter(namespaces []string) bson.M {
+	if !IsSelective(namespaces) {
+		return bson.M{}
+	}
+
+	dbs := make(map[string]bool)
+	for _, ns := range namespaces {
+		db, _ := ParseNS(ns)
+		if db == "" {
+			return bson.M{}
+		}
+		dbs[db] = true
+	}
+
+	list := make([]string, 0, len(dbs))
+	for db := range dbs {
+		list = append(list, db)
+	}
+
+	return bson.M{"db": bson.M{"$in": list}}
 }
 
 type ChunkSelector interface {

@@ -33,22 +33,31 @@ type backupOpts struct {
 	base             bool
 	compression      string
 	compressionLevel []int
-	profile          string
+	profile          ProfileFlag
 	ns               string
 	wait             bool
 	waitTime         time.Duration
 	externList       bool
+	usersAndRoles    bool
 
 	numParallelColls int32
 }
 
 type backupOut struct {
-	Name    string `json:"name"`
-	Storage string `json:"storage"`
+	Name        string `json:"name"`
+	Profile     string `json:"profile,omitempty" yaml:"profile,omitempty"`
+	StoragePath string `json:"storagePath"`
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf("Backup '%s' to remote store '%s'", b.Name, b.Storage)
+	pInfo := ""
+	if b.Profile == "" {
+		pInfo = fmt.Sprintf("(path: %q)", b.StoragePath)
+	} else {
+		pInfo = fmt.Sprintf("(profile: %q, path: %q)", b.Profile, b.StoragePath)
+
+	}
+	return fmt.Sprintf("Backup %q saved to remote store %s", b.Name, pInfo)
 }
 
 type externBcpOut struct {
@@ -100,6 +109,9 @@ func runBackup(
 	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
+	if err := util.ValidateUsersAndRolesOpt(b.usersAndRoles, nss); err != nil {
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
+	}
 
 	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {
 		return nil, errors.Wrap(err, "backup pre-check")
@@ -109,13 +121,13 @@ func runBackup(
 		return nil, err
 	}
 
-	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
+	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile.Value())
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfig) {
 			return nil, errors.New("no config set. Set config with <pbm config>")
 		}
 		if errors.Is(err, config.ErrMissedConfigProfile) {
-			return nil, errors.Errorf("profile %q is not found", b.profile)
+			return nil, errors.Errorf("profile %q is not found", b.profile.Name())
 		}
 		return nil, errors.Wrap(err, "get config")
 	}
@@ -137,11 +149,12 @@ func runBackup(
 			IncrBase:         b.base,
 			Name:             b.name,
 			Namespaces:       nss,
+			UsersAndRoles:    b.usersAndRoles,
 			Compression:      compression,
 			CompressionLevel: level,
 			NumParallelColls: numParallelColls,
 			Filelist:         b.externList,
-			Profile:          b.profile,
+			Profile:          b.profile.Value(),
 		},
 	})
 	if err != nil {
@@ -151,13 +164,17 @@ func runBackup(
 	showProgress := outf == outText
 
 	if showProgress {
-		fmt.Printf("Starting backup '%s'", b.name)
+		pinfo := ""
+		if b.profile.IsProfile() {
+			pinfo = fmt.Sprintf(" (profile: %q)", b.profile.Name())
+		}
+		fmt.Printf("Starting backup %q%s", b.name, pinfo)
 	}
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
 	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "wait for backup status")
 	}
 
 	if b.typ == string(defs.ExternalBackup) {
@@ -210,7 +227,7 @@ func runBackup(
 		}
 	}
 
-	return backupOut{b.name, cfg.Storage.Path()}, nil
+	return backupOut{Name: b.name, Profile: cfg.Name, StoragePath: cfg.Storage.Path()}, nil
 }
 
 func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Stringer, error) {
@@ -293,7 +310,10 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 						rs += ": " + s.Error
 					}
 				}
-				return errors.New(bmeta.Error().Error() + rs)
+				if bmeta.Error() != nil {
+					return errors.New(bmeta.Error().Error() + rs)
+				}
+				return errors.Errorf("status error on %s", rs)
 			}
 		case <-ctx.Done():
 			if bmeta == nil {
@@ -316,7 +336,11 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 }
 
 type bcpDesc struct {
-	Name               string          `json:"name" yaml:"name"`
+	Name    string `json:"name" yaml:"name"`
+	Profile string `json:"profile,omitempty" yaml:"profile,omitempty"`
+	// StorageName exists only for backwards compatibility and will be removed (use Profile instead)
+	StorageName        string          `json:"storage_name,omitempty" yaml:"storage_name,omitempty"`
+	StorageType        storage.Type    `json:"storage_type,omitempty" yaml:"storage_type,omitempty"`
 	OPID               string          `json:"opid" yaml:"opid"`
 	Type               defs.BackupType `json:"type" yaml:"type"`
 	LastWriteTS        int64           `json:"last_write_ts" yaml:"-"`
@@ -324,6 +348,7 @@ type bcpDesc struct {
 	LastWriteTime      string          `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string          `json:"last_transition_time" yaml:"last_transition_time"`
 	Namespaces         []string        `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+	SelUserAndRoles    bool            `json:"sel_user_and_roles" yaml:"sel_user_and_roles"`
 	MongoVersion       string          `json:"mongodb_version" yaml:"mongodb_version"`
 	FCV                string          `json:"fcv" yaml:"fcv"`
 	PBMVersion         string          `json:"pbm_version" yaml:"pbm_version"`
@@ -332,7 +357,6 @@ type bcpDesc struct {
 	SizeUncompressed   int64           `json:"size_uncompressed" yaml:"-"`
 	HSize              string          `json:"size_h" yaml:"size_h"`
 	HSizeUncompressed  string          `json:"size_uncompressed_h" yaml:"size_uncompressed_h"`
-	StorageName        string          `json:"storage_name,omitempty" yaml:"storage_name,omitempty"`
 	Err                *string         `json:"error,omitempty" yaml:"error,omitempty"`
 	Replsets           []bcpReplDesc   `json:"replsets" yaml:"replsets"`
 }
@@ -410,9 +434,13 @@ func describeBackup(
 
 	rv := &bcpDesc{
 		Name:               bcp.Name,
+		Profile:            bcp.Store.Name,
+		StorageName:        bcp.Store.Name,
+		StorageType:        bcp.Store.Type,
 		OPID:               bcp.OPID,
 		Type:               bcp.Type,
 		Namespaces:         bcp.Namespaces,
+		SelUserAndRoles:    bcp.SelUsersAndRoles,
 		MongoVersion:       bcp.MongoVersion,
 		FCV:                bcp.FCV,
 		PBMVersion:         bcp.PBMVersion,
@@ -425,7 +453,6 @@ func describeBackup(
 		HSize:              byteCountIEC(bcp.Size),
 		SizeUncompressed:   bcp.SizeUncompressed,
 		HSizeUncompressed:  byteCountIEC(bcp.SizeUncompressed),
-		StorageName:        bcp.Store.Name,
 	}
 	if bcp.SizeUncompressed > 0 {
 		rv.HSizeUncompressed = byteCountIEC(bcp.SizeUncompressed)

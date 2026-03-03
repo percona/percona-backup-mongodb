@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -43,9 +44,10 @@ func TestIsSameStorage(t *testing.T) {
 			InsecureSkipTLSVerify: false,
 		}
 		eq := &s3.Config{
-			Region: "eu",
-			Bucket: "b1",
-			Prefix: "p1",
+			Region:      "eu",
+			Bucket:      "b1",
+			Prefix:      "p1",
+			EndpointURL: "ep.com",
 		}
 		if !cfg.IsSameStorage(eq) {
 			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v", cfg, eq)
@@ -68,6 +70,12 @@ func TestIsSameStorage(t *testing.T) {
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different prefix: cfg=%+v, eq=%+v", cfg, neq)
 		}
+
+		neq = cfg.Clone()
+		neq.EndpointURL = "ep2.com"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different EndpointURL: cfg=%+v, eq=%+v", cfg, neq)
+		}
 	})
 
 	t.Run("Azure", func(t *testing.T) {
@@ -82,9 +90,10 @@ func TestIsSameStorage(t *testing.T) {
 		}
 
 		eq := &azure.Config{
-			Account:   "a1",
-			Container: "c1",
-			Prefix:    "p1",
+			Account:     "a1",
+			Container:   "c1",
+			Prefix:      "p1",
+			EndpointURL: "az.com",
 		}
 		if !cfg.IsSameStorage(eq) {
 			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v", cfg, eq)
@@ -106,6 +115,12 @@ func TestIsSameStorage(t *testing.T) {
 		neq.Prefix = "p2"
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different prefix: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.EndpointURL = "az2.com"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different EndpointURL: cfg=%+v, eq=%+v", cfg, neq)
 		}
 	})
 
@@ -201,6 +216,59 @@ func TestIsSameStorage(t *testing.T) {
 
 		neq = cfg.Clone()
 		neq.Endpoint = "ep2.com"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different EndpointURL: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.Bucket = "b2"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different bucket: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.Prefix = "p2"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different prefix: cfg=%+v, eq=%+v", cfg, neq)
+		}
+	})
+
+	t.Run("oss", func(t *testing.T) {
+		cfg := &oss.Config{
+			Region:      "eu",
+			EndpointURL: "ep.com",
+			Bucket:      "b1",
+			Prefix:      "p1",
+			Credentials: oss.Credentials{
+				AccessKeyID:     "k1",
+				AccessKeySecret: "k2",
+				SecurityToken:   "sect",
+			},
+			ConnectTimeout:       10 * time.Second,
+			UploadPartSize:       6 << 20,
+			MaxObjSizeGB:         floatPtr(1.1),
+			Retryer:              &oss.Retryer{},
+			ServerSideEncryption: &oss.SSE{},
+		}
+		eq := &oss.Config{
+			Region:      "eu",
+			EndpointURL: "ep.com",
+			Bucket:      "b1",
+			Prefix:      "p1",
+		}
+		if !cfg.IsSameStorage(eq) {
+			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v, diff=%s",
+				cfg, eq, cmp.Diff(*cfg, *eq))
+		}
+
+		neq := cfg.Clone()
+		neq.Region = "us"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different region: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.EndpointURL = "ep2.com"
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different EndpointURL: cfg=%+v, eq=%+v", cfg, neq)
 		}
@@ -314,12 +382,12 @@ func TestConfig(t *testing.T) {
 			{
 				desc:  "credentials.clientEmail",
 				param: "storage.gcs.credentials.clientEmail",
-				val:   wantCfg.Storage.GCS.Credentials.ClientEmail,
+				val:   string(wantCfg.Storage.GCS.Credentials.ClientEmail),
 			},
 			{
 				desc:  "credentials.privateKey",
 				param: "storage.gcs.credentials.privateKey",
-				val:   wantCfg.Storage.GCS.Credentials.PrivateKey,
+				val:   string(wantCfg.Storage.GCS.Credentials.PrivateKey),
 			},
 			{
 				desc:  "chunkSize",

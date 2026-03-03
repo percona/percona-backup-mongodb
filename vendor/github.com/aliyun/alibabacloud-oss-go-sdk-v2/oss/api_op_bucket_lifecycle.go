@@ -64,7 +64,7 @@ type LifecycleRuleNot struct {
 
 type LifecycleRuleFilter struct {
 	// The condition that is matched by objects to which the lifecycle rule does not apply.
-	Not *LifecycleRuleNot `xml:"Not"`
+	Nots []LifecycleRuleNot `xml:"Not"`
 
 	// This lifecycle rule only applies to files larger than this size.
 	ObjectSizeGreaterThan *int64 `xml:"ObjectSizeGreaterThan"`

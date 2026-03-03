@@ -26,12 +26,27 @@ type CertificateConfiguration struct {
 	DeleteCertificate *bool `xml:"DeleteCertificate"`
 }
 
-type BucketCnameConfiguration struct {
+type Cname struct {
 	// The custom domain name.
-	Domain *string `xml:"Cname>Domain"`
+	Domain *string `xml:"Domain"`
 
 	// The container for which the certificate is configured.
-	CertificateConfiguration *CertificateConfiguration `xml:"Cname>CertificateConfiguration"`
+	CertificateConfiguration *CertificateConfiguration `xml:"CertificateConfiguration"`
+}
+
+type BucketCnameConfiguration struct {
+	// The custom domain name.
+	// Deprecated: Domain is deprecated, and will be removed in the future. Use Cname.Domain instead.
+	// If both exist simultaneously, the value of Cname will take precedence.
+	Domain *string
+
+	// The container for which the certificate is configured.
+	// Deprecated: CertificateConfiguration is deprecated, , and will be removed in the future. Use Cname.CertificateConfiguration instead.
+	// If both exist simultaneously, the value of Cname will take precedence.
+	CertificateConfiguration *CertificateConfiguration
+
+	// The container for the custom domain name.
+	Cname *Cname `xml:"Cname"`
 }
 
 type CnameCertificate struct {
@@ -118,6 +133,19 @@ func (c *Client) PutCname(ctx context.Context, request *PutCnameRequest, optFns 
 		Bucket: request.Bucket,
 	}
 	input.OpMetadata.Set(signer.SubResource, []string{"comp", "cname"})
+
+	configuration := request.BucketCnameConfiguration
+	defer func() {
+		request.BucketCnameConfiguration = configuration
+	}()
+	if configuration != nil && configuration.Cname == nil {
+		request.BucketCnameConfiguration = &BucketCnameConfiguration{
+			Cname: &Cname{
+				Domain:                   configuration.Domain,
+				CertificateConfiguration: configuration.CertificateConfiguration,
+			},
+		}
+	}
 
 	if err = c.marshalInput(request, input, updateContentMd5); err != nil {
 		return nil, err
@@ -226,6 +254,19 @@ func (c *Client) DeleteCname(ctx context.Context, request *DeleteCnameRequest, o
 	}
 	input.OpMetadata.Set(signer.SubResource, []string{"cname", "comp"})
 
+	configuration := request.BucketCnameConfiguration
+	defer func() {
+		request.BucketCnameConfiguration = configuration
+	}()
+	if configuration != nil && configuration.Cname == nil {
+		request.BucketCnameConfiguration = &BucketCnameConfiguration{
+			Cname: &Cname{
+				Domain:                   configuration.Domain,
+				CertificateConfiguration: configuration.CertificateConfiguration,
+			},
+		}
+	}
+
 	if err = c.marshalInput(request, input, updateContentMd5); err != nil {
 		return nil, err
 	}
@@ -332,6 +373,19 @@ func (c *Client) CreateCnameToken(ctx context.Context, request *CreateCnameToken
 		Bucket: request.Bucket,
 	}
 	input.OpMetadata.Set(signer.SubResource, []string{"cname", "comp"})
+
+	configuration := request.BucketCnameConfiguration
+	defer func() {
+		request.BucketCnameConfiguration = configuration
+	}()
+	if configuration != nil && configuration.Cname == nil {
+		request.BucketCnameConfiguration = &BucketCnameConfiguration{
+			Cname: &Cname{
+				Domain:                   configuration.Domain,
+				CertificateConfiguration: configuration.CertificateConfiguration,
+			},
+		}
+	}
 
 	if err = c.marshalInput(request, input, updateContentMd5); err != nil {
 		return nil, err

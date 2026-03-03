@@ -14,6 +14,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -92,8 +93,10 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	}
 
-	if cmd.Type == defs.LogicalBackup {
-		// wakeup the slicer to not wait for the tick
+	if cmd.Type == defs.LogicalBackup && cmd.Profile == "" {
+		// For backups to the main storage,
+		// wake up the slicer to not wait for the tick.
+		// This will slice and pause the main PITR
 		go a.sliceNow(opid)
 	}
 
@@ -155,18 +158,23 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		// not replset. So an `incremental && not_base` backup should land on
 		// the agent that made a previous (src) backup.
 		const srcHostMultiplier = 3.0
-		var c map[string]float64
+		c := make(map[string]float64)
 		if cmd.Type == defs.IncrementalBackup && !cmd.IncrBase {
 			src, err := backup.LastIncrementalBackup(ctx, a.leadConn)
 			if err != nil {
 				// try backup anyway
 				l.Warning("define source backup: %v", err)
 			} else {
-				c = make(map[string]float64)
 				for _, rs := range src.Replsets {
 					c[rs.Node] = srcHostMultiplier
 				}
 			}
+		}
+
+		// When a logical backup targets an external profile (different storage),
+		// PITR keeps running. Deprioritize nodes currently running PITR slicer
+		if cmd.Type == defs.LogicalBackup && cmd.Profile != "" {
+			c = a.deprioritizePITRNodes(ctx, c, l)
 		}
 
 		agents, err := topo.ListSteadyAgents(ctx, a.leadConn)
@@ -240,7 +248,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	a.setBcp(&currentBackup{cancel: cancel})
 	defer a.setBcp(nil)
 
-	l.Info("backup started")
+	l.Info("backup started %s", util.LogProfileArg(cmd.Profile))
 	err = bcp.Run(bcpCtx, cmd, opid, l)
 	if err != nil {
 		if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
@@ -264,6 +272,41 @@ func (a *Agent) getValidCandidates(agents []topo.AgentStat, backupType defs.Back
 	}
 
 	return validCandidates
+}
+
+// deprioritizePITRNodes adds low-priority coefficients for nodes currently running PITR slicing.
+// It only modifies the coefficient map for nodes not already present (e.g., incremental src host).
+// Returns the (possibly modified) coefficient map.
+func (a *Agent) deprioritizePITRNodes(
+	ctx context.Context,
+	coefficients map[string]float64,
+	l log.LogEvent,
+) map[string]float64 {
+	pitrLocks, err := lock.GetOpLocks(ctx, a.leadConn, &lock.LockHeader{Type: ctrl.CmdPITR})
+	if err != nil {
+		l.Warning("get pitr locks for deprioritization: %v", err)
+		return coefficients
+	}
+
+	ts, err := topo.GetClusterTime(ctx, a.leadConn)
+	if err != nil {
+		l.Warning("get cluster time for pitr deprioritization: %v", err)
+		return coefficients
+	}
+
+	for i := range pitrLocks {
+		pl := &pitrLocks[i]
+		if pl.Heartbeat.T+defs.StaleFrameSec < ts.T {
+			continue // stale lock, ignore
+		}
+
+		// Only set if not already present (preserve previous priorities)
+		if _, exists := coefficients[pl.Node]; !exists {
+			coefficients[pl.Node] = prio.DefaultScore - 0.1
+		}
+	}
+
+	return coefficients
 }
 
 const renominationFrame = 5 * time.Second

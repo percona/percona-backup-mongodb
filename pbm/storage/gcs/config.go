@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 //nolint:lll
@@ -21,14 +22,18 @@ type Config struct {
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
+//nolint:lll
 type Credentials struct {
+	// Workload Identity Federation (allows missing JSON/HMAC credentials)
+	WorkloadIdentity bool `bson:"workloadIdentity,omitempty" json:"workloadIdentity,omitempty" yaml:"workloadIdentity,omitempty"`
+
 	// JSON credentials (service account)
-	ClientEmail string `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
-	PrivateKey  string `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+	ClientEmail storage.MaskedString `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
+	PrivateKey  storage.MaskedString `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
 
 	// HMAC credentials for XML API (S3 compatibility)
-	HMACAccessKey string `bson:"hmacAccessKey" json:"hmacAccessKey,omitempty" yaml:"hmacAccessKey,omitempty"`
-	HMACSecret    string `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
+	HMACAccessKey storage.MaskedString `bson:"hmacAccessKey" json:"hmacAccessKey,omitempty" yaml:"hmacAccessKey,omitempty"`
+	HMACSecret    storage.MaskedString `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
 }
 
 //nolint:lll
