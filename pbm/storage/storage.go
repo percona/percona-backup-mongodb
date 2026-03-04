@@ -32,6 +32,8 @@ const (
 	GCS        Type = "gcs"
 	Minio      Type = "minio"
 	OSS        Type = "oss"
+
+	LowerValidMaxObjSizeGB = 1
 )
 
 type FileInfo struct {

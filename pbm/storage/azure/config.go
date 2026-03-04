@@ -122,7 +122,7 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB >= storage.LowerValidMaxObjSizeGB {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
