@@ -86,6 +86,10 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			l.Info("oplog slicer disabled")
 		}
 		a.removePitr()
+		if err := a.waitForPITRSlicerStop(ctx, nodeInfo.SetName, l); err != nil {
+			l.Error("unable to stop PITR slicer: %v", err)
+			return
+		}
 	}
 
 	// stop balancer during the restore

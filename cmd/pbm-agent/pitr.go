@@ -57,6 +57,51 @@ func (a *Agent) removePitr() {
 	a.setPitr(nil)
 }
 
+// waitForPITRSlicerStop polls until no active (non-stale) PITR OpLock exists
+// for the given replica set. This ensures the oplog slicer has fully stopped
+// (finished its last upload and released the lock) before the restore proceeds.
+// Works for both same-process and cross-process slicers.
+func (a *Agent) waitForPITRSlicerStop(ctx context.Context, rs string, l log.LogEvent) error {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	tk := time.NewTicker(pitrHb)
+	defer tk.Stop()
+
+	l.Debug("waiting for PITR slicer to release OpLock")
+	for {
+		select {
+		case <-ctx.Done():
+			return errors.Wrap(ctx.Err(), "done waiting for oplog slicer to stop")
+		case <-tk.C:
+			locks, err := lock.GetOpLocks(ctx, a.leadConn, &lock.LockHeader{
+				Type:    ctrl.CmdPITR,
+				Replset: rs,
+			})
+			if err != nil {
+				return errors.Wrap(err, "get PITR op locks")
+			}
+
+			ts, err := topo.GetClusterTime(ctx, a.leadConn)
+			if err != nil {
+				return errors.Wrap(err, "get cluster time")
+			}
+
+			active := false
+			for i := range locks {
+				if locks[i].Heartbeat.T+defs.StaleFrameSec >= ts.T {
+					active = true
+					break
+				}
+			}
+			if !active {
+				l.Info("PITR slicer stopped")
+				return nil
+			}
+		}
+	}
+}
+
 func (a *Agent) getPitr() *currentPitr {
 	a.slicerMx.Lock()
 	defer a.slicerMx.Unlock()
