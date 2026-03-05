@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	pbmPartToken = ".pbmpart."
-	GB           = 1024 * 1024 * 1024
+	pbmPartToken           = ".pbmpart."
+	GB                     = 1024 * 1024 * 1024
+	LowerValidMaxObjSizeGB = 1
 )
 
 var pbmPartRE = regexp.MustCompile(`\.pbmpart\.\d+$`)
@@ -249,6 +250,12 @@ func (sm *SplitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 	}
 	res = append(res, fi)
 
+	if fi.Size < sm.maxObjSize {
+		// optimization: If base part is smaller than lower allowed object size,
+		// there's no other parts.
+		return res, nil
+	}
+
 	nextPart := name
 	for {
 		nextPart, err = createNextPart(nextPart)
@@ -263,6 +270,10 @@ func (sm *SplitMergeMiddleware) fileWithParts(name string) ([]FileInfo, error) {
 			return []FileInfo{}, errors.Wrap(err, "fetching next part")
 		}
 		res = append(res, fi)
+		if fi.Size < sm.maxObjSize {
+			// optimization: there's no more parts
+			break
+		}
 	}
 
 	return res, nil
