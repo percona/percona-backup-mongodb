@@ -59,11 +59,11 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		// We only check the credentials type, the scoped used hear doesn't really matter
 		adc, adcErr := google.FindDefaultCredentials(ctx, storagegcs.ScopeReadOnly)
 		if adcErr != nil {
-			return nil, fmt.Errorf("finding default credentials: %w", err)
+			return nil, fmt.Errorf("finding default credentials: %w", adcErr)
 		}
 		adcErr = validateDefaultCredentialType(adc)
 		if adcErr != nil {
-			return nil, fmt.Errorf("validate default credential type: %w", err)
+			return nil, fmt.Errorf("validate default credential type: %w", adcErr)
 		}
 		cli, err = storagegcs.NewClient(ctx)
 	}
