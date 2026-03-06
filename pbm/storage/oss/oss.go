@@ -53,7 +53,7 @@ func configureClient(config *Config) (*oss.Client, error) {
 	if config.Region == "" || config.Bucket == "" ||
 		config.Credentials.AccessKeyID == "" ||
 		config.Credentials.AccessKeySecret == "" {
-		return nil, fmt.Errorf("Missing required OSS config: %+v", config)
+		return nil, fmt.Errorf("missing required OSS config: %+v", config)
 	}
 
 	cred, err := newCred(config)

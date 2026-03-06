@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
