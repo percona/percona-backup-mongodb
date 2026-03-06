@@ -402,3 +402,7 @@ func (s MaskedString) MarshalYAML() (any, error) {
 func TrimSlashes(s string) string {
 	return strings.Trim(s, "/")
 }
+
+func Ref[T any](v T) *T {
+	return &v
+}
