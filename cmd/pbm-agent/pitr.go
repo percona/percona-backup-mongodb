@@ -57,10 +57,7 @@ func (a *Agent) removePitr() {
 	a.setPitr(nil)
 }
 
-// waitForPITRSlicerStop polls until no active (non-stale) PITR OpLock exists
-// for the given replica set. This ensures the oplog slicer has fully stopped
-// (finished its last upload and released the lock) before the restore proceeds.
-// Works for both same-process and cross-process slicers.
+// waitForPITRSlicerStop polls until PITR config is disabled and the OpLock is stale.
 func (a *Agent) waitForPITRSlicerStop(ctx context.Context, rs string, l log.LogEvent) error {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -68,12 +65,22 @@ func (a *Agent) waitForPITRSlicerStop(ctx context.Context, rs string, l log.LogE
 	tk := time.NewTicker(pitrHb)
 	defer tk.Stop()
 
-	l.Debug("waiting for PITR slicer to release OpLock")
+	l.Debug("waiting for PITR config disabled and OpLock released")
 	for {
 		select {
 		case <-ctx.Done():
 			return errors.Wrap(ctx.Err(), "done waiting for oplog slicer to stop")
 		case <-tk.C:
+			// Config is disabled
+			cfg, err := config.GetConfig(ctx, a.leadConn)
+			if err != nil {
+				return errors.Wrap(err, "get config")
+			}
+			if cfg.PITR.Enabled {
+				continue
+			}
+
+			// No active lock
 			locks, err := lock.GetOpLocks(ctx, a.leadConn, &lock.LockHeader{
 				Type:    ctrl.CmdPITR,
 				Replset: rs,
