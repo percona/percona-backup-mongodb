@@ -1,15 +1,10 @@
 package oss
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
-	osscred "github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
-	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/retry"
-	"github.com/aliyun/credentials-go/credentials/providers"
 
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -147,102 +142,8 @@ func (cfg *Config) Clone() *Config {
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB >= storage.MinValidMaxObjSizeGB {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
-}
-
-func newCred(config *Config) (*cred, error) {
-	var credentialsProvider providers.CredentialsProvider
-	var err error
-
-	if config.Credentials.AccessKeyID == "" || config.Credentials.AccessKeySecret == "" {
-		return nil, fmt.Errorf("access key ID and secret are required")
-	}
-
-	if config.Credentials.SecurityToken != "" {
-		credentialsProvider, err = providers.NewStaticSTSCredentialsProviderBuilder().
-			WithAccessKeyId(string(config.Credentials.AccessKeyID)).
-			WithAccessKeySecret(string(config.Credentials.AccessKeySecret)).
-			WithSecurityToken(string(config.Credentials.SecurityToken)).
-			Build()
-	} else {
-		credentialsProvider, err = providers.NewStaticAKCredentialsProviderBuilder().
-			WithAccessKeyId(string(config.Credentials.AccessKeyID)).
-			WithAccessKeySecret(string(config.Credentials.AccessKeySecret)).
-			Build()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("credentials provider: %w", err)
-	}
-
-	if config.Credentials.RoleARN != "" {
-		internalProvider := credentialsProvider
-		credentialsProvider, err = providers.NewRAMRoleARNCredentialsProviderBuilder().
-			WithCredentialsProvider(internalProvider).
-			WithRoleArn(string(config.Credentials.RoleARN)).
-			WithRoleSessionName(string(config.Credentials.SessionName)).
-			WithDurationSeconds(defaultSessionDurationSeconds).
-			Build()
-		if err != nil {
-			return nil, fmt.Errorf("ram role credential provider: %w", err)
-		}
-	}
-
-	return &cred{
-		provider: credentialsProvider,
-	}, nil
-}
-
-type cred struct {
-	provider providers.CredentialsProvider
-}
-
-func (c *cred) GetCredentials(ctx context.Context) (osscred.Credentials, error) {
-	cc, err := c.provider.GetCredentials()
-	if err != nil {
-		return osscred.Credentials{}, err
-	}
-
-	return osscred.Credentials{
-		AccessKeyID:     cc.AccessKeyId,
-		AccessKeySecret: cc.AccessKeySecret,
-		SecurityToken:   cc.SecurityToken,
-	}, nil
-}
-
-func configureClient(config *Config) (*oss.Client, error) {
-	if config == nil {
-		return nil, fmt.Errorf("config is nil")
-	}
-
-	if config.Region == "" || config.Bucket == "" ||
-		config.Credentials.AccessKeyID == "" ||
-		config.Credentials.AccessKeySecret == "" {
-		return nil, fmt.Errorf("Missing required OSS config: %+v", config)
-	}
-
-	cred, err := newCred(config)
-	if err != nil {
-		return nil, fmt.Errorf("create credentials: %w", err)
-	}
-
-	ossConfig := oss.LoadDefaultConfig().
-		WithRegion(config.Region).
-		WithCredentialsProvider(cred).
-		WithSignatureVersion(oss.SignatureVersionV4).
-		WithRetryMaxAttempts(config.Retryer.MaxAttempts).
-		WithRetryer(retry.NewStandard(func(ro *retry.RetryOptions) {
-			ro.MaxAttempts = config.Retryer.MaxAttempts
-			ro.MaxBackoff = config.Retryer.MaxBackoff
-			ro.BaseDelay = config.Retryer.BaseDelay
-		})).
-		WithConnectTimeout(config.ConnectTimeout)
-
-	if config.EndpointURL != "" {
-		ossConfig = ossConfig.WithEndpoint(config.EndpointURL)
-	}
-
-	return oss.NewClient(ossConfig), nil
 }
