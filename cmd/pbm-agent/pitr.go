@@ -59,7 +59,7 @@ func (a *Agent) removePitr() {
 
 // waitForPITRSlicerStop polls until PITR config is disabled and the OpLock is stale.
 func (a *Agent) waitForPITRSlicerStop(ctx context.Context, rs string, l log.LogEvent) error {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	tk := time.NewTicker(pitrHb)
