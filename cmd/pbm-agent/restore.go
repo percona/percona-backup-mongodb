@@ -78,7 +78,10 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 				l.Error("release lock: %v", err)
 			}
 		}()
+	}
 
+	// disable pitr from leader node
+	if nodeInfo.IsClusterLeader() {
 		err = config.SetConfigVar(ctx, a.leadConn, "pitr.enabled", "false")
 		if err != nil {
 			l.Error("disable oplog slicer: %v", err)
