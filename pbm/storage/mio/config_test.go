@@ -118,8 +118,8 @@ func TestGetMaxObjSizeGB(t *testing.T) {
 		},
 		{
 			name: "MaxObjSizeGB at lower bound returns configured value",
-			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(storage.LowerValidMaxObjSizeGB))},
-			want: storage.LowerValidMaxObjSizeGB,
+			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(storage.MinValidMaxObjSizeGB))},
+			want: storage.MinValidMaxObjSizeGB,
 		},
 		{
 			name: "MaxObjSizeGB above lower bound returns configured value",

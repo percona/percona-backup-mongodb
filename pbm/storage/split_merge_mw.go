@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	pbmPartToken           = ".pbmpart."
-	GB                     = 1024 * 1024 * 1024
-	LowerValidMaxObjSizeGB = 1
+	pbmPartToken         = ".pbmpart."
+	GB                   = 1024 * 1024 * 1024
+	MinValidMaxObjSizeGB = 1
 )
 
 var pbmPartRE = regexp.MustCompile(`\.pbmpart\.\d+$`)
