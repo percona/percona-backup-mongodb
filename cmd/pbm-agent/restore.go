@@ -78,14 +78,24 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 				l.Error("release lock: %v", err)
 			}
 		}()
+	}
 
+	// disable pitr from leader node
+	if nodeInfo.IsClusterLeader() {
 		err = config.SetConfigVar(ctx, a.leadConn, "pitr.enabled", "false")
 		if err != nil {
 			l.Error("disable oplog slicer: %v", err)
 		} else {
 			l.Info("oplog slicer disabled")
 		}
-		a.removePitr()
+	}
+
+	// Cancel the local slicer if running.
+	a.removePitr()
+	// Wait for the slicer to stop on every node.
+	if err := a.waitForPITRSlicerStop(ctx, nodeInfo.SetName, l); err != nil {
+		l.Error("unable to stop PITR slicer: %v", err)
+		return
 	}
 
 	// stop balancer during the restore
