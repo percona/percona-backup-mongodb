@@ -113,17 +113,14 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		}
 
 		if bs.IsOn() {
-			balancerCtx := ctx
-			balancerTimeout := cfg.BalancerWaitTimeout()
-			if balancerTimeout > 0 {
-				var cancel context.CancelFunc
-				balancerCtx, cancel = context.WithTimeout(ctx, balancerTimeout)
-				defer cancel()
-
-				l.Debug("stopping balancer with timeout %s", balancerTimeout)
+			t := cfg.Restore.Timeouts.BalancerStop()
+			if t > 0 {
+				l.Debug("stopping balancer with timeout %s", t)
+			} else {
+				l.Debug("stopping balancer")
 			}
 
-			err := topo.SetBalancerStatus(balancerCtx, a.leadConn, topo.BalancerModeOff)
+			err := topo.SetBalancerStatus(ctx, a.leadConn, topo.BalancerModeOff, t.Milliseconds())
 			if err != nil {
 				l.Error("set balancer off: %v", err)
 			}
