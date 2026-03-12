@@ -276,11 +276,12 @@ func (a *Agent) HbStatus(ctx context.Context) {
 	}
 
 	hb := topo.AgentStat{
-		Node:       a.brief.Me,
-		RS:         a.brief.SetName,
-		AgentVer:   version.Current().Version,
-		MongoVer:   nodeVersion.VersionString,
-		PerconaVer: nodeVersion.PSMDBVersion,
+		Node:         a.brief.Me,
+		RS:           a.brief.SetName,
+		AgentVer:     version.Current().Version,
+		MongoVer:     nodeVersion.VersionString,
+		PerconaVer:   nodeVersion.PSMDBVersion,
+		IsEnterprise: nodeVersion.IsEnterprise(),
 	}
 
 	updateAgentStat(ctx, a, l, true, &hb)
