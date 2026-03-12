@@ -291,11 +291,11 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			t := b.timeouts.BalancerStop()
 			if t > 0 {
 				l.Debug("stopping balancer with timeout %s", t)
+				err = topo.StopBalancer(ctx, b.leadConn, t.Milliseconds())
 			} else {
 				l.Debug("stopping balancer")
+				err = topo.SetBalancerStatus(ctx, b.leadConn, topo.BalancerModeOff)
 			}
-
-			err = topo.SetBalancerStatus(ctx, b.leadConn, topo.BalancerModeOff, t.Milliseconds())
 			if err != nil {
 				return errors.Wrap(err, "set balancer OFF")
 			}

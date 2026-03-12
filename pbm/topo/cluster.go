@@ -220,9 +220,7 @@ func (b *BalancerStatus) IsDisabled() bool {
 }
 
 // SetBalancerStatus sets balancer status.
-// For BalancerModeOff, an optional maxTimeMS can be provided to limit how long
-// the server waits for the current balancer round to finish.
-func SetBalancerStatus(ctx context.Context, m connect.Client, mode BalancerMode, maxTimeMS ...int64) error {
+func SetBalancerStatus(ctx context.Context, m connect.Client, mode BalancerMode) error {
 	var cmd string
 
 	switch mode {
@@ -234,9 +232,19 @@ func SetBalancerStatus(ctx context.Context, m connect.Client, mode BalancerMode,
 		return errors.Errorf("unknown mode %s", mode)
 	}
 
-	doc := bson.D{{cmd, 1}}
-	if mode == BalancerModeOff && len(maxTimeMS) > 0 && maxTimeMS[0] > 0 {
-		doc = append(doc, bson.E{Key: "maxTimeMS", Value: maxTimeMS[0]})
+	err := m.AdminCommand(ctx, bson.D{{cmd, 1}}).Err()
+	if err != nil {
+		return errors.Wrap(err, "run mongo command")
+	}
+	return nil
+}
+
+// StopBalancer stops the balancer with a maxTimeMS limit on how long
+// the server waits for the current balancer round to finish.
+func StopBalancer(ctx context.Context, m connect.Client, maxTimeMS int64) error {
+	doc := bson.D{{"_configsvrBalancerStop", 1}}
+	if maxTimeMS > 0 {
+		doc = append(doc, bson.E{Key: "maxTimeMS", Value: maxTimeMS})
 	}
 
 	err := m.AdminCommand(ctx, doc).Err()

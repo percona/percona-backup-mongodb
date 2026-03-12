@@ -116,11 +116,11 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			t := cfg.Restore.Timeouts.BalancerStop()
 			if t > 0 {
 				l.Debug("stopping balancer with timeout %s", t)
+				err = topo.StopBalancer(ctx, a.leadConn, t.Milliseconds())
 			} else {
 				l.Debug("stopping balancer")
+				err = topo.SetBalancerStatus(ctx, a.leadConn, topo.BalancerModeOff)
 			}
-
-			err := topo.SetBalancerStatus(ctx, a.leadConn, topo.BalancerModeOff, t.Milliseconds())
 			if err != nil {
 				l.Error("set balancer off: %v", err)
 			}
