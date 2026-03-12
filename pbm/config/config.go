@@ -446,18 +446,18 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 //nolint:lll
 type RestoreTimeouts struct {
 	// BalancerStopMin is timeout (in minutes) to wait for the balancer to stop.
-	// 0 or nil means wait indefinitely (default).
-	BalancerStopMin *uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
+	// 0 means wait indefinitely (default).
+	BalancerStopMin uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
 }
 
 // BalancerStop returns timeout duration for waiting for the balancer to stop.
 // Returns 0 if not set, meaning PBM will wait indefinitely.
 func (t *RestoreTimeouts) BalancerStop() time.Duration {
-	if t == nil || t.BalancerStopMin == nil || *t.BalancerStopMin == 0 {
+	if t == nil {
 		return 0
 	}
 
-	return time.Duration(*t.BalancerStopMin) * time.Minute
+	return time.Duration(t.BalancerStopMin) * time.Minute
 }
 
 // GetFallbackEnabled gets config's or default value for fallbackEnabled
@@ -515,8 +515,8 @@ type BackupTimeouts struct {
 	Starting *uint32 `bson:"startingStatus,omitempty" json:"startingStatus,omitempty" yaml:"startingStatus,omitempty"`
 
 	// BalancerStopMin is timeout (in minutes) to wait for the balancer to stop.
-	// 0 or nil means wait indefinitely (default).
-	BalancerStopMin *uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
+	// 0 means wait indefinitely (default).
+	BalancerStopMin uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
 }
 
 // StartingStatus returns timeout duration for .
@@ -532,11 +532,11 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 // BalancerStop returns timeout duration for waiting for the balancer to stop.
 // Returns 0 if not set, meaning PBM will wait indefinitely.
 func (t *BackupTimeouts) BalancerStop() time.Duration {
-	if t == nil || t.BalancerStopMin == nil || *t.BalancerStopMin == 0 {
+	if t == nil {
 		return 0
 	}
 
-	return time.Duration(*t.BalancerStopMin) * time.Minute
+	return time.Duration(t.BalancerStopMin) * time.Minute
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {

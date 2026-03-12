@@ -219,7 +219,7 @@ func (b *BalancerStatus) IsDisabled() bool {
 	return b.Mode == BalancerModeOff && !b.InBalancerRound
 }
 
-// SetBalancerStatus sets balancer status.
+// SetBalancerStatus sets balancer status
 func SetBalancerStatus(ctx context.Context, m connect.Client, mode BalancerMode) error {
 	var cmd string
 
