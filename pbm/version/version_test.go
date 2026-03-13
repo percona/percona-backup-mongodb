@@ -100,6 +100,178 @@ func TestCompatibility(t *testing.T) {
 	}
 }
 
+func TestFullPhysicalBackup(t *testing.T) {
+	cases := []struct {
+		name    string
+		ver     MongoVersion
+		want    bool
+	}{
+		// PSMDB cases
+		{
+			name: "psmdb 4.2.14 (too old)",
+			ver:  MongoVersion{PSMDBVersion: "4.2.14-14", Version: []int{4, 2, 14}},
+			want: false,
+		},
+		{
+			name: "psmdb 4.2.15",
+			ver:  MongoVersion{PSMDBVersion: "4.2.15-15", Version: []int{4, 2, 15}},
+			want: true,
+		},
+		{
+			name: "psmdb 4.4.5 (too old)",
+			ver:  MongoVersion{PSMDBVersion: "4.4.5-5", Version: []int{4, 4, 5}},
+			want: false,
+		},
+		{
+			name: "psmdb 4.4.6",
+			ver:  MongoVersion{PSMDBVersion: "4.4.6-6", Version: []int{4, 4, 6}},
+			want: true,
+		},
+		{
+			name: "psmdb 7.0.0",
+			ver:  MongoVersion{PSMDBVersion: "7.0.0-1", Version: []int{7, 0, 0}},
+			want: true,
+		},
+		// Plain MongoDB (no enterprise)
+		{
+			name: "mongodb community 7.0.0",
+			ver:  MongoVersion{Version: []int{7, 0, 0}},
+			want: false,
+		},
+		// MongoDB Enterprise cases
+		{
+			name: "mongodb enterprise 4.2.14 (too old)",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 2, 14}},
+			want: false,
+		},
+		{
+			name: "mongodb enterprise 4.2.15",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 2, 15}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 4.4.5 (too old)",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 4, 5}},
+			want: false,
+		},
+		{
+			name: "mongodb enterprise 4.4.6",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 4, 6}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 7.0.0",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{7, 0, 0}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 8.0.0",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{8, 0, 0}},
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FeatureSupport(tc.ver).FullPhysicalBackup()
+			if got != tc.want {
+				t.Errorf("FullPhysicalBackup() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIncrementalPhysicalBackup(t *testing.T) {
+	cases := []struct {
+		name string
+		ver  MongoVersion
+		want bool
+	}{
+		// PSMDB cases
+		{
+			name: "psmdb 4.2.23 (too old)",
+			ver:  MongoVersion{PSMDBVersion: "4.2.23-23", Version: []int{4, 2, 23}},
+			want: false,
+		},
+		{
+			name: "psmdb 4.2.24",
+			ver:  MongoVersion{PSMDBVersion: "4.2.24-24", Version: []int{4, 2, 24}},
+			want: true,
+		},
+		{
+			name: "psmdb 7.0.0",
+			ver:  MongoVersion{PSMDBVersion: "7.0.0-1", Version: []int{7, 0, 0}},
+			want: true,
+		},
+		// Plain MongoDB (no enterprise)
+		{
+			name: "mongodb community 7.0.0",
+			ver:  MongoVersion{Version: []int{7, 0, 0}},
+			want: false,
+		},
+		// MongoDB Enterprise cases
+		{
+			name: "mongodb enterprise 4.2.23 (too old)",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 2, 23}},
+			want: false,
+		},
+		{
+			name: "mongodb enterprise 4.2.24",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 2, 24}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 4.4.17 (too old)",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 4, 17}},
+			want: false,
+		},
+		{
+			name: "mongodb enterprise 4.4.18",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{4, 4, 18}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 5.0.13 (too old)",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{5, 0, 13}},
+			want: false,
+		},
+		{
+			name: "mongodb enterprise 5.0.14",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{5, 0, 14}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 6.0.2 (too old)",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{6, 0, 2}},
+			want: false,
+		},
+		{
+			name: "mongodb enterprise 6.0.3",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{6, 0, 3}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 7.0.0",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{7, 0, 0}},
+			want: true,
+		},
+		{
+			name: "mongodb enterprise 8.0.0",
+			ver:  MongoVersion{Modules: []string{"enterprise"}, Version: []int{8, 0, 0}},
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FeatureSupport(tc.ver).IncrementalPhysicalBackup()
+			if got != tc.want {
+				t.Errorf("IncrementalPhysicalBackup() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHasPhysicalFilesMetadata(t *testing.T) {
 	cases := map[string]bool{
 		"":           false,
