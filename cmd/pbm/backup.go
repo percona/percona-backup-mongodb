@@ -47,6 +47,7 @@ type backupOut struct {
 	Name        string `json:"name"`
 	Profile     string `json:"profile,omitempty" yaml:"profile,omitempty"`
 	StoragePath string `json:"storagePath"`
+	Saved       bool   `json:"-" yaml:"-"`
 }
 
 func (b backupOut) String() string {
@@ -57,7 +58,11 @@ func (b backupOut) String() string {
 		pInfo = fmt.Sprintf("(profile: %q, path: %q)", b.Profile, b.StoragePath)
 
 	}
-	return fmt.Sprintf("Backup %q saved to remote store %s", b.Name, pInfo)
+	verb := "started"
+	if b.Saved {
+		verb = "saved"
+	}
+	return fmt.Sprintf("Backup %q %s to remote store %s", b.Name, verb, pInfo)
 }
 
 type externBcpOut struct {
@@ -173,6 +178,9 @@ func runBackup(
 	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
 	defer cancel()
 	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
+	if showProgress {
+		fmt.Println()
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "wait for backup status")
 	}
@@ -213,7 +221,7 @@ func runBackup(
 		}
 
 		if showProgress {
-			fmt.Printf("\nWaiting for '%s' backup...", b.name)
+			fmt.Printf("Waiting for '%s' backup...", b.name)
 		}
 		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone, showProgress)
 		if s != nil && showProgress {
@@ -227,7 +235,12 @@ func runBackup(
 		}
 	}
 
-	return backupOut{Name: b.name, Profile: cfg.Name, StoragePath: cfg.Storage.Path()}, nil
+	return backupOut{
+		Name:        b.name,
+		Profile:     cfg.Name,
+		StoragePath: cfg.Storage.Path(),
+		Saved:       b.wait,
+	}, nil
 }
 
 func runFinishBcp(ctx context.Context, conn connect.Client, bcp string) (fmt.Stringer, error) {
@@ -300,9 +313,10 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 				return errors.Wrap(err, "get backup metadata")
 			}
 			switch bmeta.Status {
-			case defs.StatusRunning, defs.StatusDumpDone, defs.StatusDone, defs.StatusCancelled:
+			case defs.StatusStarting, defs.StatusRunning, defs.StatusDumpDone, defs.StatusDone, defs.StatusCancelled:
 				return nil
 			case defs.StatusError:
+				// in case backup transitions to StatusError before we see StatusStarting
 				rs := ""
 				for _, s := range bmeta.Replsets {
 					rs += fmt.Sprintf("\n- Backup on replicaset \"%s\" in state: %v", s.Name, s.Status)
@@ -319,18 +333,8 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 			if bmeta == nil {
 				return errors.New("no progress from leader, backup metadata not found")
 			}
-			rs := ""
-			for _, s := range bmeta.Replsets {
-				rs += fmt.Sprintf("- Backup on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
-				if s.Error != "" {
-					rs += ": " + s.Error
-				}
-			}
-			if rs == "" {
-				rs = "<no replset has started backup>\n"
-			}
-
-			return errors.New("no confirmation that backup has successfully started. Replsets status:\n" + rs)
+			// this should never happen, but just in case
+			return errors.Errorf("unexpected backup status %q", bmeta.Status)
 		}
 	}
 }
