@@ -439,9 +439,7 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 		// so we have to shut it down despite of role
 		if !inf.IsPrimary || len(rsStat.Members) == 1 {
 			err = nodeShutdown(ctx, r.node)
-			if err != nil &&
-				strings.Contains(err.Error(), // wait a bit and let the node to stepdown
-					"(ConflictingOperationInProgress) This node is already in the process of stepping down") {
+			if err != nil && isNonRecoverableShutdownErr(err) {
 				return errors.Wrap(err, "shutdown server")
 			}
 			break
@@ -569,6 +567,26 @@ func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 		return nil
 	}
 	return err
+}
+
+// isNonRecoverableShutdownErr returns true if the error from nodeShutdown
+// indicates that mongod will not shut down and waiting would be futile.
+func isNonRecoverableShutdownErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	// Add new non-recoverable error patterns here as needed.
+	nonRecoverablePatterns := []string{
+		"(Unauthorized)",
+		"(ConflictingOperationInProgress)",
+	}
+	for _, p := range nonRecoverablePatterns {
+		if strings.Contains(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // waitMgoShutdown waits until mongod releases mongod.lock file within dbpath dir.
