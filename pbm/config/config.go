@@ -418,6 +418,8 @@ type RestoreConf struct {
 
 	FallbackEnabled *bool `bson:"fallbackEnabled,omitempty" json:"fallbackEnabled,omitempty" yaml:"fallbackEnabled,omitempty"`
 	AllowPartlyDone *bool `bson:"allowPartlyDone,omitempty" json:"allowPartlyDone,omitempty" yaml:"allowPartlyDone,omitempty"`
+
+	Timeouts *RestoreTimeouts `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 }
 
 func (cfg *RestoreConf) Clone() *RestoreConf {
@@ -432,8 +434,30 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 			rv.MongodLocationMap[k] = v
 		}
 	}
+	if cfg.Timeouts != nil {
+		rv.Timeouts = &RestoreTimeouts{
+			BalancerStopMin: cfg.Timeouts.BalancerStopMin,
+		}
+	}
 
 	return &rv
+}
+
+//nolint:lll
+type RestoreTimeouts struct {
+	// BalancerStopMin is timeout (in minutes) to wait for the balancer to stop.
+	// 0 means wait indefinitely (default).
+	BalancerStopMin uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
+}
+
+// BalancerStop returns timeout duration for waiting for the balancer to stop.
+// Returns 0 if not set, meaning PBM will wait indefinitely.
+func (t *RestoreTimeouts) BalancerStop() time.Duration {
+	if t == nil {
+		return 0
+	}
+
+	return time.Duration(t.BalancerStopMin) * time.Minute
 }
 
 // GetFallbackEnabled gets config's or default value for fallbackEnabled
@@ -472,10 +496,9 @@ func (cfg *BackupConf) Clone() *BackupConf {
 
 	rv.Priority = maps.Clone(cfg.Priority)
 	if cfg.Timeouts != nil {
-		if cfg.Timeouts.Starting != nil {
-			rv.Timeouts = &BackupTimeouts{
-				Starting: cfg.Timeouts.Starting,
-			}
+		rv.Timeouts = &BackupTimeouts{
+			Starting:        cfg.Timeouts.Starting,
+			BalancerStopMin: cfg.Timeouts.BalancerStopMin,
 		}
 	}
 	if cfg.CompressionLevel != nil {
@@ -486,9 +509,14 @@ func (cfg *BackupConf) Clone() *BackupConf {
 	return &rv
 }
 
+//nolint:lll
 type BackupTimeouts struct {
 	// Starting is timeout (in seconds) to wait for a backup to start.
 	Starting *uint32 `bson:"startingStatus,omitempty" json:"startingStatus,omitempty" yaml:"startingStatus,omitempty"`
+
+	// BalancerStopMin is timeout (in minutes) to wait for the balancer to stop.
+	// 0 means wait indefinitely (default).
+	BalancerStopMin uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
 }
 
 // StartingStatus returns timeout duration for .
@@ -499,6 +527,16 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 	}
 
 	return time.Duration(*t.Starting) * time.Second
+}
+
+// BalancerStop returns timeout duration for waiting for the balancer to stop.
+// Returns 0 if not set, meaning PBM will wait indefinitely.
+func (t *BackupTimeouts) BalancerStop() time.Duration {
+	if t == nil {
+		return 0
+	}
+
+	return time.Duration(t.BalancerStopMin) * time.Minute
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
