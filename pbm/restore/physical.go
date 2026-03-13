@@ -1374,7 +1374,7 @@ func (r *PhysRestore) patchSysData(
 	}
 
 	l.Info("recovering oplog as standalone")
-	err = r.recoverStandalone()
+	err = r.recoverStandaloneFromOplog()
 	if err != nil {
 		return errors.Wrap(err, "recover oplog as standalone")
 	}
@@ -1720,7 +1720,7 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 	return nil
 }
 
-func (r *PhysRestore) recoverStandalone() error {
+func (r *PhysRestore) recoverStandaloneFromOplog() error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "recoverFromOplogAsStandalone=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
