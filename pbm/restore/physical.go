@@ -1736,6 +1736,73 @@ func (r *PhysRestore) recoverStandalone() error {
 	return r.shutdown(c)
 }
 
+func (r *PhysRestore) replayOplogOnStandalone(
+	from primitive.Timestamp,
+	to primitive.Timestamp,
+	oplogRanges []oplogRange,
+	stat *phys.RestoreShardStat,
+) error {
+	ctx := context.Background()
+	flags := []string{
+		"--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true",
+		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
+	}
+	if r.nodeInfo.IsConfigSrv() {
+		flags = append(flags, "--configsvr")
+	}
+	err := r.startMongo(flags...)
+	if err != nil {
+		return errors.Wrap(err, "start mongo as rs")
+	}
+
+	nodeConn, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo rs")
+	}
+
+	mgoV, err := version.GetMongoVersion(ctx, nodeConn)
+	if err != nil || len(mgoV.Version) < 1 {
+		return errors.Wrap(err, "define mongo version")
+	}
+
+	oplogOption := applyOplogOption{
+		start:  &from,
+		end:    &to,
+		unsafe: true,
+	}
+	partial, err := applyOplog(ctx,
+		nodeConn,
+		oplogRanges,
+		&oplogOption,
+		r.nodeInfo,
+		nil,
+		r.setcommittedTxn,
+		r.getcommittedTxn,
+		&stat.Txn,
+		&mgoV)
+	if err != nil {
+		return errors.Wrap(err, "replay oplog")
+	}
+	if len(partial) > 0 {
+		tops := []db.Oplog{}
+		for _, t := range partial {
+			tops = append(tops, t.Oplog...)
+		}
+
+		buf, err := json.Marshal(tops)
+		if err != nil {
+			return errors.Wrap(err, "encode")
+		}
+		err = storage.RetryableWrite(r.stg, r.syncPathRS+".partTxn", buf)
+		if err != nil {
+			return errors.Wrap(err, "write partial transactions")
+		}
+	}
+
+	return r.shutdown(nodeConn)
+}
+
 func (r *PhysRestore) replayOplog(
 	from primitive.Timestamp,
 	to primitive.Timestamp,
