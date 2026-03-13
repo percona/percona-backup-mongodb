@@ -1379,11 +1379,17 @@ func (r *PhysRestore) patchSysData(
 		return errors.Wrap(err, "recover oplog as standalone")
 	}
 
-	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
-		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, stats)
+	if !pitr.IsZero() {
+		l.Info("replaying PITR")
+		err = r.replayOplogOnStandalone(r.bcp.LastWriteTS, pitr, oplogRanges, stats)
 		if err != nil {
 			return errors.Wrap(err, "replay pitr oplog")
+		}
+
+		l.Info("RS init")
+		err = r.initStandaloneRS()
+		if err != nil {
+			return errors.Wrap(err, "createRS")
 		}
 	}
 
@@ -1803,7 +1809,7 @@ func (r *PhysRestore) replayOplogOnStandalone(
 	return r.shutdown(nodeConn)
 }
 
-func (r *PhysRestore) initRS() error {
+func (r *PhysRestore) initStandaloneRS() error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
