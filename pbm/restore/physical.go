@@ -1803,6 +1803,45 @@ func (r *PhysRestore) replayOplogOnStandalone(
 	return r.shutdown(nodeConn)
 }
 
+func (r *PhysRestore) initRS() error {
+	err := r.startMongo("--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true")
+	if err != nil {
+		return errors.Wrap(err, "start mongo")
+	}
+
+	nodeConn, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	if err != nil {
+		return errors.Wrap(err, "connect to mongo")
+	}
+
+	ctx := context.Background()
+	_, err = nodeConn.Database("local").Collection("system.replset").InsertOne(ctx,
+		topo.RSConfig{
+			ID:      r.rsConf.ID,
+			CSRS:    r.nodeInfo.IsConfigSrv(),
+			Version: 1,
+			Members: []topo.RSMember{{
+				ID:           0,
+				Host:         "localhost:" + strconv.Itoa(r.tmpPort),
+				Votes:        1,
+				Priority:     1,
+				BuildIndexes: true,
+			}},
+		},
+	)
+	if err != nil {
+		return errors.Wrapf(err, "update rs.member host to %s", r.nodeInfo.Me)
+	}
+
+	err = r.shutdown(nodeConn)
+	if err != nil {
+		return errors.Wrap(err, "after update member host")
+	}
+
+	return err
+}
+
 func (r *PhysRestore) replayOplog(
 	from primitive.Timestamp,
 	to primitive.Timestamp,
