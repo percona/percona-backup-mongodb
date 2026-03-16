@@ -170,9 +170,7 @@ func runBackup(
 		}
 		fmt.Printf("Starting backup %q%s", b.name, pinfo)
 	}
-	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
-	defer cancel()
-	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
+	err = waitForBcpStatus(ctx, conn, b.name, showProgress)
 	if err != nil {
 		return nil, errors.Wrap(err, "wait for backup status")
 	}
