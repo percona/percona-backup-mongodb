@@ -1754,9 +1754,6 @@ func (r *PhysRestore) replayOplogOnStandalone(
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
 	}
-	if r.nodeInfo.IsConfigSrv() {
-		flags = append(flags, "--configsvr")
-	}
 	err := r.startMongo(flags...)
 	if err != nil {
 		return errors.Wrap(err, "start mongo as rs")
