@@ -278,7 +278,38 @@ func waitBackup(
 	}
 }
 
+func waitForBcpExists(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
+	tk := time.NewTicker(time.Second)
+	defer tk.Stop()
+
+	existCtx, cancel := context.WithTimeout(ctx, defs.WaitBackupStart)
+	defer cancel()
+
+	for {
+		select {
+		case <-tk.C:
+			if showProgress {
+				fmt.Print(".")
+			}
+			_, err := backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
+			if errors.Is(err, errors.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return errors.Wrap(err, "get backup metadata")
+			}
+			return nil
+		case <-existCtx.Done():
+			return errors.New("no progress from leader, backup metadata not found")
+		}
+	}
+}
+
 func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
+	if err := waitForBcpExists(ctx, conn, bcpName, showProgress); err != nil {
+		return err
+	}
+
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
