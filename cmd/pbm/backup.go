@@ -316,15 +316,13 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	var bmeta *backup.BackupMeta
 	for {
 		select {
 		case <-tk.C:
 			if showProgress {
 				fmt.Print(".")
 			}
-			var err error
-			bmeta, err = backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
+			bmeta, err := backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
