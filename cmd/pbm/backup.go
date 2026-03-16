@@ -171,6 +171,9 @@ func runBackup(
 		fmt.Printf("Starting backup %q%s", b.name, pinfo)
 	}
 	err = waitForBcpStatus(ctx, conn, b.name, showProgress)
+	if showProgress {
+		fmt.Println()
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "wait for backup status")
 	}
@@ -211,7 +214,7 @@ func runBackup(
 		}
 
 		if showProgress {
-			fmt.Printf("\nWaiting for '%s' backup...", b.name)
+			fmt.Printf("Waiting for '%s' backup...", b.name)
 		}
 		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone, showProgress)
 		if s != nil && showProgress {
