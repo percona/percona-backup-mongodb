@@ -342,21 +342,7 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 				return errors.Errorf("status error on %s", rs)
 			}
 		case <-ctx.Done():
-			if bmeta == nil {
-				return errors.New("no progress from leader, backup metadata not found")
-			}
-			rs := ""
-			for _, s := range bmeta.Replsets {
-				rs += fmt.Sprintf("- Backup on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
-				if s.Error != "" {
-					rs += ": " + s.Error
-				}
-			}
-			if rs == "" {
-				rs = "<no replset has started backup>\n"
-			}
-
-			return errors.New("no confirmation that backup has successfully started. Replsets status:\n" + rs)
+			return ctx.Err()
 		}
 	}
 }
