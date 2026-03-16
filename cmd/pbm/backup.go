@@ -322,9 +322,6 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 			}
 			var err error
 			bmeta, err = backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
-			if errors.Is(err, errors.ErrNotFound) {
-				continue
-			}
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
