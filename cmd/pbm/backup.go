@@ -284,9 +284,7 @@ func waitBackup(
 func waitForBcpExists(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
-
-	existCtx, cancel := context.WithTimeout(ctx, defs.WaitBackupStart)
-	defer cancel()
+	to := time.After(defs.WaitBackupStart)
 
 	for {
 		select {
@@ -302,7 +300,7 @@ func waitForBcpExists(ctx context.Context, conn connect.Client, bcpName string, 
 				return errors.Wrap(err, "get backup metadata")
 			}
 			return nil
-		case <-existCtx.Done():
+		case <-to:
 			return errors.New("no progress from leader, backup metadata not found")
 		}
 	}
