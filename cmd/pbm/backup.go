@@ -274,22 +274,8 @@ func waitBackup(
 				return &bcp.Status, bcp.Error()
 			}
 
-			// Check if the backup has stuck (leader agent crashed).
-			clusterTime, err := topo.GetClusterTime(ctx, conn)
-			if err != nil {
-				return nil, errors.Wrap(err, "read cluster time")
-			}
-			if bcp.Hb.T+defs.StaleFrameSec < clusterTime.T {
-				rs := ""
-				for _, s := range bcp.Replsets {
-					rs += fmt.Sprintf("\n- %s: %v", s.Name, s.Status)
-					if s.Error != "" {
-						rs += ": " + s.Error
-					}
-				}
-				return &bcp.Status, errors.Errorf(
-					"backup stuck at %q status, last heartbeat: %d%s",
-					bcp.Status, bcp.Hb.T, rs)
+			if err := checkBackupStale(ctx, conn, bcp); err != nil {
+				return &bcp.Status, err
 			}
 		}
 
@@ -297,6 +283,26 @@ func waitBackup(
 			fmt.Print(".")
 		}
 	}
+}
+
+func checkBackupStale(ctx context.Context, conn connect.Client, bcp *backup.BackupMeta) error {
+	clusterTime, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+	if bcp.Hb.T+defs.StaleFrameSec < clusterTime.T {
+		rs := ""
+		for _, s := range bcp.Replsets {
+			rs += fmt.Sprintf("\n- %s: %v", s.Name, s.Status)
+			if s.Error != "" {
+				rs += ": " + s.Error
+			}
+		}
+		return errors.Errorf(
+			"backup stuck at %q status, last heartbeat: %d%s",
+			bcp.Status, bcp.Hb.T, rs)
+	}
+	return nil
 }
 
 func waitForBcpExists(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
