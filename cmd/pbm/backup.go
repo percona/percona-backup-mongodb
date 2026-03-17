@@ -364,6 +364,10 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 				}
 				return errors.Errorf("status error on %s", rs)
 			}
+
+			if err := checkBackupStale(ctx, conn, bmeta); err != nil {
+				return err
+			}
 		case <-ctx.Done():
 			return ctx.Err()
 		}
