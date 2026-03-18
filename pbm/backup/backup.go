@@ -538,8 +538,8 @@ func (b *Backup) converged(
 				})
 
 				// nodes are cleaning its locks moving to the done status
-				// so no lock is ok and no need to ckech the heartbeats
-				if status != defs.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
+				// so no lock is ok and no need to check the heartbeats
+				if shard.Status != defs.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
 					if err != nil {
 						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
 					}
