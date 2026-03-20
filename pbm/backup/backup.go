@@ -530,21 +530,23 @@ func (b *Backup) converged(
 	for _, sh := range shards {
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.RS {
-				// check if node alive
-				lck, err := lock.GetLockData(ctx, b.leadConn, &lock.LockHeader{
-					Type:    ctrl.CmdBackup,
-					OPID:    opid,
-					Replset: shard.Name,
-				})
-
-				// nodes are cleaning its locks moving to the done status
-				// so no lock is ok and no need to ckech the heartbeats
-				if status != defs.StatusDone && !errors.Is(err, mongo.ErrNoDocuments) {
-					if err != nil {
-						return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
-					}
-					if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
-						return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lck.Heartbeat.T)
+				// Check if node is alive.
+				// Nodes in terminal states (done, error, cancelled) may have
+				// already released their locks. Their status is handled by
+				// the switch below.
+				if shard.Status.IsRunning() {
+					lck, err := lock.GetLockData(ctx, b.leadConn, &lock.LockHeader{
+						Type:    ctrl.CmdBackup,
+						OPID:    opid,
+						Replset: shard.Name,
+					})
+					if !errors.Is(err, mongo.ErrNoDocuments) {
+						if err != nil {
+							return false, errors.Wrapf(err, "unable to read lock for shard %s", shard.Name)
+						}
+						if lck.Heartbeat.T+defs.StaleFrameSec < clusterTime.T {
+							return false, errors.Errorf("lost shard %s, last beat ts: %d", shard.Name, lck.Heartbeat.T)
+						}
 					}
 				}
 
