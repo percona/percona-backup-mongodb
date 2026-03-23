@@ -561,6 +561,39 @@ func (r *PhysRestore) removeFallback() error {
 	return errors.Wrap(err, "remove fallback db path")
 }
 
+// checkShutdownImpossible returns an error if mongod rejects {shutdown: 1}.
+// Without auth, MongoDB only accepts shutdown from localhost connections.
+func (r *PhysRestore) checkShutdownImpossible(ctx context.Context) error {
+	authInfo, err := topo.CurrentUser(ctx, r.node)
+	if err != nil {
+		return errors.Wrap(err, "check connection auth status")
+	}
+	if len(authInfo.Users) > 0 {
+		return nil
+	}
+
+	// Connection is unauthenticated — check if it's from localhost.
+	res := r.node.Database("admin").RunCommand(ctx, bson.D{{"whatsmyuri", 1}})
+	var uri struct {
+		You string `bson:"you"`
+	}
+	if err := res.Decode(&uri); err != nil {
+		return errors.Wrap(err, "check connection source address")
+	}
+
+	host, _, err := net.SplitHostPort(uri.You)
+	if err != nil {
+		return errors.Wrapf(err, "parse connection address %q", uri.You)
+	}
+
+	ip := net.ParseIP(host)
+	if ip != nil && ip.IsLoopback() {
+		return nil
+	}
+
+	return errors.New("shutdown not possible: unauthenticated non-localhost connection")
+}
+
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 	err := m.Database("admin").RunCommand(ctx, bson.D{{"shutdown", 1}}).Err()
 	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
@@ -1199,6 +1232,11 @@ func (r *PhysRestore) Snapshot(
 		return errors.Wrap(err, "move to running state")
 	}
 	l.Debug("%s", defs.StatusStarting)
+
+	// Detect configurations where mongod shutdown is impossible.
+	if err := r.checkShutdownImpossible(ctx); err != nil {
+		return err
+	}
 
 	logger := log.FromContext(ctx)
 	r.enableLogBuff(logger)
