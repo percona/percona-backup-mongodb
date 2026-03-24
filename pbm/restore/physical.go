@@ -561,18 +561,21 @@ func (r *PhysRestore) removeFallback() error {
 	return errors.Wrap(err, "remove fallback db path")
 }
 
+func (r *PhysRestore) authEnabled() bool {
+	if r.secOpts == nil {
+		return false
+	}
+	return r.secOpts.KeyFile != "" || r.secOpts.Authorization == "enabled" || r.secOpts.ClusterAuthMode != ""
+}
+
 // checkShutdownImpossible returns an error if mongod rejects {shutdown: 1}.
 // Without auth, MongoDB only accepts shutdown from localhost connections.
 func (r *PhysRestore) checkShutdownImpossible(ctx context.Context) error {
-	authInfo, err := topo.CurrentUser(ctx, r.node)
-	if err != nil {
-		return errors.Wrap(err, "check connection auth status")
-	}
-	if len(authInfo.Users) > 0 {
+	if r.authEnabled() {
 		return nil
 	}
 
-	// Connection is unauthenticated — check if it's from localhost.
+	// Auth is not enforced — check if the connection is from localhost
 	res := r.node.Database("admin").RunCommand(ctx, bson.D{{"whatsmyuri", 1}})
 	var uri struct {
 		You string `bson:"you"`
@@ -591,7 +594,7 @@ func (r *PhysRestore) checkShutdownImpossible(ctx context.Context) error {
 		return nil
 	}
 
-	return errors.New("shutdown not possible: unauthenticated non-localhost connection")
+	return errors.New("shutdown not possible: non-localhost connection with auth disabled")
 }
 
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
