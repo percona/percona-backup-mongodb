@@ -182,9 +182,9 @@ type MongodOptsSec struct {
 	} `bson:"kmip,omitempty" json:"kmip,omitempty" yaml:"kmip,omitempty"`
 
 	// Auth-related fields (needed for checkShutdownImpossible)
-	Authorization    string `bson:"authorization,omitempty" json:"authorization,omitempty" yaml:"authorization,omitempty"`
-	KeyFile          string `bson:"keyFile,omitempty" json:"keyFile,omitempty" yaml:"keyFile,omitempty"`
-	ClusterAuthMode  string `bson:"clusterAuthMode,omitempty" json:"clusterAuthMode,omitempty" yaml:"clusterAuthMode,omitempty"`
+	Authorization    string `bson:"authorization,omitempty" json:"-" yaml:"-"`
+	KeyFile          string `bson:"keyFile,omitempty" json:"-" yaml:"-"`
+	ClusterAuthMode  string `bson:"clusterAuthMode,omitempty" json:"-" yaml:"-"`
 }
 
 type ExternOpts map[string]MongodOpts
