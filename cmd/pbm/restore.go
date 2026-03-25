@@ -93,9 +93,10 @@ No other pbm command is available while the restore is running!
 `,
 				r.Snapshot, r.Name)
 		}
-		return fmt.Sprintf("\nRestore of the snapshot from '%s' has started", r.Snapshot)
+		return fmt.Sprintf("Restore of the snapshot from '%s' has started", r.Snapshot)
 	case r.PITR != "":
-		return fmt.Sprintf("\nRestore to the point in time '%s' has started", r.PITR)
+		return fmt.Sprintf("Restore to the point in time '%s' has started", r.PITR)
+
 	default:
 		return ""
 	}
@@ -182,6 +183,9 @@ func runRestore(
 	m, err := doRestore(ctx, conn, stg, l, o, numParallelColls, numInsertionWorkers,
 		nss, o.nsFrom, o.nsTo, rsMap, outf)
 	if err != nil {
+		if errors.Is(err, errUserCanceled) {
+			return outMsg{err.Error()}, nil
+		}
 		return nil, err
 	}
 	if o.extern && outf == outText {
@@ -514,11 +518,9 @@ func doRestore(
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
 
-	fmt.Println("Restore:")
-	fmt.Printf(" - %s%s%s\n", name, pitrs, bcpName)
-
 	if !o.yes {
-		err := askConfirmation("Are you sure you want to restore this backup?")
+		fmt.Printf("Restore: %s%s%s\n", name, pitrs, bcpName)
+		err := askConfirmation("Are you sure you want to start the restore?")
 		if err != nil {
 			return nil, err
 		}
@@ -529,7 +531,7 @@ func doRestore(
 		return nil, errors.Wrap(err, "send command")
 	}
 
-	fmt.Printf("Starting restore")
+	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
 
 	var (
 		fn     getRestoreMetaFn
