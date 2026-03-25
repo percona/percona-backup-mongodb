@@ -580,9 +580,9 @@ func (r *PhysRestore) authEnabled(ctx context.Context) (bool, error) {
 	return sec.KeyFile != "" || sec.Authorization == "enabled" || sec.ClusterAuthMode != "", nil
 }
 
-// checkShutdownImpossible returns an error if mongod rejects {shutdown: 1}.
+// checkShutdownFails returns an error if mongod rejects {shutdown: 1}.
 // Without auth, MongoDB only accepts shutdown from localhost connections.
-func (r *PhysRestore) checkShutdownImpossible(ctx context.Context) error {
+func (r *PhysRestore) checkShutdownFails(ctx context.Context) error {
 	authOn, err := r.authEnabled(ctx)
 	if err != nil {
 		return err
@@ -1253,7 +1253,7 @@ func (r *PhysRestore) Snapshot(
 	l.Debug("%s", defs.StatusStarting)
 
 	// Detect configurations where mongod shutdown is impossible.
-	if err = r.checkShutdownImpossible(ctx); err != nil {
+	if err = r.checkShutdownFails(ctx); err != nil {
 		return err
 	}
 
