@@ -1253,7 +1253,7 @@ func (r *PhysRestore) Snapshot(
 	l.Debug("%s", defs.StatusStarting)
 
 	// Detect configurations where mongod shutdown is impossible.
-	if err := r.checkShutdownImpossible(ctx); err != nil {
+	if err = r.checkShutdownImpossible(ctx); err != nil {
 		return err
 	}
 
