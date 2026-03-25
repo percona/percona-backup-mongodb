@@ -49,7 +49,7 @@ type restoreOpts struct {
 	nsFrom          string
 	nsTo            string
 	usersAndRoles   bool
-	confirmYes      bool
+	yes             bool
 	rsMap           string
 	conf            string
 	ts              string
@@ -517,7 +517,7 @@ func doRestore(
 	fmt.Println("Restore:")
 	fmt.Printf(" - %s%s%s\n", name, pitrs, bcpName)
 
-	if !o.confirmYes {
+	if !o.yes {
 		err := askConfirmation("Are you sure you want to restore this backup?")
 		if err != nil {
 			return nil, err
