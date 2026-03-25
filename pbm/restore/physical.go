@@ -561,6 +561,58 @@ func (r *PhysRestore) removeFallback() error {
 	return errors.Wrap(err, "remove fallback db path")
 }
 
+func (r *PhysRestore) authEnabled(ctx context.Context) (bool, error) {
+	var result struct {
+		Parsed struct {
+			Security struct {
+				Authorization   string `bson:"authorization"`
+				KeyFile         string `bson:"keyFile"`
+				ClusterAuthMode string `bson:"clusterAuthMode"`
+			} `bson:"security"`
+		} `bson:"parsed"`
+	}
+	err := r.node.Database("admin").RunCommand(ctx, bson.D{{"getCmdLineOpts", 1}}).Decode(&result)
+	if err != nil {
+		return false, errors.Wrap(err, "get mongod auth config")
+	}
+
+	sec := result.Parsed.Security
+	return sec.KeyFile != "" || sec.Authorization == "enabled" || sec.ClusterAuthMode != "", nil
+}
+
+// checkShutdownFails returns an error if mongod rejects {shutdown: 1}.
+// Without auth, MongoDB only accepts shutdown from localhost connections.
+func (r *PhysRestore) checkShutdownFails(ctx context.Context) error {
+	authOn, err := r.authEnabled(ctx)
+	if err != nil {
+		return err
+	}
+	if authOn {
+		return nil
+	}
+
+	// Auth is not enforced — check if the connection is from localhost
+	res := r.node.Database("admin").RunCommand(ctx, bson.D{{"whatsmyuri", 1}})
+	var uri struct {
+		You string `bson:"you"`
+	}
+	if err := res.Decode(&uri); err != nil {
+		return errors.Wrap(err, "check connection source address")
+	}
+
+	host, _, err := net.SplitHostPort(uri.You)
+	if err != nil {
+		return errors.Wrapf(err, "parse connection address %q", uri.You)
+	}
+
+	ip := net.ParseIP(host)
+	if ip != nil && ip.IsLoopback() {
+		return nil
+	}
+
+	return errors.New("shutdown not possible: non-localhost connection with auth disabled")
+}
+
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 	err := m.Database("admin").RunCommand(ctx, bson.D{{"shutdown", 1}}).Err()
 	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
@@ -1194,6 +1246,11 @@ func (r *PhysRestore) Snapshot(
 		}
 	}
 
+	// Detect configurations where mongod shutdown is impossible.
+	if err = r.checkShutdownFails(ctx); err != nil {
+		return err
+	}
+
 	_, err = r.toState(defs.StatusStarting)
 	if err != nil {
 		return errors.Wrap(err, "move to running state")
@@ -1392,14 +1449,14 @@ func (r *PhysRestore) patchSysData(
 	}
 
 	l.Info("recovering oplog as standalone")
-	err = r.recoverStandalone()
+	err = r.recoverStandaloneFromOplog()
 	if err != nil {
 		return errors.Wrap(err, "recover oplog as standalone")
 	}
 
-	if !pitr.IsZero() && r.nodeInfo.IsPrimary {
-		l.Info("replaying pitr oplog")
-		err = r.replayOplog(r.bcp.LastWriteTS, pitr, oplogRanges, stats)
+	if !pitr.IsZero() {
+		l.Info("replaying PITR")
+		err = r.replayPITROnStandalone(r.bcp.LastWriteTS, pitr, oplogRanges, stats)
 		if err != nil {
 			return errors.Wrap(err, "replay pitr oplog")
 		}
@@ -1738,7 +1795,7 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 	return nil
 }
 
-func (r *PhysRestore) recoverStandalone() error {
+func (r *PhysRestore) recoverStandaloneFromOplog() error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "recoverFromOplogAsStandalone=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
@@ -1754,62 +1811,24 @@ func (r *PhysRestore) recoverStandalone() error {
 	return r.shutdown(c)
 }
 
-func (r *PhysRestore) replayOplog(
+func (r *PhysRestore) replayPITROnStandalone(
 	from primitive.Timestamp,
 	to primitive.Timestamp,
 	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
-	err := r.startMongo("--dbpath", r.dbpath,
-		"--setParameter", "disableLogicalSessionCacheRefresh=true")
-	if err != nil {
-		return errors.Wrap(err, "start mongo")
-	}
-
-	nodeConn, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
-	if err != nil {
-		return errors.Wrap(err, "connect to mongo")
-	}
-
 	ctx := context.Background()
-	_, err = nodeConn.Database("local").Collection("system.replset").InsertOne(ctx,
-		topo.RSConfig{
-			ID:      r.rsConf.ID,
-			CSRS:    r.nodeInfo.IsConfigSrv(),
-			Version: 1,
-			Members: []topo.RSMember{{
-				ID:           0,
-				Host:         "localhost:" + strconv.Itoa(r.tmpPort),
-				Votes:        1,
-				Priority:     1,
-				BuildIndexes: true,
-			}},
-		},
-	)
-	if err != nil {
-		return errors.Wrapf(err, "update rs.member host to %s", r.nodeInfo.Me)
-	}
-
-	err = r.shutdown(nodeConn)
-	if err != nil {
-		return errors.Wrap(err, "after update member host")
-	}
-
 	flags := []string{
 		"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
-		"--replSet", r.rsConf.ID,
 	}
-	if r.nodeInfo.IsConfigSrv() {
-		flags = append(flags, "--configsvr")
-	}
-	err = r.startMongo(flags...)
+	err := r.startMongo(flags...)
 	if err != nil {
 		return errors.Wrap(err, "start mongo as rs")
 	}
 
-	nodeConn, err = tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	nodeConn, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo rs")
 	}
@@ -1817,11 +1836,6 @@ func (r *PhysRestore) replayOplog(
 	mgoV, err := version.GetMongoVersion(ctx, nodeConn)
 	if err != nil || len(mgoV.Version) < 1 {
 		return errors.Wrap(err, "define mongo version")
-	}
-
-	err = r.waitToBecomePrimary(ctx, nodeConn)
-	if err != nil {
-		return errors.Wrap(err, "wait to become primary before applying oplog")
 	}
 
 	oplogOption := applyOplogOption{
