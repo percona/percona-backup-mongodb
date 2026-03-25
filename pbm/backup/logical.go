@@ -46,12 +46,15 @@ func (b *Backup) doLogical(
 	if err != nil {
 		return errors.Wrap(err, "get namespaces size")
 	}
-	noCompression := bcp.Compression == compress.CompressionTypeNone
+
 	sizeHints := make(map[string]int64, len(nssSize))
 	for ns, cs := range nssSize {
-		sizeHints[ns] = cs.StorageSize
-		if noCompression {
-			sizeHints[ns] *= 4
+		if bcp.Compression == compress.CompressionTypeNone {
+			// Uncompressed dump: the output size matches the logical BSON size.
+			sizeHints[ns] = cs.Size
+		} else {
+			// Compressed: WiredTiger on-disk size approximates compressed output.
+			sizeHints[ns] = cs.StorageSize
 		}
 	}
 
