@@ -46,9 +46,12 @@ func (b *Backup) doLogical(
 	if err != nil {
 		return errors.Wrap(err, "get namespaces size")
 	}
-	if bcp.Compression == compress.CompressionTypeNone {
-		for n := range nssSize {
-			nssSize[n] *= 4
+	noCompression := bcp.Compression == compress.CompressionTypeNone
+	sizeHints := make(map[string]int64, len(nssSize))
+	for ns, cs := range nssSize {
+		sizeHints[ns] = cs.StorageSize
+		if noCompression {
+			sizeHints[ns] *= 4
 		}
 	}
 
@@ -193,7 +196,7 @@ func (b *Backup) doLogical(
 				return errors.Wrap(err, "get storage")
 			}
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
-			return stg.Save(filepath, r, storage.Size(nssSize[ns]))
+			return stg.Save(filepath, r, storage.Size(sizeHints[ns]))
 		},
 		bcp.Compression,
 		bcp.CompressionLevel)
@@ -419,8 +422,14 @@ func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.D
 	}
 }
 
-func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[string]int64, error) {
-	rv := make(map[string]int64)
+// collSize holds the logical and on-disk sizes reported by collStats.
+type collSize struct {
+	Size        int64 `bson:"size"`        // uncompressed logical BSON data size
+	StorageSize int64 `bson:"storageSize"` // WiredTiger compressed on-disk size
+}
+
+func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[string]collSize, error) {
+	rv := make(map[string]collSize)
 
 	dbs, err := m.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
@@ -465,16 +474,14 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 						return errors.Wrapf(err, "collStats %q", ns)
 					}
 
-					var doc struct {
-						StorageSize int64 `bson:"storageSize"`
-					}
+					var doc collSize
 
 					if err := res.Decode(&doc); err != nil {
 						return errors.Wrapf(err, "decode %q", ns)
 					}
 
 					mu.Lock()
-					rv[ns] = doc.StorageSize
+					rv[ns] = doc
 					mu.Unlock()
 
 					return nil
