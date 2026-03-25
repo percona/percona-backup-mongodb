@@ -561,17 +561,33 @@ func (r *PhysRestore) removeFallback() error {
 	return errors.Wrap(err, "remove fallback db path")
 }
 
-func (r *PhysRestore) authEnabled() bool {
-	if r.secOpts == nil {
-		return false
+func (r *PhysRestore) authEnabled(ctx context.Context) (bool, error) {
+	var result struct {
+		Parsed struct {
+			Security struct {
+				Authorization   string `bson:"authorization"`
+				KeyFile         string `bson:"keyFile"`
+				ClusterAuthMode string `bson:"clusterAuthMode"`
+			} `bson:"security"`
+		} `bson:"parsed"`
 	}
-	return r.secOpts.KeyFile != "" || r.secOpts.Authorization == "enabled" || r.secOpts.ClusterAuthMode != ""
+	err := r.node.Database("admin").RunCommand(ctx, bson.D{{"getCmdLineOpts", 1}}).Decode(&result)
+	if err != nil {
+		return false, errors.Wrap(err, "get mongod auth config")
+	}
+
+	sec := result.Parsed.Security
+	return sec.KeyFile != "" || sec.Authorization == "enabled" || sec.ClusterAuthMode != "", nil
 }
 
 // checkShutdownImpossible returns an error if mongod rejects {shutdown: 1}.
 // Without auth, MongoDB only accepts shutdown from localhost connections.
 func (r *PhysRestore) checkShutdownImpossible(ctx context.Context) error {
-	if r.authEnabled() {
+	authOn, err := r.authEnabled(ctx)
+	if err != nil {
+		return err
+	}
+	if authOn {
 		return nil
 	}
 
