@@ -1246,16 +1246,16 @@ func (r *PhysRestore) Snapshot(
 		}
 	}
 
+	// Detect configurations where mongod shutdown is impossible.
+	if err = r.checkShutdownFails(ctx); err != nil {
+		return err
+	}
+
 	_, err = r.toState(defs.StatusStarting)
 	if err != nil {
 		return errors.Wrap(err, "move to running state")
 	}
 	l.Debug("%s", defs.StatusStarting)
-
-	// Detect configurations where mongod shutdown is impossible.
-	if err = r.checkShutdownFails(ctx); err != nil {
-		return err
-	}
 
 	logger := log.FromContext(ctx)
 	r.enableLogBuff(logger)
