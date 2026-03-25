@@ -852,6 +852,9 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		"Includes users and roles for selected database (--ns flag)",
 	)
 	restoreCmd.Flags().BoolVarP(
+		&restoreOptions.yes, "yes", "y", false, "Don't ask for confirmation",
+	)
+	restoreCmd.Flags().BoolVarP(
 		&restoreOptions.wait, "wait", "w", false, "Wait for the restore to finish",
 	)
 	restoreCmd.Flags().DurationVar(

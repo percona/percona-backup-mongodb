@@ -49,6 +49,7 @@ type restoreOpts struct {
 	nsFrom          string
 	nsTo            string
 	usersAndRoles   bool
+	yes             bool
 	rsMap           string
 	conf            string
 	ts              string
@@ -182,6 +183,9 @@ func runRestore(
 	m, err := doRestore(ctx, conn, stg, l, o, numParallelColls, numInsertionWorkers,
 		nss, o.nsFrom, o.nsTo, rsMap, outf)
 	if err != nil {
+		if errors.Is(err, errUserCanceled) {
+			return outMsg{err.Error()}, nil
+		}
 		return nil, err
 	}
 	if o.extern && outf == outText {
@@ -494,11 +498,6 @@ func doRestore(
 		}
 	}
 
-	err = sendCmd(ctx, conn, cmd)
-	if err != nil {
-		return nil, errors.Wrap(err, "send command")
-	}
-
 	if outf != outText {
 		return &restore.RestoreMeta{
 			Name:   name,
@@ -518,6 +517,20 @@ func doRestore(
 	if o.pitr != "" {
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
+
+	if !o.yes {
+		fmt.Printf("Restore: %s%s%s\n", name, pitrs, bcpName)
+		err := askConfirmation("Are you sure you want to start the restore?")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = sendCmd(ctx, conn, cmd)
+	if err != nil {
+		return nil, errors.Wrap(err, "send command")
+	}
+
 	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
 
 	var (
