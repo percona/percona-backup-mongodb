@@ -17,7 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/sdk"
 )
 
@@ -65,7 +64,7 @@ func deleteBackup(
 		cid, err = deleteManyBackup(ctx, pbm, d)
 	}
 	if err != nil {
-		if errors.Is(err, errors.ErrUserCanceled) {
+		if errors.Is(err, errUserCanceled) {
 			return outMsg{err.Error()}, nil
 		}
 		return nil, err
@@ -115,7 +114,7 @@ func deleteBackupByName(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) 
 		return sdk.NoOpID, nil
 	}
 	if !d.yes {
-		err := util.AskConfirmation("Are you sure you want to delete this backup?")
+		err := askConfirmation("Are you sure you want to delete this backup?")
 		if err != nil {
 			return sdk.NoOpID, err
 		}
@@ -152,7 +151,7 @@ func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (s
 		return sdk.NoOpID, nil
 	}
 	if !d.yes {
-		if err := util.AskConfirmation("Are you sure you want to delete backups?"); err != nil {
+		if err := askConfirmation("Are you sure you want to delete backups?"); err != nil {
 			return sdk.NoOpID, err
 		}
 	}
@@ -227,8 +226,8 @@ func deletePITR(
 		if d.all {
 			q = "Are you sure you want to delete ALL chunks?"
 		}
-		if err := util.AskConfirmation(q); err != nil {
-			if errors.Is(err, errors.ErrUserCanceled) {
+		if err := askConfirmation(q); err != nil {
+			if errors.Is(err, errUserCanceled) {
 				return outMsg{err.Error()}, nil
 			}
 			return nil, err
@@ -300,8 +299,8 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		return &outMsg{""}, nil
 	}
 	if !d.yes {
-		if err := util.AskConfirmation("Are you sure you want to delete?"); err != nil {
-			if errors.Is(err, errors.ErrUserCanceled) {
+		if err := askConfirmation("Are you sure you want to delete?"); err != nil {
+			if errors.Is(err, errUserCanceled) {
 				return outMsg{err.Error()}, nil
 			}
 			return nil, err

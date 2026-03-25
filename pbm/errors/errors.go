@@ -9,8 +9,6 @@ import (
 // ErrNotFound - object not found
 var ErrNotFound = New("not found")
 
-var ErrUserCanceled = New("user canceled")
-
 func New(text string) error {
 	return stderrors.New(text) //nolint:goerr113
 }

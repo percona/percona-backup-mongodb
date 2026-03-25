@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -14,6 +17,33 @@ import (
 )
 
 var errWaitTimeout = errors.New("Operation is in progress. Check pbm status and logs")
+
+var errUserCanceled = errors.New("canceled")
+
+func askConfirmation(question string) error {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return errors.Wrap(err, "stat stdin")
+	}
+	if (fi.Mode() & os.ModeCharDevice) == 0 {
+		return errors.New("no tty")
+	}
+
+	fmt.Printf("%s [y/N] ", question)
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	if err := scanner.Err(); err != nil {
+		return errors.Wrap(err, "read stdin")
+	}
+
+	switch strings.TrimSpace(scanner.Text()) {
+	case "yes", "Yes", "YES", "Y", "y":
+		return nil
+	}
+
+	return errUserCanceled
+}
 
 func sendCmd(ctx context.Context, conn connect.Client, cmd ctrl.Cmd) error {
 	cmd.TS = time.Now().UTC().Unix()

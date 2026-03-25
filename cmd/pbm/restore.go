@@ -518,7 +518,7 @@ func doRestore(
 	fmt.Printf(" - %s%s%s\n", name, pitrs, bcpName)
 
 	if !o.confirmYes {
-		err := util.AskConfirmation("Are you sure you want to restore this backup?")
+		err := askConfirmation("Are you sure you want to restore this backup?")
 		if err != nil {
 			return nil, err
 		}
