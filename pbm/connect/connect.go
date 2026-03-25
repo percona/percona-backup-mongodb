@@ -107,18 +107,25 @@ func ServerSelectionTimeout(d time.Duration) MongoOption {
 }
 
 // ensureMongoScheme ensures the URI has a mongodb:// scheme prefix.
-func ensureMongoScheme(uri string) string {
+// Returns an error if mongodb+srv:// scheme is used.
+func ensureMongoScheme(uri string) (string, error) {
+	if strings.HasPrefix(uri, "mongodb+srv://") {
+		return "", errors.New("mongodb+srv:// URI scheme is not supported, use mongodb:// instead")
+	}
 	if !strings.HasPrefix(uri, "mongodb://") {
 		uri = "mongodb://" + uri
 	}
-	return uri
+	return uri, nil
 }
 
 func MongoConnectWithOpts(ctx context.Context,
 	uri string,
 	mongoOptions ...MongoOption,
 ) (*mongo.Client, *options.ClientOptions, error) {
-	uri = ensureMongoScheme(uri)
+	uri, err := ensureMongoScheme(uri)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// default options
 	mopts := options.Client().
