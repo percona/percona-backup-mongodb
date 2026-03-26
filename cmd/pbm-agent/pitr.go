@@ -431,10 +431,15 @@ func (a *Agent) pitr(ctx context.Context) error {
 			monitorPrio,
 		)
 		if streamErr != nil {
-			l.Error("streaming oplog: %v", streamErr)
-			retErr := errors.Wrap(streamErr, "streaming oplog")
-			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
-				l.Error("setting RS status to StatusError: %v", err)
+			var movedErr slicer.OpMovedError
+			if errors.As(streamErr, &movedErr) {
+				l.Info("streaming stopped: %v", streamErr)
+			} else {
+				l.Error("streaming oplog: %v", streamErr)
+				retErr := errors.Wrap(streamErr, "streaming oplog")
+				if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
+					l.Error("setting RS status to StatusError: %v", err)
+				}
 			}
 		}
 
