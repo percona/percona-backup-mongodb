@@ -186,6 +186,28 @@ func GetReplSetsWithStatus(ctx context.Context, conn connect.Client, status Stat
 	return replSetsWithStatus, nil
 }
 
+// GetReplSetsWithPendingError returns replica sets that reported an error
+// that has not yet been escalated to the cluster status.
+// If the cluster status is already StatusError, it returns nil.
+func GetReplSetsWithPendingError(ctx context.Context, conn connect.Client) ([]PITRReplset, error) {
+	meta, err := GetMeta(ctx, conn)
+	if err != nil {
+		return nil, errors.Wrap(err, "get meta")
+	}
+
+	if meta.Status == StatusError {
+		return nil, nil
+	}
+
+	var result []PITRReplset
+	for _, rs := range meta.Replsets {
+		if rs.Status == StatusError {
+			result = append(result, rs)
+		}
+	}
+	return result, nil
+}
+
 // SetPITRNomination adds nomination fragment for specified RS within PITRMeta.
 func SetPITRNomination(ctx context.Context, conn connect.Client, rs string) error {
 	n := PITRNomination{

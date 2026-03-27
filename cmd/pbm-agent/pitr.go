@@ -945,7 +945,7 @@ func (a *Agent) pitrErrorMonitor(ctx context.Context) {
 	for {
 		select {
 		case <-tk.C:
-			replsets, err := oplog.GetReplSetsWithStatus(ctx, a.leadConn, oplog.StatusError)
+			replsets, err := oplog.GetReplSetsWithPendingError(ctx, a.leadConn)
 			if err != nil {
 				if errors.Is(err, errors.ErrNotFound) {
 					continue
