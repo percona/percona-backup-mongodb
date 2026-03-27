@@ -39,7 +39,7 @@ func TestEvaluate(t *testing.T) {
 	}{
 		// --- STANDARD DATE SCENARIOS ---
 		{
-			name: "Feature Disabled BUT Dry Run is True (Bypass enabled flag)",
+			name: "Feature Disabled (Dry run or not, it sleeps)",
 			cfg: config.LifecycleConf{
 				Enabled:        false,
 				DailyRetention: 1,
@@ -50,8 +50,8 @@ func TestEvaluate(t *testing.T) {
 				mockBcp("bcp-old", 10, standardDate, defs.StatusDone),
 			},
 			dryRun:         true,
-			expectedKept:   []string{"bcp-today"},
-			expectedPurged: []string{"bcp-old"},
+			expectedKept:   []string{"bcp-today", "bcp-old"},
+			expectedPurged: []string{},
 		},
 		{
 			name: "Rolling Strategy - Basic GFS (7 Daily, 4 Weekly)",
@@ -133,19 +133,21 @@ func TestEvaluate(t *testing.T) {
 
 		// --- STATE HANDLING SCENARIOS ---
 		{
-			name: "In-Progress Backups are ALWAYS protected",
+			name: "In-Progress Backups are ALWAYS protected (and MinKeep rescues the last safe base)",
 			cfg: config.LifecycleConf{
 				Enabled:        true,
 				DailyRetention: 1,
 			},
 			mockNow: standardDate,
 			backups: []backup.BackupMeta{
-				mockBcp("bcp-running", 50, standardDate, defs.StatusRunning),
-				mockBcp("bcp-done-old", 50, standardDate, defs.StatusDone),
+				mockBcp("bcp-running", 0, standardDate, defs.StatusRunning), // In-progress today
+				mockBcp("bcp-done-old", 50, standardDate, defs.StatusDone),  // 50 days old, normally purged
 			},
-			dryRun:         false,
-			expectedKept:   nil,
-			expectedPurged: []string{"bcp-done-old"},
+			dryRun: false,
+			// bcp-running is implicitly protected (hidden from purge).
+			// bcp-done-old is expired, but rescued because MinKeep defaults to 1 and the running backup doesn't count yet!
+			expectedKept:   []string{"bcp-done-old"},
+			expectedPurged: []string{},
 		},
 		{
 			name: "Failed Backups - PurgeFailed is TRUE",

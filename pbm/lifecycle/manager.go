@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,7 +62,7 @@ func (r *Report) String() string {
 	return res
 }
 
-// Evaluate determines which backups to keep and which to purge based on the config.
+// Replace the Evaluate function (~ line 50) with this:
 func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool, now time.Time) *Report {
 	report := &Report{
 		DryRun:      dryRun,
@@ -70,12 +71,20 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 		BackupTypes: make(map[string]string),
 	}
 
-	if !cfg.Enabled && !dryRun {
+	// BUG FIX: If Disabled, go to sleep. Keep everything.
+	if !cfg.Enabled {
+		for _, bcp := range backups {
+			if bcp.Status.IsRunning() {
+				continue
+			}
+			report.BackupTypes[bcp.Name] = string(bcp.Type)
+			report.BackupsKept = append(report.BackupsKept, bcp.Name)
+			report.KeepReasons[bcp.Name] = []string{"Lifecycle Disabled"}
+		}
 		return report
 	}
 
 	isCalendar := strings.ToLower(cfg.Strategy) == "calendar"
-
 	keepMap := make(map[string][]string)
 
 	addReason := func(name, reason string) {
@@ -161,10 +170,9 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 	// 3. Finalize Lists
 	for _, bcp := range backups {
 		if bcp.Status.IsRunning() {
-			continue // Hide in-progress backups from the Keep/Purge report
+			continue
 		}
 
-		// Capture the type for every completed backup evaluated
 		report.BackupTypes[bcp.Name] = string(bcp.Type)
 
 		if len(keepMap[bcp.Name]) > 0 {
@@ -172,6 +180,45 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 			report.KeepReasons[bcp.Name] = keepMap[bcp.Name]
 		} else {
 			report.BackupsPurged = append(report.BackupsPurged, bcp.Name)
+		}
+	}
+
+	// BUG FIX: 4. Enforce Min Keep (Rescue backups from PURGE)
+	minKeep := 1
+	if cfg.MinKeep != nil {
+		minKeep = *cfg.MinKeep
+	}
+
+	if minKeep > 0 && len(report.BackupsKept) < minKeep {
+		var rescue []backup.BackupMeta
+		for _, bcp := range backups {
+			if bcp.Status == defs.StatusDone && len(keepMap[bcp.Name]) == 0 {
+				rescue = append(rescue, bcp)
+			}
+		}
+
+		// Sort newest first to rescue the most recent ones
+		slices.SortFunc(rescue, func(a, b backup.BackupMeta) int {
+			if a.StartTS > b.StartTS {
+				return -1
+			}
+			if a.StartTS < b.StartTS {
+				return 1
+			}
+			return 0
+		})
+
+		for _, bcp := range rescue {
+			if len(report.BackupsKept) >= minKeep {
+				break
+			}
+			report.BackupsKept = append(report.BackupsKept, bcp.Name)
+			report.KeepReasons[bcp.Name] = []string{"Min Keep"}
+
+			// Remove from Purged list safely
+			report.BackupsPurged = slices.DeleteFunc(report.BackupsPurged, func(name string) bool {
+				return name == bcp.Name
+			})
 		}
 	}
 

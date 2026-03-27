@@ -91,7 +91,7 @@ func (c *Client) GetConfigProfile(ctx context.Context, name string) (*config.Con
 }
 
 func (c *Client) AddConfigProfile(ctx context.Context, name string, cfg *Config) (CommandID, error) {
-	opid, err := ctrl.SendAddConfigProfile(ctx, c.conn, name, cfg.Storage)
+	opid, err := ctrl.SendAddConfigProfile(ctx, c.conn, name, cfg.Storage, &cfg.Lifecycle)
 	return CommandID(opid.String()), err
 }
 
