@@ -35,10 +35,11 @@ type PITRNomination struct {
 // PITRReplset holds status for each replica set.
 // Each replicaset tries to reach cluster status set by Cluser Leader.
 type PITRReplset struct {
-	Name   string `bson:"name" json:"name"`
-	Node   string `bson:"node" json:"node"`
-	Status Status `bson:"status" json:"status"`
-	Error  string `bson:"error,omitempty" json:"error,omitempty"`
+	Name          string              `bson:"name" json:"name"`
+	Node          string              `bson:"node" json:"node"`
+	Status        Status              `bson:"status" json:"status"`
+	Error         string              `bson:"error,omitempty" json:"error,omitempty"`
+	OldestOplogTS primitive.Timestamp `bson:"oldest_oplog_ts,omitempty" json:"oldest_oplog_ts,omitempty"`
 }
 
 // Status is a PITR status.
@@ -142,13 +143,19 @@ func SetReadyRSStatus(ctx context.Context, conn connect.Client, rs, node string)
 	return errors.Wrap(err, "update pitr doc for RS ready status")
 }
 
-// SetErrorRSStatus sets Error status for specified replicaset and includes error descrioption.
-func SetErrorRSStatus(ctx context.Context, conn connect.Client, rs, node, errText string) error {
+// SetErrorRSStatus sets Error status for specified replicaset and includes error description.
+func SetErrorRSStatus(
+	ctx context.Context,
+	conn connect.Client,
+	rs, node, errText string,
+	oldestOplogTS primitive.Timestamp,
+) error {
 	repliset := PITRReplset{
-		Name:   rs,
-		Node:   node,
-		Status: StatusError,
-		Error:  errText,
+		Name:          rs,
+		Node:          node,
+		Status:        StatusError,
+		Error:         errText,
+		OldestOplogTS: oldestOplogTS,
 	}
 	_, err := conn.PITRCollection().
 		UpdateOne(

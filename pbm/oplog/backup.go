@@ -51,6 +51,7 @@ func (ot *OplogBackup) SetTailingSpan(start, end primitive.Timestamp) {
 
 type InsuffRangeError struct {
 	primitive.Timestamp
+	OldestAvailableTS primitive.Timestamp
 }
 
 func (e InsuffRangeError) Error() string {
@@ -122,12 +123,8 @@ func (ot *OplogBackup) WriteTo(w io.Writer) (int64, error) {
 		// the first record retrieval due to ongoing write traffic (i.e. oplog append).
 		// There's a chance of false-negative though.
 		if !rcheck {
-			ok, err := ot.IsSufficient(ot.start)
-			if err != nil {
-				return 0, errors.Wrap(err, "check oplog sufficiency")
-			}
-			if !ok {
-				return 0, InsuffRangeError{ot.start}
+			if err := ot.CheckSufficientOplog(ctx, ot.start); err != nil {
+				return 0, err
 			}
 			rcheck = true
 		}
@@ -177,4 +174,38 @@ func (ot *OplogBackup) IsSufficient(from primitive.Timestamp) (bool, error) {
 	}
 
 	return c != 0, nil
+}
+
+// CheckSufficientOplog checks that the oplog covers the given timestamp.
+// It queries the oldest oplog entry and compares it with the requested
+// timestamp. If the oplog doesn't reach back far enough, it returns
+// an InsuffRangeError containing both the needed and oldest available timestamps.
+func (ot *OplogBackup) CheckSufficientOplog(ctx context.Context, from primitive.Timestamp) error {
+	oldest, err := OldestOplogTimestamp(ctx, ot.cl)
+	if err != nil {
+		return errors.Wrapf(err, "check oplog sufficiency for %v", from)
+	}
+	if oldest.Compare(from) > 0 {
+		return InsuffRangeError{from, oldest}
+	}
+	return nil
+}
+
+// OldestOplogTimestamp returns the timestamp of the oldest entry in oplog.rs.
+func OldestOplogTimestamp(ctx context.Context, m *mongo.Client) (primitive.Timestamp, error) {
+	var doc bson.M
+	err := m.Database("local").Collection("oplog.rs").
+		FindOne(ctx, bson.D{},
+			options.FindOne().SetSort(bson.D{{Key: "$natural", Value: 1}}),
+		).Decode(&doc)
+	if err != nil {
+		return primitive.Timestamp{}, errors.Wrap(err, "query oldest oplog timestamp")
+	}
+
+	ts, ok := doc["ts"].(primitive.Timestamp)
+	if !ok {
+		return primitive.Timestamp{}, errors.New("missing or invalid 'ts' field in oplog entry")
+	}
+
+	return ts, nil
 }

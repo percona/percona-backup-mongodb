@@ -338,8 +338,16 @@ func (a *Agent) pitr(ctx context.Context) error {
 	defer func() {
 		if err != nil {
 			l.Debug("setting RS error status for err: %v", err)
-			if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error()); err != nil {
-				l.Error("error while setting error status: %v", err)
+			var oldestTS primitive.Timestamp
+			var rangeErr oplog.InsuffRangeError
+			if errors.As(err, &rangeErr) {
+				oldestTS = rangeErr.OldestAvailableTS
+			}
+			serr := oplog.SetErrorRSStatus(
+				ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, err.Error(), oldestTS,
+			)
+			if serr != nil {
+				l.Error("error while setting error status: %v", serr)
 			}
 		}
 	}()
@@ -437,8 +445,16 @@ func (a *Agent) pitr(ctx context.Context) error {
 			} else {
 				l.Error("streaming oplog: %v", streamErr)
 				retErr := errors.Wrap(streamErr, "streaming oplog")
-				if err := oplog.SetErrorRSStatus(ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error()); err != nil {
-					l.Error("setting RS status to StatusError: %v", err)
+				var oldestTS primitive.Timestamp
+				var rangeErr oplog.InsuffRangeError
+				if errors.As(streamErr, &rangeErr) {
+					oldestTS = rangeErr.OldestAvailableTS
+				}
+				serr := oplog.SetErrorRSStatus(
+					ctx, a.leadConn, nodeInfo.SetName, nodeInfo.Me, retErr.Error(), oldestTS,
+				)
+				if serr != nil {
+					l.Error("setting RS status to StatusError: %v", serr)
 				}
 			}
 		}

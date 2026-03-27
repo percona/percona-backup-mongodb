@@ -215,12 +215,8 @@ func (s *Slicer) OplogOnlyCatchup(ctx context.Context) error {
 		s.l.Debug("lastTS set to %v %s", s.lastTS, formatts(s.lastTS))
 	}
 
-	ok, err := s.oplog.IsSufficient(lastChunk.EndTS)
-	if err != nil {
-		return errors.Wrapf(err, "check oplog sufficiency for %v", lastChunk)
-	}
-	if !ok {
-		return oplog.InsuffRangeError{lastChunk.EndTS}
+	if err := s.oplog.CheckSufficientOplog(ctx, lastChunk.EndTS); err != nil {
+		return err
 	}
 
 	s.lastTS = lastChunk.EndTS
@@ -316,12 +312,9 @@ func (s *Slicer) Stream(
 
 	// early check for the log sufficiency to display error
 	// before the timer clicks (not to wait minutes to report)
-	ok, err := s.oplog.IsSufficient(s.lastTS)
+	err := s.oplog.CheckSufficientOplog(ctx, s.lastTS)
 	if err != nil {
-		return errors.Wrap(err, "check oplog sufficiency")
-	}
-	if !ok {
-		return oplog.InsuffRangeError{s.lastTS}
+		return err
 	}
 	s.l.Debug(LogStartMsg)
 
