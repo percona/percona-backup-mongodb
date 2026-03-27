@@ -71,6 +71,48 @@ func (s *Slicer) GetSpan() time.Duration {
 	return time.Duration(atomic.LoadInt64(&s.span))
 }
 
+// CheckReadiness checks PITR preconditions for the given replica sets.
+// It verifies that a completed backup exists, all specified replica sets are
+// present in it, and no restore has been performed since the last backup.
+// Returns the last backup and restore metadata on success.
+// The returned restore metadata may be nil if no restore has been performed.
+func CheckReadiness(ctx context.Context, conn connect.Client, replsets []string) (*backup.BackupMeta, *restore.RestoreMeta, error) {
+	lastBackup, err := backup.GetLastBackup(ctx, conn, nil)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			return nil, nil, errors.New("no backup found. full backup is required to start PITR")
+		}
+		return nil, nil, errors.Wrap(err, "get last backup")
+	}
+
+	for _, rs := range replsets {
+		found := false
+		for i := range lastBackup.Replsets {
+			if lastBackup.Replsets[i].Name == rs {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, nil, errors.Errorf("no replset %q in the last backup %q. "+
+				"full backup is required to start PITR",
+				rs, lastBackup.Name)
+		}
+	}
+
+	lastRestore, err := restore.GetLastRestore(ctx, conn)
+	if err != nil && !errors.Is(err, errors.ErrNotFound) {
+		return nil, nil, errors.Wrap(err, "get last restore")
+	}
+	if lastRestore != nil && lastBackup.StartTS < lastRestore.StartTS {
+		return nil, nil, errors.Errorf("no backup found after the restored %s, "+
+			"a new backup is required to resume PITR",
+			lastRestore.Backup)
+	}
+
+	return lastBackup, lastRestore, nil
+}
+
 // Catchup resolves oplog timestamp that the Slicer will use as the starting point for the PITR slicing.
 // It can be invoked after the PITR is enabled, re-enabled after finishing the logical backup,
 // or after the restore procedure. Catchup tries to determine the context in which PITR has been started,
@@ -81,14 +123,12 @@ func (s *Slicer) GetSpan() time.Duration {
 func (s *Slicer) Catchup(ctx context.Context) error {
 	s.l.Debug("start_catchup")
 
-	lastBackup, err := backup.GetLastBackup(ctx, s.leadClient, nil)
+	lastBackup, lastRestore, err := CheckReadiness(ctx, s.leadClient, []string{s.rs})
 	if err != nil {
-		if errors.Is(err, errors.ErrNotFound) {
-			err = errors.New("no backup found. full backup is required to start PITR")
-		}
-		return errors.Wrap(err, "get last backup")
+		return err
 	}
 
+	// guaranteed to find the rs
 	var rs *backup.BackupReplset
 	for i := range lastBackup.Replsets {
 		r := &lastBackup.Replsets[i]
@@ -96,21 +136,6 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 			rs = r
 			break
 		}
-	}
-	if rs == nil {
-		return errors.Errorf("no replset %q in the last backup %q. "+
-			"full backup is required to start PITR",
-			s.rs, lastBackup.Name)
-	}
-
-	lastRestore, err := restore.GetLastRestore(ctx, s.leadClient)
-	if err != nil && !errors.Is(err, errors.ErrNotFound) {
-		return errors.Wrap(err, "get last restore")
-	}
-	if lastRestore != nil && lastBackup.StartTS < lastRestore.StartTS {
-		return errors.Errorf("no backup found after the restored %s, "+
-			"a new backup is required to resume PITR",
-			lastRestore.Backup)
 	}
 
 	lastChunk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
