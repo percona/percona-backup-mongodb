@@ -590,6 +590,35 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	return cfg, nil
 }
 
+// GetProfileConfig fetches a specific configuration profile from the database
+func GetProfileConfig(ctx context.Context, m connect.Client, name string) (*Config, error) {
+	res := m.ConfigCollection().FindOne(ctx, bson.D{{"name", name}, {"profile", true}})
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, errors.Wrapf(ErrMissedConfigProfile, "profile '%s' not found", name)
+		}
+		return nil, errors.Wrap(err, "get profile")
+	}
+
+	cfg := &Config{}
+	if err := res.Decode(&cfg); err != nil {
+		return nil, errors.Wrap(err, "decode profile config")
+	}
+
+	// Apply base struct defaults
+	if cfg.PITR == nil {
+		cfg.PITR = &PITRConf{}
+	}
+	if cfg.Backup == nil {
+		cfg.Backup = &BackupConf{}
+	}
+	if cfg.Restore == nil {
+		cfg.Restore = &RestoreConf{}
+	}
+
+	return cfg, nil
+}
+
 // SetConfig stores config doc within the database.
 // It also applies main storage parameters depending on the type of storage
 // and assigns those possible default values to the cfg parameter.

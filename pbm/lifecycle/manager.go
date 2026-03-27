@@ -12,10 +12,12 @@ import (
 )
 
 type Report struct {
-	DryRun        bool
-	ConfigUsed    config.LifecycleConf
-	BackupsKept   []string
-	BackupsPurged []string
+	DryRun        bool                 `json:"dryRun"`
+	ConfigUsed    config.LifecycleConf `json:"configUsed"`
+	BackupsKept   []string             `json:"backupsKept"`
+	BackupsPurged []string             `json:"backupsPurged"`
+	KeepReasons   map[string][]string  `json:"keepReasons"`
+	BackupTypes   map[string]string    `json:"backupTypes"`
 }
 
 func (r *Report) String() string {
@@ -46,12 +48,15 @@ func (r *Report) String() string {
 
 	res += fmt.Sprintf("Backups to KEEP (%d):\n", len(r.BackupsKept))
 	for _, b := range r.BackupsKept {
-		res += fmt.Sprintf("  - %s\n", b)
+		reasons := strings.Join(r.KeepReasons[b], ", ")
+		bType := r.BackupTypes[b] // Fetch the type
+		res += fmt.Sprintf("  - %s <%s> [%s]\n", b, bType, reasons)
 	}
 
 	res += fmt.Sprintf("\nBackups to PURGE (%d):\n", len(r.BackupsPurged))
 	for _, b := range r.BackupsPurged {
-		res += fmt.Sprintf("  - %s\n", b)
+		bType := r.BackupTypes[b] // Fetch the type
+		res += fmt.Sprintf("  - %s <%s>\n", b, bType)
 	}
 	return res
 }
@@ -59,18 +64,28 @@ func (r *Report) String() string {
 // Evaluate determines which backups to keep and which to purge based on the config.
 func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool, now time.Time) *Report {
 	report := &Report{
-		DryRun:     dryRun,
-		ConfigUsed: cfg,
+		DryRun:      dryRun,
+		ConfigUsed:  cfg,
+		KeepReasons: make(map[string][]string),
+		BackupTypes: make(map[string]string),
 	}
 
-	// Exit early if disabled and not a dry run.
 	if !cfg.Enabled && !dryRun {
 		return report
 	}
 
 	isCalendar := strings.ToLower(cfg.Strategy) == "calendar"
 
-	keepMap := make(map[string]bool)
+	keepMap := make(map[string][]string)
+
+	addReason := func(name, reason string) {
+		for _, r := range keepMap[name] {
+			if r == reason {
+				return
+			}
+		}
+		keepMap[name] = append(keepMap[name], reason)
+	}
 
 	dailyCutoff := now.AddDate(0, 0, -cfg.DailyRetention)
 	weeklyCutoff := now.AddDate(0, 0, -(cfg.WeeklyRetention * 7))
@@ -81,35 +96,30 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 
 	// 1. Bucketing phase
 	for _, bcp := range backups {
-		// ALWAYS protect in-progress backups. They are never purged.
 		if bcp.Status.IsRunning() {
-			keepMap[bcp.Name] = true
+			addReason(bcp.Name, "In-Progress")
 			continue
 		}
 
 		bcpTime := time.Unix(bcp.StartTS, 0).UTC()
 		ageInDays := int(now.Sub(bcpTime).Hours() / 24)
 
-		// Handle Failed/Cancelled backups
 		if bcp.Status == defs.StatusError || bcp.Status == defs.StatusCancelled {
 			if !cfg.PurgeFailed {
-				keepMap[bcp.Name] = true // Protect failed backups if PurgeFailed is false
+				addReason(bcp.Name, "Failed (Protected)")
 			} else {
-				// If PurgeFailed is true, only keep them if they fall into the Daily window
-				if cfg.DailyRetention > 0 && bcpTime.After(dailyCutoff) {
-					keepMap[bcp.Name] = true
+				if cfg.DailyRetention > 0 && !bcpTime.Before(dailyCutoff) {
+					addReason(bcp.Name, "Failed (Inside Daily Window)")
 				}
 			}
-			continue // Do not evaluate failed backups for Weekly/Monthly
-		}
-
-		// Daily Retention (Completed Backups)
-		if cfg.DailyRetention > 0 && !bcpTime.Before(dailyCutoff) {
-			keepMap[bcp.Name] = true
 			continue
 		}
 
-		// Weekly Retention Bucket
+		if cfg.DailyRetention > 0 && !bcpTime.Before(dailyCutoff) {
+			addReason(bcp.Name, "Daily")
+			continue
+		}
+
 		if cfg.WeeklyRetention > 0 && !bcpTime.Before(weeklyCutoff) {
 			if isCalendar {
 				year, week := bcpTime.ISOWeek()
@@ -122,7 +132,6 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 			}
 		}
 
-		// Monthly Retention Bucket
 		if cfg.MonthlyRetention > 0 && !bcpTime.Before(monthlyCutoff) {
 			if isCalendar {
 				monthKey := bcpTime.Format("2006-01")
@@ -135,18 +144,17 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 		}
 	}
 
-	// 2. Select best candidates for Weekly & Monthly
 	for _, candidates := range weeklyCandidates {
 		bestBcp := findBestCandidate(candidates, cfg.WeeklyDay, false, isCalendar)
 		if bestBcp != nil {
-			keepMap[bestBcp.Name] = true
+			addReason(bestBcp.Name, "Weekly")
 		}
 	}
 
 	for _, candidates := range monthlyCandidates {
 		bestBcp := findBestCandidate(candidates, cfg.MonthlyDay, true, isCalendar)
 		if bestBcp != nil {
-			keepMap[bestBcp.Name] = true
+			addReason(bestBcp.Name, "Monthly")
 		}
 	}
 
@@ -156,8 +164,12 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 			continue // Hide in-progress backups from the Keep/Purge report
 		}
 
-		if keepMap[bcp.Name] {
+		// Capture the type for every completed backup evaluated
+		report.BackupTypes[bcp.Name] = string(bcp.Type)
+
+		if len(keepMap[bcp.Name]) > 0 {
 			report.BackupsKept = append(report.BackupsKept, bcp.Name)
+			report.KeepReasons[bcp.Name] = keepMap[bcp.Name]
 		} else {
 			report.BackupsPurged = append(report.BackupsPurged, bcp.Name)
 		}

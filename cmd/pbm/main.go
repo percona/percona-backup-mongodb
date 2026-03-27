@@ -123,25 +123,56 @@ func (app *pbmApp) validateEnum(fieldName, value string, valid []string) error {
 
 func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 	var dryRun *bool
+	var profile string
 
 	lifecycleCmd := &cobra.Command{
 		Use:   "lifecycle",
 		Short: "Manage backup retention and rotation lifecycle",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			cfg, err := config.GetConfig(app.ctx, app.conn)
-			if err != nil {
-				return nil, errors.Wrap(err, "get config")
+
+			var cfg *config.Config
+			var err error
+
+			// 1. Fetch the correct configuration
+			if profile != "" {
+				cfg, err = config.GetProfileConfig(app.ctx, app.conn, profile)
+				if err != nil {
+					return nil, errors.Wrap(err, "get profile config")
+				}
+			} else {
+				cfg, err = config.GetConfig(app.ctx, app.conn)
+				if err != nil {
+					return nil, errors.Wrap(err, "get config")
+				}
 			}
 
+			// 2. Fetch all backups
 			bcps, err := backup.BackupsList(app.ctx, app.conn, 0)
 			if err != nil {
 				return nil, errors.Wrap(err, "fetch backups")
 			}
 
-			report := lifecycle.Evaluate(cfg.Lifecycle, bcps, *dryRun, time.Now().UTC())
+			// 3. Filter backups to strictly match the targeted profile
+			var targetBcps []backup.BackupMeta
+			for _, b := range bcps {
+
+				storageProfile := b.Store.Name
+
+				if profile != "" && storageProfile != profile {
+					continue // Skip backups belonging to other profiles
+				}
+				if profile == "" && b.Store.IsProfile {
+					// Using b.Store.IsProfile is a bit safer than just checking if the name is blank,
+					// as it perfectly aligns with PBM's internal logic for identifying external profiles.
+					continue // If running default lifecycle, skip profile-specific backups
+				}
+				targetBcps = append(targetBcps, b)
+			}
+
+			// 4. Evaluate using only the targeted backups and config
+			report := lifecycle.Evaluate(cfg.Lifecycle, targetBcps, *dryRun, time.Now().UTC())
 			isJSON := app.pbmOutF == outJSON || app.pbmOutF == outJSONpretty
 
-			// 1. Text mode: Print report first so user sees what will be purged
 			if !isJSON {
 				fmt.Println(report.String())
 			}
@@ -154,7 +185,6 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 				return lifecycleResult{Report: report, Msg: "No backups to purge.", Aborted: false}, nil
 			}
 
-			// 2. Safety Check & Prompt Logic
 			minKeep := 1
 			if cfg.Lifecycle.MinKeep != nil {
 				minKeep = *cfg.Lifecycle.MinKeep
@@ -165,7 +195,6 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 				shouldPrompt = *cfg.Lifecycle.Prompt
 			}
 
-			// Force-disable prompt if outputting JSON to prevent pipeline hanging
 			if isJSON {
 				shouldPrompt = false
 			}
@@ -208,7 +237,6 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 				fmt.Println("Starting deletion...")
 			}
 
-			// 3. Deletion loop
 			for i := len(report.BackupsPurged) - 1; i >= 0; i-- {
 				name := report.BackupsPurged[i]
 
@@ -231,6 +259,11 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 	}
 
 	dryRun = lifecycleCmd.Flags().Bool("dry-run", false, "Report but do not delete")
+
+	// Register the profile flag
+	lifecycleCmd.Flags().StringVar(
+		&profile, "profile", "", "Config profile name to apply specific lifecycle rules",
+	)
 
 	return lifecycleCmd
 }
