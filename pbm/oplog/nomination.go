@@ -99,16 +99,19 @@ func GetMeta(
 }
 
 // SetClusterStatus sets cluster status field of PITR Meta doc.
-// It also resets all content of replsets field doc.
+// It also resets all content of replsets field doc,
+// unless the new status is StatusError.
 func SetClusterStatus(ctx context.Context, conn connect.Client, status Status) error {
+	update := bson.M{"status": status}
+	if status != StatusError {
+		update["replsets"] = []PITRReplset{}
+	}
+
 	_, err := conn.PITRCollection().
 		UpdateOne(
 			ctx,
 			bson.D{},
-			bson.D{{"$set", bson.M{
-				"status":   status,
-				"replsets": []PITRReplset{},
-			}}},
+			bson.D{{"$set", update}},
 			options.Update().SetUpsert(true),
 		)
 	return errors.Wrap(err, "update pitr doc to status")
