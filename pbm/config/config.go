@@ -436,7 +436,7 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 	}
 	if cfg.Timeouts != nil {
 		rv.Timeouts = &RestoreTimeouts{
-			BalancerStopMin: cfg.Timeouts.BalancerStopMin,
+			BalancerStopSec: cfg.Timeouts.BalancerStopSec,
 		}
 	}
 
@@ -445,9 +445,9 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 
 //nolint:lll
 type RestoreTimeouts struct {
-	// BalancerStopMin is timeout (in minutes) to wait for the balancer to stop.
+	// BalancerStopSec is timeout (in seconds) to wait for the balancer to stop.
 	// 0 means wait indefinitely (default).
-	BalancerStopMin uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
+	BalancerStopSec uint32 `bson:"balancerStop,omitempty" json:"balancerStop,omitempty" yaml:"balancerStop,omitempty"`
 }
 
 // BalancerStop returns timeout duration for waiting for the balancer to stop.
@@ -457,7 +457,7 @@ func (t *RestoreTimeouts) BalancerStop() time.Duration {
 		return 0
 	}
 
-	return time.Duration(t.BalancerStopMin) * time.Minute
+	return time.Duration(t.BalancerStopSec) * time.Second
 }
 
 // GetFallbackEnabled gets config's or default value for fallbackEnabled
@@ -498,7 +498,7 @@ func (cfg *BackupConf) Clone() *BackupConf {
 	if cfg.Timeouts != nil {
 		rv.Timeouts = &BackupTimeouts{
 			Starting:        cfg.Timeouts.Starting,
-			BalancerStopMin: cfg.Timeouts.BalancerStopMin,
+			BalancerStopSec: cfg.Timeouts.BalancerStopSec,
 		}
 	}
 	if cfg.CompressionLevel != nil {
@@ -514,9 +514,9 @@ type BackupTimeouts struct {
 	// Starting is timeout (in seconds) to wait for a backup to start.
 	Starting *uint32 `bson:"startingStatus,omitempty" json:"startingStatus,omitempty" yaml:"startingStatus,omitempty"`
 
-	// BalancerStopMin is timeout (in minutes) to wait for the balancer to stop.
+	// BalancerStopSec is timeout (in seconds) to wait for the balancer to stop.
 	// 0 means wait indefinitely (default).
-	BalancerStopMin uint32 `bson:"balancerStopMin,omitempty" json:"balancerStopMin,omitempty" yaml:"balancerStopMin,omitempty"`
+	BalancerStopSec uint32 `bson:"balancerStop,omitempty" json:"balancerStop,omitempty" yaml:"balancerStop,omitempty"`
 }
 
 // StartingStatus returns timeout duration for .
@@ -536,7 +536,7 @@ func (t *BackupTimeouts) BalancerStop() time.Duration {
 		return 0
 	}
 
-	return time.Duration(t.BalancerStopMin) * time.Minute
+	return time.Duration(t.BalancerStopSec) * time.Second
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
