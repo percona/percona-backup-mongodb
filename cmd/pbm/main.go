@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,9 +15,11 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/lifecycle"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -72,6 +75,18 @@ type pbmApp struct {
 	node    string
 }
 
+type lifecycleResult struct {
+	Report  *lifecycle.Report `json:"report"`
+	Msg     string            `json:"msg"`
+	Aborted bool              `json:"aborted"`
+}
+
+func (r lifecycleResult) String() string {
+	// In text mode, the report is progressively printed to stdout.
+	// This stringer just returns the final exit message.
+	return r.Msg
+}
+
 func main() {
 	app := newPbmApp()
 	if err := app.rootCmd.Execute(); err != nil {
@@ -104,6 +119,120 @@ func (app *pbmApp) validateEnum(fieldName, value string, valid []string) error {
 	}
 
 	return errors.New(fmt.Sprintf("invalid %s value: %q (must be one of %v)", fieldName, value, valid))
+}
+
+func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
+	var dryRun *bool
+
+	lifecycleCmd := &cobra.Command{
+		Use:   "lifecycle",
+		Short: "Manage backup retention and rotation lifecycle",
+		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
+			cfg, err := config.GetConfig(app.ctx, app.conn)
+			if err != nil {
+				return nil, errors.Wrap(err, "get config")
+			}
+
+			bcps, err := backup.BackupsList(app.ctx, app.conn, 0)
+			if err != nil {
+				return nil, errors.Wrap(err, "fetch backups")
+			}
+
+			report := lifecycle.Evaluate(cfg.Lifecycle, bcps, *dryRun, time.Now().UTC())
+			isJSON := app.pbmOutF == outJSON || app.pbmOutF == outJSONpretty
+
+			// 1. Text mode: Print report first so user sees what will be purged
+			if !isJSON {
+				fmt.Println(report.String())
+			}
+
+			if *dryRun || !cfg.Lifecycle.Enabled {
+				return lifecycleResult{Report: report}, nil
+			}
+
+			if len(report.BackupsPurged) == 0 {
+				return lifecycleResult{Report: report, Msg: "No backups to purge.", Aborted: false}, nil
+			}
+
+			// 2. Safety Check & Prompt Logic
+			minKeep := 1
+			if cfg.Lifecycle.MinKeep != nil {
+				minKeep = *cfg.Lifecycle.MinKeep
+			}
+
+			shouldPrompt := true
+			if cfg.Lifecycle.Prompt != nil {
+				shouldPrompt = *cfg.Lifecycle.Prompt
+			}
+
+			// Force-disable prompt if outputting JSON to prevent pipeline hanging
+			if isJSON {
+				shouldPrompt = false
+			}
+
+			if len(report.BackupsKept) < minKeep {
+				if !isJSON {
+					fmt.Printf("\nWARNING: This rotation would leave you with %d backup(s), which is below the safety threshold of %d (minKeep).\n", len(report.BackupsKept), minKeep)
+				}
+
+				if shouldPrompt {
+					fmt.Print("Do you want to FORCE the deletion anyway and bypass this safety threshold? [y/N]: ")
+					reader := bufio.NewReader(os.Stdin)
+					response, err := reader.ReadString('\n')
+					if err != nil {
+						return nil, errors.Wrap(err, "read prompt response")
+					}
+
+					response = strings.ToLower(strings.TrimSpace(response))
+					if response != "y" && response != "yes" {
+						return lifecycleResult{Report: report, Msg: "Operation cancelled by user to protect backups.", Aborted: true}, nil
+					}
+				} else {
+					return lifecycleResult{Report: report, Msg: "Automated run (prompt: false) detected. Purge aborted to protect your backups.", Aborted: true}, nil
+				}
+			} else if shouldPrompt {
+				fmt.Print("Are you sure you want to permanently delete the purged backups? [y/N]: ")
+				reader := bufio.NewReader(os.Stdin)
+				response, err := reader.ReadString('\n')
+				if err != nil {
+					return nil, errors.Wrap(err, "read prompt response")
+				}
+
+				response = strings.ToLower(strings.TrimSpace(response))
+				if response != "y" && response != "yes" {
+					return lifecycleResult{Report: report, Msg: "Operation cancelled by user.", Aborted: true}, nil
+				}
+			}
+
+			if !isJSON {
+				fmt.Println("Starting deletion...")
+			}
+
+			// 3. Deletion loop
+			for i := len(report.BackupsPurged) - 1; i >= 0; i-- {
+				name := report.BackupsPurged[i]
+
+				if app.ctx.Err() != nil {
+					return lifecycleResult{Report: report, Msg: "Operation cancelled by user.", Aborted: true}, nil
+				}
+
+				if !isJSON {
+					fmt.Printf("Purging backup %s...\n", name)
+				}
+
+				err := backup.DeleteBackup(app.ctx, app.conn, name, app.node)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to delete %s: %v\n", name, err)
+				}
+			}
+
+			return lifecycleResult{Report: report, Msg: "Lifecycle rotation complete.", Aborted: false}, nil
+		}),
+	}
+
+	dryRun = lifecycleCmd.Flags().Bool("dry-run", false, "Report but do not delete")
+
+	return lifecycleCmd
 }
 
 func newPbmApp() *pbmApp {
@@ -150,6 +279,7 @@ func newPbmApp() *pbmApp {
 	app.rootCmd.AddCommand(app.buildStatusCmd())
 	app.rootCmd.AddCommand(app.buildVersionCmd())
 	app.rootCmd.AddCommand(util.CompletionCommand())
+	app.rootCmd.AddCommand(app.buildLifecycleCmd())
 
 	return app
 }

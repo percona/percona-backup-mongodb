@@ -70,6 +70,22 @@ func validateConfigKey(k string) bool {
 	return ok
 }
 
+// LifecycleConf defines the backup rotation and retention policy rules.
+type LifecycleConf struct {
+	Enabled     bool   `bson:"enabled" json:"enabled" yaml:"enabled"`
+	Strategy    string `bson:"strategy,omitempty" json:"strategy,omitempty" yaml:"strategy,omitempty"`
+	PurgeFailed bool   `bson:"purgeFailed" json:"purgeFailed" yaml:"purgeFailed"`
+	Prompt      *bool  `bson:"prompt,omitempty" json:"prompt,omitempty" yaml:"prompt,omitempty"`
+
+	MinKeep *int `bson:"minKeep,omitempty" json:"minKeep,omitempty" yaml:"minKeep,omitempty"`
+
+	DailyRetention   int `bson:"dailyRetention" json:"dailyRetention" yaml:"dailyRetention"`
+	WeeklyRetention  int `bson:"weeklyRetention" json:"weeklyRetention" yaml:"weeklyRetention"`
+	WeeklyDay        int `bson:"weeklyDay" json:"weeklyDay" yaml:"weeklyDay"`
+	MonthlyRetention int `bson:"monthlyRetention" json:"monthlyRetention" yaml:"monthlyRetention"`
+	MonthlyDay       int `bson:"monthlyDay" json:"monthlyDay" yaml:"monthlyDay"`
+}
+
 // Config is a pbm config
 type Config struct {
 	Name      string `bson:"name,omitempty" json:"name,omitempty" yaml:"name,omitempty"`
@@ -80,7 +96,8 @@ type Config struct {
 	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
 	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 
-	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+	Epoch     primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+	Lifecycle LifecycleConf       `bson:"lifecycle,omitempty" json:"lifecycle,omitempty" yaml:"lifecycle,omitempty"`
 }
 
 func Parse(r io.Reader) (*Config, error) {
