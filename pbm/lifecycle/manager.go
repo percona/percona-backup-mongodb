@@ -129,25 +129,31 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 			continue
 		}
 
+		// Weekly Retention Bucket
 		if cfg.WeeklyRetention > 0 && !bcpTime.Before(weeklyCutoff) {
 			if isCalendar {
 				year, week := bcpTime.ISOWeek()
-				weekKey := fmt.Sprintf("calendar-week-%d-W%02d", year, week)
+				// Append the backup Type to the bucket key
+				weekKey := fmt.Sprintf("calendar-week-%d-W%02d-%s", year, week, bcp.Type)
 				weeklyCandidates[weekKey] = append(weeklyCandidates[weekKey], bcp)
 			} else {
 				weekBucket := ageInDays / 7
-				weekKey := fmt.Sprintf("rolling-week-%d", weekBucket)
+				// Append the backup Type to the bucket key
+				weekKey := fmt.Sprintf("rolling-week-%d-%s", weekBucket, bcp.Type)
 				weeklyCandidates[weekKey] = append(weeklyCandidates[weekKey], bcp)
 			}
 		}
 
+		// Monthly Retention Bucket
 		if cfg.MonthlyRetention > 0 && !bcpTime.Before(monthlyCutoff) {
 			if isCalendar {
-				monthKey := bcpTime.Format("2006-01")
+				// Append the backup Type to the bucket key
+				monthKey := fmt.Sprintf("%s-%s", bcpTime.Format("2006-01"), bcp.Type)
 				monthlyCandidates[monthKey] = append(monthlyCandidates[monthKey], bcp)
 			} else {
 				monthBucket := ageInDays / 30
-				monthKey := fmt.Sprintf("rolling-month-%d", monthBucket)
+				// Append the backup Type to the bucket key
+				monthKey := fmt.Sprintf("rolling-month-%d-%s", monthBucket, bcp.Type)
 				monthlyCandidates[monthKey] = append(monthlyCandidates[monthKey], bcp)
 			}
 		}
