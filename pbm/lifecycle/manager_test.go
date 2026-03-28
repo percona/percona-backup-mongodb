@@ -22,6 +22,13 @@ func mockBcp(name string, daysAgo int, baseTime time.Time, status defs.Status) b
 	}
 }
 
+// mockTypedBcp is a helper to generate fake backups with a specific Type.
+func mockTypedBcp(name string, daysAgo int, baseTime time.Time, status defs.Status, bcpType defs.BackupType) backup.BackupMeta {
+	bcp := mockBcp(name, daysAgo, baseTime, status)
+	bcp.Type = bcpType
+	return bcp
+}
+
 func TestEvaluate(t *testing.T) {
 	// Define a few specific dates we want to test against
 	standardDate := time.Date(2026, time.March, 26, 12, 0, 0, 0, time.UTC)     // A normal Thursday
@@ -164,6 +171,27 @@ func TestEvaluate(t *testing.T) {
 			dryRun:         false,
 			expectedKept:   []string{"bcp-error-recent"},
 			expectedPurged: []string{"bcp-error-old"},
+		},
+		{
+			name: "Type-Aware Bucketing - Keeps both Physical and Logical for the same week",
+			cfg: config.LifecycleConf{
+				Enabled:         true,
+				Strategy:        "rolling",
+				DailyRetention:  0, // Disable daily to force Weekly evaluation
+				WeeklyRetention: 2,
+			},
+			mockNow: standardDate,
+			backups: []backup.BackupMeta{
+				// Week 1 Bucket (7-13 days ago)
+				mockTypedBcp("phys-newer", 9, standardDate, defs.StatusDone, defs.PhysicalBackup),
+				mockTypedBcp("phys-older", 12, standardDate, defs.StatusDone, defs.PhysicalBackup), // Loses to phys-newer
+
+				// Same Week 1 Bucket, but Logical
+				mockTypedBcp("logical-only", 11, standardDate, defs.StatusDone, defs.LogicalBackup), // Wins its own logical bucket
+			},
+			dryRun:         false,
+			expectedKept:   []string{"phys-newer", "logical-only"},
+			expectedPurged: []string{"phys-older"},
 		},
 	}
 
