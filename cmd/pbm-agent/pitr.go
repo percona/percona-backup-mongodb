@@ -301,6 +301,16 @@ func (a *Agent) pitr(ctx context.Context) error {
 		// start monitor jobs on cluster leader
 		a.startMon(ctx, cfg)
 
+		if !cfg.PITR.OplogOnly {
+			ready, err := a.pitrReadyCheck(ctx)
+			if err != nil {
+				return err
+			}
+			if !ready {
+				return nil
+			}
+		}
+
 		// start nomination process on cluster leader
 		go a.leadNomination(ctx, cfg.PITR.Priority)
 	}
@@ -587,6 +597,57 @@ func (a *Agent) pitrLockCheck(ctx context.Context) (bool, error) {
 
 	// stale lock means we should move on and clean it up during the lock.Acquire
 	return tl.Heartbeat.T+defs.StaleFrameSec < ts.T, nil
+}
+
+// pitrReadyCheck verifies that PITR preconditions are met and any
+// previous RS errors are recoverable before starting a new nomination cycle.
+func (a *Agent) pitrReadyCheck(ctx context.Context) (bool, error) {
+	l := log.LogEventFromContext(ctx)
+
+	shards, err := topo.ClusterMembers(ctx, a.leadConn.MongoClient())
+	if err != nil {
+		return false, errors.Wrap(err, "get cluster members")
+	}
+	rsNames := make([]string, len(shards))
+	for i, sh := range shards {
+		rsNames[i] = sh.RS
+	}
+
+	lastBackup, _, err := slicer.CheckReadiness(ctx, a.leadConn, rsNames)
+	if err != nil {
+		l.Debug("pitr not ready: %v", err)
+		return false, nil
+	}
+
+	rsLastWrites := make(map[string]primitive.Timestamp, len(rsNames))
+	for _, name := range rsNames {
+		for _, brs := range lastBackup.Replsets {
+			if brs.Name == name {
+				rsLastWrites[name] = brs.LastWriteTS
+				break
+			}
+		}
+	}
+
+	rsErrors, err := oplog.GetReplSetsWithStatus(ctx, a.leadConn, oplog.StatusError)
+	if err != nil && !errors.Is(err, errors.ErrNotFound) {
+		return false, errors.Wrap(err, "get RS errors")
+	}
+	for _, rsErr := range rsErrors {
+		if rsErr.OldestOplogTS.IsZero() {
+			continue
+		}
+		lw, found := rsLastWrites[rsErr.Name]
+		if !found {
+			continue
+		}
+		if lw.Before(rsErr.OldestOplogTS) {
+			l.Debug("pitr not ready: RS %s oplog gap not recoverable", rsErr.Name)
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // waitAllOpLockRelease waits to not have any live OpLock and in such a case returns true.
