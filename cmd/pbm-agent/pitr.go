@@ -36,6 +36,8 @@ const (
 	pitrHb                          = 5 * time.Second
 )
 
+var errPITRClusterError = errors.New("cluster is in error state")
+
 type currentPitr struct {
 	slicer *slicer.Slicer
 	w      chan ctrl.OPID // to wake up a slicer on demand (not to wait for the tick)
@@ -317,6 +319,10 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 	nominated, err := a.waitNominationForPITR(ctx, nodeInfo.SetName, nodeInfo.Me)
 	if err != nil {
+		if errors.Is(err, errPITRClusterError) {
+			l.Info("waiting for PITR error to be resolved")
+			return nil
+		}
 		return errors.Wrap(err, "wait nomination for pitr")
 	}
 	if !nominated {
@@ -742,6 +748,9 @@ func (a *Agent) confirmReadyStatus(ctx context.Context) error {
 					continue
 				}
 				return errors.Wrap(err, "getting cluser status")
+			}
+			if status == oplog.StatusError {
+				return errPITRClusterError
 			}
 			if status == oplog.StatusReady {
 				err = oplog.SetReadyRSStatus(ctx, a.leadConn, a.brief.SetName, a.brief.Me)
