@@ -272,7 +272,7 @@ func ExpandSecOptsWithEncAtRest(
 	m *mongo.Client,
 	secOpts *MongodOptsSec,
 ) error {
-	if secOpts.EnableEncryption == nil || !*secOpts.EnableEncryption {
+	if secOpts == nil || secOpts.EnableEncryption == nil || !*secOpts.EnableEncryption {
 		// encryption is not enabled
 		return nil
 	}
@@ -281,7 +281,7 @@ func ExpandSecOptsWithEncAtRest(
 	case secOpts.KMIP != nil:
 		encAtRestRaw, err := getEncryptionAtRest(ctx, m)
 		if err != nil {
-			errors.Wrap(err, "get encryption at rest for kmip")
+			return errors.Wrap(err, "get encryption at rest for kmip")
 		}
 
 		var encAtRest struct {
@@ -293,7 +293,7 @@ func ExpandSecOptsWithEncAtRest(
 		}
 		err = encAtRestRaw.Unmarshal(&encAtRest)
 		if err != nil {
-			errors.Wrap(err, "unmarshal encryption at rest for kmip")
+			return errors.Wrap(err, "unmarshal encryption at rest for kmip")
 		}
 
 		secOpts.KMIP.KeyIdentifier = &encAtRest.EncryptionKeyId.KMIP.KeyID
@@ -301,7 +301,7 @@ func ExpandSecOptsWithEncAtRest(
 	case secOpts.Vault != nil:
 		encAtRestRaw, err := getEncryptionAtRest(ctx, m)
 		if err != nil {
-			errors.Wrap(err, "get encryption at rest for vault")
+			return errors.Wrap(err, "get encryption at rest for vault")
 		}
 
 		var encAtRest struct {
@@ -313,7 +313,7 @@ func ExpandSecOptsWithEncAtRest(
 		}
 		err = encAtRestRaw.Unmarshal(&encAtRest)
 		if err != nil {
-			errors.Wrap(err, "unmarshal encryption at rest for vault")
+			return errors.Wrap(err, "unmarshal encryption at rest for vault")
 		}
 
 		secretVersion, err := strconv.ParseUint(encAtRest.EncryptionKeyId.Vault.Version, 10, 32)
@@ -328,7 +328,7 @@ func ExpandSecOptsWithEncAtRest(
 }
 
 // getEncryptionAtRest fetches polymorphic encryptionAtRest field from serverStatus.
-// For possible shapes of document framgent see: PSMDB-1633.
+// For possible shapes of document fragment see: PSMDB-1633.
 func getEncryptionAtRest(ctx context.Context, m *mongo.Client) (*bson.RawValue, error) {
 	res := m.Database(defs.DB).RunCommand(ctx, bson.D{{"serverStatus", 1}})
 	if err := res.Err(); err != nil {
