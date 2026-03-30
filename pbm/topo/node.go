@@ -340,10 +340,7 @@ func getEncryptionAtRest(ctx context.Context, m *mongo.Client) (*bson.RawValue, 
 		return nil, errors.Wrap(err, "bson serverStatus")
 	}
 
-	encAtRest, err := raw.LookupErr("encryptionAtRest")
-	if err != nil {
-		return nil, errors.Wrap(err, "lookup encryptionAtRest")
-	}
+	encAtRest := raw.Lookup("encryptionAtRest")
 	return &encAtRest, nil
 }
 
