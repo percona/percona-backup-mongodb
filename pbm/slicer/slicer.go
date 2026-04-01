@@ -339,6 +339,14 @@ func (s *Slicer) Stream(
 		// upload the chunks up to the current time and return
 		case <-stopC:
 			s.l.Info("got done signal, stopping")
+			// If the cluster is in error state, skip the final upload — the chunk
+			// would be useless since another RS has a gap. On query failure, fall
+			// through to the normal upload path (safe default).
+			status, serr := oplog.GetClusterStatus(ctx, s.leadClient)
+			if serr == nil && status == oplog.StatusError {
+				s.l.Info("stopping without final upload due to cluster error")
+				return nil
+			}
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
 		case bcp := <-backupSig:
