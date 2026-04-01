@@ -14,4 +14,4 @@ the following guidelines apply to ensure that issues are resolved or addressed i
 
 Should you have a legitimate test case that might include one of the above, please contact [security@percona.com](mailto:security@percona.com) detailing your proposed test, expected outcome, and proposed timelines.
 
-For details, see [Percona Security](https://www.percona.com/security) 
+For details, see [Percona Security](https://www.percona.com/security).
