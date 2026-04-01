@@ -62,7 +62,6 @@ func (r *Report) String() string {
 	return res
 }
 
-// Replace the Evaluate function (~ line 50) with this:
 func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool, now time.Time) *Report {
 	report := &Report{
 		DryRun:      dryRun,
@@ -71,7 +70,6 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 		BackupTypes: make(map[string]string),
 	}
 
-	// BUG FIX: If Disabled, go to sleep. Keep everything.
 	if !cfg.Enabled {
 		for _, bcp := range backups {
 			if bcp.Status.IsRunning() {
@@ -189,7 +187,6 @@ func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool
 		}
 	}
 
-	// BUG FIX: 4. Enforce Min Keep (Rescue backups from PURGE)
 	minKeep := 1
 	if cfg.MinKeep != nil {
 		minKeep = *cfg.MinKeep

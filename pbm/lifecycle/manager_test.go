@@ -199,12 +199,10 @@ func TestEvaluate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			report := Evaluate(tt.cfg, tt.backups, tt.dryRun, tt.mockNow)
 
-			// Assert DryRun property is set correctly
 			if report.DryRun != tt.dryRun {
 				t.Errorf("Report.DryRun = %v, want %v", report.DryRun, tt.dryRun)
 			}
 
-			// Sort slices to ensure deterministic DeepEqual comparisons
 			sort.Strings(report.BackupsKept)
 			sort.Strings(tt.expectedKept)
 			sort.Strings(report.BackupsPurged)
