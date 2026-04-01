@@ -135,7 +135,7 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 
 			// 1. Fetch the correct configuration
 			if profile != "" {
-				cfg, err = config.GetProfileConfig(app.ctx, app.conn, profile)
+				cfg, err = config.GetProfile(app.ctx, app.conn, profile)
 				if err != nil {
 					return nil, errors.Wrap(err, "get profile config")
 				}
@@ -170,7 +170,7 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 			}
 
 			// 4. Evaluate using only the targeted backups and config
-			report := lifecycle.Evaluate(cfg.Lifecycle, targetBcps, *dryRun, time.Now().UTC())
+			report := lifecycle.Evaluate(*cfg.Lifecycle, targetBcps, *dryRun, time.Now().UTC())
 			isJSON := app.pbmOutF == outJSON || app.pbmOutF == outJSONpretty
 
 			if !isJSON {
@@ -178,11 +178,18 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 			}
 
 			if *dryRun || !cfg.Lifecycle.Enabled {
-				return lifecycleResult{Report: report}, nil
+				if isJSON {
+					return lifecycleResult{Report: report}, nil
+				}
+				return nil, nil
 			}
 
 			if len(report.BackupsPurged) == 0 {
-				return lifecycleResult{Report: report, Msg: "No backups to purge.", Aborted: false}, nil
+				if isJSON {
+					return lifecycleResult{Report: report, Msg: "No backups to purge.", Aborted: false}, nil
+				}
+				fmt.Println("No backups to purge.")
+				return nil, nil
 			}
 
 			minKeep := 1
@@ -214,10 +221,20 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 
 					response = strings.ToLower(strings.TrimSpace(response))
 					if response != "y" && response != "yes" {
-						return lifecycleResult{Report: report, Msg: "Operation cancelled by user to protect backups.", Aborted: true}, nil
+						msg := "Operation cancelled by user to protect backups."
+						if isJSON {
+							return lifecycleResult{Report: report, Msg: msg, Aborted: true}, nil
+						}
+						fmt.Println(msg)
+						return nil, nil
 					}
 				} else {
-					return lifecycleResult{Report: report, Msg: "Automated run (prompt: false) detected. Purge aborted to protect your backups.", Aborted: true}, nil
+					msg := "Automated run (prompt: false) detected. Purge aborted to protect your backups."
+					if isJSON {
+						return lifecycleResult{Report: report, Msg: msg, Aborted: true}, nil
+					}
+					fmt.Println(msg)
+					return nil, nil
 				}
 			} else if shouldPrompt {
 				fmt.Print("Are you sure you want to permanently delete the purged backups? [y/N]: ")
@@ -229,7 +246,12 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 
 				response = strings.ToLower(strings.TrimSpace(response))
 				if response != "y" && response != "yes" {
-					return lifecycleResult{Report: report, Msg: "Operation cancelled by user.", Aborted: true}, nil
+					msg := "Operation cancelled by user."
+					if isJSON {
+						return lifecycleResult{Report: report, Msg: msg, Aborted: true}, nil
+					}
+					fmt.Println(msg)
+					return nil, nil
 				}
 			}
 
@@ -254,7 +276,12 @@ func (app *pbmApp) buildLifecycleCmd() *cobra.Command {
 				}
 			}
 
-			return lifecycleResult{Report: report, Msg: "Lifecycle rotation complete.", Aborted: false}, nil
+			msg := "Lifecycle rotation complete."
+			if isJSON {
+				return lifecycleResult{Report: report, Msg: msg, Aborted: false}, nil
+			}
+			fmt.Println(msg)
+			return nil, nil
 		}),
 	}
 

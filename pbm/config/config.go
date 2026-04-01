@@ -97,7 +97,7 @@ type Config struct {
 	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 
 	Epoch     primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
-	Lifecycle LifecycleConf       `bson:"lifecycle,omitempty" json:"lifecycle,omitempty" yaml:"lifecycle,omitempty"`
+	Lifecycle *LifecycleConf      `bson:"lifecycle,omitempty" json:"lifecycle,omitempty" yaml:"lifecycle,omitempty"`
 }
 
 func Parse(r io.Reader) (*Config, error) {
@@ -131,6 +131,10 @@ func (c *Config) Clone() *Config {
 		Restore:   c.Restore.Clone(),
 		Backup:    c.Backup.Clone(),
 		Epoch:     c.Epoch,
+	}
+	if c.Lifecycle != nil {
+		l := *c.Lifecycle
+		rv.Lifecycle = &l
 	}
 
 	return rv
@@ -576,6 +580,9 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	if cfg.Restore == nil {
 		cfg.Restore = &RestoreConf{}
 	}
+	if cfg.Lifecycle == nil {
+		cfg.Lifecycle = &LifecycleConf{}
+	}
 
 	if cfg.Backup.Compression == "" {
 		cfg.Backup.Compression = defs.DefaultCompression
@@ -585,35 +592,6 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 	}
 	if cfg.PITR.CompressionLevel == nil {
 		cfg.PITR.CompressionLevel = cfg.Backup.CompressionLevel
-	}
-
-	return cfg, nil
-}
-
-// GetProfileConfig fetches a specific configuration profile from the database
-func GetProfileConfig(ctx context.Context, m connect.Client, name string) (*Config, error) {
-	res := m.ConfigCollection().FindOne(ctx, bson.D{{"name", name}, {"profile", true}})
-	if err := res.Err(); err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, errors.Wrapf(ErrMissedConfigProfile, "profile '%s' not found", name)
-		}
-		return nil, errors.Wrap(err, "get profile")
-	}
-
-	cfg := &Config{}
-	if err := res.Decode(&cfg); err != nil {
-		return nil, errors.Wrap(err, "decode profile config")
-	}
-
-	// Apply base struct defaults
-	if cfg.PITR == nil {
-		cfg.PITR = &PITRConf{}
-	}
-	if cfg.Backup == nil {
-		cfg.Backup = &BackupConf{}
-	}
-	if cfg.Restore == nil {
-		cfg.Restore = &RestoreConf{}
 	}
 
 	return cfg, nil

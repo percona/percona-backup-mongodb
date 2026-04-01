@@ -62,6 +62,8 @@ func (r *Report) String() string {
 	return res
 }
 
+// Evaluate analyzes backups according to the lifecycle configuration and
+// returns a report describing which backups should be kept or purged.
 func Evaluate(cfg config.LifecycleConf, backups []backup.BackupMeta, dryRun bool, now time.Time) *Report {
 	report := &Report{
 		DryRun:      dryRun,
