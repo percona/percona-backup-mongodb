@@ -1,10 +1,9 @@
-Reporting security vulnerabilities
-==================================
+# Reporting security vulnerabilities
 
 Please report any vulnerabilities to our project in [Jira](https://jira.percona.com/projects/PBM/issues).
 
 Once a vulnerability has been reported, it should be reviewed, recorded, assigned, and fixed or addressed as appropriate. 
-Based initially on the criticality of the reported CVE (this may be reduced internally with certain compensating controls that mitigate the severity level) 
+Based initially on an internal severity assessment (for example, using CVSS or our internal severity ratings; if a CVE is later assigned, its criticality may inform or adjust this assessment and may be reduced internally with certain compensating controls that mitigate the severity level), 
 the following guidelines apply to ensure that issues are resolved or addressed in some concrete manner:
 
 1. Critical – immediately, but no later than 14 days;
