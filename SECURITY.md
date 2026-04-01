@@ -11,3 +11,7 @@ the following guidelines apply to ensure that issues are resolved or addressed i
 2. High – as soon as possible, no later than 30 days;
 3. Medium – within 60 days; and
 4. Low – make best efforts to patch low-rated vulnerabilities within 90 days.
+
+Should you have a legitimate test case that might include one of the above, please contact [security@percona.com](mailto:security@percona.com) detailing your proposed test, expected outcome, and proposed timelines.
+
+For details, see [Percona Security](https://www.percona.com/security) 
