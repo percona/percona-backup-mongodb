@@ -146,11 +146,10 @@ func (r *Restore) exit(ctx context.Context, err error) {
 
 // stopBalancer stops the balancer and waits for it to be fully disabled.
 // Uses the configured restore.timeouts.balancerStop if set.
-func (r *Restore) stopBalancer(ctx context.Context) {
+func (r *Restore) stopBalancer(ctx context.Context) error {
 	bs, err := topo.GetBalancerStatus(ctx, r.leadConn)
 	if err != nil {
-		r.log.Error("get balancer status: %v", err)
-		return
+		return errors.Wrap(err, "get balancer status")
 	}
 
 	if bs.IsOn() {
@@ -163,7 +162,7 @@ func (r *Restore) stopBalancer(ctx context.Context) {
 			err = topo.SetBalancerStatus(ctx, r.leadConn, topo.BalancerModeOff)
 		}
 		if err != nil {
-			r.log.Error("set balancer off: %v", err)
+			return errors.Wrap(err, "set balancer off")
 		}
 
 		r.log.Debug("waiting for balancer off")
@@ -175,6 +174,8 @@ func (r *Restore) stopBalancer(ctx context.Context) {
 				bs.Mode, bs.InBalancerRound)
 		}
 	}
+
+	return nil
 }
 
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
@@ -253,7 +254,9 @@ func (r *Restore) Snapshot(
 	}
 
 	if r.brief.Sharded && r.nodeInfo.IsClusterLeader() {
-		r.stopBalancer(ctx)
+		if err := r.stopBalancer(ctx); err != nil {
+			return err
+		}
 	}
 
 	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
@@ -395,7 +398,9 @@ func (r *Restore) PITR(
 	}
 
 	if r.brief.Sharded && r.nodeInfo.IsClusterLeader() {
-		r.stopBalancer(ctx)
+		if err := r.stopBalancer(ctx); err != nil {
+			return err
+		}
 	}
 
 	if bcp.LastWriteTS.Compare(cmd.OplogTS) >= 0 {
