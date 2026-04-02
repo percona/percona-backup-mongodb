@@ -1,15 +1,14 @@
 name: reviewdog
 on: [pull_request]
 
-permissions: read-all
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   shellcheck:
     name: runner / shellcheck
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
       - uses: actions/checkout@v4
@@ -26,9 +25,6 @@ jobs:
   misspell:
     name: runner / misspell
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
       - uses: actions/checkout@v4
@@ -45,9 +41,6 @@ jobs:
   alex:
     name: runner / alex
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     if: ${{ github.event.pull_request.changed_files < 301 }}
     steps:
       - uses: actions/checkout@v4
@@ -59,9 +52,6 @@ jobs:
   golangci-lint:
     name: runner / golangci-lint
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
@@ -76,9 +66,6 @@ jobs:
   gofmt:
     name: runner / gofmt
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
@@ -95,9 +82,6 @@ jobs:
   shfmt:
     name: runner / shfmt
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
