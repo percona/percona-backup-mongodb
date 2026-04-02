@@ -144,6 +144,39 @@ func (r *Restore) exit(ctx context.Context, err error) {
 	r.Close()
 }
 
+// stopBalancer stops the balancer and waits for it to be fully disabled.
+// Uses the configured restore.timeouts.balancerStop if set.
+func (r *Restore) stopBalancer(ctx context.Context) {
+	bs, err := topo.GetBalancerStatus(ctx, r.leadConn)
+	if err != nil {
+		r.log.Error("get balancer status: %v", err)
+		return
+	}
+
+	if bs.IsOn() {
+		t := r.cfg.Restore.Timeouts.BalancerStop()
+		if t > 0 {
+			r.log.Debug("stopping balancer with timeout %s", t)
+			err = topo.StopBalancer(ctx, r.leadConn, t.Milliseconds())
+		} else {
+			r.log.Debug("stopping balancer")
+			err = topo.SetBalancerStatus(ctx, r.leadConn, topo.BalancerModeOff)
+		}
+		if err != nil {
+			r.log.Error("set balancer off: %v", err)
+		}
+
+		r.log.Debug("waiting for balancer off")
+		bs := topo.WaitForBalancerDisabled(ctx, r.leadConn, time.Second*30, r.log)
+		if bs.IsDisabled() {
+			r.log.Debug("balancer is disabled")
+		} else {
+			r.log.Warning("balancer is not disabled: balancer mode: %s, in balancer round: %t",
+				bs.Mode, bs.InBalancerRound)
+		}
+	}
+}
+
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
 // restore namespace, cloning options and option whether we should restore users&roles
 func resolveNamespace(
@@ -217,6 +250,10 @@ func (r *Restore) Snapshot(
 	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
 		return err
+	}
+
+	if r.brief.Sharded && r.nodeInfo.IsClusterLeader() {
+		r.stopBalancer(ctx)
 	}
 
 	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
@@ -355,6 +392,10 @@ func (r *Restore) PITR(
 	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
 		return err
+	}
+
+	if r.brief.Sharded && r.nodeInfo.IsClusterLeader() {
+		r.stopBalancer(ctx)
 	}
 
 	if bcp.LastWriteTS.Compare(cmd.OplogTS) >= 0 {
