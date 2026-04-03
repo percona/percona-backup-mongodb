@@ -49,9 +49,11 @@ type restoreOpts struct {
 	nsFrom          string
 	nsTo            string
 	usersAndRoles   bool
+	yes             bool
 	rsMap           string
 	conf            string
 	ts              string
+	exit            bool
 	fallback        *bool
 	allowPartlyDone *bool
 
@@ -138,10 +140,13 @@ func runRestore(
 	if err := validateNSFromNSTo(o); err != nil {
 		return nil, errors.Wrap(err, "parse --ns-from and --ns-to options")
 	}
-	if err := validateRestoreUsersAndRoles(o.usersAndRoles, nss); err != nil {
+	if err := util.ValidateUsersAndRolesOpt(o.usersAndRoles, nss); err != nil {
 		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
 	}
 	if err := validateFallbackOpts(o); err != nil {
+		return nil, err
+	}
+	if err := validateExternalOpts(o); err != nil {
 		return nil, err
 	}
 
@@ -178,6 +183,9 @@ func runRestore(
 	m, err := doRestore(ctx, conn, stg, l, o, numParallelColls, numInsertionWorkers,
 		nss, o.nsFrom, o.nsTo, rsMap, outf)
 	if err != nil {
+		if errors.Is(err, errUserCanceled) {
+			return outMsg{err.Error()}, nil
+		}
 		return nil, err
 	}
 	if o.extern && outf == outText {
@@ -456,6 +464,7 @@ func doRestore(
 			UsersAndRoles:       o.usersAndRoles,
 			RSMap:               rsMapping,
 			External:            o.extern,
+			Exit:                o.exit,
 			Fallback:            o.fallback,
 			AllowPartlyDone:     o.allowPartlyDone,
 		},
@@ -485,13 +494,8 @@ func doRestore(
 		}
 		err = yaml.UnmarshalStrict(buf, &cmd.Restore.ExtConf)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to  unmarshal config file")
+			return nil, errors.Wrap(err, "unable to unmarshal config file")
 		}
-	}
-
-	err = sendCmd(ctx, conn, cmd)
-	if err != nil {
-		return nil, errors.Wrap(err, "send command")
 	}
 
 	if outf != outText {
@@ -513,6 +517,20 @@ func doRestore(
 	if o.pitr != "" {
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
+
+	if !o.yes {
+		fmt.Printf("Restore: %s%s%s\n", name, pitrs, bcpName)
+		err := askConfirmation("Are you sure you want to start the restore?")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = sendCmd(ctx, conn, cmd)
+	if err != nil {
+		return nil, errors.Wrap(err, "send command")
+	}
+
 	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
 
 	var (
@@ -542,7 +560,7 @@ func doRestore(
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
-	stg, err := getRestoreMetaStg(o.cfg, node)
+	stg, err := restore.GetRestoreMetaStg(o.cfg, node)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
@@ -688,22 +706,6 @@ func (r describeRestoreResult) String() string {
 	return string(b)
 }
 
-func getRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
-	buf, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to read config file")
-	}
-
-	var cfg config.Config
-	err = yaml.UnmarshalStrict(buf, &cfg)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to  unmarshal config file")
-	}
-
-	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
-	return util.StorageFromConfig(&cfg.Storage, node, l)
-}
-
 func describeRestore(
 	ctx context.Context,
 	conn connect.Client,
@@ -716,7 +718,7 @@ func describeRestore(
 		res  describeRestoreResult
 	)
 	if o.cfg != "" {
-		stg, err := getRestoreMetaStg(o.cfg, node)
+		stg, err := restore.GetRestoreMetaStg(o.cfg, node)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
@@ -805,19 +807,6 @@ func describeRestore(
 	return res, nil
 }
 
-func validateRestoreUsersAndRoles(usersAndRoles bool, nss []string) error {
-	if !util.IsSelective(nss) && usersAndRoles {
-		return errors.New("Including users and roles are only allowed for selected database " +
-			"(use --ns flag for selective backup)")
-	}
-	if len(nss) >= 1 && util.ContainsSpecifiedColl(nss) && usersAndRoles {
-		return errors.New("Including users and roles are not allowed for specific collection. " +
-			"Use --ns='db.*' to specify the whole database instead.")
-	}
-
-	return nil
-}
-
 func validateNSFromNSTo(o *restoreOpts) error {
 	if o.nsFrom == "" && o.nsTo == "" {
 		return nil
@@ -852,6 +841,16 @@ func validateFallbackOpts(o *restoreOpts) error {
 		o.allowPartlyDone != nil && !*o.allowPartlyDone {
 		return errors.New("It's not possible to disable both --allow-partly-done " +
 			"and --fallback-enabled at the same time.")
+	}
+	return nil
+}
+
+func validateExternalOpts(o *restoreOpts) error {
+	if !o.extern && o.exit {
+		return errors.New("Agent's restart is only possible for external restore (--external).")
+	}
+	if !o.extern && o.conf != "" {
+		return errors.New("Specifying mongod config is only possible for external restore (--external).")
 	}
 	return nil
 }

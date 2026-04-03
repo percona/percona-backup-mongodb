@@ -75,7 +75,7 @@ func (cfg *Config) Cast() error {
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB >= storage.MinValidMaxObjSizeGB {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB

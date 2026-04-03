@@ -46,9 +46,15 @@ func (b *Backup) doLogical(
 	if err != nil {
 		return errors.Wrap(err, "get namespaces size")
 	}
-	if bcp.Compression == compress.CompressionTypeNone {
-		for n := range nssSize {
-			nssSize[n] *= 4
+
+	sizeHints := make(map[string]int64, len(nssSize))
+	for ns, cs := range nssSize {
+		if bcp.Compression == compress.CompressionTypeNone {
+			// Uncompressed dump: the output size matches the logical BSON size.
+			sizeHints[ns] = cs.Size
+		} else {
+			// Compressed: WiredTiger on-disk size approximates compressed output.
+			sizeHints[ns] = cs.StorageSize
 		}
 	}
 
@@ -112,11 +118,11 @@ func (b *Backup) doLogical(
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck
 
-	if !util.IsSelective(bcp.Namespaces) {
+	if !util.IsSelective(bcp.Namespaces) || bcp.UsersAndRoles {
 		// Save users and roles to the tmp collections so the restore would copy that data
 		// to the system collections. Have to do this because of issues with the restore and preserverUUID.
 		// see: https://jira.percona.com/browse/PBM-636 and comments
-		lw, err := copyUsersNRolles(ctx, b.brief.URI)
+		lw, err := copyUsersNRolles(ctx, b.brief.URI, bcp.Namespaces)
 		if err != nil {
 			return errors.Wrap(err, "copy users and roles for the restore")
 		}
@@ -152,6 +158,12 @@ func (b *Backup) doLogical(
 	nsFilter := archive.DefaultNSFilter
 	docFilter := archive.DefaultDocFilter
 	if util.IsSelective(bcp.Namespaces) {
+		if bcp.UsersAndRoles {
+			bcp.Namespaces = append(bcp.Namespaces,
+				defs.DB+"."+defs.TmpUsersCollection,
+				defs.DB+"."+defs.TmpRolesCollection,
+			)
+		}
 		if inf.IsConfigSrv() {
 			chunkSelector, err := createBackupChunkSelector(ctx, b.leadConn, bcp.Namespaces)
 			if err != nil {
@@ -187,7 +199,7 @@ func (b *Backup) doLogical(
 				return errors.Wrap(err, "get storage")
 			}
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
-			return stg.Save(filepath, r, storage.Size(nssSize[ns]))
+			return stg.Save(filepath, r, storage.Size(sizeHints[ns]))
 		},
 		bcp.Compression,
 		bcp.CompressionLevel)
@@ -286,7 +298,7 @@ func waitForWrite(ctx context.Context, m *mongo.Client, ts primitive.Timestamp) 
 }
 
 //nolint:nonamedreturns
-func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Timestamp, err error) {
+func copyUsersNRolles(ctx context.Context, uri string, nss []string) (lastWrite primitive.Timestamp, err error) {
 	cn, err := connect.MongoConnect(ctx, uri)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "connect to primary")
@@ -298,10 +310,11 @@ func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Time
 		return lastWrite, errors.Wrap(err, "drop tmp collections before copy")
 	}
 
+	filter := util.MakeDBMatchFilter(nss)
 	err = copyColl(ctx,
 		cn.Database("admin").Collection("system.roles"),
 		cn.Database(defs.DB).Collection(defs.TmpRolesCollection),
-		bson.M{},
+		filter,
 	)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "copy admin.system.roles")
@@ -309,7 +322,7 @@ func copyUsersNRolles(ctx context.Context, uri string) (lastWrite primitive.Time
 	err = copyColl(ctx,
 		cn.Database("admin").Collection("system.users"),
 		cn.Database(defs.DB).Collection(defs.TmpUsersCollection),
-		bson.M{},
+		filter,
 	)
 	if err != nil {
 		return lastWrite, errors.Wrap(err, "copy admin.system.users")
@@ -412,8 +425,14 @@ func makeConfigsvrDocFilter(nss []string, selector util.ChunkSelector) archive.D
 	}
 }
 
-func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[string]int64, error) {
-	rv := make(map[string]int64)
+// collSize holds the logical and on-disk sizes reported by collStats.
+type collSize struct {
+	Size        int64 `bson:"size"`        // uncompressed logical BSON data size
+	StorageSize int64 `bson:"storageSize"` // WiredTiger compressed on-disk size
+}
+
+func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[string]collSize, error) {
+	rv := make(map[string]collSize)
 
 	dbs, err := m.ListDatabaseNames(ctx, bson.D{})
 	if err != nil {
@@ -458,16 +477,14 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 						return errors.Wrapf(err, "collStats %q", ns)
 					}
 
-					var doc struct {
-						StorageSize int64 `bson:"storageSize"`
-					}
+					var doc collSize
 
 					if err := res.Decode(&doc); err != nil {
 						return errors.Wrapf(err, "decode %q", ns)
 					}
 
 					mu.Lock()
-					rv[ns] = doc.StorageSize
+					rv[ns] = doc
 					mu.Unlock()
 
 					return nil

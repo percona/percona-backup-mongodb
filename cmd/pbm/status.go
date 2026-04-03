@@ -29,7 +29,7 @@ import (
 )
 
 type statusOptions struct {
-	profile  string
+	profile  ProfileFlag
 	rsMap    string
 	sections []string
 	priority bool
@@ -106,6 +106,10 @@ func status(
 		return nil, errors.Wrap(err, "cannot parse replset mapping")
 	}
 
+	if err := opts.profile.Validate(ctx, conn); err != nil {
+		return nil, err
+	}
+
 	out := statusOut{
 		data: []*statusSect{
 			{
@@ -124,7 +128,7 @@ func status(
 			{
 				"backups", "Backups", nil,
 				func(ctx context.Context, conn connect.Client) (fmt.Stringer, error) {
-					return getStorageStat(ctx, conn, pbm, opts.profile, rsMap)
+					return getStorageStat(ctx, conn, opts.profile, rsMap)
 				},
 			},
 		},
@@ -459,53 +463,82 @@ type pitrRanges struct {
 }
 
 func (s storageStat) String() string {
-	ret := fmt.Sprintf("%s %s %s\n", s.Type, s.Region, s.Path)
-	if len(s.Snapshot) == 0 && len(s.PITR.Ranges) == 0 {
-		return ret + "  (none)"
+	ret := fmt.Sprintln("Main storage:")
+	ret += fmt.Sprintf("  %-10s  %s\n", "Type:", s.Type)
+	if s.Region != "" {
+		ret += fmt.Sprintf("  %-10s  %s\n", "Region:", s.Region)
+	}
+	ret += fmt.Sprintf("  %-10s  %s\n", "Path:", s.Path)
+
+	if len(s.Snapshot) == 0 && (s.PITR == nil || len(s.PITR.Ranges) == 0) {
+		ret += "(no snapshots or PITR chunks)\n"
+		return ret
 	}
 
-	ret += fmt.Sprintln("  Snapshots:")
+	ret += fmt.Sprintln("Snapshots:")
 
 	sort.Slice(s.Snapshot, func(i, j int) bool {
 		a, b := s.Snapshot[i], s.Snapshot[j]
 		return a.RestoreTS > b.RestoreTS
 	})
 
+	ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %s\n",
+		"NAME", "SIZE", "TYPE", "PROFILE", "SEL", "BASE", "RESTORE TIME", "STATUS")
+	ret += fmt.Sprintf("  %s\n", strings.Repeat("-", 24+10+12+20+5+4+19+6+(7*2)))
+
 	for i := range s.Snapshot {
 		ss := &s.Snapshot[i]
+
+		bcpType := string(ss.Type)
+		selective := "no"
+		base := "no"
+		profile := ss.Profile
+
+		if util.IsSelective(ss.Namespaces) {
+			selective = "yes"
+		}
+		if ss.Type == defs.IncrementalBackup && ss.SrcBackup == "" {
+			base = "yes"
+		}
+
 		var status string
 		switch ss.Status {
 		case defs.StatusDone:
-			status = fmt.Sprintf("[restore_to_time: %s]", fmtTS(ss.RestoreTS))
+			status = "done"
 		case defs.StatusCancelled:
-			status = fmt.Sprintf("[!canceled: %s]", fmtTS(ss.RestoreTS))
+			status = "canceled"
 		case defs.StatusError:
 			if errors.Is(ss.Err, errIncompatible) {
-				status = fmt.Sprintf("[incompatible: %s] [%s]", ss.Err.Error(), fmtTS(ss.RestoreTS))
+				status = fmt.Sprintf("incompatible: %s", ss.Err.Error())
 			} else {
-				status = fmt.Sprintf("[ERROR: %s] [%s]", ss.Err.Error(), fmtTS(ss.RestoreTS))
+				status = fmt.Sprintf("error: %s", ss.Err.Error())
 			}
 		default:
-			status = fmt.Sprintf("[running: %s / %s]", ss.Status, fmtTS(ss.RestoreTS))
+			status = fmt.Sprintf("running: %s", ss.Status)
 		}
 
-		t := string(ss.Type)
-		if util.IsSelective(ss.Namespaces) {
-			t += ", selective"
-		} else if ss.Type == defs.IncrementalBackup && ss.SrcBackup == "" {
-			t += ", base"
+		// Truncate status if too long
+		const maxStatusLen = 30
+		if len(status) > maxStatusLen {
+			status = strings.TrimRight(status[:maxStatusLen-3], " ") + "..."
 		}
-		if ss.Profile != "" {
-			t += ", " + ss.Profile
-		}
-		ret += fmt.Sprintf("    %s %s <%s> %s %s\n", ss.Name, storage.PrettySize(ss.Size), t, ss.PrintStatus, status)
+
+		ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %s\n",
+			ss.Name,
+			storage.PrettySize(ss.Size),
+			bcpType,
+			profile,
+			selective,
+			base,
+			fmtTS(ss.RestoreTS),
+			status)
 	}
 
 	if s.PITR == nil || len(s.PITR.Ranges) == 0 {
 		return ret
 	}
 
-	ret += fmt.Sprintf("  PITR chunks [%s]:\n", storage.PrettySize(s.PITR.Size))
+	ret += fmt.Sprintf("PITR chunks [%s]:\n", storage.PrettySize(s.PITR.Size))
 
 	sort.Slice(s.PITR.Ranges, func(i, j int) bool {
 		a, b := s.PITR.Ranges[i], s.PITR.Ranges[j]
@@ -521,7 +554,7 @@ func (s storageStat) String() string {
 		if sn.NoBaseSnapshot {
 			f = " (no base snapshot)"
 		}
-		ret += fmt.Sprintf("    %s - %s%s%s\n", fmtTS(int64(sn.Range.Start)), fmtTS(int64(sn.Range.End)), f, v)
+		ret += fmt.Sprintf("  %s - %s%s%s\n", fmtTS(int64(sn.Range.Start)), fmtTS(int64(sn.Range.End)), f, v)
 	}
 
 	return ret
@@ -530,8 +563,7 @@ func (s storageStat) String() string {
 func getStorageStat(
 	ctx context.Context,
 	conn connect.Client,
-	pbm *sdk.Client,
-	profile string,
+	profile ProfileFlag,
 	rsMap map[string]string,
 ) (fmt.Stringer, error) {
 	var s storageStat
@@ -545,10 +577,11 @@ func getStorageStat(
 	s.Region = cfg.Storage.Region()
 	s.Path = cfg.Storage.Path()
 
-	bcps, err := backup.BackupsList(ctx, conn, profile, 0)
+	bcps, err := backup.BackupsList(ctx, conn, 0)
 	if err != nil {
 		return s, errors.Wrap(err, "get backups list")
 	}
+	bcps = filterByProfile(bcps, profile)
 
 	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
 	if err != nil {
@@ -593,6 +626,7 @@ func getStorageStat(
 			Type:       bcp.Type,
 			SrcBackup:  bcp.SrcBackup,
 			Profile:    bcp.Store.Name,
+			StoreName:  bcp.Store.Name,
 		}
 		if err := bcp.Error(); err != nil {
 			snpsht.Err = err
@@ -632,8 +666,8 @@ func getStorageStat(
 		s.Snapshot = append(s.Snapshot, snpsht)
 	}
 
-	// for main profile also fetch PITR chunks
-	if profile == "" {
+	// for main storage also fetch PITR chunks
+	if !profile.IsSet() || profile.IsMain() {
 		s.PITR, err = getPITRranges(ctx, conn, bcps, rsMap)
 		if err != nil {
 			return s, errors.Wrap(err, "get PITR chunks")

@@ -9,7 +9,7 @@ import (
 
 type AccessPointsForObjectProcess struct {
 	// The container that stores information about a single Object FC Access Point.
-	AccessPointForObjectProcesss []AccessPointForObjectProcess `xml:"AccessPointForObjectProcess"`
+	AccessPointForObjectProcesses []AccessPointForObjectProcess `xml:"AccessPointForObjectProcess"`
 }
 
 type TransformationConfiguration struct {
@@ -21,11 +21,21 @@ type TransformationConfiguration struct {
 }
 
 type ObjectProcessConfiguration struct {
-	// Specifies that Function Compute supports Range GetObject requests.
-	AllowedFeatures []string `xml:"AllowedFeatures>AllowedFeature"`
-
 	// The container that stores the transformation configurations.
-	TransformationConfigurations []TransformationConfiguration `xml:"TransformationConfigurations>TransformationConfiguration"`
+	TransformationConfigurations *TransformationConfigurations `xml:"TransformationConfigurations"`
+
+	// The container that stores allowed features.
+	AllowedFeatures *ObjectProcessAllowedFeatures `xml:"AllowedFeatures"`
+}
+
+type ObjectProcessAllowedFeatures struct {
+	// Specifies that Function Compute supports Range GetObject requests.
+	AllowedFeatures []string `xml:"AllowedFeature"`
+}
+
+type TransformationConfigurations struct {
+	// The container that stores the transformation configurations.
+	TransformationConfigurations []TransformationConfiguration `xml:"TransformationConfiguration"`
 }
 
 type CreateAccessPointForObjectProcessConfiguration struct {
@@ -69,18 +79,28 @@ type AccessPointActions struct {
 	Actions []string `xml:"Action"`
 }
 
-type CustomForwardHeaders struct {
+type ObjectProcessCustomForwardHeaders struct {
 	CustomForwardHeaders []string `xml:"CustomForwardHeader"`
 }
 
 type ContentTransformation struct {
-	// The Alibaba Cloud Resource Name (ARN) of the role that Function Compute uses to access your resources in other cloud services. The default role is AliyunFCDefaultRole.
-	FunctionAssumeRoleArn *string `xml:"FunctionCompute>FunctionAssumeRoleArn"`
+	// The container that stores the information about Function Compute.
+	FunctionCompute *ObjectProcessFunctionCompute `xml:"FunctionCompute"`
 
+	// The container that stores the information about Additional Features.
+	AdditionalFeatures *ObjectProcessAdditionalFeatures `xml:"AdditionalFeatures"`
+}
+
+type ObjectProcessFunctionCompute struct {
 	// The ARN of the function. For more information,
-	FunctionArn *string `xml:"FunctionCompute>FunctionArn"`
+	FunctionArn *string `xml:"FunctionArn"`
 
-	//CustomForwardHeaders *CustomForwardHeaders `xml:"AdditionalFeatures>CustomForwardHeaders"`
+	// The Alibaba Cloud Resource Name (ARN) of the role that Function Compute uses to access your resources in other cloud services. The default role is AliyunFCDefaultRole.
+	FunctionAssumeRoleArn *string `xml:"FunctionAssumeRoleArn"`
+}
+
+type ObjectProcessAdditionalFeatures struct {
+	CustomForwardHeaders *ObjectProcessCustomForwardHeaders `xml:"CustomForwardHeaders"`
 }
 
 type PutAccessPointConfigForObjectProcessConfiguration struct {

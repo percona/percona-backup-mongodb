@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -369,4 +370,39 @@ func RetryableWrite(stg Storage, name string, data []byte) error {
 	}
 
 	return err
+}
+
+// MaskedString is a string that is masked when marshaled to JSON or YAML.
+// It's used for sensitive data like passwords, tokens, etc.
+// When that string is marshaled in bson, it shuldn't be masked!
+type MaskedString string
+
+// MarshalJSON implements the json.Marshaler interface.
+// It returns "***" for non-empty strings, hiding the actual value.
+func (s MaskedString) MarshalJSON() ([]byte, error) {
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	return []byte(`"***"`), nil
+}
+
+// MarshalYAML implements the yaml.Marshaler interface.
+// It returns "***" for non-empty strings, hiding the actual value.
+func (s MaskedString) MarshalYAML() (any, error) {
+	if s == "" {
+		return "", nil
+	}
+	return "***", nil
+}
+
+// TrimSlashes removes leading and trailing '/' characters from a storage path
+// component (bucket, prefix, container). This prevents issues with S3-compatible
+// APIs where extra slashes in bucket names or prefixes cause signature errors
+// or object discovery failures.
+func TrimSlashes(s string) string {
+	return strings.Trim(s, "/")
+}
+
+func Ref[T any](v T) *T {
+	return &v
 }

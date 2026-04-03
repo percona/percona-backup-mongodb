@@ -33,11 +33,12 @@ type backupOpts struct {
 	base             bool
 	compression      string
 	compressionLevel []int
-	profile          string
+	profile          ProfileFlag
 	ns               string
 	wait             bool
 	waitTime         time.Duration
 	externList       bool
+	usersAndRoles    bool
 
 	numParallelColls int32
 }
@@ -49,9 +50,14 @@ type backupOut struct {
 }
 
 func (b backupOut) String() string {
-	return fmt.Sprintf(
-		"Backup %q saved to remote store (profile: %q, path: %q)", b.Name, b.Profile, b.StoragePath,
-	)
+	pInfo := ""
+	if b.Profile == "" {
+		pInfo = fmt.Sprintf("(path: %q)", b.StoragePath)
+	} else {
+		pInfo = fmt.Sprintf("(profile: %q, path: %q)", b.Profile, b.StoragePath)
+
+	}
+	return fmt.Sprintf("Backup %q saved to remote store %s", b.Name, pInfo)
 }
 
 type externBcpOut struct {
@@ -103,6 +109,9 @@ func runBackup(
 	if len(nss) != 0 && b.typ != string(defs.LogicalBackup) {
 		return nil, errors.New("--ns flag is only allowed for logical backup")
 	}
+	if err := util.ValidateUsersAndRolesOpt(b.usersAndRoles, nss); err != nil {
+		return nil, errors.Wrap(err, "parse --with-users-and-roles option")
+	}
 
 	if err := topo.CheckTopoForBackup(ctx, conn, defs.BackupType(b.typ)); err != nil {
 		return nil, errors.Wrap(err, "backup pre-check")
@@ -112,13 +121,13 @@ func runBackup(
 		return nil, err
 	}
 
-	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile)
+	cfg, err := config.GetProfiledConfig(ctx, conn, b.profile.Value())
 	if err != nil {
 		if errors.Is(err, config.ErrMissedConfig) {
 			return nil, errors.New("no config set. Set config with <pbm config>")
 		}
 		if errors.Is(err, config.ErrMissedConfigProfile) {
-			return nil, errors.Errorf("profile %q is not found", b.profile)
+			return nil, errors.Errorf("profile %q is not found", b.profile.Name())
 		}
 		return nil, errors.Wrap(err, "get config")
 	}
@@ -140,11 +149,12 @@ func runBackup(
 			IncrBase:         b.base,
 			Name:             b.name,
 			Namespaces:       nss,
+			UsersAndRoles:    b.usersAndRoles,
 			Compression:      compression,
 			CompressionLevel: level,
 			NumParallelColls: numParallelColls,
 			Filelist:         b.externList,
-			Profile:          b.profile,
+			Profile:          b.profile.Value(),
 		},
 	})
 	if err != nil {
@@ -154,11 +164,16 @@ func runBackup(
 	showProgress := outf == outText
 
 	if showProgress {
-		fmt.Printf("Starting backup %q (profile %q)", b.name, b.profile)
+		pinfo := ""
+		if b.profile.IsProfile() {
+			pinfo = fmt.Sprintf(" (profile: %q)", b.profile.Name())
+		}
+		fmt.Printf("Starting backup %q%s", b.name, pinfo)
 	}
-	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
-	defer cancel()
-	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
+	err = waitForBcpStatus(ctx, conn, b.name, showProgress)
+	if showProgress {
+		fmt.Println()
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "wait for backup status")
 	}
@@ -199,7 +214,7 @@ func runBackup(
 		}
 
 		if showProgress {
-			fmt.Printf("\nWaiting for '%s' backup...", b.name)
+			fmt.Printf("Waiting for '%s' backup...", b.name)
 		}
 		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone, showProgress)
 		if s != nil && showProgress {
@@ -258,6 +273,10 @@ func waitBackup(
 			case defs.StatusError:
 				return &bcp.Status, bcp.Error()
 			}
+
+			if err := checkBackupStale(ctx, conn, bcp); err != nil {
+				return &bcp.Status, err
+			}
 		}
 
 		if showProgress {
@@ -266,22 +285,66 @@ func waitBackup(
 	}
 }
 
-func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
+func checkBackupStale(ctx context.Context, conn connect.Client, bcp *backup.BackupMeta) error {
+	clusterTime, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+	if bcp.Hb.T+defs.StaleFrameSec < clusterTime.T {
+		rs := ""
+		for _, s := range bcp.Replsets {
+			rs += fmt.Sprintf("\n- %s: %v", s.Name, s.Status)
+			if s.Error != "" {
+				rs += ": " + s.Error
+			}
+		}
+		return errors.Errorf(
+			"backup stuck at %q status, last heartbeat: %d%s",
+			bcp.Status, bcp.Hb.T, rs)
+	}
+	return nil
+}
+
+func waitForBcpExists(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+	to := time.After(defs.WaitBackupStart)
 
-	var bmeta *backup.BackupMeta
 	for {
 		select {
 		case <-tk.C:
 			if showProgress {
 				fmt.Print(".")
 			}
-			var err error
-			bmeta, err = backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
+			_, err := backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
+			if err != nil {
+				return errors.Wrap(err, "get backup metadata")
+			}
+			return nil
+		case <-to:
+			return errors.New("no progress from leader, backup metadata not found")
+		}
+	}
+}
+
+func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
+	if err := waitForBcpExists(ctx, conn, bcpName, showProgress); err != nil {
+		return err
+	}
+
+	tk := time.NewTicker(time.Second)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			if showProgress {
+				fmt.Print(".")
+			}
+			bmeta, err := backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
@@ -301,29 +364,21 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 				}
 				return errors.Errorf("status error on %s", rs)
 			}
-		case <-ctx.Done():
-			if bmeta == nil {
-				return errors.New("no progress from leader, backup metadata not found")
-			}
-			rs := ""
-			for _, s := range bmeta.Replsets {
-				rs += fmt.Sprintf("- Backup on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
-				if s.Error != "" {
-					rs += ": " + s.Error
-				}
-			}
-			if rs == "" {
-				rs = "<no replset has started backup>\n"
-			}
 
-			return errors.New("no confirmation that backup has successfully started. Replsets status:\n" + rs)
+			if err := checkBackupStale(ctx, conn, bmeta); err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 }
 
 type bcpDesc struct {
-	Name               string          `json:"name" yaml:"name"`
-	Profile            string          `json:"profile,omitempty" yaml:"profile,omitempty"`
+	Name    string `json:"name" yaml:"name"`
+	Profile string `json:"profile,omitempty" yaml:"profile,omitempty"`
+	// StorageName exists only for backwards compatibility and will be removed (use Profile instead)
+	StorageName        string          `json:"storage_name,omitempty" yaml:"storage_name,omitempty"`
 	StorageType        storage.Type    `json:"storage_type,omitempty" yaml:"storage_type,omitempty"`
 	OPID               string          `json:"opid" yaml:"opid"`
 	Type               defs.BackupType `json:"type" yaml:"type"`
@@ -332,6 +387,7 @@ type bcpDesc struct {
 	LastWriteTime      string          `json:"last_write_time" yaml:"last_write_time"`
 	LastTransitionTime string          `json:"last_transition_time" yaml:"last_transition_time"`
 	Namespaces         []string        `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+	SelUserAndRoles    bool            `json:"sel_user_and_roles" yaml:"sel_user_and_roles"`
 	MongoVersion       string          `json:"mongodb_version" yaml:"mongodb_version"`
 	FCV                string          `json:"fcv" yaml:"fcv"`
 	PBMVersion         string          `json:"pbm_version" yaml:"pbm_version"`
@@ -418,10 +474,12 @@ func describeBackup(
 	rv := &bcpDesc{
 		Name:               bcp.Name,
 		Profile:            bcp.Store.Name,
+		StorageName:        bcp.Store.Name,
 		StorageType:        bcp.Store.Type,
 		OPID:               bcp.OPID,
 		Type:               bcp.Type,
 		Namespaces:         bcp.Namespaces,
+		SelUserAndRoles:    bcp.SelUsersAndRoles,
 		MongoVersion:       bcp.MongoVersion,
 		FCV:                bcp.FCV,
 		PBMVersion:         bcp.PBMVersion,

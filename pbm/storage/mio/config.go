@@ -4,6 +4,8 @@ import (
 	"errors"
 	"maps"
 	"reflect"
+
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
 //nolint:lll
@@ -13,7 +15,7 @@ type Config struct {
 	EndpointMap map[string]string `bson:"endpointMap,omitempty" json:"endpointMap,omitempty" yaml:"endpointMap,omitempty"`
 	Bucket      string            `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string            `bson:"prefix" json:"prefix" yaml:"prefix"`
-	Credentials Credentials       `bson:"credentials" json:"-" yaml:"credentials"`
+	Credentials Credentials       `bson:"credentials" json:"credentials" yaml:"credentials"`
 	Secure      bool              `bson:"secure" json:"secure" yaml:"secure"`
 	DebugTrace  bool              `bson:"debugTrace,omitempty" json:"debugTrace,omitempty" yaml:"debugTrace,omitempty"`
 
@@ -28,11 +30,12 @@ type Config struct {
 	ForcePathStyle        *bool `bson:"forcePathStyle,omitempty" json:"forcePathStyle,omitempty" yaml:"forcePathStyle,omitempty"`
 }
 
+//nolint:lll
 type Credentials struct {
-	SigVer          string `bson:"signature-ver" json:"signature-ver,omitempty" yaml:"signature-ver,omitempty"`
-	AccessKeyID     string `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
-	SecretAccessKey string `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
-	SessionToken    string `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
+	SigVer          string               `bson:"signature-ver" json:"signature-ver,omitempty" yaml:"signature-ver,omitempty"`
+	AccessKeyID     storage.MaskedString `bson:"access-key-id" json:"access-key-id,omitempty" yaml:"access-key-id,omitempty"`
+	SecretAccessKey storage.MaskedString `bson:"secret-access-key" json:"secret-access-key,omitempty" yaml:"secret-access-key,omitempty"`
+	SessionToken    storage.MaskedString `bson:"session-token" json:"session-token,omitempty" yaml:"session-token,omitempty"`
 }
 
 type Retryer struct {
@@ -129,7 +132,7 @@ func (cfg *Config) resolveEndpointURL(node string) string {
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
-	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > 0 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB >= storage.MinValidMaxObjSizeGB {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB

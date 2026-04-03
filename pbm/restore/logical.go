@@ -146,12 +146,16 @@ func (r *Restore) exit(ctx context.Context, err error) {
 
 // resolveNamespace resolves final namespace(s) based on the backup namespace,
 // restore namespace, cloning options and option whether we should restore users&roles
-func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, usingUsersAndRoles bool) []string {
+func resolveNamespace(
+	nssBackup, nssRestore []string,
+	cloneNS snapshot.CloneNS,
+	usingUsersAndRolesBackup, usingUsersAndRolesRestore bool,
+) []string {
 	if cloneNS.IsSpecified() {
 		return []string{cloneNS.FromNS}
 	}
 	if util.IsSelective(nssRestore) {
-		if usingUsersAndRoles {
+		if usingUsersAndRolesRestore {
 			var nss []string
 			nss = append(nss, nssRestore...)
 			nss = append(nss,
@@ -163,8 +167,16 @@ func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, 
 
 		return nssRestore
 	}
-	if util.IsSelective(nssBackup) {
-		return nssBackup
+
+	// Full restore from selective backup should include users & roles
+	if util.IsSelective(nssBackup) && usingUsersAndRolesBackup {
+		var nss []string
+		nss = append(nss, nssBackup...)
+		nss = append(nss,
+			defs.DB+"."+defs.TmpUsersCollection,
+			defs.DB+"."+defs.TmpRolesCollection,
+		)
+		return nss
 	}
 
 	return nssBackup
@@ -174,16 +186,16 @@ func resolveNamespace(nssBackup, nssRestore []string, cloneNS snapshot.CloneNS, 
 func shouldRestoreUsersAndRoles(
 	nssBackup, nssRestore []string,
 	cloneNS snapshot.CloneNS,
-	usingUsersAndRoles bool,
+	usingUsersAndRolesBackup, usingUsersAndRolesRestore bool,
 ) restoreUsersAndRolesOption {
 	if cloneNS.IsSpecified() {
 		return false
 	}
-	if util.IsSelective(nssBackup) {
+	if util.IsSelective(nssBackup) && !usingUsersAndRolesBackup {
 		return false
 	}
 	if util.IsSelective(nssRestore) {
-		return restoreUsersAndRolesOption(usingUsersAndRoles)
+		return restoreUsersAndRolesOption(usingUsersAndRolesRestore)
 	}
 
 	return true
@@ -221,11 +233,13 @@ func (r *Restore) Snapshot(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 	usersAndRolesOpt := shouldRestoreUsersAndRoles(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 
 	err = setRestoreBackup(ctx, r.leadConn, r.name, cmd.BackupName, nss)
@@ -297,14 +311,11 @@ func (r *Restore) Snapshot(
 		{chunks: chunks, storage: r.bcpStg},
 	}
 	oplogOption := &applyOplogOption{
-		end:      &bcp.LastWriteTS,
-		nss:      nss,
-		cloudNS:  cloneNS,
-		sessUUID: sysSessionsUUID,
-	}
-	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-		oplogOption.nss = []string{"config.databases"}
-		oplogOption.filter = newConfigsvrOpFilter(nss)
+		end:           &bcp.LastWriteTS,
+		nss:           nss,
+		cloudNS:       cloneNS,
+		sessUUID:      sysSessionsUUID,
+		usersAndRoles: bool(usersAndRolesOpt),
 	}
 
 	err = r.applyOplog(ctx, oplogRanges, oplogOption)
@@ -326,32 +337,6 @@ func (r *Restore) Snapshot(
 	}
 
 	return r.Done(ctx)
-}
-
-// newConfigsvrOpFilter filters out not needed ops during selective backup on configsvr
-func newConfigsvrOpFilter(nss []string) oplog.OpFilter {
-	selected := util.MakeSelectedPred(nss)
-
-	return func(r *oplog.Record) bool {
-		if selected(r.Namespace) {
-			return true
-		}
-		if r.Namespace != "config.databases" {
-			return false
-		}
-
-		// create/drop database and movePrimary ops contain o2._id with the database name
-		for _, e := range r.Query {
-			if e.Key != "_id" {
-				continue
-			}
-
-			db, _ := e.Value.(string)
-			return selected(db)
-		}
-
-		return false
-	}
 }
 
 // PITR do the Point-in-Time Recovery
@@ -395,11 +380,13 @@ func (r *Restore) PITR(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 	usersAndRolesOpt := shouldRestoreUsersAndRoles(
 		bcp.Namespaces,
 		cmd.Namespaces,
 		cloneNS,
+		bcp.SelUsersAndRoles,
 		cmd.UsersAndRoles)
 
 	if r.nodeInfo.IsLeader() {
@@ -493,16 +480,13 @@ func (r *Restore) PITR(
 		{chunks: chunks, storage: r.oplogStg},
 	}
 	oplogOption := applyOplogOption{
-		end:      &cmd.OplogTS,
-		nss:      nss,
-		cloudNS:  cloneNS,
-		sessUUID: sysSessionsUUID,
+		end:           &cmd.OplogTS,
+		nss:           nss,
+		cloudNS:       cloneNS,
+		sessUUID:      sysSessionsUUID,
+		usersAndRoles: bool(usersAndRolesOpt),
 	}
-	if r.nodeInfo.IsConfigSrv() && util.IsSelective(nss) {
-		oplogOption.nss = []string{"config.databases"}
-		oplogOption.nss = append(oplogOption.nss, nss...)
-		oplogOption.filter = newConfigsvrOpFilter(nss)
-	}
+
 	err = r.applyOplog(ctx, oplogRanges, &oplogOption)
 	if err != nil {
 		return err
@@ -1500,7 +1484,7 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 		r.nodeConn,
 		ranges,
 		options,
-		r.nodeInfo.IsSharded(),
+		r.nodeInfo,
 		r.indexCatalog,
 		r.setcommittedTxn,
 		r.getcommittedTxn,

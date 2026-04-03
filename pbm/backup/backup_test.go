@@ -3,10 +3,8 @@ package backup
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
@@ -132,51 +130,43 @@ func TestBackupsList(t *testing.T) {
 			{Name: "b2", LWT: now.Add(-10 * time.Minute)},
 		},
 	}
-	stgs := stgsFromTestBackups(t, backups)
 
-	expected := make([]BackupMeta, 0)
-	for profile, bcps := range backups {
-		for _, bcp := range bcps {
-			meta := insertTestBcpMeta(t, TestEnv, stgs[profile], bcp)
-			expected = append(expected, meta)
-		}
-	}
-	sort.Slice(expected, func(i, j int) bool {
-		return expected[i].StartTS < expected[j].StartTS
-	})
-	expectedNamesAll, expectedNamesByProfile := bcpNames(expected)
+	expected := prepareBackupList(t, backups)
+	actual, err := BackupsList(t.Context(), TestEnv.Client, 0)
 
-	for profile := range backups {
-		tName := profile
-		if profile == "" {
-			tName = "default"
-		}
-
-		t.Run(fmt.Sprintf("List backups in profile %q", tName), func(t *testing.T) {
-			var expectedNames []string
-			if profile == "" {
-				expectedNames = expectedNamesAll
-			} else {
-				expectedNames = expectedNamesByProfile[profile]
-			}
-
-			actual, err := BackupsList(t.Context(), TestEnv.Client, profile, 0)
-			assert.NoError(t, err)
-			actualNames, _ := bcpNames(actual)
-			assert.ElementsMatchf(t, expectedNames, actualNames,
-				"Expectged backups %v, got %v, for profile %q", expectedNamesAll, actualNames, profile,
-			)
-		})
-	}
-
+	assert.NoError(t, err)
+	assertExpectedBackupList(t, expected, actual)
 }
 
-func bcpNames(backups []BackupMeta) ([]string, map[string][]string) {
-	var all = make([]string, len(backups))
-	var byProfile = make(map[string][]string)
-	for i, b := range backups {
-		all[i] = b.Name
-		byProfile[b.Store.Name] = append(byProfile[b.Store.Name], b.Name)
+func assertExpectedBackupList(t *testing.T, expectedMeta, actualMeta []BackupMeta) {
+	t.Helper()
+	expected := bcpNames(expectedMeta)
+	actual := bcpNames(actualMeta)
+	assert.ElementsMatch(t, expected, actual)
+}
+
+func prepareBackupList(t *testing.T, backups map[string][]bcp) []BackupMeta {
+	var inserted []BackupMeta
+
+	for profile, bcps := range backups {
+		stg := TestEnv.PbmStorage
+		if profile != "" {
+			stg = TempStorageProfile(t, profile)
+		}
+
+		for _, bcp := range bcps {
+			meta := insertTestBcpMeta(t, TestEnv, stg, bcp)
+			inserted = append(inserted, meta)
+		}
 	}
-	return all, byProfile
+
+	return inserted
+}
+
+func bcpNames(backups []BackupMeta) []string {
+	var names []string
+	for _, b := range backups {
+		names = append(names, b.Name)
+	}
+	return names
 }

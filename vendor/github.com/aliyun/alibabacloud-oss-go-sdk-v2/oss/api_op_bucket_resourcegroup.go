@@ -8,7 +8,7 @@ import (
 
 type BucketResourceGroupConfiguration struct {
 	// The ID of the resource group to which the bucket belongs.
-	ResourceGroupId *string `xml:"ResourceGroupId"`
+	ResourceGroupId *string `xml:"ResourceGroupId" json:"ResourceGroupId"`
 }
 
 type GetBucketResourceGroupRequest struct {
@@ -43,6 +43,7 @@ func (c *Client) GetBucketResourceGroup(ctx context.Context, request *GetBucketR
 		Bucket: request.Bucket,
 	}
 	input.OpMetadata.Set(signer.SubResource, []string{"resourceGroup"})
+
 	if err = c.marshalInput(request, input, updateContentMd5); err != nil {
 		return nil, err
 	}
@@ -97,7 +98,7 @@ func (c *Client) PutBucketResourceGroup(ctx context.Context, request *PutBucketR
 		return nil, err
 	}
 	result := &PutBucketResourceGroupResult{}
-	if err = c.unmarshalOutput(result, output, unmarshalBodyXmlMix); err != nil {
+	if err = c.unmarshalOutput(result, output, discardBody); err != nil {
 		return nil, c.toClientError(err, "UnmarshalOutputFail", output)
 	}
 	return result, err

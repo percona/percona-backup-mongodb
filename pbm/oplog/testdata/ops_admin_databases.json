@@ -1,0 +1,138 @@
+[
+  {
+    "op": "i",
+    "ns": "config.databases",
+    "o": {
+      "_id": "mydb",
+      "primary": "rs1",
+      "partitioned": true,
+      "version": {
+        "uuid": {
+          "$binary": {
+            "base64": "v+mHa8niRBKG7Z+uqJGARQ==",
+            "subType": "04"
+          }
+        },
+        "timestamp": {
+          "$timestamp": {
+            "t": 1732706433,
+            "i": 1
+          }
+        },
+        "lastMod": 1
+      }
+    },
+    "o2": {
+      "_id": "mydb"
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1732706433,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "2"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": {
+        "$numberLong": "1732706433987"
+      }
+    }
+  },
+  {
+    "op": "i",
+    "ns": "mydb.collection1",
+    "ui": {
+      "$binary": {
+        "base64": "v+mHa8niRBKG7Z+uqJGARQ==",
+        "subType": "04"
+      }
+    },
+    "o": {
+      "_id": {
+        "$oid": "6747008178d82a2b1134a2b8"
+      },
+      "field1": "value1"
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1732706434,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "2"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": {
+        "$numberLong": "1732706434000"
+      }
+    }
+  },
+  {
+    "op": "u",
+    "ns": "config.databases",
+    "o": {
+      "$v": 2,
+      "diff": {
+        "u": {
+          "primary": "rs2"
+        }
+      }
+    },
+    "o2": {
+      "_id": "mydb"
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1732706435,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "2"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": {
+        "$numberLong": "1732706435000"
+      }
+    }
+  },
+  {
+    "op": "d",
+    "ns": "config.databases",
+    "o": {
+      "_id": "mydb"
+    },
+    "o2": {
+      "_id": "mydb"
+    },
+    "ts": {
+      "$timestamp": {
+        "t": 1732706436,
+        "i": 1
+      }
+    },
+    "t": {
+      "$numberLong": "2"
+    },
+    "v": {
+      "$numberLong": "2"
+    },
+    "wall": {
+      "$date": {
+        "$numberLong": "1732706436000"
+      }
+    }
+  }
+]

@@ -120,77 +120,6 @@ func (c *Config) Clone() *Config {
 }
 
 func (c *Config) String() string {
-	c = c.Clone()
-
-	if c.Storage.S3 != nil {
-		if c.Storage.S3.Credentials.AccessKeyID != "" {
-			c.Storage.S3.Credentials.AccessKeyID = "***"
-		}
-		if c.Storage.S3.Credentials.SecretAccessKey != "" {
-			c.Storage.S3.Credentials.SecretAccessKey = "***"
-		}
-		if c.Storage.S3.Credentials.SessionToken != "" {
-			c.Storage.S3.Credentials.SessionToken = "***"
-		}
-		if c.Storage.S3.Credentials.Vault.Secret != "" {
-			c.Storage.S3.Credentials.Vault.Secret = "***"
-		}
-		if c.Storage.S3.Credentials.Vault.Token != "" {
-			c.Storage.S3.Credentials.Vault.Token = "***"
-		}
-		if c.Storage.S3.ServerSideEncryption != nil &&
-			c.Storage.S3.ServerSideEncryption.SseCustomerKey != "" {
-			c.Storage.S3.ServerSideEncryption.SseCustomerKey = "***"
-		}
-	}
-	if c.Storage.Minio != nil {
-		if c.Storage.Minio.Credentials.AccessKeyID != "" {
-			c.Storage.Minio.Credentials.AccessKeyID = "***"
-		}
-		if c.Storage.Minio.Credentials.SecretAccessKey != "" {
-			c.Storage.Minio.Credentials.SecretAccessKey = "***"
-		}
-		if c.Storage.Minio.Credentials.SessionToken != "" {
-			c.Storage.Minio.Credentials.SessionToken = "***"
-		}
-	}
-	if c.Storage.Azure != nil {
-		if c.Storage.Azure.Credentials.Key != "" {
-			c.Storage.Azure.Credentials.Key = "***"
-		}
-	}
-	if c.Storage.GCS != nil {
-		if c.Storage.GCS.Credentials.PrivateKey != "" {
-			c.Storage.GCS.Credentials.PrivateKey = "***"
-		}
-		if c.Storage.GCS.Credentials.ClientEmail != "" {
-			c.Storage.GCS.Credentials.ClientEmail = "***"
-		}
-		if c.Storage.GCS.Credentials.HMACAccessKey != "" {
-			c.Storage.GCS.Credentials.HMACAccessKey = "***"
-		}
-		if c.Storage.GCS.Credentials.HMACSecret != "" {
-			c.Storage.GCS.Credentials.HMACSecret = "***"
-		}
-	}
-	if c.Storage.OSS != nil {
-		if c.Storage.OSS.Credentials.AccessKeyID != "" {
-			c.Storage.OSS.Credentials.AccessKeyID = "***"
-		}
-		if c.Storage.OSS.Credentials.AccessKeySecret != "" {
-			c.Storage.OSS.Credentials.AccessKeySecret = "***"
-		}
-		if c.Storage.OSS.Credentials.SecurityToken != "" {
-			c.Storage.OSS.Credentials.SecurityToken = "***"
-		}
-		if c.Storage.OSS.Credentials.SessionName != "" {
-			c.Storage.OSS.Credentials.SessionName = "***"
-		}
-		if c.Storage.OSS.Credentials.RoleARN != "" {
-			c.Storage.OSS.Credentials.RoleARN = "***"
-		}
-	}
-
 	b, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Sprintln("error:", err)
@@ -543,10 +472,9 @@ func (cfg *BackupConf) Clone() *BackupConf {
 
 	rv.Priority = maps.Clone(cfg.Priority)
 	if cfg.Timeouts != nil {
-		if cfg.Timeouts.Starting != nil {
-			rv.Timeouts = &BackupTimeouts{
-				Starting: cfg.Timeouts.Starting,
-			}
+		rv.Timeouts = &BackupTimeouts{
+			Starting:        cfg.Timeouts.Starting,
+			BalancerStopSec: cfg.Timeouts.BalancerStopSec,
 		}
 	}
 	if cfg.CompressionLevel != nil {
@@ -557,9 +485,14 @@ func (cfg *BackupConf) Clone() *BackupConf {
 	return &rv
 }
 
+//nolint:lll
 type BackupTimeouts struct {
 	// Starting is timeout (in seconds) to wait for a backup to start.
 	Starting *uint32 `bson:"startingStatus,omitempty" json:"startingStatus,omitempty" yaml:"startingStatus,omitempty"`
+
+	// BalancerStopSec is timeout (in seconds) to wait for the balancer to stop.
+	// 0 means wait indefinitely (default).
+	BalancerStopSec uint32 `bson:"balancerStop,omitempty" json:"balancerStop,omitempty" yaml:"balancerStop,omitempty"`
 }
 
 // StartingStatus returns timeout duration for .
@@ -570,6 +503,16 @@ func (t *BackupTimeouts) StartingStatus() time.Duration {
 	}
 
 	return time.Duration(*t.Starting) * time.Second
+}
+
+// BalancerStop returns timeout duration for waiting for the balancer to stop.
+// Returns 0 if not set, meaning PBM will wait indefinitely.
+func (t *BackupTimeouts) BalancerStop() time.Duration {
+	if t == nil {
+		return 0
+	}
+
+	return time.Duration(t.BalancerStopSec) * time.Second
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
@@ -607,12 +550,13 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 }
 
 // SetConfig stores config doc within the database.
-// It also applies default storage parameters depending on the type of storage
+// It also applies main storage parameters depending on the type of storage
 // and assigns those possible default values to the cfg parameter.
 func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	if err := cfg.Storage.Cast(); err != nil {
 		return errors.Wrap(err, "cast storage")
 	}
+	sanitizeStoragePaths(&cfg.Storage)
 
 	if cfg.Storage.Type == storage.S3 {
 		// call the function for notification purpose.
@@ -684,6 +628,10 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		return errors.Wrapf(err, "casting value of %s", key)
 	}
 
+	if isStoragePathKey(key) {
+		v = storage.TrimSlashes(v.(string))
+	}
+
 	// TODO: how to be with special case options like pitr.enabled
 	switch key {
 	case "pitr.enabled":
@@ -704,6 +652,50 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		bson.D{{"profile", nil}},
 		bson.M{"$set": bson.M{key: v}})
 	return errors.Wrap(err, "write to db")
+}
+
+// sanitizeStoragePaths trims leading/trailing slashes from bucket, container,
+// and prefix values in the storage config. Extra slashes in these values cause
+// S3-compatible API signature errors or backup discovery failures.
+func sanitizeStoragePaths(s *StorageConf) {
+	switch s.Type {
+	case storage.S3:
+		if s.S3 != nil {
+			s.S3.Bucket = storage.TrimSlashes(s.S3.Bucket)
+			s.S3.Prefix = storage.TrimSlashes(s.S3.Prefix)
+		}
+	case storage.Minio:
+		if s.Minio != nil {
+			s.Minio.Bucket = storage.TrimSlashes(s.Minio.Bucket)
+			s.Minio.Prefix = storage.TrimSlashes(s.Minio.Prefix)
+		}
+	case storage.GCS:
+		if s.GCS != nil {
+			s.GCS.Bucket = storage.TrimSlashes(s.GCS.Bucket)
+			s.GCS.Prefix = storage.TrimSlashes(s.GCS.Prefix)
+		}
+	case storage.Azure:
+		if s.Azure != nil {
+			s.Azure.Container = storage.TrimSlashes(s.Azure.Container)
+			s.Azure.Prefix = storage.TrimSlashes(s.Azure.Prefix)
+		}
+	case storage.OSS:
+		if s.OSS != nil {
+			s.OSS.Bucket = storage.TrimSlashes(s.OSS.Bucket)
+			s.OSS.Prefix = storage.TrimSlashes(s.OSS.Prefix)
+		}
+	}
+}
+
+// isStoragePathKey reports whether the config key refers to a storage
+// bucket, container, or prefix field that should have slashes trimmed.
+func isStoragePathKey(key string) bool {
+	if !strings.HasPrefix(key, "storage.") {
+		return false
+	}
+	return strings.HasSuffix(key, ".bucket") ||
+		strings.HasSuffix(key, ".container") ||
+		strings.HasSuffix(key, ".prefix")
 }
 
 func confSetPITR(ctx context.Context, m connect.Client, value bool) error {

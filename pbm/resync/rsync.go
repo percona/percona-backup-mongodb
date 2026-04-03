@@ -107,7 +107,7 @@ func SyncBackupList(
 ) error {
 	l := log.LogEventFromContext(ctx)
 	if profile == "" {
-		l.Info("syncing backup list for default storage")
+		l.Info("syncing backup list for main storage")
 	} else {
 		l.Info("syncing backup list for profile %q", profile)
 	}

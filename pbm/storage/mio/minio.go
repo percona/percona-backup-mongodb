@@ -96,15 +96,15 @@ func newMinio(cfg *Config, n string, l log.LogEvent) (*Minio, error) {
 	var creds *credentials.Credentials
 	if cfg.Credentials.SigVer == "V2" {
 		creds = credentials.NewStaticV2(
-			cfg.Credentials.AccessKeyID,
-			cfg.Credentials.SecretAccessKey,
-			cfg.Credentials.SessionToken,
+			string(cfg.Credentials.AccessKeyID),
+			string(cfg.Credentials.SecretAccessKey),
+			string(cfg.Credentials.SessionToken),
 		)
 	} else {
 		creds = credentials.NewStaticV4(
-			cfg.Credentials.AccessKeyID,
-			cfg.Credentials.SecretAccessKey,
-			cfg.Credentials.SessionToken,
+			string(cfg.Credentials.AccessKeyID),
+			string(cfg.Credentials.SecretAccessKey),
+			string(cfg.Credentials.SessionToken),
 		)
 	}
 
@@ -181,10 +181,16 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 	}
 
 	putOpts := minio.PutObjectOptions{
-		PartSize:   uint64(partSize),
-		NumThreads: uint(max(runtime.NumCPU()/2, 1)),
+		PartSize:              uint64(partSize),
+		NumThreads:            uint(max(runtime.NumCPU()/2, 1)),
+		ConcurrentStreamParts: true,
 	}
-	_, err := m.cl.PutObject(
+	if opts.Size > 0 && opts.Size <= partSize {
+		// just optimization to not use it without the reason
+		putOpts.ConcurrentStreamParts = false
+	}
+
+	upInf, err := m.cl.PutObject(
 		context.Background(),
 		m.cfg.Bucket,
 		path.Join(m.cfg.Prefix, name),
@@ -192,6 +198,24 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 		-1,
 		putOpts,
 	)
+	if err == io.EOF && putOpts.ConcurrentStreamParts && upInf.Size == 0 {
+		// In case when conditions above are fulfilled,
+		// PBM hits minio issue related to ConcurrentStreamParts,
+		// so we'll just ignore it for now and try to retry it
+		// without ConcurrentStreamParts enabled.
+		// This handling should be removed after the fix is released:
+		// https://github.com/minio/minio-go/pull/2207
+		putOpts.ConcurrentStreamParts = false
+		_, err = m.cl.PutObject(
+			context.Background(),
+			m.cfg.Bucket,
+			path.Join(m.cfg.Prefix, name),
+			data,
+			-1,
+			putOpts,
+		)
+		return errors.Wrap(err, "retry upload using minio and disabled concurrent stream parts")
+	}
 
 	return errors.Wrap(err, "upload using minio")
 }

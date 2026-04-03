@@ -28,7 +28,11 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
-const cursorCreateRetries = 10
+const (
+	cursorCreateRetries               = 10
+	openConflictWithCheckpointErrCode = 50915
+	oplogRolledOverErrCode            = 50917
+)
 
 type Meta struct {
 	ID           UUID                `bson:"backupId"`
@@ -71,7 +75,7 @@ var errTriesLimitExceeded = errors.New("tries limit exceeded")
 
 func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, error) {
 	opts := bc.opts
-	for i := 0; i < retry; i++ {
+	for i := range retry {
 		if i != 0 {
 			// on retry, make new thisBackupName
 			// otherwise, WT error: "Incremental identifier already exists"
@@ -96,11 +100,22 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 				return nil, err
 			}
 
-			if se.HasErrorCode(50915) {
+			retryableErr := false
+			if se.HasErrorCode(openConflictWithCheckpointErrCode) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
-				bc.l.Debug("a checkpoint took place, retrying")
-				time.Sleep(time.Second * time.Duration(i+1))
+				bc.l.Debug("a checkpoint took place, retrying: %d/%d", i+1, retry)
+				retryableErr = true
+			} else if se.HasErrorCode(oplogRolledOverErrCode) {
+				bc.l.Debug("oplog rolled over while establishing the backup cursor, retrying: %d/%d", i+1, retry)
+				retryableErr = true
+			}
+
+			if retryableErr {
+				// don't sleep on the last retry attempt
+				if i < retry-1 {
+					time.Sleep(time.Second * time.Duration(i+1))
+				}
 				continue
 			}
 
@@ -296,6 +311,10 @@ func (b *Backup) doPhysical(
 	mopts, err := topo.GetMongodOpts(ctx, b.nodeConn, defOpts)
 	if err != nil {
 		return errors.Wrap(err, "get mongod options")
+	}
+	err = topo.ExpandSecOptsWithEncAtRest(ctx, b.nodeConn, mopts.Security)
+	if err != nil {
+		return errors.Wrap(err, "get encryption at rest options")
 	}
 
 	rsMeta.MongodOpts = mopts
@@ -496,16 +515,32 @@ func (b *Backup) uploadPhysical(
 	l log.LogEvent,
 ) error {
 	l.Info("uploading data")
-	dataFiles, err := uploadFiles(ctx, data, bcp.Name+"/"+rsMeta.Name, dbpath,
-		b.typ == defs.IncrementalBackup, stg, bcp.Compression, bcp.CompressionLevel, l)
+	dataFiles, err := uploadFiles(
+		ctx,
+		data,
+		bcp.Name+"/"+rsMeta.Name,
+		dbpath,
+		b.typ == defs.IncrementalBackup,
+		stg,
+		bcp.Compression,
+		bcp.CompressionLevel,
+	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
 	}
 	l.Info("uploading data done")
 
 	l.Info("uploading journals")
-	ju, err := uploadFiles(ctx, jrnls, bcp.Name+"/"+rsMeta.Name, dbpath,
-		false, stg, bcp.Compression, bcp.CompressionLevel, l)
+	ju, err := uploadFiles(
+		ctx,
+		jrnls,
+		bcp.Name+"/"+rsMeta.Name,
+		dbpath,
+		false,
+		stg,
+		bcp.Compression,
+		bcp.CompressionLevel,
+	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
 	}
@@ -518,7 +553,12 @@ func (b *Backup) uploadPhysical(
 	sizeUncompressed := int64(0)
 	for _, f := range filelist {
 		size += f.StgSize
-		sizeUncompressed += f.Size
+		if f.StgSize != 0 {
+			// maintain uncompressed size just for the files that have a disk footprint,
+			// backup meta might contains files which are unchanged from the previous
+			// inc/base backup
+			sizeUncompressed += f.Size
+		}
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
@@ -618,7 +658,6 @@ func uploadFiles(
 	stg storage.Storage,
 	comprT compress.CompressionType,
 	comprL *int,
-	l log.LogEvent,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -660,7 +699,7 @@ func uploadFiles(
 			continue
 		}
 
-		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
+		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
 		if err != nil {
 			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
@@ -675,7 +714,7 @@ func uploadFiles(
 		return data, nil
 	}
 
-	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL, l)
+	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
 	if err != nil {
 		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
@@ -693,7 +732,6 @@ func writeFile(
 	stg storage.Storage,
 	compression compress.CompressionType,
 	compressLevel *int,
-	l log.LogEvent,
 ) (*File, error) {
 	fstat, err := os.Stat(src.Name)
 	if err != nil {
@@ -724,7 +762,7 @@ func writeFile(
 
 	return &File{
 		Name:    src.Name,
-		Size:    fstat.Size(),
+		Size:    sz,
 		Fmode:   fstat.Mode(),
 		StgSize: finf.Size,
 		Off:     src.Off,

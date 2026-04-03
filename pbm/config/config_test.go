@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -22,6 +23,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/mio"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
@@ -382,12 +384,12 @@ func TestConfig(t *testing.T) {
 			{
 				desc:  "credentials.clientEmail",
 				param: "storage.gcs.credentials.clientEmail",
-				val:   wantCfg.Storage.GCS.Credentials.ClientEmail,
+				val:   string(wantCfg.Storage.GCS.Credentials.ClientEmail),
 			},
 			{
 				desc:  "credentials.privateKey",
 				param: "storage.gcs.credentials.privateKey",
-				val:   wantCfg.Storage.GCS.Credentials.PrivateKey,
+				val:   string(wantCfg.Storage.GCS.Credentials.PrivateKey),
 			},
 			{
 				desc:  "chunkSize",
@@ -456,6 +458,147 @@ func TestConfig(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestSanitizeStoragePaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		conf       StorageConf
+		wantBucket string
+		wantPrefix string
+	}{
+		{
+			"s3 trailing slash on bucket",
+			StorageConf{Type: storage.S3, S3: &s3.Config{Bucket: "bcp/", Prefix: "data"}},
+			"bcp", "data",
+		},
+		{
+			"s3 leading slash on prefix",
+			StorageConf{Type: storage.S3, S3: &s3.Config{Bucket: "bcp", Prefix: "/data/pbm"}},
+			"bcp", "data/pbm",
+		},
+		{
+			"s3 both slashes",
+			StorageConf{Type: storage.S3, S3: &s3.Config{Bucket: "bcp/", Prefix: "/data/"}},
+			"bcp", "data",
+		},
+		{
+			"s3 multiple slashes",
+			StorageConf{Type: storage.S3, S3: &s3.Config{Bucket: "///bcp///", Prefix: "///data///"}},
+			"bcp", "data",
+		},
+		{
+			"s3 clean values",
+			StorageConf{Type: storage.S3, S3: &s3.Config{Bucket: "bcp", Prefix: "data"}},
+			"bcp", "data",
+		},
+		{
+			"minio trailing slash",
+			StorageConf{Type: storage.Minio, Minio: &mio.Config{Bucket: "bcp/", Prefix: "/pfx/"}},
+			"bcp", "pfx",
+		},
+		{
+			"gcs leading slash on prefix",
+			StorageConf{Type: storage.GCS, GCS: &gcs.Config{Bucket: "bcp/", Prefix: "/pfx"}},
+			"bcp", "pfx",
+		},
+		{
+			"oss trailing slash",
+			StorageConf{Type: storage.OSS, OSS: &oss.Config{Bucket: "bcp/", Prefix: "/pfx/"}},
+			"bcp", "pfx",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sanitizeStoragePaths(&tt.conf)
+			switch tt.conf.Type {
+			case storage.S3:
+				assert.Equal(t, tt.wantBucket, tt.conf.S3.Bucket)
+				assert.Equal(t, tt.wantPrefix, tt.conf.S3.Prefix)
+			case storage.Minio:
+				assert.Equal(t, tt.wantBucket, tt.conf.Minio.Bucket)
+				assert.Equal(t, tt.wantPrefix, tt.conf.Minio.Prefix)
+			case storage.GCS:
+				assert.Equal(t, tt.wantBucket, tt.conf.GCS.Bucket)
+				assert.Equal(t, tt.wantPrefix, tt.conf.GCS.Prefix)
+			case storage.OSS:
+				assert.Equal(t, tt.wantBucket, tt.conf.OSS.Bucket)
+				assert.Equal(t, tt.wantPrefix, tt.conf.OSS.Prefix)
+			}
+		})
+	}
+}
+
+func TestSanitizeStoragePathsAzure(t *testing.T) {
+	conf := StorageConf{Type: storage.Azure, Azure: &azure.Config{Container: "cnt/", Prefix: "/pfx/"}}
+	sanitizeStoragePaths(&conf)
+	assert.Equal(t, "cnt", conf.Azure.Container)
+	assert.Equal(t, "pfx", conf.Azure.Prefix)
+}
+
+func TestIsStoragePathKey(t *testing.T) {
+	// Storage keys that should match.
+	for _, key := range []string{
+		"storage.s3.bucket",
+		"storage.s3.prefix",
+		"storage.minio.bucket",
+		"storage.minio.prefix",
+		"storage.gcs.bucket",
+		"storage.gcs.prefix",
+		"storage.azure.container",
+		"storage.azure.prefix",
+		"storage.oss.bucket",
+		"storage.oss.prefix",
+	} {
+		assert.True(t, isStoragePathKey(key), "expected true for %q", key)
+	}
+
+	// Non-storage keys must not match.
+	for _, key := range []string{
+		"pitr.enabled",
+		"pitr.compression",
+		"storage.s3.region",
+		"storage.s3.debugLogLevels",
+		"storage.filesystem.path",
+		"bucket",
+		"prefix",
+	} {
+		assert.False(t, isStoragePathKey(key), "expected false for %q", key)
+	}
+}
+
+func TestSetConfigVarTrimsSlashes(t *testing.T) {
+	ctx := context.Background()
+
+	// Set up initial config so SetConfigVar works
+	emptyCfg := &Config{
+		Storage: StorageConf{Type: storage.S3, S3: &s3.Config{Bucket: "init"}},
+	}
+	err := SetConfig(ctx, connClient, emptyCfg)
+	require.NoError(t, err)
+
+	tests := []struct {
+		key     string
+		val     string
+		wantVal string
+	}{
+		{"storage.s3.bucket", "bcp/", "bcp"},
+		{"storage.s3.prefix", "/data/pbm/", "data/pbm"},
+		{"storage.s3.bucket", "///bcp///", "bcp"},
+		{"storage.s3.prefix", "clean", "clean"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key+"="+tt.val, func(t *testing.T) {
+			err := SetConfigVar(ctx, connClient, tt.key, tt.val)
+			require.NoError(t, err)
+
+			got, err := GetConfigVar(ctx, connClient, tt.key)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantVal, got)
+		})
+	}
 }
 
 func boolPtr(b bool) *bool {

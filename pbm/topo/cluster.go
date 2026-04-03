@@ -239,6 +239,21 @@ func SetBalancerStatus(ctx context.Context, m connect.Client, mode BalancerMode)
 	return nil
 }
 
+// StopBalancer stops the balancer with a maxTimeMS limit on how long
+// the server waits for the current balancer round to finish.
+func StopBalancer(ctx context.Context, m connect.Client, maxTimeMS int64) error {
+	doc := bson.D{{"_configsvrBalancerStop", 1}}
+	if maxTimeMS > 0 {
+		doc = append(doc, bson.E{Key: "maxTimeMS", Value: maxTimeMS})
+	}
+
+	err := m.AdminCommand(ctx, doc).Err()
+	if err != nil {
+		return errors.Wrap(err, "run mongo command")
+	}
+	return nil
+}
+
 // GetBalancerStatus returns balancer status
 func GetBalancerStatus(ctx context.Context, m connect.Client) (*BalancerStatus, error) {
 	inf := &BalancerStatus{}

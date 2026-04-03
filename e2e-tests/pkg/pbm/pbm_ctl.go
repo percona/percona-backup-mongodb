@@ -25,7 +25,7 @@ type Ctl struct {
 	env       []string
 }
 
-var backupNameRE = regexp.MustCompile(`Starting backup '([0-9\-\:TZ]+)'`)
+var backupNameRE = regexp.MustCompile(`Starting backup ["']([0-9\-:TZ]+)["']`)
 
 func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
 	cn, err := client.NewClientWithOpts(client.WithHost(host))

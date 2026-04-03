@@ -64,6 +64,7 @@ func AddProfile(ctx context.Context, m connect.Client, profile *Config) error {
 	if err := profile.Storage.Cast(); err != nil {
 		return errors.Wrap(err, "cast storage")
 	}
+	sanitizeStoragePaths(&profile.Storage)
 
 	if profile.Storage.Type == storage.S3 {
 		// call the function for notification purpose.

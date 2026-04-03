@@ -396,8 +396,8 @@ func TestCalcPriorityForNode(t *testing.T) {
 		}
 
 		p := CalcPriorityForNode(nodeInfo)
-		if p != defaultScore {
-			t.Errorf("wrong priority for secondary: want=%v, got=%v", defaultScore, p)
+		if p != DefaultScore {
+			t.Errorf("wrong priority for secondary: want=%v, got=%v", DefaultScore, p)
 		}
 	})
 
@@ -470,8 +470,8 @@ func TestImplicitPrioCalc(t *testing.T) {
 
 		p := implicitPrioCalc(agentStat, nil)
 
-		if p != defaultScore {
-			t.Errorf("wrong priority for secondary: want=%v, got=%v", defaultScore, p)
+		if p != DefaultScore {
+			t.Errorf("wrong priority for secondary: want=%v, got=%v", DefaultScore, p)
 		}
 	})
 
