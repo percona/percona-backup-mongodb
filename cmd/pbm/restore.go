@@ -238,6 +238,29 @@ func runRestore(
 // But for physical ones, the cluster by this time is down. So we compare with
 // the wall time taking into account a time skew (wallTime - clusterTime) taken
 // when the cluster time was still available.
+func checkRestoreStale(ctx context.Context, conn connect.Client, meta *restore.RestoreMeta, tskew int64) error {
+	var ctime uint32
+	var frameSec uint32
+
+	if meta.Type == defs.LogicalBackup {
+		clusterTime, err := topo.GetClusterTime(ctx, conn)
+		if err != nil {
+			return errors.Wrap(err, "read cluster time")
+		}
+		frameSec = defs.StaleFrameSec
+		ctime = clusterTime.T
+	} else {
+		frameSec = 60 * 3
+		ctime = uint32(time.Now().Unix() + tskew)
+	}
+
+	if meta.Hb.T+frameSec < ctime {
+		return errors.Errorf("operation staled, last heartbeat: %v", meta.Hb.T)
+	}
+
+	return nil
+}
+
 func waitRestore(
 	ctx context.Context,
 	conn connect.Client,
@@ -252,12 +275,6 @@ func waitRestore(
 		getMeta = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
 			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
-	}
-
-	var ctime uint32
-	frameSec := defs.StaleFrameSec
-	if m.Type != defs.LogicalBackup {
-		frameSec = 60 * 3
 	}
 
 	tk := time.NewTicker(time.Second * 1)
@@ -296,18 +313,8 @@ func waitRestore(
 			return restoreFailedError{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
 		}
 
-		if m.Type == defs.LogicalBackup {
-			clusterTime, err := topo.GetClusterTime(ctx, conn)
-			if err != nil {
-				return errors.Wrap(err, "read cluster time")
-			}
-			ctime = clusterTime.T
-		} else {
-			ctime = uint32(time.Now().Unix() + tskew)
-		}
-
-		if rmeta.Hb.T+frameSec < ctime {
-			return errors.Errorf("operation staled, last heartbeat: %v", rmeta.Hb.T)
+		if err := checkRestoreStale(ctx, conn, rmeta, tskew); err != nil {
+			return err
 		}
 	}
 
