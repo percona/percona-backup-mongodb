@@ -38,9 +38,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: read-all
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      actions: write
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -130,6 +136,9 @@ jobs:
     if: ${{ always() }}
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
