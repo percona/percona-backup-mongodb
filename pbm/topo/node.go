@@ -11,6 +11,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -271,6 +272,7 @@ func ExpandSecOptsWithEncAtRest(
 	ctx context.Context,
 	m *mongo.Client,
 	secOpts *MongodOptsSec,
+	l log.LogEvent,
 ) error {
 	if secOpts == nil || secOpts.EnableEncryption == nil || !*secOpts.EnableEncryption {
 		// encryption is not enabled
@@ -282,6 +284,12 @@ func ExpandSecOptsWithEncAtRest(
 		encAtRestRaw, err := getEncryptionAtRest(ctx, m)
 		if err != nil {
 			return errors.Wrap(err, "get encryption at rest for kmip")
+		}
+		if encAtRestRaw.IsZero() {
+			l.Info("To store KMIP's keyIdentifier info within backup metadata, " +
+				"the latest PSMDB patch version is required.")
+			// backup should continue
+			return nil
 		}
 
 		var encAtRest struct {
@@ -302,6 +310,12 @@ func ExpandSecOptsWithEncAtRest(
 		encAtRestRaw, err := getEncryptionAtRest(ctx, m)
 		if err != nil {
 			return errors.Wrap(err, "get encryption at rest for vault")
+		}
+		if encAtRestRaw.IsZero() {
+			l.Info("To store Vault's secretVersion info within backup metadata, " +
+				"the latest PSMDB patch version is required.")
+			// backup should continue
+			return nil
 		}
 
 		var encAtRest struct {

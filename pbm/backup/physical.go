@@ -312,7 +312,7 @@ func (b *Backup) doPhysical(
 	if err != nil {
 		return errors.Wrap(err, "get mongod options")
 	}
-	err = topo.ExpandSecOptsWithEncAtRest(ctx, b.nodeConn, mopts.Security)
+	err = topo.ExpandSecOptsWithEncAtRest(ctx, b.nodeConn, mopts.Security, l)
 	if err != nil {
 		return errors.Wrap(err, "get encryption at rest options")
 	}
