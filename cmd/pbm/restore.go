@@ -541,26 +541,7 @@ func doRestore(
 
 	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
 
-	var (
-		fn            getRestoreMetaFn
-		existsTimeout time.Duration
-	)
-	if bcpType == defs.LogicalBackup {
-		fn = restore.GetRestoreMeta
-		existsTimeout = defs.WaitActionStart
-	} else {
-		fn = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
-			meta, err := restore.GetRestoreMeta(ctx, conn, name)
-			if err == nil {
-				return meta, nil
-			}
-			return restore.GetPhysRestoreMeta(name, stg, l)
-		}
-		// physical restore may take more time to start
-		existsTimeout = time.Second * 120
-	}
-
-	return waitForRestoreStatus(ctx, conn, name, fn, existsTimeout, tskew)
+	return waitForRestoreStatus(ctx, conn, stg, l, name, bcpType, tskew)
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
@@ -642,12 +623,28 @@ func waitForRestoreExists(
 func waitForRestoreStatus(
 	ctx context.Context,
 	conn connect.Client,
+	stg storage.Storage,
+	l log.LogEvent,
 	name string,
-	getfn getRestoreMetaFn,
-	existsTimeout time.Duration,
+	bcpType defs.BackupType,
 	tskew int64,
 ) (*restore.RestoreMeta, error) {
-	if _, err := waitForRestoreExists(ctx, conn, name, getfn, existsTimeout); err != nil {
+	getMeta := restore.GetRestoreMeta
+	existsTimeout := defs.WaitActionStart
+
+	if bcpType != defs.LogicalBackup {
+		getMeta = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
+			meta, err := restore.GetRestoreMeta(ctx, conn, name)
+			if err == nil {
+				return meta, nil
+			}
+			return restore.GetPhysRestoreMeta(name, stg, l)
+		}
+		// physical restore may take more time to start
+		existsTimeout = time.Second * 120
+	}
+
+	if _, err := waitForRestoreExists(ctx, conn, name, getMeta, existsTimeout); err != nil {
 		return nil, err
 	}
 
@@ -659,7 +656,7 @@ func waitForRestoreStatus(
 		case <-tk.C:
 			fmt.Print(".")
 
-			meta, err := getfn(ctx, conn, name)
+			meta, err := getMeta(ctx, conn, name)
 			if err != nil {
 				return nil, errors.Wrap(err, "get metadata")
 			}
