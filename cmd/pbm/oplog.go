@@ -104,7 +104,7 @@ func replayOplog(
 	startCtx, cancel := context.WithTimeout(ctx, defs.WaitActionStart)
 	defer cancel()
 
-	m, err := waitForRestoreStatus(startCtx, conn, name, restore.GetRestoreMeta)
+	m, err := waitForReplayStatus(startCtx, conn, name, restore.GetRestoreMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -130,4 +130,62 @@ func replayOplog(
 	}
 
 	return oplogReplayResult{Name: name, done: true}, nil
+}
+
+func waitForReplayStatus(
+	ctx context.Context,
+	conn connect.Client,
+	name string,
+	getfn getRestoreMetaFn,
+) (*restore.RestoreMeta, error) {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+
+	meta := new(restore.RestoreMeta) // TODO
+	for {
+		select {
+		case <-tk.C:
+			fmt.Print(".")
+
+			var err error
+			meta, err = getfn(ctx, conn, name)
+			if errors.Is(err, errors.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, errors.Wrap(err, "get metadata")
+			}
+			if meta == nil {
+				continue
+			}
+			switch meta.Status {
+			case defs.StatusRunning, defs.StatusDumpDone, defs.StatusDone:
+				return meta, nil
+			case defs.StatusError:
+				rs := ""
+				for _, s := range meta.Replsets {
+					rs += fmt.Sprintf("\n- Restore on replicaset \"%s\" in state: %v", s.Name, s.Status)
+					if s.Error != "" {
+						rs += ": " + s.Error
+					}
+				}
+				return nil, errors.New(meta.Error + rs)
+			}
+		case <-ctx.Done():
+			rs := ""
+			if meta != nil {
+				for _, s := range meta.Replsets {
+					rs += fmt.Sprintf("- Restore on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
+					if s.Error != "" {
+						rs += ": " + s.Error
+					}
+				}
+			}
+			if rs == "" {
+				rs = "<no replset has started restore>\n"
+			}
+
+			return nil, errors.New("no confirmation that restore has successfully started. Replsets status:\n" + rs)
+		}
+	}
 }
