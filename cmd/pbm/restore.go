@@ -498,14 +498,6 @@ func doRestore(
 		}
 	}
 
-	if outf != outText {
-		return &restore.RestoreMeta{
-			Name:   name,
-			Backup: bcp,
-			Type:   bcpType,
-		}, nil
-	}
-
 	bcpName := ""
 	if bcp != "" {
 		bcpName = fmt.Sprintf(" from '%s'", bcp)
@@ -529,6 +521,14 @@ func doRestore(
 	err = sendCmd(ctx, conn, cmd)
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
+	}
+
+	if outf != outText {
+		return &restore.RestoreMeta{
+			Name:   name,
+			Backup: bcp,
+			Type:   bcpType,
+		}, nil
 	}
 
 	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
