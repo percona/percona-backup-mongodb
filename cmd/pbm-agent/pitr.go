@@ -871,6 +871,18 @@ func (a *Agent) pitrActivityMonitor(ctx context.Context) {
 				continue
 			}
 
+			// If any RS reported an error, let the error monitor handle it.
+			// Acting here would set StatusReconfig, masking the error and
+			// preventing proper error handling by the slicers on stop.
+			rsErrors, err := oplog.GetReplSetsWithStatus(ctx, a.leadConn, oplog.StatusError)
+			if err != nil && !errors.Is(err, errors.ErrNotFound) {
+				l.Error("activity check RS errors: %v", err)
+				continue
+			}
+			if len(rsErrors) > 0 {
+				continue
+			}
+
 			ackedAgents, err := oplog.GetAgentsWithACK(ctx, a.leadConn)
 			if err != nil {
 				l.Error("activity get acked agents", err)
