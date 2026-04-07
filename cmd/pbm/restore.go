@@ -181,7 +181,7 @@ func runRestore(
 	}
 
 	m, err := doRestore(ctx, conn, stg, l, o, numParallelColls, numInsertionWorkers,
-		nss, o.nsFrom, o.nsTo, rsMap, outf)
+		nss, o.nsFrom, o.nsTo, rsMap, outf, tdiff)
 	if err != nil {
 		if errors.Is(err, errUserCanceled) {
 			return outMsg{err.Error()}, nil
@@ -443,6 +443,7 @@ func doRestore(
 	nsTo string,
 	rsMapping map[string]string,
 	outf outFormat,
+	tskew int64,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
 	if err != nil {
@@ -559,7 +560,7 @@ func doRestore(
 		existsTimeout = time.Second * 120
 	}
 
-	return waitForRestoreStatus(ctx, conn, name, fn, existsTimeout)
+	return waitForRestoreStatus(ctx, conn, name, fn, existsTimeout, tskew)
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
@@ -639,6 +640,7 @@ func waitForRestoreStatus(
 	name string,
 	getfn getRestoreMetaFn,
 	existsTimeout time.Duration,
+	tskew int64,
 ) (*restore.RestoreMeta, error) {
 	if _, err := waitForRestoreExists(ctx, conn, name, getfn, existsTimeout); err != nil {
 		return nil, err
@@ -668,6 +670,10 @@ func waitForRestoreStatus(
 					}
 				}
 				return nil, errors.New(meta.Error + rs)
+			}
+
+			if err := checkRestoreStale(ctx, conn, meta, tskew); err != nil {
+				return nil, err
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
