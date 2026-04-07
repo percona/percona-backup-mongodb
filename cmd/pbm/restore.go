@@ -604,6 +604,39 @@ func parseTS(t string) (primitive.Timestamp, error) {
 
 type getRestoreMetaFn func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error)
 
+func waitForRestoreExists(
+	ctx context.Context,
+	conn connect.Client,
+	name string,
+	getfn getRestoreMetaFn,
+	timeout time.Duration,
+) (*restore.RestoreMeta, error) {
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+	to := time.After(timeout)
+
+	for {
+		select {
+		case <-tk.C:
+			fmt.Print(".")
+
+			meta, err := getfn(ctx, conn, name)
+			if errors.Is(err, errors.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, errors.Wrap(err, "get metadata")
+			}
+			if meta == nil {
+				continue
+			}
+			return meta, nil
+		case <-to:
+			return nil, errors.New("no progress from leader, restore metadata not found")
+		}
+	}
+}
+
 func waitForRestoreStatus(
 	ctx context.Context,
 	conn connect.Client,
