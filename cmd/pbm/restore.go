@@ -541,16 +541,12 @@ func doRestore(
 	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
 
 	var (
-		fn     getRestoreMetaFn
-		cancel context.CancelFunc
+		fn            getRestoreMetaFn
+		existsTimeout time.Duration
 	)
-
-	// physical restore may take more time to start
-	const waitPhysRestoreStart = time.Second * 120
-	var startCtx context.Context
 	if bcpType == defs.LogicalBackup {
 		fn = restore.GetRestoreMeta
-		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
+		existsTimeout = defs.WaitActionStart
 	} else {
 		fn = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
 			meta, err := restore.GetRestoreMeta(ctx, conn, name)
@@ -559,11 +555,11 @@ func doRestore(
 			}
 			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
-		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
+		// physical restore may take more time to start
+		existsTimeout = time.Second * 120
 	}
-	defer cancel()
 
-	return waitForRestoreStatus(startCtx, conn, name, fn)
+	return waitForRestoreStatus(ctx, conn, name, fn, existsTimeout)
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
@@ -642,26 +638,23 @@ func waitForRestoreStatus(
 	conn connect.Client,
 	name string,
 	getfn getRestoreMetaFn,
+	existsTimeout time.Duration,
 ) (*restore.RestoreMeta, error) {
+	if _, err := waitForRestoreExists(ctx, conn, name, getfn, existsTimeout); err != nil {
+		return nil, err
+	}
+
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
-	meta := new(restore.RestoreMeta) // TODO
 	for {
 		select {
 		case <-tk.C:
 			fmt.Print(".")
 
-			var err error
-			meta, err = getfn(ctx, conn, name)
-			if errors.Is(err, errors.ErrNotFound) {
-				continue
-			}
+			meta, err := getfn(ctx, conn, name)
 			if err != nil {
 				return nil, errors.Wrap(err, "get metadata")
-			}
-			if meta == nil {
-				continue
 			}
 			switch meta.Status {
 			case defs.StatusRunning, defs.StatusDumpDone, defs.StatusDone:
@@ -677,20 +670,7 @@ func waitForRestoreStatus(
 				return nil, errors.New(meta.Error + rs)
 			}
 		case <-ctx.Done():
-			rs := ""
-			if meta != nil {
-				for _, s := range meta.Replsets {
-					rs += fmt.Sprintf("- Restore on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
-					if s.Error != "" {
-						rs += ": " + s.Error
-					}
-				}
-			}
-			if rs == "" {
-				rs = "<no replset has started restore>\n"
-			}
-
-			return nil, errors.New("no confirmation that restore has successfully started. Replsets status:\n" + rs)
+			return nil, ctx.Err()
 		}
 	}
 }
