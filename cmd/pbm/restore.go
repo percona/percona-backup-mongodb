@@ -180,14 +180,23 @@ func runRestore(
 		return nil, errors.Wrap(err, "get storage")
 	}
 
-	m, err := doRestore(ctx, conn, stg, l, o, numParallelColls, numInsertionWorkers,
-		nss, o.nsFrom, o.nsTo, rsMap, outf, tdiff)
+	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap)
 	if err != nil {
 		if errors.Is(err, errUserCanceled) {
 			return outMsg{err.Error()}, nil
 		}
 		return nil, err
 	}
+
+	if outf == outText {
+		restoreDesc := restoreDesc(o, m.Name, m.Backup)
+		fmt.Printf("Starting restore %s", restoreDesc)
+		m, err = waitForRestoreStatus(ctx, conn, stg, l, m.Name, m.Type, tdiff)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if o.extern && outf == outText {
 		err = waitRestore(ctx, conn, stg, l, m, defs.StatusCopyReady, tdiff)
 		if err != nil {
@@ -433,8 +442,6 @@ func nsIsTaken(
 func doRestore(
 	ctx context.Context,
 	conn connect.Client,
-	stg storage.Storage,
-	l log.LogEvent,
 	o *restoreOpts,
 	numParallelColls *int32,
 	numInsertionWorkers *int32,
@@ -442,8 +449,6 @@ func doRestore(
 	nsFrom string,
 	nsTo string,
 	rsMapping map[string]string,
-	outf outFormat,
-	tskew int64,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
 	if err != nil {
@@ -506,6 +511,28 @@ func doRestore(
 		}
 	}
 
+	if !o.yes {
+		restoreDesc := restoreDesc(o, name, bcp)
+		fmt.Printf("Restore: %s\n", restoreDesc)
+		err := askConfirmation("Are you sure you want to start the restore?")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = sendCmd(ctx, conn, cmd)
+	if err != nil {
+		return nil, errors.Wrap(err, "send command")
+	}
+
+	return &restore.RestoreMeta{
+		Name:   name,
+		Backup: bcp,
+		Type:   bcpType,
+	}, nil
+}
+
+func restoreDesc(o *restoreOpts, name, bcp string) string {
 	bcpName := ""
 	if bcp != "" {
 		bcpName = fmt.Sprintf(" from '%s'", bcp)
@@ -518,30 +545,7 @@ func doRestore(
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
 
-	if !o.yes {
-		fmt.Printf("Restore: %s%s%s\n", name, pitrs, bcpName)
-		err := askConfirmation("Are you sure you want to start the restore?")
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	err = sendCmd(ctx, conn, cmd)
-	if err != nil {
-		return nil, errors.Wrap(err, "send command")
-	}
-
-	if outf != outText {
-		return &restore.RestoreMeta{
-			Name:   name,
-			Backup: bcp,
-			Type:   bcpType,
-		}, nil
-	}
-
-	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
-
-	return waitForRestoreStatus(ctx, conn, stg, l, name, bcpType, tskew)
+	return fmt.Sprintf("%s%s%s", name, pitrs, bcpName)
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
