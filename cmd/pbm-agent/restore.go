@@ -98,12 +98,6 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		return
 	}
 
-	cfg, err := config.GetConfig(ctx, a.leadConn)
-	if err != nil {
-		l.Error("get PBM configuration: %v", err)
-		return
-	}
-
 	var bcpType defs.BackupType
 	var bcp *backup.BackupMeta
 
@@ -135,6 +129,12 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		}
 		bcpType = bcp.Type
 		r.BackupName = bcp.Name
+	}
+
+	cfg, err := config.GetConfig(ctx, a.leadConn)
+	if err != nil {
+		l.Error("get PBM configuration: %v", err)
+		return
 	}
 
 	l.Info("recovery started")
