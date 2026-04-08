@@ -72,7 +72,7 @@ type Config struct {
 	// https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/aws#Retryer
 	// it's implemented with standard retryable, and delay behavior
 	// see also: https://github.com/aws/aws-sdk-go-v2/blob/v1.41.5/aws/retry/standard.go
-	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml: "retryer,omitempty"`
+	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
 type Retryer struct {
