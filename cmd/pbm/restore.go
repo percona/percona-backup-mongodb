@@ -627,6 +627,11 @@ func waitForRestoreExists(
 			if meta == nil {
 				continue
 			}
+			// Physical restore meta from storage may be non-nil
+			// even before the first heartbeat is written.
+			if meta.Hb.T == 0 {
+				continue
+			}
 			return meta, nil
 		case <-to:
 			return nil, errors.New("no progress from leader, restore metadata not found")
