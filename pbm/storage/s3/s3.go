@@ -61,29 +61,28 @@ type Config struct {
 	// certificate chain and host name
 	InsecureSkipTLSVerify bool `bson:"insecureSkipTLSVerify" json:"insecureSkipTLSVerify" yaml:"insecureSkipTLSVerify"`
 
-	// DebugLogLevels enables AWS SDK debug logging (sub)levels. Available options:
-	// LogDebug, Signing, HTTPBody, RequestRetries, RequestErrors, EventStreamBody
-	//
-	// Any sub levels will enable LogDebug level accordingly to AWS SDK Go module behavior
-	// https://pkg.go.dev/github.com/aws/aws-sdk-go@v1.40.7/aws#LogLevelType
+	// DebugLogLevels enables AWS SDK logging levels. Available options:
+	// Signing, Retries, Request, RequestWithBody, Response, ResponseWithBody, DeprecatedUsage, RequestEventMessage
+	// and deprecated: LogDebug, HTTPBody, RequestRetries, RequestErrors, EventStreamBody
+	// Above values are translated to match the AWS SDK V2:
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/aws#ClientLogMode
 	DebugLogLevels string `bson:"debugLogLevels,omitempty" json:"debugLogLevels,omitempty" yaml:"debugLogLevels,omitempty"`
 
-	// Retryer is configuration for client.DefaultRetryer
-	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer
-	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
+	// Retryer is a configuration for aws.Retryer
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/aws#Retryer
+	// it's implemented with standard retryable, and delay behavior
+	// see also: https://github.com/aws/aws-sdk-go-v2/blob/v1.41.5/aws/retry/standard.go
+	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml: "retryer,omitempty"`
 }
 
 type Retryer struct {
-	// Num max Retries is the number of max retries that will be performed.
-	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.NumMaxRetries
+	// NumMaxRetries  is the number of **additional** max attempts that should be made
 	NumMaxRetries int `bson:"numMaxRetries" json:"numMaxRetries" yaml:"numMaxRetries"`
 
-	// MinRetryDelay is the minimum retry delay after which retry will be performed.
-	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.MinRetryDelay
+	// MinRetryDelay is the minimum delay that will be returned from RetryDelay
 	MinRetryDelay time.Duration `bson:"minRetryDelay" json:"minRetryDelay" yaml:"minRetryDelay"`
 
-	// MaxRetryDelay is the maximum retry delay before which retry must be performed.
-	// https://pkg.go.dev/github.com/aws/aws-sdk-go/aws/client#DefaultRetryer.MaxRetryDelay
+	// MaxRetryDelay is the duration between retried attempts (using ExponentialJitterBackoff)
 	MaxRetryDelay time.Duration `bson:"maxRetryDelay" json:"maxRetryDelay" yaml:"maxRetryDelay"`
 }
 
