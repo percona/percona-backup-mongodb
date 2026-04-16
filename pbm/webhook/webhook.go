@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -77,8 +78,20 @@ func (w *Notifier) SendRestore(event, name string, err error) {
 	w.send(n)
 }
 
+type slackPayload struct {
+	Text string `json:"text"`
+}
+
+func (n Notification) formatText() string {
+	msg := fmt.Sprintf("PBM %s *%s*: %s", n.Type, n.Event, n.Name)
+	if n.Error != "" {
+		msg += fmt.Sprintf("\nError: %s", n.Error)
+	}
+	return msg
+}
+
 func (w *Notifier) send(n Notification) {
-	body, err := json.Marshal(n)
+	body, err := json.Marshal(slackPayload{Text: n.formatText()})
 	if err != nil {
 		w.l.Warning("webhook notification: marshal: %v", err)
 		return
