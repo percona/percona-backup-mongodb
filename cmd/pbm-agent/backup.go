@@ -16,6 +16,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
+	"github.com/percona/percona-backup-mongodb/pbm/webhook"
 )
 
 type currentBackup struct {
@@ -258,6 +259,24 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	} else {
 		l.Info("backup finished")
+	}
+
+	if nodeInfo.IsLeader() && cfg.Webhooks != nil {
+		n := webhook.Notification{
+			Type:       "backup",
+			Name:       cmd.Name,
+			BackupType: string(cmd.Type),
+			Status:     string(defs.StatusDone),
+		}
+		if err != nil {
+			if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
+				n.Status = string(defs.StatusCancelled)
+			} else {
+				n.Status = string(defs.StatusError)
+				n.Error = err.Error()
+			}
+		}
+		webhook.Send(ctx, cfg.Webhooks, n, l)
 	}
 }
 
