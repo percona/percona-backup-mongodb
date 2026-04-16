@@ -163,7 +163,12 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		return
 	}
 
+	wh := webhook.NewNotifier(ctx, cfg.Webhooks, l)
+
 	l.Info("recovery started")
+	if nodeInfo.IsClusterLeader() {
+		wh.SendRestore(webhook.EventStart, r.Name, nil)
+	}
 
 	switch bcpType {
 	case defs.LogicalBackup:
@@ -222,15 +227,8 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			l.Info("no data for the shard in backup, skipping")
 		} else {
 			l.Error("restore: %v", err)
-			if nodeInfo.IsClusterLeader() && cfg.Webhooks != nil {
-				n := webhook.Notification{
-					Type:       "restore",
-					Name:       r.Name,
-					BackupType: string(bcpType),
-					Status:     string(defs.StatusError),
-					Error:      err.Error(),
-				}
-				webhook.Send(ctx, cfg.Webhooks, n, l)
+			if nodeInfo.IsClusterLeader() {
+				wh.SendRestore(webhook.EventError, r.Name, err)
 			}
 		}
 		return
@@ -247,14 +245,8 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		return
 	}
 
-	if nodeInfo.IsClusterLeader() && cfg.Webhooks != nil {
-		n := webhook.Notification{
-			Type:       "restore",
-			Name:       r.Name,
-			BackupType: string(bcpType),
-			Status:     string(defs.StatusDone),
-		}
-		webhook.Send(ctx, cfg.Webhooks, n, l)
+	if nodeInfo.IsClusterLeader() {
+		wh.SendRestore(webhook.EventDone, r.Name, nil)
 	}
 
 	l.Info("recovery successfully finished")

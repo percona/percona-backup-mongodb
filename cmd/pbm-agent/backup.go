@@ -249,7 +249,13 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	a.setBcp(&currentBackup{cancel: cancel})
 	defer a.setBcp(nil)
 
+	wh := webhook.NewNotifier(ctx, cfg.Webhooks, l)
+
 	l.Info("backup started %s", util.LogProfileArg(cmd.Profile))
+	if nodeInfo.IsClusterLeader() {
+		wh.SendBackup(webhook.EventStart, cmd.Name, nil)
+	}
+
 	err = bcp.Run(bcpCtx, cmd, opid, l)
 	if err != nil {
 		if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
@@ -261,22 +267,12 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		l.Info("backup finished")
 	}
 
-	if nodeInfo.IsLeader() && cfg.Webhooks != nil {
-		n := webhook.Notification{
-			Type:       "backup",
-			Name:       cmd.Name,
-			BackupType: string(cmd.Type),
-			Status:     string(defs.StatusDone),
-		}
+	if nodeInfo.IsClusterLeader() {
 		if err != nil {
-			if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
-				n.Status = string(defs.StatusCancelled)
-			} else {
-				n.Status = string(defs.StatusError)
-				n.Error = err.Error()
-			}
+			wh.SendBackup(webhook.EventError, cmd.Name, err)
+		} else {
+			wh.SendBackup(webhook.EventDone, cmd.Name, nil)
 		}
-		webhook.Send(ctx, cfg.Webhooks, n, l)
 	}
 }
 

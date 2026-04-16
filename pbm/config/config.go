@@ -517,12 +517,24 @@ func (t *BackupTimeouts) BalancerStop() time.Duration {
 	return time.Duration(t.BalancerStopSec) * time.Second
 }
 
+// WebhookEvents is a comma-separated list of event names (e.g. "start,done,error").
+type WebhookEvents string
+
+func (e WebhookEvents) Has(event string) bool {
+	for _, v := range strings.Split(string(e), ",") {
+		if strings.TrimSpace(v) == event {
+			return true
+		}
+	}
+	return false
+}
+
 type WebhookBackupsConf struct {
-	Enabled bool `bson:"enabled" json:"enabled" yaml:"enabled"`
+	Events WebhookEvents `bson:"events,omitempty" json:"events,omitempty" yaml:"events,omitempty"`
 }
 
 type WebhookRestoresConf struct {
-	Enabled bool `bson:"enabled" json:"enabled" yaml:"enabled"`
+	Events WebhookEvents `bson:"events,omitempty" json:"events,omitempty" yaml:"events,omitempty"`
 }
 
 type WebhooksConf struct {
