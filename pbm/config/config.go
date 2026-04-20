@@ -418,6 +418,8 @@ type RestoreConf struct {
 
 	FallbackEnabled *bool `bson:"fallbackEnabled,omitempty" json:"fallbackEnabled,omitempty" yaml:"fallbackEnabled,omitempty"`
 	AllowPartlyDone *bool `bson:"allowPartlyDone,omitempty" json:"allowPartlyDone,omitempty" yaml:"allowPartlyDone,omitempty"`
+
+	Timeouts *RestoreTimeouts `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 }
 
 func (cfg *RestoreConf) Clone() *RestoreConf {
@@ -432,8 +434,30 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 			rv.MongodLocationMap[k] = v
 		}
 	}
+	if cfg.Timeouts != nil {
+		rv.Timeouts = &RestoreTimeouts{
+			BalancerStopSec: cfg.Timeouts.BalancerStopSec,
+		}
+	}
 
 	return &rv
+}
+
+//nolint:lll
+type RestoreTimeouts struct {
+	// BalancerStopSec is timeout (in seconds) to wait for the balancer to stop.
+	// 0 means wait indefinitely (default).
+	BalancerStopSec uint32 `bson:"balancerStop,omitempty" json:"balancerStop,omitempty" yaml:"balancerStop,omitempty"`
+}
+
+// BalancerStop returns timeout duration for waiting for the balancer to stop.
+// Returns 0 if not set, meaning PBM will wait indefinitely.
+func (t *RestoreTimeouts) BalancerStop() time.Duration {
+	if t == nil {
+		return 0
+	}
+
+	return time.Duration(t.BalancerStopSec) * time.Second
 }
 
 // GetFallbackEnabled gets config's or default value for fallbackEnabled
