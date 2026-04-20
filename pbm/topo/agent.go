@@ -59,6 +59,9 @@ type AgentStat struct {
 	// Empty for non-PSMDB (e.i MongoDB CE).
 	PerconaVer string `bson:"pv,omitempty"`
 
+	// IsEnterprise is set when the node runs MongoDB Enterprise edition.
+	IsEnterprise bool `bson:"ent,omitempty"`
+
 	// PBMStatus is the agent status.
 	PBMStatus SubsysStatus `bson:"pbms"`
 
@@ -112,6 +115,10 @@ func (s *AgentStat) MongoVersion() version.MongoVersion {
 	v := version.MongoVersion{
 		PSMDBVersion:  s.PerconaVer,
 		VersionString: s.MongoVer,
+	}
+
+	if s.IsEnterprise {
+		v.Modules = []string{"enterprise"}
 	}
 
 	vs := semver.Canonical("v" + s.MongoVer)[1:]

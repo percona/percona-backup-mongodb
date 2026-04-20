@@ -176,9 +176,20 @@ var BreakingChangesMap = map[defs.BackupType][]string{
 }
 
 type MongoVersion struct {
-	PSMDBVersion  string `bson:"psmdbVersion,omitempty"`
-	VersionString string `bson:"version"`
-	Version       []int  `bson:"versionArray"`
+	PSMDBVersion  string   `bson:"psmdbVersion,omitempty"`
+	VersionString string   `bson:"version"`
+	Version       []int    `bson:"versionArray"`
+	Modules       []string `bson:"modules,omitempty"`
+}
+
+// IsEnterprise returns true if the MongoDB instance is running Enterprise edition.
+func (v MongoVersion) IsEnterprise() bool {
+	for _, m := range v.Modules {
+		if m == "enterprise" {
+			return true
+		}
+	}
+	return false
 }
 
 func (v MongoVersion) String() string {
@@ -274,7 +285,7 @@ func (f FeatureSupport) PBMSupport() error {
 func (f FeatureSupport) FullPhysicalBackup() bool {
 	// PSMDB 4.2.15, 4.4.6
 	v := MongoVersion(f)
-	if v.PSMDBVersion == "" {
+	if v.PSMDBVersion == "" && !v.IsEnterprise() {
 		return false
 	}
 
@@ -293,7 +304,7 @@ func (f FeatureSupport) FullPhysicalBackup() bool {
 func (f FeatureSupport) IncrementalPhysicalBackup() bool {
 	// PSMDB 4.2.24, 4.4.18, 5.0.14, 6.0.3
 	v := MongoVersion(f)
-	if v.PSMDBVersion == "" {
+	if v.PSMDBVersion == "" && !v.IsEnterprise() {
 		return false
 	}
 
@@ -318,17 +329,18 @@ func (f FeatureSupport) BackupType(t defs.BackupType) error {
 	case defs.PhysicalBackup:
 		if !f.FullPhysicalBackup() {
 			return errors.New("full physical backup works since " +
-				"Percona Server for MongoDB 4.2.15, 4.4.6")
+				"Percona Server for MongoDB 4.2.15, 4.4.6 or MongoDB Enterprise 4.2.15, 4.4.6")
 		}
 	case defs.IncrementalBackup:
 		if !f.IncrementalPhysicalBackup() {
 			return errors.New("incremental physical backup works since " +
-				"Percona Server for MongoDB 4.2.24, 4.4.18, 5.0.14, 6.0.3")
+				"Percona Server for MongoDB 4.2.24, 4.4.18, 5.0.14, 6.0.3 or " +
+				"MongoDB Enterprise 4.2.24, 4.4.18, 5.0.14, 6.0.3")
 		}
 	case defs.ExternalBackup:
 		if !f.FullPhysicalBackup() {
 			return errors.New("external backup works since " +
-				"Percona Server for MongoDB 4.2.15, 4.4.6")
+				"Percona Server for MongoDB 4.2.15, 4.4.6 or MongoDB Enterprise 4.2.15, 4.4.6")
 		}
 	}
 

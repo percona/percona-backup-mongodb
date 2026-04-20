@@ -16,6 +16,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/bsontype"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -91,7 +93,7 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 			}
 		}
 
-		cur, err := bc.conn.Database("admin").Aggregate(ctx, mongo.Pipeline{
+		cur, err := bc.conn.Database("admin", options.Database().SetReadConcern(readconcern.Local())).Aggregate(ctx, mongo.Pipeline{
 			{{"$backupCursor", opts}},
 		})
 		if err != nil {
@@ -189,7 +191,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 
 func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]File, error) {
 	ctx := context.Background()
-	cur, err := bc.conn.Database("admin").Aggregate(ctx,
+	cur, err := bc.conn.Database("admin", options.Database().SetReadConcern(readconcern.Local())).Aggregate(ctx,
 		mongo.Pipeline{
 			{{"$backupCursorExtend", bson.D{{"backupId", bc.id}, {"timestamp", upto}}}},
 		})
