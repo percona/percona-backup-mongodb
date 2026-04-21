@@ -3,12 +3,13 @@ package gcs
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"testing"
 
 	gcs "cloud.google.com/go/storage"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/api/option"
@@ -25,8 +26,8 @@ func TestGCS(t *testing.T) {
 		Cmd:          []string{"-public-host", "localhost:4443", "-scheme", "http", "-port", "4443"},
 		WaitingFor:   wait.ForLog("server started at"),
 		HostConfigModifier: func(hc *container.HostConfig) {
-			hc.PortBindings = nat.PortMap{
-				"4443/tcp": {{HostIP: "0.0.0.0", HostPort: "4443"}},
+			hc.PortBindings = network.PortMap{
+				network.MustParsePort("4443/tcp"): {{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: "4443"}},
 			}
 		},
 	}
