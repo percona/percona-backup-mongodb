@@ -242,6 +242,12 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		}
 	}()
 
+	t := time.Unix(int64(d.OlderThan.T), 0).UTC()
+	obj := t.Format("2006-01-02T15:04:05Z")
+
+	l = logger.NewEvent(string(ctrl.CmdCleanup), obj, opid.String(), ep.TS())
+	ctx = log.SetLogEventToContext(ctx, l)
+
 	ct, err := topo.GetClusterTime(ctx, a.leadConn)
 	if err != nil {
 		l.Error("get cluster time: %v", err)
@@ -271,6 +277,8 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error("make cleanup report: " + err.Error())
 		return
 	}
+
+	l.Info("deleting backups and pitr chunks older than %v %s", t, util.LogProfileArg(d.Profile))
 
 	eg := &errgroup.Group{}
 	eg.SetLimit(runtime.NumCPU())
