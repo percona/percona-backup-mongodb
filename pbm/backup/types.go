@@ -147,12 +147,13 @@ type Condition struct {
 }
 
 type File struct {
-	Name    string      `bson:"filename" json:"filename"`
-	Off     int64       `bson:"offset" json:"offset"` // offset for incremental backups
-	Len     int64       `bson:"length" json:"length"` // length of chunk after the offset
-	Size    int64       `bson:"fileSize" json:"fileSize"`
-	StgSize int64       `bson:"stgSize" json:"stgSize"`
-	Fmode   os.FileMode `bson:"fmode" json:"fmode"`
+	Name                string      `bson:"filename" json:"filename"`
+	Off                 int64       `bson:"offset" json:"offset"` // offset for incremental backups
+	Len                 int64       `bson:"length" json:"length"` // length of chunk after the offset
+	Size                int64       `bson:"fileSize" json:"fileSize"`
+	StgSize             int64       `bson:"stgSize" json:"stgSize"`
+	StgSizeUncompressed int64       `bson:"stgSizeUncompressed" json:"stgSizeUncompressed"`
+	Fmode               os.FileMode `bson:"fmode" json:"fmode"`
 }
 
 func (f File) String() string {
