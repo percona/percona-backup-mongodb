@@ -601,9 +601,7 @@ func getStorageStat(
 		return s, errors.Wrap(err, "get cluster members")
 	}
 
-	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
-	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
+	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, rsMap)
 
 	stg, err := util.GetStorage(ctx, conn, inf.Me,
 		log.FromContext(ctx).NewEvent("", "", "", primitive.Timestamp{}))
