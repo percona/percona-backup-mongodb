@@ -750,15 +750,22 @@ func writeFile(
 		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
 	}
 
+	uploadStart := time.Now()
 	_, err = storage.Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
+	uploadDur := time.Since(uploadStart)
+	sizeUncompressedMiB := float64(sz) / (1024 * 1024)
 
 	finf, err := stg.FileStat(dst)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get storage file stat %s", dst)
 	}
+	sizeMiB := float64(finf.Size) / (1024 * 1024)
+	throughput := sizeMiB / uploadDur.Seconds()
+	fmt.Printf("uploaded %s: size=%.2f MiB uncompressed size=%.2f MiB, duration=%.3fs, throughput=%.2f MiB/s\n",
+		dst, sizeMiB, sizeUncompressedMiB, uploadDur.Seconds(), throughput)
 
 	return &File{
 		Name:    src.Name,
