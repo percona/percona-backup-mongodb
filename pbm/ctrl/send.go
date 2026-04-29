@@ -75,6 +75,7 @@ func SendAddConfigProfile(
 	m connect.Client,
 	name string,
 	storage config.StorageConf,
+	lifecycle *config.LifecycleConf,
 ) (OPID, error) {
 	cmd := Cmd{
 		Cmd: CmdAddConfigProfile,
@@ -82,6 +83,7 @@ func SendAddConfigProfile(
 			Name:      name,
 			IsProfile: true,
 			Storage:   storage,
+			Lifecycle: lifecycle,
 		},
 	}
 	return sendCommand(ctx, m, cmd)

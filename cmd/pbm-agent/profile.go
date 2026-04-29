@@ -111,6 +111,10 @@ func (a *Agent) handleAddConfigProfile(
 		IsProfile: true,
 		Storage:   cmd.Storage,
 	}
+	if cmd.Lifecycle != nil {
+		l := *cmd.Lifecycle
+		profile.Lifecycle = &l
+	}
 	err = config.AddProfile(ctx, a.leadConn, profile)
 	if err != nil {
 		err = errors.Wrap(err, "add profile config")

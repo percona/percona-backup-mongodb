@@ -50,6 +50,19 @@ func GetProfile(ctx context.Context, m connect.Client, name string) (*Config, er
 		return nil, errors.Wrap(err, "decode")
 	}
 
+	if profile.PITR == nil {
+		profile.PITR = &PITRConf{}
+	}
+	if profile.Backup == nil {
+		profile.Backup = &BackupConf{}
+	}
+	if profile.Restore == nil {
+		profile.Restore = &RestoreConf{}
+	}
+	if profile.Lifecycle == nil {
+		profile.Lifecycle = &LifecycleConf{}
+	}
+
 	return profile, nil
 }
 

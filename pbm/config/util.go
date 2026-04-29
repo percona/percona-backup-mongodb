@@ -35,6 +35,7 @@ func GetProfiledConfig(ctx context.Context, conn connect.Client, profile string)
 		cfg.Storage = custom.Storage
 		cfg.Name = custom.Name
 		cfg.IsProfile = true
+		cfg.Lifecycle = custom.Lifecycle
 	}
 
 	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undefined {
