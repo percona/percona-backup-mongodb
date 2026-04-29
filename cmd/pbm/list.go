@@ -338,11 +338,6 @@ func getSnapshotList(
 		return nil, errors.Wrap(err, "get cluster members")
 	}
 
-	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
-	if err != nil {
-		return nil, errors.Wrap(err, "define cluster state")
-	}
-
 	ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
@@ -352,9 +347,7 @@ func getSnapshotList(
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
 
-	// PBM agent is always connected either to config server or to the sole (hence main) RS
-	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
+	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, rsMap)
 
 	var s []snapshotStat
 	for i := len(bcps) - 1; i >= 0; i-- {
@@ -389,11 +382,6 @@ func getPitrList(
 	unbacked bool,
 	rsMap map[string]string,
 ) ([]pitrRange, map[string][]pitrRange, error) {
-	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "define cluster state")
-	}
-
 	shards, err := topo.ClusterMembers(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get cluster members")
@@ -431,10 +419,7 @@ func getPitrList(
 		rstlines = append(rstlines, tlns)
 	}
 
-	sh := make(map[string]bool, len(shards))
-	for _, s := range shards {
-		sh[s.RS] = s.RS == inf.SetName
-	}
+	sh := backupRequiredRSMap(shards)
 
 	ranges := []pitrRange{}
 	for _, tl := range oplog.MergeTimelines(rstlines...) {
