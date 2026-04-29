@@ -16,6 +16,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
+	"github.com/percona/percona-backup-mongodb/pbm/webhook"
 )
 
 type currentBackup struct {
@@ -248,7 +249,13 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	a.setBcp(&currentBackup{cancel: cancel})
 	defer a.setBcp(nil)
 
+	wh := webhook.NewNotifier(ctx, cfg.Webhooks, l)
+
 	l.Info("backup started %s", util.LogProfileArg(cmd.Profile))
+	if nodeInfo.IsClusterLeader() {
+		wh.SendBackup(webhook.EventStart, cmd.Name, nil)
+	}
+
 	err = bcp.Run(bcpCtx, cmd, opid, l)
 	if err != nil {
 		if errors.Is(err, storage.ErrCancelled) || errors.Is(err, context.Canceled) {
@@ -258,6 +265,14 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	} else {
 		l.Info("backup finished")
+	}
+
+	if nodeInfo.IsClusterLeader() {
+		if err != nil {
+			wh.SendBackup(webhook.EventError, cmd.Name, err)
+		} else {
+			wh.SendBackup(webhook.EventDone, cmd.Name, nil)
+		}
 	}
 }
 

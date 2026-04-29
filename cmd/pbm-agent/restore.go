@@ -16,6 +16,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/webhook"
 )
 
 const (
@@ -137,7 +138,12 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		return
 	}
 
+	wh := webhook.NewNotifier(ctx, cfg.Webhooks, l)
+
 	l.Info("recovery started")
+	if nodeInfo.IsClusterLeader() {
+		wh.SendRestore(webhook.EventStart, r.Name, nil)
+	}
 
 	switch bcpType {
 	case defs.LogicalBackup:
@@ -196,6 +202,9 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			l.Info("no data for the shard in backup, skipping")
 		} else {
 			l.Error("restore: %v", err)
+			if nodeInfo.IsClusterLeader() {
+				wh.SendRestore(webhook.EventError, r.Name, err)
+			}
 		}
 		return
 	}
@@ -209,6 +218,10 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 	} else if bcpType == defs.ExternalBackup && r.Exit {
 		// external restore is wip so just exit
 		return
+	}
+
+	if nodeInfo.IsClusterLeader() {
+		wh.SendRestore(webhook.EventDone, r.Name, nil)
 	}
 
 	l.Info("recovery successfully finished")

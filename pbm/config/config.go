@@ -75,10 +75,11 @@ type Config struct {
 	Name      string `bson:"name,omitempty" json:"name,omitempty" yaml:"name,omitempty"`
 	IsProfile bool   `bson:"profile,omitempty" json:"profile,omitempty" yaml:"profile,omitempty"`
 
-	Storage StorageConf  `bson:"storage" json:"storage" yaml:"storage"`
-	PITR    *PITRConf    `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
-	Backup  *BackupConf  `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
-	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
+	Storage  StorageConf   `bson:"storage" json:"storage" yaml:"storage"`
+	PITR     *PITRConf     `bson:"pitr,omitempty" json:"pitr,omitempty" yaml:"pitr,omitempty"`
+	Backup   *BackupConf   `bson:"backup,omitempty" json:"backup,omitempty" yaml:"backup,omitempty"`
+	Restore  *RestoreConf  `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
+	Webhooks *WebhooksConf `bson:"webhooks,omitempty" json:"webhooks,omitempty" yaml:"webhooks,omitempty"`
 
 	Epoch primitive.Timestamp `bson:"epoch" json:"-" yaml:"-"`
 }
@@ -113,6 +114,7 @@ func (c *Config) Clone() *Config {
 		PITR:      c.PITR.Clone(),
 		Restore:   c.Restore.Clone(),
 		Backup:    c.Backup.Clone(),
+		Webhooks:  c.Webhooks.Clone(),
 		Epoch:     c.Epoch,
 	}
 
@@ -537,6 +539,42 @@ func (t *BackupTimeouts) BalancerStop() time.Duration {
 	}
 
 	return time.Duration(t.BalancerStopSec) * time.Second
+}
+
+// WebhookEvents is a comma-separated list of event names (e.g. "start,done,error").
+type WebhookEvents string
+
+func (e WebhookEvents) Has(event string) bool {
+	for _, v := range strings.Split(string(e), ",") {
+		if strings.TrimSpace(v) == event {
+			return true
+		}
+	}
+	return false
+}
+
+type WebhookBackupsConf struct {
+	Events WebhookEvents `bson:"events,omitempty" json:"events,omitempty" yaml:"events,omitempty"`
+}
+
+type WebhookRestoresConf struct {
+	Events WebhookEvents `bson:"events,omitempty" json:"events,omitempty" yaml:"events,omitempty"`
+}
+
+type WebhooksConf struct {
+	URL      string              `bson:"url,omitempty" json:"url,omitempty" yaml:"url,omitempty"`
+	Backups  WebhookBackupsConf  `bson:"backups" json:"backups" yaml:"backups"`
+	Restores WebhookRestoresConf `bson:"restores" json:"restores" yaml:"restores"`
+}
+
+func (c *WebhooksConf) Clone() *WebhooksConf {
+	if c == nil {
+		return nil
+	}
+
+	rv := *c
+
+	return &rv
 }
 
 func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
