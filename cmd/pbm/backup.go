@@ -577,13 +577,9 @@ func bcpsMatchCluster(
 	ver string,
 	fcv string,
 	shards []topo.Shard,
-	confsrv string,
 	rsMap map[string]string,
 ) {
-	sh := make(map[string]bool, len(shards))
-	for _, s := range shards {
-		sh[s.RS] = s.RS == confsrv
-	}
+	sh := backupRequiredRSMap(shards)
 
 	mapRS, mapRevRS := util.MakeRSMapFunc(rsMap), util.MakeReverseRSMapFunc(rsMap)
 	for i := 0; i < len(bcps); i++ {
@@ -591,11 +587,40 @@ func bcpsMatchCluster(
 	}
 }
 
+// backupRequiredRSMap marks the RS whose absence makes the backup incompatible:
+// the config RS for sharded clusters, or the sole RS otherwise.
+func backupRequiredRSMap(shards []topo.Shard) map[string]bool {
+	sh := make(map[string]bool, len(shards))
+	requiredRS := backupRequiredRSName(shards)
+
+	for _, s := range shards {
+		sh[s.RS] = s.RS == requiredRS
+	}
+
+	return sh
+}
+
+// backupRequiredRSName returns the RS whose absence makes the backup incompatible:
+// the config RS for sharded clusters, or the sole RS otherwise.
+func backupRequiredRSName(shards []topo.Shard) string {
+	if len(shards) == 1 {
+		return shards[0].RS
+	}
+
+	for _, s := range shards {
+		if s.ID == "config" {
+			return s.RS
+		}
+	}
+
+	return ""
+}
+
 func bcpMatchCluster(
 	bcp *backup.BackupMeta,
 	ver string,
 	fcv string,
-	shards map[string]bool,
+	rs map[string]bool,
 	mapRS util.RSMapFunc,
 	mapRevRS util.RSMapFunc,
 ) {
@@ -618,26 +643,26 @@ func bcpMatchCluster(
 	}
 
 	var nomatch []string
-	hasconfsrv := false
+	hasMandatoryRS := false
 	for i := range bcp.Replsets {
 		name := mapRS(bcp.Replsets[i].Name)
 
-		isconfsrv, ok := shards[name]
+		isMandatoryRS, ok := rs[name]
 		if !ok {
 			nomatch = append(nomatch, name)
 		} else if mapRevRS(name) != bcp.Replsets[i].Name {
 			nomatch = append(nomatch, name)
 		}
 
-		if isconfsrv {
-			hasconfsrv = true
+		if isMandatoryRS {
+			hasMandatoryRS = true
 		}
 	}
 
-	if len(nomatch) != 0 || !hasconfsrv {
+	if len(nomatch) != 0 || !hasMandatoryRS {
 		names := make([]string, len(nomatch))
 		copy(names, nomatch)
-		bcp.SetRuntimeError(missedReplsetsError{names: names, configsrv: !hasconfsrv})
+		bcp.SetRuntimeError(missedReplsetsError{names: names, configsrv: !hasMandatoryRS})
 	}
 }
 
