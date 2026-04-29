@@ -69,7 +69,7 @@ wait_noop
 pbm_run list
 
 desc 'Restore'
-pbm_run restore --time $PITR_Time
+pbm_run restore --time $PITR_Time --yes
 wait_restore
 pbm_run logs -t 35
 

@@ -326,6 +326,7 @@ func (s *Slicer) Stream(
 	s.l.Debug(LogStartMsg)
 
 	lastSlice := false
+	uploaded := false
 	llock := &lock.LockHeader{
 		Replset: s.rs,
 		Type:    ctrl.CmdPITR,
@@ -339,6 +340,21 @@ func (s *Slicer) Stream(
 		// upload the chunks up to the current time and return
 		case <-stopC:
 			s.l.Info("got done signal, stopping")
+			// If the cluster is in error state, any chunks from this RS are
+			// useless since another RS has a gap. Delete the last chunk if
+			// a tick managed to upload one before the error was detected
+			// and skip the final upload. On query failure, fall through to
+			// the normal upload path (safe default).
+			status, serr := oplog.GetClusterStatus(ctx, s.leadClient)
+			if serr == nil && status == oplog.StatusError {
+				s.l.Info("stopping due to cluster error, skipping final upload")
+				if uploaded {
+					if err := s.deleteLastChunk(ctx); err != nil {
+						s.l.Error("cleanup last chunk: %v", err)
+					}
+				}
+				return nil
+			}
 			lastSlice = true
 		// on wakeup or tick whatever comes first do the job
 		case bcp := <-backupSig:
@@ -446,6 +462,7 @@ func (s *Slicer) Stream(
 			return nil
 		}
 
+		uploaded = true
 		s.lastTS = sliceTo
 
 		if ispan := s.GetSpan(); cspan != ispan {
@@ -497,6 +514,20 @@ func (s *Slicer) upload(
 		}
 	}
 
+	return nil
+}
+
+func (s *Slicer) deleteLastChunk(ctx context.Context) error {
+	lastChunk, err := oplog.PITRLastChunkMeta(ctx, s.leadClient, s.rs)
+	if err != nil {
+		return errors.Wrap(err, "find last chunk")
+	}
+
+	if err := oplog.DeleteChunkData(ctx, s.leadClient, s.storage, *lastChunk); err != nil {
+		return errors.Wrap(err, "delete chunk data")
+	}
+
+	s.l.Info("cleaned up chunk %s due to cluster error", lastChunk.FName)
 	return nil
 }
 

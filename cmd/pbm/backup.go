@@ -170,9 +170,10 @@ func runBackup(
 		}
 		fmt.Printf("Starting backup %q%s", b.name, pinfo)
 	}
-	startCtx, cancel := context.WithTimeout(ctx, cfg.Backup.Timeouts.StartingStatus())
-	defer cancel()
-	err = waitForBcpStatus(startCtx, conn, b.name, showProgress)
+	err = waitForBcpStatus(ctx, conn, b.name, showProgress)
+	if showProgress {
+		fmt.Println()
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "wait for backup status")
 	}
@@ -213,7 +214,7 @@ func runBackup(
 		}
 
 		if showProgress {
-			fmt.Printf("\nWaiting for '%s' backup...", b.name)
+			fmt.Printf("Waiting for '%s' backup...", b.name)
 		}
 		s, err := waitBackup(ctx, conn, b.name, defs.StatusDone, showProgress)
 		if s != nil && showProgress {
@@ -272,6 +273,10 @@ func waitBackup(
 			case defs.StatusError:
 				return &bcp.Status, bcp.Error()
 			}
+
+			if err := checkBackupStale(ctx, conn, bcp); err != nil {
+				return &bcp.Status, err
+			}
 		}
 
 		if showProgress {
@@ -280,22 +285,66 @@ func waitBackup(
 	}
 }
 
-func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
+func checkBackupStale(ctx context.Context, conn connect.Client, bcp *backup.BackupMeta) error {
+	clusterTime, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "read cluster time")
+	}
+	if bcp.Hb.T+defs.StaleFrameSec < clusterTime.T {
+		rs := ""
+		for _, s := range bcp.Replsets {
+			rs += fmt.Sprintf("\n- %s: %v", s.Name, s.Status)
+			if s.Error != "" {
+				rs += ": " + s.Error
+			}
+		}
+		return errors.Errorf(
+			"backup stuck at %q status, last heartbeat: %d%s",
+			bcp.Status, bcp.Hb.T, rs)
+	}
+	return nil
+}
+
+func waitForBcpExists(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
+	to := time.After(defs.WaitBackupStart)
 
-	var bmeta *backup.BackupMeta
 	for {
 		select {
 		case <-tk.C:
 			if showProgress {
 				fmt.Print(".")
 			}
-			var err error
-			bmeta, err = backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
+			_, err := backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
+			if err != nil {
+				return errors.Wrap(err, "get backup metadata")
+			}
+			return nil
+		case <-to:
+			return errors.New("no progress from leader, backup metadata not found")
+		}
+	}
+}
+
+func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, showProgress bool) error {
+	if err := waitForBcpExists(ctx, conn, bcpName, showProgress); err != nil {
+		return err
+	}
+
+	tk := time.NewTicker(time.Second)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			if showProgress {
+				fmt.Print(".")
+			}
+			bmeta, err := backup.NewDBManager(conn).GetBackupByName(ctx, bcpName)
 			if err != nil {
 				return errors.Wrap(err, "get backup metadata")
 			}
@@ -315,22 +364,12 @@ func waitForBcpStatus(ctx context.Context, conn connect.Client, bcpName string, 
 				}
 				return errors.Errorf("status error on %s", rs)
 			}
-		case <-ctx.Done():
-			if bmeta == nil {
-				return errors.New("no progress from leader, backup metadata not found")
-			}
-			rs := ""
-			for _, s := range bmeta.Replsets {
-				rs += fmt.Sprintf("- Backup on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
-				if s.Error != "" {
-					rs += ": " + s.Error
-				}
-			}
-			if rs == "" {
-				rs = "<no replset has started backup>\n"
-			}
 
-			return errors.New("no confirmation that backup has successfully started. Replsets status:\n" + rs)
+			if err := checkBackupStale(ctx, conn, bmeta); err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 }

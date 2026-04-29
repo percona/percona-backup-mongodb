@@ -8,10 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
@@ -22,7 +20,7 @@ type Docker struct {
 }
 
 func NewDocker(ctx context.Context, host string) (*Docker, error) {
-	cn, err := client.NewClientWithOpts(client.WithHost(host))
+	cn, err := client.New(client.WithHost(host))
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
 	}
@@ -35,20 +33,20 @@ func NewDocker(ctx context.Context, host string) (*Docker, error) {
 
 // StopContainers stops containers with the given labels
 func (d *Docker) StopContainers(labels []string) error {
-	fltr := filters.NewArgs()
+	fltr := make(client.Filters)
 	for _, v := range labels {
 		fltr.Add("label", v)
 	}
-	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, client.ContainerListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
 	}
 
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		log.Println("stopping container", c.ID)
-		err = d.cn.ContainerStop(d.ctx, c.ID, container.StopOptions{})
+		_, err = d.cn.ContainerStop(d.ctx, c.ID, client.ContainerStopOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "stop container %s", c.ID)
 		}
@@ -64,21 +62,21 @@ func (d *Docker) StopAgents(rsName string) error {
 
 // PauseAgents pause agent containers of the given replicaset
 func (d *Docker) PauseAgents(rsName string) error {
-	fltr := filters.NewArgs()
+	fltr := make(client.Filters)
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
-	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, client.ContainerListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
 	}
-	if len(containers) == 0 {
+	if len(containers.Items) == 0 {
 		return errors.Errorf("no containers found for replset %s", rsName)
 	}
 
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		log.Println("stopping container", c.ID)
-		err = d.cn.ContainerPause(d.ctx, c.ID)
+		_, err = d.cn.ContainerPause(d.ctx, c.ID, client.ContainerPauseOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "stop container %s", c.ID)
 		}
@@ -89,21 +87,21 @@ func (d *Docker) PauseAgents(rsName string) error {
 
 // UnpauseAgents unpause agent containers of the given replicaset
 func (d *Docker) UnpauseAgents(rsName string) error {
-	fltr := filters.NewArgs()
+	fltr := make(client.Filters)
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
-	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, client.ContainerListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
 	}
-	if len(containers) == 0 {
+	if len(containers.Items) == 0 {
 		return errors.Errorf("no containers found for replset %s", rsName)
 	}
 
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		log.Println("stopping container", c.ID)
-		err = d.cn.ContainerUnpause(d.ctx, c.ID)
+		_, err = d.cn.ContainerUnpause(d.ctx, c.ID, client.ContainerUnpauseOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "stop container %s", c.ID)
 		}
@@ -119,24 +117,24 @@ func (d *Docker) StartAgents(rsName string) error {
 
 // StartAgents starts stopped agent containers of the given replicaset
 func (d *Docker) StartContainers(labels []string) error {
-	fltr := filters.NewArgs()
+	fltr := make(client.Filters)
 	for _, v := range labels {
 		fltr.Add("label", v)
 	}
-	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, client.ContainerListOptions{
 		All:     true,
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
 	}
-	if len(containers) == 0 {
+	if len(containers.Items) == 0 {
 		return errors.Errorf("no containers found for lables %v", labels)
 	}
 
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		log.Println("Straing container", c.ID)
-		err = d.cn.ContainerStart(d.ctx, c.ID, container.StartOptions{})
+		_, err = d.cn.ContainerStart(d.ctx, c.ID, client.ContainerStartOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "start container %s", c.ID)
 		}
@@ -152,20 +150,20 @@ func (d *Docker) RestartAgents(rsName string) error {
 
 // RestartAgents restarts agent containers of the given replicaset
 func (d *Docker) RestartContainers(labels []string) error {
-	fltr := filters.NewArgs()
+	fltr := make(client.Filters)
 	for _, v := range labels {
 		fltr.Add("label", v)
 	}
-	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, client.ContainerListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
 	}
 
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		log.Println("restarting container", c.ID)
-		err = d.cn.ContainerRestart(d.ctx, c.ID, container.StopOptions{})
+		_, err = d.cn.ContainerRestart(d.ctx, c.ID, client.ContainerRestartOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "restart container %s", c.ID)
 		}
@@ -175,26 +173,26 @@ func (d *Docker) RestartContainers(labels []string) error {
 }
 
 func (d *Docker) RunOnReplSet(rsName string, wait time.Duration, cmd ...string) error {
-	fltr := filters.NewArgs()
+	fltr := make(client.Filters)
 	fltr.Add("label", "com.percona.pbm.agent.rs="+rsName)
-	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, client.ContainerListOptions{
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
 	}
-	if len(containers) == 0 {
+	if len(containers.Items) == 0 {
 		return errors.Errorf("no containers found for replset %s", rsName)
 	}
 
 	var wg sync.WaitGroup
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		log.Printf("run %v on conainer %s%v\n", cmd, c.ID, c.Names)
 		wg.Add(1)
-		go func(container types.Container) {
-			out, err := d.RunCmd(container.ID, wait, cmd...)
+		go func(cont container.Summary) {
+			out, err := d.RunCmd(cont.ID, wait, cmd...)
 			if err != nil {
-				log.Fatalf("ERROR: run cmd %v on container %s%v: %v", cmd, container.ID, container.Names, err)
+				log.Fatalf("ERROR: run cmd %v on container %s%v: %v", cmd, cont.ID, cont.Names, err)
 			}
 			if out != "" {
 				log.Println(out)
@@ -208,23 +206,23 @@ func (d *Docker) RunOnReplSet(rsName string, wait time.Duration, cmd ...string) 
 }
 
 func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (string, error) {
-	execConf := container.ExecOptions{
+	execConf := client.ExecCreateOptions{
 		User:         "root",
 		Cmd:          cmd,
 		Privileged:   true,
 		AttachStderr: true,
 		AttachStdout: true,
 	}
-	id, err := d.cn.ContainerExecCreate(d.ctx, containerID, execConf)
+	id, err := d.cn.ExecCreate(d.ctx, containerID, execConf)
 	if err != nil {
 		return "", errors.Wrap(err, "ContainerExecCreate")
 	}
 
-	container, err := d.cn.ContainerExecAttach(d.ctx, id.ID, container.ExecStartOptions{})
+	attach, err := d.cn.ExecAttach(d.ctx, id.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return "", errors.Wrap(err, "attach to failed container")
 	}
-	defer container.Close()
+	defer attach.Close()
 
 	tmr := time.NewTimer(wait)
 	tkr := time.NewTicker(500 * time.Millisecond)
@@ -233,12 +231,12 @@ func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (
 		case <-tmr.C:
 			return "", errors.New("timeout reached")
 		case <-tkr.C:
-			insp, err := d.cn.ContainerExecInspect(d.ctx, id.ID)
+			insp, err := d.cn.ExecInspect(d.ctx, id.ID, client.ExecInspectOptions{})
 			if err != nil {
 				return "", errors.Wrap(err, "ContainerExecInspect")
 			}
 			if !insp.Running {
-				logs, err := io.ReadAll(container.Reader)
+				logs, err := io.ReadAll(attach.Reader)
 				if err != nil {
 					return "", errors.Wrap(err, "read logs of failed container")
 				}
@@ -255,34 +253,34 @@ func (d *Docker) RunCmd(containerID string, wait time.Duration, cmd ...string) (
 }
 
 func (d *Docker) StartAgentContainers(labels []string) error {
-	fltr := filters.NewArgs()
+	fltr := make(client.Filters)
 	for _, v := range labels {
 		fltr.Add("label", v)
 	}
 
-	containers, err := d.cn.ContainerList(d.ctx, container.ListOptions{
+	containers, err := d.cn.ContainerList(d.ctx, client.ContainerListOptions{
 		All:     true,
 		Filters: fltr,
 	})
 	if err != nil {
 		return errors.Wrap(err, "container list")
 	}
-	if len(containers) == 0 {
+	if len(containers.Items) == 0 {
 		return errors.Errorf("no containers found for labels %v", labels)
 	}
 
 	var wg sync.WaitGroup
-	errCh := make(chan error, len(containers))
+	errCh := make(chan error, len(containers.Items))
 
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		wg.Add(1)
-		go func(cont types.Container) {
+		go func(cont container.Summary) {
 			defer wg.Done()
 
 			var buf strings.Builder
 			var started bool
 			for i := 1; i <= 5; i++ {
-				err := d.cn.ContainerStart(d.ctx, cont.ID, container.StartOptions{})
+				_, err := d.cn.ContainerStart(d.ctx, cont.ID, client.ContainerStartOptions{})
 				if err != nil {
 					errCh <- errors.Wrapf(err, "start container %s", cont.ID)
 					return
@@ -290,7 +288,7 @@ func (d *Docker) StartAgentContainers(labels []string) error {
 
 				since := time.Now().Format(time.RFC3339Nano)
 				time.Sleep(5 * time.Second)
-				out, err := d.cn.ContainerLogs(d.ctx, cont.ID, container.LogsOptions{
+				out, err := d.cn.ContainerLogs(d.ctx, cont.ID, client.ContainerLogsOptions{
 					ShowStdout: true,
 					ShowStderr: true,
 					Follow:     false,
@@ -314,7 +312,7 @@ func (d *Docker) StartAgentContainers(labels []string) error {
 					break
 				}
 
-				err = d.cn.ContainerStop(d.ctx, cont.ID, container.StopOptions{})
+				_, err = d.cn.ContainerStop(d.ctx, cont.ID, client.ContainerStopOptions{})
 				if err != nil {
 					errCh <- errors.Wrapf(err, "stop container %s", cont.ID)
 					return

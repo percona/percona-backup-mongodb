@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -28,7 +27,7 @@ type Ctl struct {
 var backupNameRE = regexp.MustCompile(`Starting backup ["']([0-9\-:TZ]+)["']`)
 
 func NewCtl(ctx context.Context, host, pbmContainer string) (*Ctl, error) {
-	cn, err := client.NewClientWithOpts(client.WithHost(host))
+	cn, err := client.New(client.WithHost(host))
 	if err != nil {
 		return nil, errors.Wrap(err, "docker client")
 	}
@@ -249,7 +248,7 @@ func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 
 // Restore starts restore and returns the name of op
 func (c *Ctl) Restore(bcpName string, options []string) (string, error) {
-	command := append([]string{"pbm", "restore", bcpName, "-o", "json"}, options...)
+	command := append([]string{"pbm", "restore", bcpName, "-o", "json", "--yes"}, options...)
 	o, err := c.RunCmd(command...)
 	if err != nil {
 		return "", errors.Wrap(err, "run meta")
@@ -276,32 +275,32 @@ func (c *Ctl) ReplayOplog(a, b time.Time) error {
 }
 
 func (c *Ctl) PITRestore(t time.Time) error {
-	_, err := c.RunCmd("pbm", "restore", "--time", t.Format("2006-01-02T15:04:05"))
+	_, err := c.RunCmd("pbm", "restore", "--time", t.Format("2006-01-02T15:04:05"), "--yes")
 	return err
 }
 
 func (c *Ctl) PITRestoreClusterTime(t, i uint32) error {
-	_, err := c.RunCmd("pbm", "restore", "--time", fmt.Sprintf("%d,%d", t, i))
+	_, err := c.RunCmd("pbm", "restore", "--time", fmt.Sprintf("%d,%d", t, i), "--yes")
 	return err
 }
 
 func (c *Ctl) RunCmd(cmds ...string) (string, error) {
-	execConf := container.ExecOptions{
+	execConf := client.ExecCreateOptions{
 		Env:          c.env,
 		Cmd:          cmds,
 		AttachStderr: true,
 		AttachStdout: true,
 	}
-	id, err := c.cn.ContainerExecCreate(c.ctx, c.container, execConf)
+	id, err := c.cn.ExecCreate(c.ctx, c.container, execConf)
 	if err != nil {
 		return "", errors.Wrap(err, "ContainerExecCreate")
 	}
 
-	container, err := c.cn.ContainerExecAttach(c.ctx, id.ID, container.ExecAttachOptions{})
+	attach, err := c.cn.ExecAttach(c.ctx, id.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return "", errors.Wrap(err, "attach to failed container")
 	}
-	defer container.Close()
+	defer attach.Close()
 
 	tmr := time.NewTimer(time.Duration(float64(defs.WaitBackupStart) * 3))
 	tkr := time.NewTicker(500 * time.Millisecond)
@@ -310,12 +309,12 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 		case <-tmr.C:
 			return "", errors.New("timeout reached")
 		case <-tkr.C:
-			insp, err := c.cn.ContainerExecInspect(c.ctx, id.ID)
+			insp, err := c.cn.ExecInspect(c.ctx, id.ID, client.ExecInspectOptions{})
 			if err != nil {
 				return "", errors.Wrap(err, "ContainerExecInspect")
 			}
 			if !insp.Running {
-				logs, err := io.ReadAll(container.Reader)
+				logs, err := io.ReadAll(attach.Reader)
 				if err != nil {
 					return "", errors.Wrap(err, "read logs of failed container")
 				}
@@ -334,7 +333,7 @@ func (c *Ctl) RunCmd(cmds ...string) (string, error) {
 func (c *Ctl) ContainerLogs() (string, error) {
 	r, err := c.cn.ContainerLogs(
 		c.ctx, c.container,
-		container.LogsOptions{
+		client.ContainerLogsOptions{
 			ShowStderr: true,
 		})
 	if err != nil {

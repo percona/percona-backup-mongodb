@@ -49,6 +49,7 @@ type restoreOpts struct {
 	nsFrom          string
 	nsTo            string
 	usersAndRoles   bool
+	yes             bool
 	rsMap           string
 	conf            string
 	ts              string
@@ -179,11 +180,23 @@ func runRestore(
 		return nil, errors.Wrap(err, "get storage")
 	}
 
-	m, err := doRestore(ctx, conn, stg, l, o, numParallelColls, numInsertionWorkers,
-		nss, o.nsFrom, o.nsTo, rsMap, outf)
+	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap)
 	if err != nil {
+		if errors.Is(err, errUserCanceled) {
+			return outMsg{err.Error()}, nil
+		}
 		return nil, err
 	}
+
+	if outf == outText {
+		restoreDesc := restoreDesc(o, m.Name, m.Backup)
+		fmt.Printf("Starting restore %s", restoreDesc)
+		m, err = waitForRestoreStatus(ctx, conn, stg, l, m.Name, m.Type, tdiff)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if o.extern && outf == outText {
 		err = waitRestore(ctx, conn, stg, l, m, defs.StatusCopyReady, tdiff)
 		if err != nil {
@@ -234,6 +247,29 @@ func runRestore(
 // But for physical ones, the cluster by this time is down. So we compare with
 // the wall time taking into account a time skew (wallTime - clusterTime) taken
 // when the cluster time was still available.
+func checkRestoreStale(ctx context.Context, conn connect.Client, meta *restore.RestoreMeta, tskew int64) error {
+	var ctime uint32
+	var frameSec uint32
+
+	if meta.Type == defs.LogicalBackup {
+		clusterTime, err := topo.GetClusterTime(ctx, conn)
+		if err != nil {
+			return errors.Wrap(err, "read cluster time")
+		}
+		frameSec = defs.StaleFrameSec
+		ctime = clusterTime.T
+	} else {
+		frameSec = 60 * 3
+		ctime = uint32(time.Now().Unix() + tskew)
+	}
+
+	if meta.Hb.T+frameSec < ctime {
+		return errors.Errorf("operation staled, last heartbeat: %v", meta.Hb.T)
+	}
+
+	return nil
+}
+
 func waitRestore(
 	ctx context.Context,
 	conn connect.Client,
@@ -248,12 +284,6 @@ func waitRestore(
 		getMeta = func(_ context.Context, _ connect.Client, name string) (*restore.RestoreMeta, error) {
 			return restore.GetPhysRestoreMeta(name, stg, l)
 		}
-	}
-
-	var ctime uint32
-	frameSec := defs.StaleFrameSec
-	if m.Type != defs.LogicalBackup {
-		frameSec = 60 * 3
 	}
 
 	tk := time.NewTicker(time.Second * 1)
@@ -292,18 +322,8 @@ func waitRestore(
 			return restoreFailedError{fmt.Sprintf("operation failed with: %s", rmeta.Error)}
 		}
 
-		if m.Type == defs.LogicalBackup {
-			clusterTime, err := topo.GetClusterTime(ctx, conn)
-			if err != nil {
-				return errors.Wrap(err, "read cluster time")
-			}
-			ctime = clusterTime.T
-		} else {
-			ctime = uint32(time.Now().Unix() + tskew)
-		}
-
-		if rmeta.Hb.T+frameSec < ctime {
-			return errors.Errorf("operation staled, last heartbeat: %v", rmeta.Hb.T)
+		if err := checkRestoreStale(ctx, conn, rmeta, tskew); err != nil {
+			return err
 		}
 	}
 
@@ -422,8 +442,6 @@ func nsIsTaken(
 func doRestore(
 	ctx context.Context,
 	conn connect.Client,
-	stg storage.Storage,
-	l log.LogEvent,
 	o *restoreOpts,
 	numParallelColls *int32,
 	numInsertionWorkers *int32,
@@ -431,7 +449,6 @@ func doRestore(
 	nsFrom string,
 	nsTo string,
 	rsMapping map[string]string,
-	outf outFormat,
 ) (*restore.RestoreMeta, error) {
 	bcp, bcpType, err := checkBackup(ctx, conn, o, nss, nsFrom, nsTo)
 	if err != nil {
@@ -494,19 +511,28 @@ func doRestore(
 		}
 	}
 
+	if !o.yes {
+		restoreDesc := restoreDesc(o, name, bcp)
+		fmt.Printf("Restore: %s\n", restoreDesc)
+		err := askConfirmation("Are you sure you want to start the restore?")
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	err = sendCmd(ctx, conn, cmd)
 	if err != nil {
 		return nil, errors.Wrap(err, "send command")
 	}
 
-	if outf != outText {
-		return &restore.RestoreMeta{
-			Name:   name,
-			Backup: bcp,
-			Type:   bcpType,
-		}, nil
-	}
+	return &restore.RestoreMeta{
+		Name:   name,
+		Backup: bcp,
+		Type:   bcpType,
+	}, nil
+}
 
+func restoreDesc(o *restoreOpts, name, bcp string) string {
 	bcpName := ""
 	if bcp != "" {
 		bcpName = fmt.Sprintf(" from '%s'", bcp)
@@ -518,32 +544,8 @@ func doRestore(
 	if o.pitr != "" {
 		pitrs = fmt.Sprintf(" to point-in-time %s", o.pitr)
 	}
-	fmt.Printf("Starting restore %s%s%s", name, pitrs, bcpName)
 
-	var (
-		fn     getRestoreMetaFn
-		cancel context.CancelFunc
-	)
-
-	// physical restore may take more time to start
-	const waitPhysRestoreStart = time.Second * 120
-	var startCtx context.Context
-	if bcpType == defs.LogicalBackup {
-		fn = restore.GetRestoreMeta
-		startCtx, cancel = context.WithTimeout(ctx, defs.WaitActionStart)
-	} else {
-		fn = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
-			meta, err := restore.GetRestoreMeta(ctx, conn, name)
-			if err == nil {
-				return meta, nil
-			}
-			return restore.GetPhysRestoreMeta(name, stg, l)
-		}
-		startCtx, cancel = context.WithTimeout(ctx, waitPhysRestoreStart)
-	}
-	defer cancel()
-
-	return waitForRestoreStatus(startCtx, conn, name, fn)
+	return fmt.Sprintf("%s%s%s", name, pitrs, bcpName)
 }
 
 func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
@@ -584,23 +586,23 @@ func parseTS(t string) (primitive.Timestamp, error) {
 
 type getRestoreMetaFn func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error)
 
-func waitForRestoreStatus(
+func waitForRestoreExists(
 	ctx context.Context,
 	conn connect.Client,
 	name string,
 	getfn getRestoreMetaFn,
+	timeout time.Duration,
 ) (*restore.RestoreMeta, error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
+	to := time.After(timeout)
 
-	meta := new(restore.RestoreMeta) // TODO
 	for {
 		select {
 		case <-tk.C:
 			fmt.Print(".")
 
-			var err error
-			meta, err = getfn(ctx, conn, name)
+			meta, err := getfn(ctx, conn, name)
 			if errors.Is(err, errors.ErrNotFound) {
 				continue
 			}
@@ -609,6 +611,58 @@ func waitForRestoreStatus(
 			}
 			if meta == nil {
 				continue
+			}
+			// Physical restore meta from storage may be non-nil
+			// even before the first heartbeat is written.
+			if meta.Hb.T == 0 {
+				continue
+			}
+			return meta, nil
+		case <-to:
+			return nil, errors.New("no progress from leader, restore metadata not found")
+		}
+	}
+}
+
+func waitForRestoreStatus(
+	ctx context.Context,
+	conn connect.Client,
+	stg storage.Storage,
+	l log.LogEvent,
+	name string,
+	bcpType defs.BackupType,
+	tskew int64,
+) (*restore.RestoreMeta, error) {
+	getMeta := restore.GetRestoreMeta
+	existsTimeout := defs.WaitActionStart
+
+	if bcpType != defs.LogicalBackup {
+		getMeta = func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error) {
+			meta, err := restore.GetRestoreMeta(ctx, conn, name)
+			if err == nil {
+				return meta, nil
+			}
+			return restore.GetPhysRestoreMeta(name, stg, l)
+		}
+		// physical restore may take more time to start
+		existsTimeout = time.Second * 120
+	}
+
+	if _, err := waitForRestoreExists(ctx, conn, name, getMeta, existsTimeout); err != nil {
+		return nil, err
+	}
+
+	tk := time.NewTicker(time.Second * 1)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-tk.C:
+			fmt.Print(".")
+
+			meta, err := getMeta(ctx, conn, name)
+			if err != nil {
+				return nil, errors.Wrap(err, "get metadata")
 			}
 			switch meta.Status {
 			case defs.StatusRunning, defs.StatusDumpDone, defs.StatusDone:
@@ -623,21 +677,12 @@ func waitForRestoreStatus(
 				}
 				return nil, errors.New(meta.Error + rs)
 			}
-		case <-ctx.Done():
-			rs := ""
-			if meta != nil {
-				for _, s := range meta.Replsets {
-					rs += fmt.Sprintf("- Restore on replicaset \"%s\" in state: %v\n", s.Name, s.Status)
-					if s.Error != "" {
-						rs += ": " + s.Error
-					}
-				}
-			}
-			if rs == "" {
-				rs = "<no replset has started restore>\n"
-			}
 
-			return nil, errors.New("no confirmation that restore has successfully started. Replsets status:\n" + rs)
+			if err := checkRestoreStale(ctx, conn, meta, tskew); err != nil {
+				return nil, err
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 }

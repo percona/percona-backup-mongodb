@@ -78,39 +78,24 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 				l.Error("release lock: %v", err)
 			}
 		}()
+	}
 
+	// disable pitr from leader node
+	if nodeInfo.IsClusterLeader() {
 		err = config.SetConfigVar(ctx, a.leadConn, "pitr.enabled", "false")
 		if err != nil {
 			l.Error("disable oplog slicer: %v", err)
 		} else {
 			l.Info("oplog slicer disabled")
 		}
-		a.removePitr()
 	}
 
-	// stop balancer during the restore
-	if a.brief.Sharded && nodeInfo.IsClusterLeader() {
-		bs, err := topo.GetBalancerStatus(ctx, a.leadConn)
-		if err != nil {
-			l.Error("get balancer status: %v", err)
-			return
-		}
-
-		if bs.IsOn() {
-			err := topo.SetBalancerStatus(ctx, a.leadConn, topo.BalancerModeOff)
-			if err != nil {
-				l.Error("set balancer off: %v", err)
-			}
-
-			l.Debug("waiting for balancer off")
-			bs := topo.WaitForBalancerDisabled(ctx, a.leadConn, time.Second*30, l)
-			if bs.IsDisabled() {
-				l.Debug("balancer is disabled")
-			} else {
-				l.Warning("balancer is not disabled: balancer mode: %s, in balancer round: %t",
-					bs.Mode, bs.InBalancerRound)
-			}
-		}
+	// Cancel the local slicer if running.
+	a.removePitr()
+	// Wait for the slicer to stop on every node.
+	if err := a.waitForPITRSlicerStop(ctx, nodeInfo.SetName, l); err != nil {
+		l.Error("unable to stop PITR slicer: %v", err)
+		return
 	}
 
 	var bcpType defs.BackupType

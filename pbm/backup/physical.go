@@ -312,6 +312,10 @@ func (b *Backup) doPhysical(
 	if err != nil {
 		return errors.Wrap(err, "get mongod options")
 	}
+	err = topo.ExpandSecOptsWithEncAtRest(ctx, b.nodeConn, mopts.Security, l)
+	if err != nil {
+		return errors.Wrap(err, "get encryption at rest options")
+	}
 
 	rsMeta.MongodOpts = mopts
 	rsMeta.Status = defs.StatusRunning
@@ -553,7 +557,7 @@ func (b *Backup) uploadPhysical(
 			// maintain uncompressed size just for the files that have a disk footprint,
 			// backup meta might contains files which are unchanged from the previous
 			// inc/base backup
-			sizeUncompressed += f.Size
+			sizeUncompressed += f.StgSizeUncompressed
 		}
 	}
 
@@ -757,11 +761,12 @@ func writeFile(
 	}
 
 	return &File{
-		Name:    src.Name,
-		Size:    sz,
-		Fmode:   fstat.Mode(),
-		StgSize: finf.Size,
-		Off:     src.Off,
-		Len:     src.Len,
+		Name:                src.Name,
+		Size:                fstat.Size(),
+		Fmode:               fstat.Mode(),
+		StgSize:             finf.Size,
+		StgSizeUncompressed: sz,
+		Off:                 src.Off,
+		Len:                 src.Len,
 	}, nil
 }

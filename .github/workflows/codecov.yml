@@ -10,6 +10,8 @@ on:
       - main
       - dev
 
+permissions: read-all
+
 jobs:
   go-test:
     name: runner / go-test

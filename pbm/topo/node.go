@@ -2,6 +2,7 @@ package topo
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
@@ -260,6 +262,100 @@ func GetMongodOpts(ctx context.Context, m *mongo.Client, defaults *MongodOpts) (
 		return nil, errors.Wrap(err, "run mongo command")
 	}
 	return &opts.Parsed, nil
+}
+
+// ExpandSecOptsWithEncAtRest fetches missing encryption at rest settings from serverStatus,
+// and assign them to security options.
+// For KMIP, KeyIdentifier is assigned.
+// For Vault, SecretVersion is assigned.
+func ExpandSecOptsWithEncAtRest(
+	ctx context.Context,
+	m *mongo.Client,
+	secOpts *MongodOptsSec,
+	l log.LogEvent,
+) error {
+	if secOpts == nil || secOpts.EnableEncryption == nil || !*secOpts.EnableEncryption {
+		// encryption is not enabled
+		return nil
+	}
+
+	switch {
+	case secOpts.KMIP != nil:
+		encAtRestRaw, err := getEncryptionAtRest(ctx, m)
+		if err != nil {
+			return errors.Wrap(err, "get encryption at rest for kmip")
+		}
+		if encAtRestRaw.IsZero() {
+			l.Info("To store KMIP's keyIdentifier info within backup metadata, " +
+				"the latest PSMDB patch version is required.")
+			// backup should continue
+			return nil
+		}
+
+		var encAtRest struct {
+			EncryptionKeyId struct {
+				KMIP struct {
+					KeyID string `bson:"keyId,omitempty"`
+				} `bson:"kmip,omitempty"`
+			} `bson:"encryptionKeyId,omitempty"`
+		}
+		err = encAtRestRaw.Unmarshal(&encAtRest)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal encryption at rest for kmip")
+		}
+
+		secOpts.KMIP.KeyIdentifier = &encAtRest.EncryptionKeyId.KMIP.KeyID
+
+	case secOpts.Vault != nil:
+		encAtRestRaw, err := getEncryptionAtRest(ctx, m)
+		if err != nil {
+			return errors.Wrap(err, "get encryption at rest for vault")
+		}
+		if encAtRestRaw.IsZero() {
+			l.Info("To store Vault's secretVersion info within backup metadata, " +
+				"the latest PSMDB patch version is required.")
+			// backup should continue
+			return nil
+		}
+
+		var encAtRest struct {
+			EncryptionKeyId struct {
+				Vault struct {
+					Version string `bson:"version,omitempty"`
+				} `bson:"vault,omitempty"`
+			} `bson:"encryptionKeyId,omitempty"`
+		}
+		err = encAtRestRaw.Unmarshal(&encAtRest)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal encryption at rest for vault")
+		}
+
+		secretVersion, err := strconv.ParseUint(encAtRest.EncryptionKeyId.Vault.Version, 10, 32)
+		if err == nil {
+			// assign secretVersion only if it's number
+			ver := uint32(secretVersion)
+			secOpts.Vault.SecretVersion = &ver
+		}
+	}
+
+	return nil
+}
+
+// getEncryptionAtRest fetches polymorphic encryptionAtRest field from serverStatus.
+// For possible shapes of document fragment see: PSMDB-1633.
+func getEncryptionAtRest(ctx context.Context, m *mongo.Client) (*bson.RawValue, error) {
+	res := m.Database(defs.DB).RunCommand(ctx, bson.D{{"serverStatus", 1}})
+	if err := res.Err(); err != nil {
+		return nil, errors.Wrap(err, "cmd serverStatus")
+	}
+
+	raw, err := res.Raw()
+	if err != nil {
+		return nil, errors.Wrap(err, "bson serverStatus")
+	}
+
+	encAtRest := raw.Lookup("encryptionAtRest")
+	return &encAtRest, nil
 }
 
 //nolint:lll
