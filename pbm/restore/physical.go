@@ -614,7 +614,7 @@ func (r *PhysRestore) checkShutdownFails(ctx context.Context) error {
 
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 	err := m.Database("admin").RunCommand(ctx, bson.D{{"shutdown", 1}}).Err()
-	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
+	if err == nil || strings.Contains(err.Error(), "connection closed unexpectedly by the other side") {
 		return nil
 	}
 	return err
@@ -1778,7 +1778,7 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 	res := c.Database("admin").RunCommand(context.TODO(),
 		bson.D{{"shutdown", 1}, {"force", force}})
 	err := res.Err()
-	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
+	if err != nil && !strings.Contains(err.Error(), "connection closed unexpectedly by the other side") {
 		return errors.Wrapf(err, "run shutdown (force: %v)", force)
 	}
 
