@@ -364,8 +364,11 @@ func (l *clientImpl) applyOptonsFromConnString(cmd bson.D) bson.D {
 	cmdName := cmd[0].Key
 	switch cmdName {
 	case "create":
-		if l.options.WriteConcern != nil {
-			cmd = append(cmd, bson.E{"writeConcern", l.options.WriteConcern})
+		if wc := l.options.WriteConcern; wc != nil && wc.W != nil {
+			cmd = append(cmd, bson.E{
+				Key:   "writeConcern",
+				Value: bson.D{{Key: "w", Value: wc.W}},
+			})
 		}
 	default:
 		// do nothing for all other commands:
