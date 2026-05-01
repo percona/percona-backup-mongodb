@@ -5,8 +5,8 @@ import (
 	"math/big"
 
 	"github.com/mongodb/mongo-tools/common/log"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/samber/lo"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // validIndexOptions are taken from https://github.com/mongodb/mongo/blob/master/src/mongo/db/index/index_descriptor.h
@@ -80,55 +80,69 @@ func IsIndexKeysEqual(indexKey1 bson.D, indexKey2 bson.D) bool {
 // will cause the index build to fail. See TOOLS-2412 for more information.
 //
 // This function logs the keys that are converted.
+//
+// For a “quiet” variant of this function, see ConvertLegacyIndexKeyValue.
 func ConvertLegacyIndexKeys(indexKey bson.D, ns string) {
 	var converted bool
 	originalJSONString := CreateExtJSONString(indexKey)
 	for j, elem := range indexKey {
-		switch v := elem.Value.(type) {
-		case int:
-			if v == 0 {
-				indexKey[j].Value = int32(1)
-				converted = true
-			}
-		case int32:
-			if v == int32(0) {
-				indexKey[j].Value = int32(1)
-				converted = true
-			}
-		case int64:
-			if v == int64(0) {
-				indexKey[j].Value = int32(1)
-				converted = true
-			}
-		case float64:
-			if math.Abs(v-float64(0)) < epsilon {
-				indexKey[j].Value = int32(1)
-				converted = true
-			}
-		case primitive.Decimal128:
-			if bi, _, err := v.BigInt(); err == nil {
-				if bi.Cmp(big.NewInt(0)) == 0 {
-					indexKey[j].Value = int32(1)
-					converted = true
-				}
-			}
-		case string:
-			// Only convert an empty string
-			if v == "" {
-				indexKey[j].Value = int32(1)
-				converted = true
-			}
-		default:
-			// Convert all types that aren't strings or numbers
-			indexKey[j].Value = int32(1)
+		newValue, convertedThis := ConvertLegacyIndexKeyValue(elem.Value)
+
+		if convertedThis {
+			indexKey[j].Value = newValue
 			converted = true
 		}
 	}
 	if converted {
 		newJSONString := CreateExtJSONString(indexKey)
-		log.Logvf(log.Always, "convertLegacyIndexes: converted index values '%s' to '%s' on collection '%s'",
-			originalJSONString, newJSONString, ns)
+		log.Logvf(
+			log.Always,
+			"convertLegacyIndexes: converted index values %#q to %#q on collection %#q",
+			originalJSONString,
+			newJSONString,
+			ns,
+		)
 	}
+}
+
+// ConvertLegacyIndexKeyValue provides ConvertLegacyIndexKeys’s implementation
+// without logging or mutating inputs. It just returns the normalized value
+// and a boolean that indicates whether the value was normalized/converted.
+func ConvertLegacyIndexKeyValue(value any) (any, bool) {
+	switch v := value.(type) {
+	case int:
+		if v == 0 {
+			return int32(1), true
+		}
+	case int32:
+		if v == int32(0) {
+			return int32(1), true
+		}
+	case int64:
+		if v == int64(0) {
+			return int32(1), true
+		}
+	case float64:
+		if math.Abs(v) < epsilon {
+			return lo.Ternary[int32](v >= 0, 1, -1), true
+		}
+	case bson.Decimal128:
+		if bi, _, err := v.BigInt(); err == nil {
+			if bi.Cmp(big.NewInt(0)) == 0 {
+				return int32(1), true
+			}
+		}
+	case string:
+		// Only convert an empty string
+		if v == "" {
+			return int32(1), true
+		}
+	default:
+		// Convert all types that aren't strings or numbers
+		return int32(1), true
+	}
+
+	return value, false
 }
 
 // ConvertLegacyIndexOptions removes options that don't match a known list of index options.
@@ -147,40 +161,14 @@ func ConvertLegacyIndexOptions(indexOptions bson.M) {
 	}
 	if converted {
 		newJSONString := CreateExtJSONString(indexOptions)
-		log.Logvf(log.Always, "convertLegacyIndexes: converted index options '%s' to '%s'",
-			originalJSONString, newJSONString)
-	}
-}
-
-// ConvertLegacyIndexOptionsFromOp removes options that don't match a known list of index options.
-// It is preferable to use the ignoreUnknownIndexOptions on the createIndex command to
-// force the server to do this task. But that option was only added in 4.1.9. So for
-// pre 3.4 indexes being added to servers 3.4 - 4.2, we must strip the options in the client.
-// This function processes the index options inside createIndexes command.
-func ConvertLegacyIndexOptionsFromOp(indexOptions *bson.D) {
-	var converted bool
-	originalJSONString := CreateExtJSONString(indexOptions)
-	var newIndexOptions bson.D
-
-	for i, elem := range *indexOptions {
-		if _, ok := validIndexOptions[elem.Key]; !ok && elem.Key != "createIndexes" {
-			// Remove this key.
-			converted = true
-		} else {
-			newIndexOptions = append(newIndexOptions, (*indexOptions)[i])
-		}
-	}
-	if converted {
-		*indexOptions = newIndexOptions
-		newJSONString := CreateExtJSONString(newIndexOptions)
-		log.Logvf(log.Always, "ConvertLegacyIndexOptionsFromOp: converted index options '%s' to '%s'",
+		log.Logvf(log.Always, "convertLegacyIndexes: converted index options %#q to %#q",
 			originalJSONString, newJSONString)
 	}
 }
 
 // CreateExtJSONString stringifies doc as Extended JSON. It does not error
 // if it's unable to marshal the doc to JSON.
-func CreateExtJSONString(doc interface{}) string {
+func CreateExtJSONString(doc any) string {
 	// by default return "<unable to format document>"" since we don't
 	// want to throw an error when formatting informational messages.
 	// An error would be inconsequential.

@@ -12,11 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/bsontype"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -35,16 +33,16 @@ const (
 )
 
 type Meta struct {
-	ID           UUID                `bson:"backupId"`
-	DBpath       string              `bson:"dbpath"`
-	OplogStart   BCoplogTS           `bson:"oplogStart"`
-	OplogEnd     BCoplogTS           `bson:"oplogEnd"`
-	CheckpointTS primitive.Timestamp `bson:"checkpointTimestamp"`
+	ID           UUID           `bson:"backupId"`
+	DBpath       string         `bson:"dbpath"`
+	OplogStart   BCoplogTS      `bson:"oplogStart"`
+	OplogEnd     BCoplogTS      `bson:"oplogEnd"`
+	CheckpointTS bson.Timestamp `bson:"checkpointTimestamp"`
 }
 
 type BCoplogTS struct {
-	TS primitive.Timestamp `bson:"ts"`
-	T  int64               `bson:"t"`
+	TS bson.Timestamp `bson:"ts"`
+	T  int64          `bson:"t"`
 }
 
 // see https://www.percona.com/blog/2021/06/07/experimental-feature-backupcursorextend-in-percona-server-for-mongodb/
@@ -187,7 +185,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	return &BackupCursorData{m, files}, nil
 }
 
-func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]File, error) {
+func (bc *BackupCursor) Journals(upto bson.Timestamp) ([]File, error) {
 	ctx := context.Background()
 	cur, err := bc.conn.Database("admin").Aggregate(ctx,
 		mongo.Pipeline{
@@ -618,13 +616,13 @@ func getStorageBSON(dbpath string) (*File, error) {
 type UUID struct{ uuid.UUID }
 
 // MarshalBSONValue implements the bson.ValueMarshaler interface.
-func (id UUID) MarshalBSONValue() (bsontype.Type, []byte, error) {
-	return bson.TypeBinary, bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
+func (id UUID) MarshalBSONValue() (byte, []byte, error) {
+	return byte(bson.TypeBinary), bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
 }
 
 // UnmarshalBSONValue implements the bson.ValueUnmarshaler interface.
-func (id *UUID) UnmarshalBSONValue(t bsontype.Type, raw []byte) error {
-	if t != bson.TypeBinary {
+func (id *UUID) UnmarshalBSONValue(t byte, raw []byte) error {
+	if t != byte(bson.TypeBinary) {
 		return errors.New("invalid format on unmarshal bson value")
 	}
 

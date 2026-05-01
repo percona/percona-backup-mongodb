@@ -7,10 +7,10 @@
 package json
 
 import (
-	"go.mongodb.org/mongo-driver/bson/primitive"
-
 	"fmt"
 	"reflect"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Transition functions for recognizing DBPointer.
@@ -34,7 +34,9 @@ func (d *decodeState) storeDBPointer(v reflect.Value) {
 
 	args := d.ctorInterface()
 	if len(args) != 2 {
-		d.error(fmt.Errorf("expected 2 arguments to DBPointer constructor, but %v received", len(args)))
+		d.error(
+			fmt.Errorf("expected 2 arguments to DBPointer constructor, but %v received", len(args)),
+		)
 	}
 	switch kind := v.Kind(); kind {
 	case reflect.Interface:
@@ -44,9 +46,14 @@ func (d *decodeState) storeDBPointer(v reflect.Value) {
 		}
 		arg1, ok := args[1].(ObjectId)
 		if !ok {
-			d.error(fmt.Errorf("expected second argument to DBPointer to be of type ObjectId, but ended up being %t", args[1]))
+			d.error(
+				fmt.Errorf(
+					"expected second argument to DBPointer to be of type ObjectId, but ended up being %t",
+					args[1],
+				),
+			)
 		}
-		oid, err := primitive.ObjectIDFromHex(string(arg1))
+		oid, err := bson.ObjectIDFromHex(string(arg1))
 		if err != nil {
 			d.error(fmt.Errorf("cannot parse ObjectID from string %v: %v", arg1, err))
 		}
@@ -57,7 +64,7 @@ func (d *decodeState) storeDBPointer(v reflect.Value) {
 }
 
 // Returns a DBRef literal from the underlying byte data.
-func (d *decodeState) getDBPointer() interface{} {
+func (d *decodeState) getDBPointer() any {
 	op := d.scanWhile(scanSkipSpace)
 	if op != scanBeginCtor {
 		d.error(fmt.Errorf("expected beginning of constructor"))
@@ -75,7 +82,7 @@ func (d *decodeState) getDBPointer() interface{} {
 	if !ok {
 		d.error(fmt.Errorf("expected ObjectId for second argument of DBPointer constructor"))
 	}
-	oid, err := primitive.ObjectIDFromHex(string(arg1))
+	oid, err := bson.ObjectIDFromHex(string(arg1))
 	if err != nil {
 		d.error(fmt.Errorf("cannot parse ObjectID from string %v: %v", arg1, err))
 	}

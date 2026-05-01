@@ -16,15 +16,15 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/intents"
 	"github.com/mongodb/mongo-tools/common/log"
-	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // bufferSize enables or disables the MuxIn buffering
-// TODO: remove this constant and the non-buffered MuxIn implementations
+// TODO: remove this constant and the non-buffered MuxIn implementations.
 const bufferWrites = true
 const bufferSize = db.MaxBSONSize
 
-// Multiplexer is what one uses to create interleaved intents in an archive
+// Multiplexer is what one uses to create interleaved intents in an archive.
 type Multiplexer struct {
 	Out       io.WriteCloser
 	Control   chan *MuxIn
@@ -66,7 +66,7 @@ func NewMultiplexer(out io.WriteCloser, shutdownInputs notifier) *Multiplexer {
 	return mux
 }
 
-// Run multiplexes until it receives an EOF on its Control chan.
+// Run multiplexes until its Control chan closes.
 func (mux *Multiplexer) Run() {
 	var err, completionErr error
 	for {
@@ -91,7 +91,7 @@ func (mux *Multiplexer) Run() {
 				mux.Completed <- fmt.Errorf("non MuxIn received on Control chan") // one for the MuxIn.Open
 				return
 			}
-			log.Logvf(log.DebugLow, "Mux open namespace %v", muxIn.Intent.DataNamespace())
+			log.Logvf(log.DebugLow, "Mux open namespace %#q", muxIn.Intent.DataNamespace())
 			mux.selectCases = append(mux.selectCases, reflect.SelectCase{
 				Dir:  reflect.SelectRecv,
 				Chan: reflect.ValueOf(muxIn.writeChan),
@@ -108,13 +108,13 @@ func (mux *Multiplexer) Run() {
 				// the close on the MuxIn chan
 				mux.ins[index].writeCloseFinishedChan <- struct{}{}
 
-				err = mux.formatEOF(index, mux.ins[index])
+				err = mux.formatEOF(mux.ins[index])
 				if err != nil {
 					mux.shutdownInputs.Notify()
 					mux.Out = &nopCloseNopWriter{}
 					completionErr = err
 				}
-				log.Logvf(log.DebugLow, "Mux close namespace %v", mux.ins[index].Intent.DataNamespace())
+				log.Logvf(log.DebugLow, "Mux close namespace %#q", mux.ins[index].Intent.DataNamespace())
 				mux.currentNamespace = ""
 				mux.selectCases = append(mux.selectCases[:index], mux.selectCases[index+1:]...)
 				mux.ins = append(mux.ins[:index], mux.ins[index+1:]...)
@@ -183,8 +183,8 @@ func (mux *Multiplexer) formatBody(in *MuxIn, bsonBytes []byte) error {
 	return nil
 }
 
-// formatEOF writes the EOF header in to the archive
-func (mux *Multiplexer) formatEOF(index int, in *MuxIn) error {
+// formatEOF writes the EOF header in to the archive.
+func (mux *Multiplexer) formatEOF(in *MuxIn) error {
 	var err error
 	if mux.currentNamespace != "" {
 		l, err := mux.Out.Write(terminatorBytes)
@@ -199,7 +199,7 @@ func (mux *Multiplexer) formatEOF(index int, in *MuxIn) error {
 		Database:   in.Intent.DB,
 		Collection: in.Intent.DataCollection(),
 		EOF:        true,
-		CRC:        int64(in.hash.Sum64()),
+		CRC:        in.hash.Sum64(),
 	})
 	if err != nil {
 		return err
@@ -224,7 +224,7 @@ func (mux *Multiplexer) formatEOF(index int, in *MuxIn) error {
 // MuxIn is an implementation of the intents.file interface.
 // They live in the intents, and are potentially owned by different threads than
 // the thread owning the Multiplexer.
-// They are out the intents write data to the multiplexer
+// They are out the intents write data to the multiplexer.
 type MuxIn struct {
 	writeChan              chan []byte
 	writeLenChan           chan int
@@ -235,7 +235,7 @@ type MuxIn struct {
 	Mux                    *Multiplexer
 }
 
-// Read does nothing for MuxIns
+// Read does nothing for MuxIns.
 func (muxIn *MuxIn) Read([]byte) (int, error) {
 	return 0, nil
 }
@@ -249,7 +249,7 @@ func (muxIn *MuxIn) Pos() int64 {
 // formatEOF to occur.
 func (muxIn *MuxIn) Close() error {
 	// the mux side of this gets closed in the mux when it gets an eof on the read
-	log.Logvf(log.DebugHigh, "MuxIn close %v", muxIn.Intent.DataNamespace())
+	log.Logvf(log.DebugHigh, "MuxIn close %#q", muxIn.Intent.DataNamespace())
 	if bufferWrites {
 		muxIn.writeChan <- muxIn.buf
 		length := <-muxIn.writeLenChan
@@ -270,7 +270,7 @@ func (muxIn *MuxIn) Close() error {
 // Open is implemented in Mux.open, but in short, it creates chans and a select case
 // and adds the SelectCase and the MuxIn in to the Multiplexer.
 func (muxIn *MuxIn) Open() error {
-	log.Logvf(log.DebugHigh, "MuxIn open %v", muxIn.Intent.DataNamespace())
+	log.Logvf(log.DebugHigh, "MuxIn open %#q", muxIn.Intent.DataNamespace())
 	muxIn.writeChan = make(chan []byte)
 	muxIn.writeLenChan = make(chan int)
 	muxIn.writeCloseFinishedChan = make(chan struct{})
@@ -297,7 +297,14 @@ func (muxIn *MuxIn) Write(buf []byte) (int, error) {
 		panic(fmt.Errorf("corrupt bson in MuxIn.Write (size %v/%v)", size, len(buf)))
 	}
 	if buf[size-1] != 0 {
-		panic(fmt.Errorf("corrupt bson in MuxIn.Write bson has no-zero terminator %v, (size %v/%v)", buf[size-1], size, len(buf)))
+		panic(
+			fmt.Errorf(
+				"corrupt bson in MuxIn.Write bson has no-zero terminator %v, (size %v/%v)",
+				buf[size-1],
+				size,
+				len(buf),
+			),
+		)
 	}
 	if bufferWrites {
 		if len(muxIn.buf)+len(buf) > cap(muxIn.buf) {
@@ -316,6 +323,7 @@ func (muxIn *MuxIn) Write(buf []byte) (int, error) {
 			return 0, io.ErrShortWrite
 		}
 	}
+	// Writes to the hash never return an error.
 	muxIn.hash.Write(buf)
 	return len(buf), nil
 }

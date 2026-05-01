@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -150,7 +150,7 @@ func MongoConnectWithOpts(ctx context.Context,
 		}
 	}
 
-	conn, err := mongo.Connect(ctx, mopts)
+	conn, err := mongo.Connect(mopts)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "connect")
 	}
@@ -307,7 +307,7 @@ func (l *clientImpl) ConfigDatabase() *mongo.Database {
 	return l.client.Database("config")
 }
 
-func (l *clientImpl) AdminCommand(ctx context.Context, cmd bson.D, opts ...*options.RunCmdOptions) *mongo.SingleResult {
+func (l *clientImpl) AdminCommand(ctx context.Context, cmd bson.D, opts ...options.Lister[options.RunCmdOptions]) *mongo.SingleResult {
 	cmd = l.applyOptonsFromConnString(cmd)
 	return l.client.Database(defs.DB).RunCommand(ctx, cmd, opts...)
 }
@@ -387,7 +387,7 @@ type Client interface {
 	MongoOptions() *options.ClientOptions
 
 	ConfigDatabase() *mongo.Database
-	AdminCommand(ctx context.Context, cmd bson.D, opts ...*options.RunCmdOptions) *mongo.SingleResult
+	AdminCommand(ctx context.Context, cmd bson.D, opts ...options.Lister[options.RunCmdOptions]) *mongo.SingleResult
 
 	LogCollection() *mongo.Collection
 	ConfigCollection() *mongo.Collection

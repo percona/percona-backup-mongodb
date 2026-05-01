@@ -13,7 +13,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -194,7 +194,7 @@ func restoreFinishCommand() *cobra.Command {
 				string(ctrl.CmdRestore),
 				restoreName,
 				"",
-				primitive.Timestamp{},
+				bson.Timestamp{},
 			)
 
 			extFinishCmd := &restore.ExtFinishCmd{

@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -137,7 +136,7 @@ func RestoreSetRSPartTxn(ctx context.Context, m connect.Client, name, rsName str
 	return err
 }
 
-func SetCurrentOp(ctx context.Context, m connect.Client, name, rsName string, ts primitive.Timestamp) error {
+func SetCurrentOp(ctx context.Context, m connect.Client, name, rsName string, ts bson.Timestamp) error {
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
@@ -169,7 +168,7 @@ func SetRestoreMetaIfNotExists(ctx context.Context, m connect.Client, meta *Rest
 	_, err := m.RestoresCollection().UpdateOne(ctx,
 		bson.D{{"name", meta.Name}},
 		bson.D{{"$set", meta}},
-		options.Update().SetUpsert(true))
+		options.UpdateOne().SetUpsert(true))
 
 	return err
 }

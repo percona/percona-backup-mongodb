@@ -6,8 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -50,9 +49,9 @@ type BackupMeta struct {
 	FCV              string                   `bson:"fcv" json:"fcv"`
 	StartTS          int64                    `bson:"start_ts" json:"start_ts"`
 	LastTransitionTS int64                    `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     primitive.Timestamp      `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      primitive.Timestamp      `bson:"last_write_ts" json:"last_write_ts"`
-	Hb               primitive.Timestamp      `bson:"hb" json:"hb"`
+	FirstWriteTS     bson.Timestamp           `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      bson.Timestamp           `bson:"last_write_ts" json:"last_write_ts"`
+	Hb               bson.Timestamp           `bson:"hb" json:"hb"`
 	Status           defs.Status              `bson:"status" json:"status"`
 	Conditions       []Condition              `bson:"conditions" json:"conditions"`
 	Nomination       []BackupRsNomination     `bson:"n" json:"n"`
@@ -113,23 +112,23 @@ type BackupReplset struct {
 	Name string `bson:"name" json:"name"`
 
 	// Journal is not used. left for backward compatibility
-	Journal          []File              `bson:"journal,omitempty" json:"journal,omitempty"`
-	Files            []File              `bson:"files,omitempty" json:"files,omitempty"`
-	DumpName         string              `bson:"dump_name,omitempty" json:"backup_name,omitempty"`
-	OplogName        string              `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
-	StartTS          int64               `bson:"start_ts" json:"start_ts"`
-	Status           defs.Status         `bson:"status" json:"status"`
-	Size             int64               `bson:"size" json:"size"`
-	SizeUncompressed int64               `bson:"size_uncompressed" json:"size_uncompressed"`
-	IsConfigSvr      *bool               `bson:"iscs,omitempty" json:"iscs,omitempty"`
-	IsConfigShard    *bool               `bson:"configshard,omitempty" json:"configshard,omitempty"`
-	LastTransitionTS int64               `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     primitive.Timestamp `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      primitive.Timestamp `bson:"last_write_ts" json:"last_write_ts"`
-	Node             string              `bson:"node" json:"node"` // node that performed backup
-	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
-	Conditions       []Condition         `bson:"conditions" json:"conditions"`
-	MongodOpts       *topo.MongodOpts    `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
+	Journal          []File           `bson:"journal,omitempty" json:"journal,omitempty"`
+	Files            []File           `bson:"files,omitempty" json:"files,omitempty"`
+	DumpName         string           `bson:"dump_name,omitempty" json:"backup_name,omitempty"`
+	OplogName        string           `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
+	StartTS          int64            `bson:"start_ts" json:"start_ts"`
+	Status           defs.Status      `bson:"status" json:"status"`
+	Size             int64            `bson:"size" json:"size"`
+	SizeUncompressed int64            `bson:"size_uncompressed" json:"size_uncompressed"`
+	IsConfigSvr      *bool            `bson:"iscs,omitempty" json:"iscs,omitempty"`
+	IsConfigShard    *bool            `bson:"configshard,omitempty" json:"configshard,omitempty"`
+	LastTransitionTS int64            `bson:"last_transition_ts" json:"last_transition_ts"`
+	FirstWriteTS     bson.Timestamp   `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      bson.Timestamp   `bson:"last_write_ts" json:"last_write_ts"`
+	Node             string           `bson:"node" json:"node"` // node that performed backup
+	Error            string           `bson:"error,omitempty" json:"error,omitempty"`
+	Conditions       []Condition      `bson:"conditions" json:"conditions"`
+	MongodOpts       *topo.MongodOpts `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
 
 	// required for external backup (PBM-1252)
 	PBMVersion   string `bson:"pbm_version,omitempty" json:"pbm_version,omitempty"`

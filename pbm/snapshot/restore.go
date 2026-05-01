@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/mongodb/mongo-tools/common/options"
+	"github.com/mongodb/mongo-tools/common/wcwrapper"
 	"github.com/mongodb/mongo-tools/mongorestore"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -97,7 +97,7 @@ func NewRestore(uri string,
 	}
 
 	topts.Direct = true
-	topts.WriteConcern = writeconcern.Majority()
+	topts.WriteConcern = wcwrapper.Majority()
 
 	batchSize := batchSizeDefault
 	if cfg.Restore.BatchSize > 0 {

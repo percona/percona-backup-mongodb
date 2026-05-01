@@ -25,11 +25,11 @@ import (
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -131,7 +131,7 @@ type cloneNS struct {
 	fromColl string
 	toDB     string
 	toColl   string
-	toUUID   primitive.Binary
+	toUUID   bson.Binary
 }
 
 func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
@@ -142,7 +142,7 @@ func (c *cloneNS) SetNSPair(nsPair snapshot.CloneNS) {
 
 // mDBCl represents client interface for MongoDB logic used by OplogRestore
 type mDBCl interface {
-	getUUIDForNS(ctx context.Context, ns string) (primitive.Binary, error)
+	getUUIDForNS(ctx context.Context, ns string) (bson.Binary, error)
 	ensureCollExists(dbName string) error
 	applyOps(entries []interface{}) error
 }
@@ -152,8 +152,8 @@ type OplogRestore struct {
 	mdb               mDBCl
 	ver               *db.Version
 	needIdxWorkaround bool
-	startTS           primitive.Timestamp
-	endTS             primitive.Timestamp
+	startTS           bson.Timestamp
+	endTS             bson.Timestamp
 	indexCatalog      *idx.IndexCatalog
 	excludeNS         *ns.Matcher
 	includeNS         map[string]map[string]bool
@@ -237,19 +237,19 @@ func (o *OplogRestore) SetSelectiveUsersAndRolesRestore(u bool) {
 
 // SetTimeframe sets boundaries for the replayed operations. All operations
 // that happened before `start` and after `end` are going to be discarded.
-// Zero `end` (primitive.Timestamp{T:0}) means all chunks will be replayed
+// Zero `end` (bson.Timestamp{T:0}) means all chunks will be replayed
 // utill the end (no tail trim).
-func (o *OplogRestore) SetTimeframe(start, end primitive.Timestamp) {
+func (o *OplogRestore) SetTimeframe(start, end bson.Timestamp) {
 	o.startTS = start
 	o.endTS = end
 }
 
 // Apply applys an oplog from a given source
-func (o *OplogRestore) Apply(src io.ReadCloser) (primitive.Timestamp, error) {
+func (o *OplogRestore) Apply(src io.ReadCloser) (bson.Timestamp, error) {
 	bsonSource := db.NewDecodedBSONSource(db.NewBufferlessBSONSource(src))
 	defer bsonSource.Close()
 
-	var lts primitive.Timestamp
+	var lts bson.Timestamp
 
 	for {
 		rawOplogEntry := bsonSource.LoadNext()
@@ -442,7 +442,7 @@ func isConfigCollectionsDocAllowed(oe *Record, sessUUID *string) bool {
 			continue
 		}
 
-		oeUUID, ok := e.Value.(primitive.Binary)
+		oeUUID, ok := e.Value.(bson.Binary)
 		if !ok {
 			return true
 		}
@@ -484,7 +484,7 @@ func isConfigChunksDocAllowed(oe *Record, sessUUID string) bool {
 			continue
 		}
 
-		oeUUID, ok := e.Value.(primitive.Binary)
+		oeUUID, ok := e.Value.(bson.Binary)
 		if !ok {
 			return true
 		}
@@ -852,10 +852,10 @@ func (o *OplogRestore) handleTxnOp(meta txn.Meta, op db.Oplog) error {
 	// preserve it and communicate later to another shards so they can apply
 	// prepared txn if its commit didn't get into the oplog time range
 	if !meta.IsData() {
-		var cts primitive.Timestamp
+		var cts bson.Timestamp
 		for _, v := range op.Object {
 			if v.Key == "commitTimestamp" {
-				cts = v.Value.(primitive.Timestamp)
+				cts = v.Value.(bson.Timestamp)
 			}
 		}
 
@@ -915,7 +915,8 @@ func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 		// so we are assigning them from the parent transaction op
 		op.Timestamp = txnOp.Timestamp
 		op.Term = txnOp.Term
-		op.Hash = txnOp.Hash
+		// driver migration v1->v2: check this
+		// op.Hash = txnOp.Hash
 
 		ops[i] = *op
 	}
@@ -962,7 +963,7 @@ func bsonDocToOplog(doc bson.D) (*db.Oplog, error) {
 			}
 			op.Query = d
 		case "ui":
-			u, ok := v.Value.(primitive.Binary)
+			u, ok := v.Value.(bson.Binary)
 			if !ok {
 				return nil, bsonConvertError{"ui field", "not binary data"}
 			}
@@ -997,7 +998,7 @@ func (o *OplogRestore) TxnLeftovers() (uncommitted map[string]Txn, lastCommits [
 
 //nolint:nonamedreturns
 func (o *OplogRestore) HandleUncommittedTxn(
-	commits map[string]primitive.Timestamp,
+	commits map[string]bson.Timestamp,
 ) (partial, uncommitted []Txn, err error) {
 	if len(o.txnData) == 0 {
 		return nil, nil, nil
@@ -1275,7 +1276,9 @@ func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocum
 		case "key":
 			indexDocument.Key = elem.Value.(bson.D)
 		case "partialFilterExpression":
-			indexDocument.PartialFilterExpression = elem.Value.(bson.D)
+			// migration driver v1->v2: check this
+			v := elem.Value.(bson.D)
+			indexDocument.PartialFilterExpression = &v
 		default:
 			indexDocument.Options[elem.Key] = elem.Value
 		}
@@ -1308,7 +1311,9 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 					case "key":
 						indexSpec.Key = elem.Value.(bson.D)
 					case "partialFilterExpression":
-						indexSpec.PartialFilterExpression = elem.Value.(bson.D)
+						// migration driver v1->v2: check this
+						v := elem.Value.(bson.D)
+						indexSpec.PartialFilterExpression = &v
 					default:
 						indexSpec.Options[elem.Key] = elem.Value
 					}
@@ -1475,7 +1480,7 @@ func isTruthy(val interface{}) bool {
 	if val == nil {
 		return false
 	}
-	if val == (primitive.Undefined{}) {
+	if val == (bson.Undefined{}) {
 		return false
 	}
 

@@ -4,12 +4,12 @@ import (
 	"context"
 	"log"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
 func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
@@ -53,10 +53,12 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 
 	sess, err := conn.StartSession(
 		options.Session().
-			SetDefaultReadPreference(readpref.Primary()).
 			SetCausalConsistency(true).
-			SetDefaultReadConcern(readconcern.Majority()).
-			SetDefaultWriteConcern(writeconcern.Majority()))
+			SetDefaultTransactionOptions(
+				options.Transaction().
+					SetReadPreference(readpref.Primary()).
+					SetReadConcern(readconcern.Majority()).
+					SetWriteConcern(writeconcern.Majority())))
 	if err != nil {
 		log.Fatalln("ERROR: start session:", err)
 	}
@@ -82,7 +84,7 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 	// distributed transaction that commits before the backup ends
 	// should be visible after restore
 	log.Println("Run trx1")
-	_, _ = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+	_, _ = sess.WithTransaction(ctx, func(sc context.Context) (interface{}, error) {
 		c.trxSet(sc, 30, col)
 		c.trxSet(sc, 530, col)
 		c.trxSet(sc, 130, col)
@@ -102,7 +104,7 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 	log.Println("Run trx2")
 	// distributed transaction that commits after the backup ends
 	// should NOT be visible after the restore
-	_ = mongo.WithSession(ctx, sess, func(sc mongo.SessionContext) error {
+	_ = mongo.WithSession(ctx, sess, func(sc context.Context) error {
 		err := sess.StartTransaction()
 		if err != nil {
 			log.Fatalln("ERROR: start transaction:", err)

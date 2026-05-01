@@ -3,10 +3,9 @@ package sdk
 import (
 	"context"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -35,10 +34,10 @@ func IsHeartbeatStale(clusterTime, other Timestamp) bool {
 func ClusterTime(ctx context.Context, client *Client) (Timestamp, error) {
 	info, err := topo.GetNodeInfo(ctx, client.conn.MongoClient())
 	if err != nil {
-		return primitive.Timestamp{}, err
+		return bson.Timestamp{}, err
 	}
 	if info.ClusterTime == nil {
-		return primitive.Timestamp{}, ErrMissedClusterTime
+		return bson.Timestamp{}, ErrMissedClusterTime
 	}
 
 	return info.ClusterTime.ClusterTime, nil
@@ -112,15 +111,15 @@ func FindCommandIDByName(ctx context.Context, c *Client, name string) (CommandID
 }
 
 type DiagnosticReport struct {
-	OPID          string              `json:"opid" bson:"opid"`
-	ClusterTime   primitive.Timestamp `json:"cluster_time" bson:"cluster_time"`
-	ServerVersion string              `json:"server_version" bson:"server_version"`
-	FCV           string              `json:"fcv" bson:"fcv"`
-	Command       *Command            `json:"command" bson:"command"`
-	Members       []topo.Shard        `json:"replsets" bson:"replsets"`
-	Agents        []AgentStatus       `json:"agents" bson:"agents"`
-	Locks         []lock.LockData     `json:"locks,omitempty" bson:"locks,omitempty"`
-	OpLocks       []lock.LockData     `json:"op_locks,omitempty" bson:"op_locks,omitempty"`
+	OPID          string          `json:"opid" bson:"opid"`
+	ClusterTime   bson.Timestamp  `json:"cluster_time" bson:"cluster_time"`
+	ServerVersion string          `json:"server_version" bson:"server_version"`
+	FCV           string          `json:"fcv" bson:"fcv"`
+	Command       *Command        `json:"command" bson:"command"`
+	Members       []topo.Shard    `json:"replsets" bson:"replsets"`
+	Agents        []AgentStatus   `json:"agents" bson:"agents"`
+	Locks         []lock.LockData `json:"locks,omitempty" bson:"locks,omitempty"`
+	OpLocks       []lock.LockData `json:"op_locks,omitempty" bson:"op_locks,omitempty"`
 }
 
 func Diagnostic(ctx context.Context, c *Client, cid CommandID) (*DiagnosticReport, error) {

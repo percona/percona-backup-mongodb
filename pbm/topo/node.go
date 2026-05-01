@@ -5,9 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -35,8 +34,8 @@ const (
 )
 
 type OpTime struct {
-	TS   primitive.Timestamp `bson:"ts" json:"ts"`
-	Term int64               `bson:"t" json:"t"`
+	TS   bson.Timestamp `bson:"ts" json:"ts"`
+	Term int64          `bson:"t" json:"t"`
 }
 
 // MongoLastWrite represents the last write to the MongoDB server
@@ -48,10 +47,10 @@ type MongoLastWrite struct {
 }
 
 type ClusterTime struct {
-	ClusterTime primitive.Timestamp `bson:"clusterTime"`
+	ClusterTime bson.Timestamp `bson:"clusterTime"`
 	Signature   struct {
-		Hash  primitive.Binary `bson:"hash"`
-		KeyID int64            `bson:"keyId"`
+		Hash  bson.Binary `bson:"hash"`
+		KeyID int64       `bson:"keyId"`
 	} `bson:"signature"`
 }
 
@@ -70,33 +69,33 @@ type NodeBrief struct {
 
 // NodeInfo represents the mongo's node info
 type NodeInfo struct {
-	Hosts                        []string             `bson:"hosts,omitempty"`
-	Msg                          string               `bson:"msg"`
-	MaxBsonObjectSise            int64                `bson:"maxBsonObjectSize"`
-	MaxMessageSizeBytes          int64                `bson:"maxMessageSizeBytes"`
-	MaxWriteBatchSize            int64                `bson:"maxWriteBatchSize"`
-	LocalTime                    time.Time            `bson:"localTime"`
-	LogicalSessionTimeoutMinutes int64                `bson:"logicalSessionTimeoutMinutes"`
-	MaxWireVersion               int64                `bson:"maxWireVersion"`
-	MinWireVersion               int64                `bson:"minWireVersion"`
-	OK                           int                  `bson:"ok"`
-	SetName                      string               `bson:"setName,omitempty"`
-	Primary                      string               `bson:"primary,omitempty"`
-	SetVersion                   int32                `bson:"setVersion,omitempty"`
-	IsPrimary                    bool                 `bson:"isWritablePrimary"`
-	Secondary                    bool                 `bson:"secondary,omitempty"`
-	Hidden                       bool                 `bson:"hidden,omitempty"`
-	Passive                      bool                 `bson:"passive,omitempty"`
-	ArbiterOnly                  bool                 `bson:"arbiterOnly"`
-	SecondaryDelayOld            int32                `bson:"slaveDelay"`
-	SecondaryDelaySecs           int32                `bson:"secondaryDelaySecs"`
-	ConfigSvr                    int                  `bson:"configsvr,omitempty"`
-	Me                           string               `bson:"me"`
-	LastWrite                    MongoLastWrite       `bson:"lastWrite"`
-	ClusterTime                  *ClusterTime         `bson:"$clusterTime,omitempty"`
-	ConfigServerState            *ConfigServerState   `bson:"$configServerState,omitempty"`
-	OperationTime                *primitive.Timestamp `bson:"operationTime,omitempty"`
-	Opts                         MongodOpts           `bson:"-"`
+	Hosts                        []string           `bson:"hosts,omitempty"`
+	Msg                          string             `bson:"msg"`
+	MaxBsonObjectSise            int64              `bson:"maxBsonObjectSize"`
+	MaxMessageSizeBytes          int64              `bson:"maxMessageSizeBytes"`
+	MaxWriteBatchSize            int64              `bson:"maxWriteBatchSize"`
+	LocalTime                    time.Time          `bson:"localTime"`
+	LogicalSessionTimeoutMinutes int64              `bson:"logicalSessionTimeoutMinutes"`
+	MaxWireVersion               int64              `bson:"maxWireVersion"`
+	MinWireVersion               int64              `bson:"minWireVersion"`
+	OK                           int                `bson:"ok"`
+	SetName                      string             `bson:"setName,omitempty"`
+	Primary                      string             `bson:"primary,omitempty"`
+	SetVersion                   int32              `bson:"setVersion,omitempty"`
+	IsPrimary                    bool               `bson:"isWritablePrimary"`
+	Secondary                    bool               `bson:"secondary,omitempty"`
+	Hidden                       bool               `bson:"hidden,omitempty"`
+	Passive                      bool               `bson:"passive,omitempty"`
+	ArbiterOnly                  bool               `bson:"arbiterOnly"`
+	SecondaryDelayOld            int32              `bson:"slaveDelay"`
+	SecondaryDelaySecs           int32              `bson:"secondaryDelaySecs"`
+	ConfigSvr                    int                `bson:"configsvr,omitempty"`
+	Me                           string             `bson:"me"`
+	LastWrite                    MongoLastWrite     `bson:"lastWrite"`
+	ClusterTime                  *ClusterTime       `bson:"$clusterTime,omitempty"`
+	ConfigServerState            *ConfigServerState `bson:"$configServerState,omitempty"`
+	OperationTime                *bson.Timestamp    `bson:"operationTime,omitempty"`
+	Opts                         MongodOpts         `bson:"-"`
 }
 
 func (i *NodeInfo) IsDelayed() bool {
