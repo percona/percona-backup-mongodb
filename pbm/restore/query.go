@@ -287,7 +287,7 @@ func (d *mDB) runCmdShardsvrDropDatabase(
 	cmd := bson.D{
 		{"_shardsvrDropDatabase", 1},
 		{"databaseVersion", configDBDoc.Version},
-		{"writeConcern", writeconcern.Majority()},
+		{"writeConcern", bson.D{{"w", writeconcern.WCMajority}}},
 	}
 	res := d.nodeConn.Database(db).RunCommand(ctx, cmd)
 	return errors.Wrapf(res.Err(), "_shardsvrDropDatabase for %q", db)
@@ -305,7 +305,7 @@ func (d *mDB) runCmdShardsvrDropCollection(
 	cmd := bson.D{
 		{"_shardsvrDropCollection", coll},
 		{"databaseVersion", configDBDoc.Version},
-		{"writeConcern", writeconcern.Majority()},
+		{"writeConcern", bson.D{{"w", writeconcern.WCMajority}}},
 	}
 	res := d.nodeConn.Database(db).RunCommand(ctx, cmd)
 	return errors.Wrapf(

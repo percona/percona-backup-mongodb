@@ -91,7 +91,7 @@ func IsWriteMajorityRequested(
 ) (bool, error) {
 	if writeConcern == nil ||
 		!writeConcern.IsValid() ||
-		writeConcern == writeconcern.Majority() {
+		*writeConcern == *writeconcern.Majority() {
 		return true, nil
 	}
 

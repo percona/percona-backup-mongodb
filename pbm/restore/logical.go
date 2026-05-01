@@ -945,7 +945,7 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 
 		err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
 		if err != nil {
-			return errors.Wrap(err, "full restore cleanup")
+			return errors.Wrap(err, "run cmd")
 		}
 		r.log.Debug("drop %q", db)
 	}
