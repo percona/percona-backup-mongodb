@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -458,6 +459,97 @@ func TestConfig(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("restore config", func(t *testing.T) {
+		emptyCfg := &Config{
+			Storage: StorageConf{Type: storage.Blackhole},
+		}
+		err := SetConfig(ctx, connClient, emptyCfg)
+		require.NoError(t, err)
+
+		testCases := []struct {
+			desc  string
+			param string
+			val   string
+			check func(t *testing.T, cfg *Config)
+		}{
+			{
+				desc:  "indexCommitQuorum",
+				param: "restore.indexCommitQuorum",
+				val:   "majority",
+				check: func(t *testing.T, cfg *Config) {
+					t.Helper()
+					require.NotNil(t, cfg.Restore)
+					assert.Equal(t, "majority", cfg.Restore.IndexCommitQuorum)
+				},
+			},
+		}
+
+		for _, tt := range testCases {
+			t.Run(tt.desc, func(t *testing.T) {
+				err := SetConfigVar(ctx, connClient, tt.param, tt.val)
+				require.NoError(t, err)
+
+				got, err := GetConfigVar(ctx, connClient, tt.param)
+				require.NoError(t, err)
+				assert.Equal(t, tt.val, got)
+
+				gotCfg, err := GetConfig(ctx, connClient)
+				require.NoError(t, err)
+				tt.check(t, gotCfg)
+			})
+		}
+
+		err = SetConfigVar(ctx, connClient, "restore.indexCommitQuorum", "whatever")
+		require.Error(t, err)
+
+		err = SetConfig(ctx, connClient, &Config{
+			Storage: StorageConf{Type: storage.Blackhole},
+			Restore: &RestoreConf{IndexCommitQuorum: "0"},
+		})
+		require.Error(t, err)
+	})
+}
+
+func TestValidateIndexCommitQuorum(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "empty", value: ""},
+		{name: "majority", value: "majority"},
+		{name: "votingMembers", value: "votingMembers"},
+		{name: "positive integer", value: "3"},
+		{name: "zero", value: "0", wantErr: true},
+		{name: "negative integer", value: "-1", wantErr: true},
+		{name: "unknown string", value: "whatever", wantErr: true},
+		{name: "leading whitespace", value: " majority", wantErr: true},
+		{name: "trailing whitespace", value: "majority ", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateIndexCommitQuorum(tt.value)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestParseRestoreIndexCommitQuorum(t *testing.T) {
+	cfg, err := Parse(strings.NewReader(`
+storage:
+  type: blackhole
+restore:
+  indexCommitQuorum: votingMembers
+`))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Restore)
+	assert.Equal(t, "votingMembers", cfg.Restore.IndexCommitQuorum)
 }
 
 func TestSanitizeStoragePaths(t *testing.T) {

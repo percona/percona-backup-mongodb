@@ -252,6 +252,11 @@
 ## Default value is half of the number of CPU cores.
 #  numParallelCollections:
 
+## Set the commit quorum for index creation during logical restore.
+## Supported values are majority, votingMembers, or a positive integer.
+## Default value is majority.
+#  indexCommitQuorum: majority
+
 ## Adjust concurrent download of data chunks from storage for physical restore.
 #  numDownloadWorkers:
 #  maxDownloadBufferMb:
@@ -276,4 +281,3 @@
 
 ## Output logs in JSON format.
 #  json: true
-
