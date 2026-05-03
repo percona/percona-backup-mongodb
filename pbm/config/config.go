@@ -399,10 +399,10 @@ type RestoreConf struct {
 	// Logical restore
 	//
 	// num of documents to buffer
-	BatchSize              int    `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
-	NumInsertionWorkers    int    `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
-	NumParallelCollections int    `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
-	IndexCommitQuorum      string `bson:"indexCommitQuorum,omitempty" json:"indexCommitQuorum,omitempty" yaml:"indexCommitQuorum,omitempty"`
+	BatchSize              int                    `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
+	NumInsertionWorkers    int                    `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	NumParallelCollections int                    `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
+	IndexCommitQuorum      defs.IndexCommitQuorum `bson:"indexCommitQuorum,omitempty" json:"indexCommitQuorum,omitempty" yaml:"indexCommitQuorum,omitempty"`
 
 	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
 	// during the download. By default, it's set to GOMAXPROCS.
@@ -477,22 +477,12 @@ func (cfg *RestoreConf) GetAllowPartlyDone() bool {
 	return true
 }
 
-func ValidateIndexCommitQuorum(v string) error {
-	if strings.TrimSpace(v) != v {
-		return errors.New("restore.indexCommitQuorum must not contain leading or trailing whitespace")
+func (cfg *RestoreConf) GetIndexCommitQuorum() defs.IndexCommitQuorum {
+	if cfg != nil && cfg.IndexCommitQuorum != "" {
+		return cfg.IndexCommitQuorum
 	}
 
-	switch v {
-	case "", "majority", "votingMembers":
-		return nil
-	}
-
-	n, err := strconv.ParseInt(v, 10, 32)
-	if err != nil || n <= 0 {
-		return errors.Errorf("invalid restore.indexCommitQuorum %q", v)
-	}
-
-	return nil
+	return defs.DefaultRestoreIndexCommitQuorum
 }
 
 //nolint:lll
@@ -613,7 +603,7 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 		}
 	}
 	if cfg.Restore != nil {
-		if err := ValidateIndexCommitQuorum(cfg.Restore.IndexCommitQuorum); err != nil {
+		if err := defs.ValidateIndexCommitQuorum(cfg.Restore.IndexCommitQuorum); err != nil {
 			return err
 		}
 	}
@@ -689,7 +679,7 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 			return errors.Errorf("unsupported compression type: %q", c)
 		}
 	case "restore.indexCommitQuorum":
-		if err := ValidateIndexCommitQuorum(v.(string)); err != nil {
+		if err := defs.ValidateIndexCommitQuorum(defs.IndexCommitQuorum(v.(string))); err != nil {
 			return err
 		}
 	case "storage.filesystem.path":

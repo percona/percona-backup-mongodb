@@ -1318,6 +1318,7 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 			{"createIndexes", ns.Collection},
 			{"indexes", indexes},
 			{"ignoreUnknownIndexOptions", true},
+			{"commitQuorum", r.cfg.Restore.GetIndexCommitQuorum().CommandValue()},
 		}
 
 		r.log.Info("restoring indexes for %s.%s: %s",

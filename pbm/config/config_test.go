@@ -19,6 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
@@ -476,11 +477,11 @@ func TestConfig(t *testing.T) {
 			{
 				desc:  "indexCommitQuorum",
 				param: "restore.indexCommitQuorum",
-				val:   "majority",
+				val:   string(defs.IndexCommitQuorumMajority),
 				check: func(t *testing.T, cfg *Config) {
 					t.Helper()
 					require.NotNil(t, cfg.Restore)
-					assert.Equal(t, "majority", cfg.Restore.IndexCommitQuorum)
+					assert.Equal(t, defs.IndexCommitQuorumMajority, cfg.Restore.IndexCommitQuorum)
 				},
 			},
 		}
@@ -511,31 +512,25 @@ func TestConfig(t *testing.T) {
 	})
 }
 
-func TestValidateIndexCommitQuorum(t *testing.T) {
+func TestRestoreConfGetIndexCommitQuorum(t *testing.T) {
 	tests := []struct {
-		name    string
-		value   string
-		wantErr bool
+		name string
+		cfg  *RestoreConf
+		want defs.IndexCommitQuorum
 	}{
-		{name: "empty", value: ""},
-		{name: "majority", value: "majority"},
-		{name: "votingMembers", value: "votingMembers"},
-		{name: "positive integer", value: "3"},
-		{name: "zero", value: "0", wantErr: true},
-		{name: "negative integer", value: "-1", wantErr: true},
-		{name: "unknown string", value: "whatever", wantErr: true},
-		{name: "leading whitespace", value: " majority", wantErr: true},
-		{name: "trailing whitespace", value: "majority ", wantErr: true},
+		{name: "nil config", cfg: nil, want: defs.DefaultRestoreIndexCommitQuorum},
+		{name: "empty value", cfg: &RestoreConf{}, want: defs.DefaultRestoreIndexCommitQuorum},
+		{
+			name: "configured string value",
+			cfg:  &RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
+			want: defs.IndexCommitQuorumVotingMembers,
+		},
+		{name: "configured numeric value", cfg: &RestoreConf{IndexCommitQuorum: "3"}, want: "3"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateIndexCommitQuorum(tt.value)
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
+			assert.Equal(t, tt.want, tt.cfg.GetIndexCommitQuorum())
 		})
 	}
 }
@@ -549,7 +544,7 @@ restore:
 `))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Restore)
-	assert.Equal(t, "votingMembers", cfg.Restore.IndexCommitQuorum)
+	assert.Equal(t, defs.IndexCommitQuorumVotingMembers, cfg.Restore.IndexCommitQuorum)
 }
 
 func TestSanitizeStoragePaths(t *testing.T) {
