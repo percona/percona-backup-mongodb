@@ -148,9 +148,9 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 
 		numParallelColls := getNumParallelCollsConfig(r.NumParallelColls, cfg.Restore)
 		numInsertionWorkersPerCol := getNumInsertionWorkersConfig(r.NumInsertionWorkers, cfg.Restore)
-		indexCommitQuorum, err := resolveIndexCommitQuorum(r.IndexCommitQuorum, cfg.Restore)
-		if err != nil {
-			l.Error("resolve index commit quorum: %v", err)
+		indexCommitQuorum, qerr := resolveIndexCommitQuorum(r.IndexCommitQuorum, cfg.Restore)
+		if qerr != nil {
+			l.Error("resolve index commit quorum: %v", qerr)
 			return
 		}
 
