@@ -125,7 +125,7 @@ func (l *Lock) log(ctx context.Context) error {
 	// PITR slicing technically speaking is not an OP but
 	// long standing process. It souldn't be logged. Moreover
 	// having no opid it would block all subsequent PITR events.
-	if l.LockHeader.Type == ctrl.CmdPITR {
+	if l.Type == ctrl.CmdPITR {
 		return nil
 	}
 

@@ -136,7 +136,7 @@ func status(
 	}
 
 	var sfilter map[string]bool
-	if opts.sections != nil && len(opts.sections) > 0 {
+	if len(opts.sections) > 0 {
 		sfilter = make(map[string]bool)
 		for _, s := range opts.sections {
 			sfilter[s] = true

@@ -49,7 +49,7 @@ func keys(t reflect.Type) confMap {
 		name := strings.TrimSpace(strings.Split(t.Field(i).Tag.Get("bson"), ",")[0])
 
 		typ := t.Field(i).Type
-		if typ.Kind() == reflect.Ptr {
+		if typ.Kind() == reflect.Pointer {
 			typ = typ.Elem()
 		}
 		if typ.Kind() == reflect.Struct {

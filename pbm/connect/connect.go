@@ -307,7 +307,11 @@ func (l *clientImpl) ConfigDatabase() *mongo.Database {
 	return l.client.Database("config")
 }
 
-func (l *clientImpl) AdminCommand(ctx context.Context, cmd bson.D, opts ...options.Lister[options.RunCmdOptions]) *mongo.SingleResult {
+func (l *clientImpl) AdminCommand(
+	ctx context.Context,
+	cmd bson.D,
+	opts ...options.Lister[options.RunCmdOptions],
+) *mongo.SingleResult {
 	cmd = l.applyOptonsFromConnString(cmd)
 	return l.client.Database(defs.DB).RunCommand(ctx, cmd, opts...)
 }
