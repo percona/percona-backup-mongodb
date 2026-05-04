@@ -757,7 +757,7 @@ func createCleanupRestoreTest(t *testing.T, setName string) (*Restore, *mockMDB)
 			SetName: setName,
 			Sharded: true,
 		},
-		nil, nil, 1, 1)
+		nil, nil, 1, 1, defs.DefaultRestoreIndexCommitQuorum)
 	restore.log = pbmlog.DiscardEvent
 	restore.nodeInfo = &topo.NodeInfo{
 		SetName:           setName,

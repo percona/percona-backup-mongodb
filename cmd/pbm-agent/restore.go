@@ -148,8 +148,22 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 
 		numParallelColls := getNumParallelCollsConfig(r.NumParallelColls, cfg.Restore)
 		numInsertionWorkersPerCol := getNumInsertionWorkersConfig(r.NumInsertionWorkers, cfg.Restore)
+		indexCommitQuorum, err := resolveIndexCommitQuorum(r.IndexCommitQuorum, cfg.Restore)
+		if err != nil {
+			l.Error("resolve index commit quorum: %v", err)
+			return
+		}
 
-		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
+		rr := restore.New(
+			a.leadConn,
+			a.nodeConn,
+			a.brief,
+			cfg,
+			r.RSMap,
+			numParallelColls,
+			numInsertionWorkersPerCol,
+			indexCommitQuorum,
+		)
 		if r.OplogTS.IsZero() {
 			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {
@@ -232,6 +246,22 @@ func getNumInsertionWorkersConfig(rInsWorkers *int32, restoreConf *config.Restor
 		numInsertionWorkersPerCol = restoreConf.NumInsertionWorkers
 	}
 	return numInsertionWorkersPerCol
+}
+
+func resolveIndexCommitQuorum(
+	cmdQuorum defs.IndexCommitQuorum,
+	restoreConf *config.RestoreConf,
+) (defs.IndexCommitQuorum, error) {
+	q := restoreConf.GetIndexCommitQuorum()
+	if cmdQuorum != "" {
+		q = cmdQuorum
+	}
+
+	if err := defs.ValidateIndexCommitQuorum(q); err != nil {
+		return "", err
+	}
+
+	return q, nil
 }
 
 func addRestoreMetaWithError(

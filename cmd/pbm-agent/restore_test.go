@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetNumInsertionWorkersConfig(t *testing.T) {
@@ -148,6 +151,66 @@ func TestGetNumParallelCollsConfig(t *testing.T) {
 			if got := getNumParallelCollsConfig(tt.args.rParallelColls, tt.args.restoreConf); got != tt.want {
 				t.Errorf("getNumParallelCollsConfig() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestResolveIndexCommitQuorum(t *testing.T) {
+	tests := []struct {
+		name        string
+		cmdQuorum   defs.IndexCommitQuorum
+		restoreConf *config.RestoreConf
+		want        defs.IndexCommitQuorum
+		wantErr     bool
+	}{
+		{
+			name: "default without command or config",
+			want: defs.DefaultRestoreIndexCommitQuorum,
+		},
+		{
+			name:        "config value",
+			restoreConf: &config.RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
+			want:        defs.IndexCommitQuorumVotingMembers,
+		},
+		{
+			name:      "command value",
+			cmdQuorum: "3",
+			want:      "3",
+		},
+		{
+			name:        "command overrides config",
+			cmdQuorum:   "3",
+			restoreConf: &config.RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
+			want:        "3",
+		},
+		{
+			name:        "empty command value falls back to config",
+			cmdQuorum:   "",
+			restoreConf: &config.RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
+			want:        defs.IndexCommitQuorumVotingMembers,
+		},
+		{
+			name:      "invalid command value",
+			cmdQuorum: "whatever",
+			wantErr:   true,
+		},
+		{
+			name:        "invalid config value",
+			restoreConf: &config.RestoreConf{IndexCommitQuorum: "whatever"},
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveIndexCommitQuorum(tt.cmdQuorum, tt.restoreConf)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

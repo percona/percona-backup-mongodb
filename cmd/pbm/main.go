@@ -834,6 +834,10 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 			"increasing the number of insertion workers may increase the speed of the import.",
 	)
 	restoreCmd.Flags().StringVar(
+		&restoreOptions.indexCommitQuorum, "index-commit-quorum", "",
+		"Index commit quorum for logical restore index builds: majority, votingMembers, or a positive integer.",
+	)
+	restoreCmd.Flags().StringVar(
 		&restoreOptions.ns, "ns", "",
 		`Namespaces to restore (e.g. "db1.*,db2.collection2"). If not set, restore all ("*.*")`,
 	)
