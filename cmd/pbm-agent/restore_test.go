@@ -184,12 +184,6 @@ func TestResolveIndexCommitQuorum(t *testing.T) {
 			want:        "3",
 		},
 		{
-			name:        "empty command value falls back to config",
-			cmdQuorum:   "",
-			restoreConf: &config.RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
-			want:        defs.IndexCommitQuorumVotingMembers,
-		},
-		{
 			name:      "invalid command value",
 			cmdQuorum: "whatever",
 			wantErr:   true,

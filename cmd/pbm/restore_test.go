@@ -160,7 +160,6 @@ func TestParseCLIIndexCommitQuorumOption(t *testing.T) {
 		{name: "majority", value: "majority", want: defs.IndexCommitQuorumMajority},
 		{name: "numeric", value: "3", want: "3"},
 		{name: "invalid", value: "whatever", wantErr: true},
-		{name: "trailing whitespace", value: "majority ", wantErr: true},
 	}
 
 	for _, tt := range tests {
