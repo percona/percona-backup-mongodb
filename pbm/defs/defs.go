@@ -211,7 +211,7 @@ const (
 	IndexCommitQuorumVotingMembers IndexCommitQuorum = "votingMembers"
 )
 
-const DefaultRestoreIndexCommitQuorum = IndexCommitQuorumMajority
+const DefaultRestoreIndexCommitQuorum = IndexCommitQuorumVotingMembers
 
 // CommandValue returns the value shape expected by MongoDB's createIndexes
 // commitQuorum field. MongoDB accepts symbolic string values or an integer

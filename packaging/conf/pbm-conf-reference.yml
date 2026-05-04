@@ -254,8 +254,8 @@
 
 ## Set the commit quorum for index creation during logical restore.
 ## Supported values are majority, votingMembers, or a positive integer.
-## Default value is majority.
-#  indexCommitQuorum: majority
+## Default value is votingMembers.
+#  indexCommitQuorum: votingMembers
 
 ## Adjust concurrent download of data chunks from storage for physical restore.
 #  numDownloadWorkers:
