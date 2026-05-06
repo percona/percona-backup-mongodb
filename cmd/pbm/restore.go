@@ -58,6 +58,7 @@ type restoreOpts struct {
 
 	numParallelColls    int32
 	numInsertionWorkers int32
+	indexCommitQuorum   string
 }
 
 type restoreRet struct {
@@ -132,6 +133,10 @@ func runRestore(
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --num-insertion-workers option")
 	}
+	indexCommitQuorum, err := parseCLIIndexCommitQuorumOption(o.indexCommitQuorum)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --index-commit-quorum option")
+	}
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --ns option")
@@ -179,7 +184,18 @@ func runRestore(
 		return nil, errors.Wrap(err, "get storage")
 	}
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap)
+	m, err := doRestore(
+		ctx,
+		conn,
+		o,
+		numParallelColls,
+		numInsertionWorkers,
+		indexCommitQuorum,
+		nss,
+		o.nsFrom,
+		o.nsTo,
+		rsMap,
+	)
 	if err != nil {
 		if errors.Is(err, errUserCanceled) {
 			return outMsg{err.Error()}, nil
@@ -444,6 +460,7 @@ func doRestore(
 	o *restoreOpts,
 	numParallelColls *int32,
 	numInsertionWorkers *int32,
+	indexCommitQuorum config.IndexCommitQuorum,
 	nss []string,
 	nsFrom string,
 	nsTo string,
@@ -470,6 +487,7 @@ func doRestore(
 			BackupName:          bcp,
 			NumParallelColls:    numParallelColls,
 			NumInsertionWorkers: numInsertionWorkers,
+			IndexCommitQuorum:   indexCommitQuorum,
 			Namespaces:          nss,
 			NamespaceFrom:       nsFrom,
 			NamespaceTo:         nsTo,
@@ -895,4 +913,17 @@ func parseCLINumInsertionWorkersOption(value int32) (*int32, error) {
 	}
 
 	return &value, nil
+}
+
+func parseCLIIndexCommitQuorumOption(value string) (config.IndexCommitQuorum, error) {
+	if value == "" {
+		return "", nil
+	}
+
+	q := config.IndexCommitQuorum(value)
+	if err := config.ValidateIndexCommitQuorum(q); err != nil {
+		return "", err
+	}
+
+	return q, nil
 }
