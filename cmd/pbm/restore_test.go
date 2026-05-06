@@ -4,6 +4,10 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/percona/percona-backup-mongodb/pbm/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCloningValidation(t *testing.T) {
@@ -141,6 +145,33 @@ func TestParseCLINumInsertionWorkersOption(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parseCLINumInsertionWorkersOption() got = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestParseCLIIndexCommitQuorumOption(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    config.IndexCommitQuorum
+		wantErr bool
+	}{
+		{name: "empty", value: "", want: ""},
+		{name: "majority", value: "majority", want: config.IndexCommitQuorumMajority},
+		{name: "numeric", value: "3", want: "3"},
+		{name: "invalid", value: "whatever", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseCLIIndexCommitQuorumOption(tt.value)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

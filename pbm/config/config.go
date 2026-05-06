@@ -399,9 +399,10 @@ type RestoreConf struct {
 	// Logical restore
 	//
 	// num of documents to buffer
-	BatchSize              int `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
-	NumInsertionWorkers    int `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
-	NumParallelCollections int `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
+	BatchSize              int               `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
+	NumInsertionWorkers    int               `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
+	NumParallelCollections int               `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
+	IndexCommitQuorum      IndexCommitQuorum `bson:"indexCommitQuorum,omitempty" json:"indexCommitQuorum,omitempty" yaml:"indexCommitQuorum,omitempty"`
 
 	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
 	// during the download. By default, it's set to GOMAXPROCS.
@@ -474,6 +475,14 @@ func (cfg *RestoreConf) GetAllowPartlyDone() bool {
 		return *cfg.AllowPartlyDone
 	}
 	return true
+}
+
+func (cfg *RestoreConf) GetIndexCommitQuorum() IndexCommitQuorum {
+	if cfg != nil && cfg.IndexCommitQuorum != "" {
+		return cfg.IndexCommitQuorum
+	}
+
+	return DefaultRestoreIndexCommitQuorum
 }
 
 //nolint:lll
@@ -593,6 +602,11 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 			return errors.Errorf("unsupported compression type: %q", c)
 		}
 	}
+	if cfg.Restore != nil {
+		if err := ValidateIndexCommitQuorum(cfg.Restore.IndexCommitQuorum); err != nil {
+			return err
+		}
+	}
 
 	ct, err := topo.GetClusterTime(ctx, m)
 	if err != nil {
@@ -663,6 +677,10 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 	case "pitr.compression":
 		if c := v.(string); c != "" && !compress.IsValidCompressionType(c) {
 			return errors.Errorf("unsupported compression type: %q", c)
+		}
+	case "restore.indexCommitQuorum":
+		if err := ValidateIndexCommitQuorum(IndexCommitQuorum(v.(string))); err != nil {
+			return err
 		}
 	case "storage.filesystem.path":
 		if v.(string) == "" {

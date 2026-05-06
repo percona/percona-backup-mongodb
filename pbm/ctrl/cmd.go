@@ -161,8 +161,9 @@ type RestoreCmd struct {
 	Fallback        *bool             `bson:"fallbackEnabled"`
 	AllowPartlyDone *bool             `bson:"allowPartlyDone"`
 
-	NumParallelColls    *int32 `bson:"numParallelColls,omitempty"`
-	NumInsertionWorkers *int32 `bson:"numInsertionWorkers,omitempty"`
+	NumParallelColls    *int32                   `bson:"numParallelColls,omitempty"`
+	NumInsertionWorkers *int32                   `bson:"numInsertionWorkers,omitempty"`
+	IndexCommitQuorum   config.IndexCommitQuorum `bson:"indexCommitQuorum,omitempty"`
 
 	OplogTS primitive.Timestamp `bson:"oplogTS,omitempty"`
 

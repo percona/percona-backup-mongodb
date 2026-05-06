@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	pbmlog "github.com/percona/percona-backup-mongodb/pbm/log"
@@ -757,7 +758,7 @@ func createCleanupRestoreTest(t *testing.T, setName string) (*Restore, *mockMDB)
 			SetName: setName,
 			Sharded: true,
 		},
-		nil, nil, 1, 1)
+		nil, nil, 1, 1, config.DefaultRestoreIndexCommitQuorum)
 	restore.log = pbmlog.DiscardEvent
 	restore.nodeInfo = &topo.NodeInfo{
 		SetName:           setName,

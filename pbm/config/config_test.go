@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -458,6 +459,91 @@ func TestConfig(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("restore config", func(t *testing.T) {
+		emptyCfg := &Config{
+			Storage: StorageConf{Type: storage.Blackhole},
+		}
+		err := SetConfig(ctx, connClient, emptyCfg)
+		require.NoError(t, err)
+
+		testCases := []struct {
+			desc  string
+			param string
+			val   string
+			check func(t *testing.T, cfg *Config)
+		}{
+			{
+				desc:  "indexCommitQuorum",
+				param: "restore.indexCommitQuorum",
+				val:   string(IndexCommitQuorumMajority),
+				check: func(t *testing.T, cfg *Config) {
+					t.Helper()
+					require.NotNil(t, cfg.Restore)
+					assert.Equal(t, IndexCommitQuorumMajority, cfg.Restore.IndexCommitQuorum)
+				},
+			},
+		}
+
+		for _, tt := range testCases {
+			t.Run(tt.desc, func(t *testing.T) {
+				err := SetConfigVar(ctx, connClient, tt.param, tt.val)
+				require.NoError(t, err)
+
+				got, err := GetConfigVar(ctx, connClient, tt.param)
+				require.NoError(t, err)
+				assert.Equal(t, tt.val, got)
+
+				gotCfg, err := GetConfig(ctx, connClient)
+				require.NoError(t, err)
+				tt.check(t, gotCfg)
+			})
+		}
+
+		err = SetConfigVar(ctx, connClient, "restore.indexCommitQuorum", "whatever")
+		require.Error(t, err)
+
+		err = SetConfig(ctx, connClient, &Config{
+			Storage: StorageConf{Type: storage.Blackhole},
+			Restore: &RestoreConf{IndexCommitQuorum: "0"},
+		})
+		require.Error(t, err)
+	})
+}
+
+func TestRestoreConfGetIndexCommitQuorum(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *RestoreConf
+		want IndexCommitQuorum
+	}{
+		{name: "nil config", cfg: nil, want: DefaultRestoreIndexCommitQuorum},
+		{name: "empty value", cfg: &RestoreConf{}, want: DefaultRestoreIndexCommitQuorum},
+		{
+			name: "configured string value",
+			cfg:  &RestoreConf{IndexCommitQuorum: IndexCommitQuorumVotingMembers},
+			want: IndexCommitQuorumVotingMembers,
+		},
+		{name: "configured numeric value", cfg: &RestoreConf{IndexCommitQuorum: "3"}, want: "3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.cfg.GetIndexCommitQuorum())
+		})
+	}
+}
+
+func TestParseRestoreIndexCommitQuorum(t *testing.T) {
+	cfg, err := Parse(strings.NewReader(`
+storage:
+  type: blackhole
+restore:
+  indexCommitQuorum: votingMembers
+`))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Restore)
+	assert.Equal(t, IndexCommitQuorumVotingMembers, cfg.Restore.IndexCommitQuorum)
 }
 
 func TestSanitizeStoragePaths(t *testing.T) {

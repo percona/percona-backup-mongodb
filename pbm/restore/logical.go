@@ -57,6 +57,7 @@ type Restore struct {
 
 	numParallelColls          int
 	numInsertionWorkersPerCol int
+	indexCommitQuorum         config.IndexCommitQuorum
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok. Only these shards
 	// would be expected to run restore (distributed transactions sync,
@@ -104,6 +105,7 @@ func New(
 	rsMap map[string]string,
 	numParallelColls,
 	numInsertionWorkersPerCol int,
+	indexCommitQuorum config.IndexCommitQuorum,
 ) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)
@@ -120,6 +122,7 @@ func New(
 
 		numParallelColls:          numParallelColls,
 		numInsertionWorkersPerCol: numInsertionWorkersPerCol,
+		indexCommitQuorum:         indexCommitQuorum,
 		indexCatalog:              idx.NewIndexCatalog(),
 	}
 }
@@ -1318,6 +1321,7 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 			{"createIndexes", ns.Collection},
 			{"indexes", indexes},
 			{"ignoreUnknownIndexOptions", true},
+			{"commitQuorum", r.indexCommitQuorum.CommandValue()},
 		}
 
 		r.log.Info("restoring indexes for %s.%s: %s",
