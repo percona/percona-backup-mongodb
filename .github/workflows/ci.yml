@@ -69,11 +69,13 @@ jobs:
 
       - name: Determine test branch
         id: test_branch
+        env:
+          TESTS_VER: ${{ github.event.inputs.tests_ver }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          if [ -n "${{ github.event.inputs.tests_ver }}" ]; then
-            echo "branch=${{ github.event.inputs.tests_ver }}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ github.event.pull_request.title }}" ]; then
-            PR_TITLE="${{ github.event.pull_request.title }}"
+          if [ -n "$TESTS_VER" ]; then
+            echo "branch=$TESTS_VER" >> $GITHUB_OUTPUT
+          elif [ -n "$PR_TITLE" ]; then
             echo "PR title: $PR_TITLE"
             BRANCH_TO_CHECK=$(echo "$PR_TITLE" | grep -oE 'PBM-[0-9]+' | head -1)
             if [ -n "$BRANCH_TO_CHECK" ]; then
