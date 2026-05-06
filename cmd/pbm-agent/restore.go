@@ -249,15 +249,15 @@ func getNumInsertionWorkersConfig(rInsWorkers *int32, restoreConf *config.Restor
 }
 
 func resolveIndexCommitQuorum(
-	cmdQuorum defs.IndexCommitQuorum,
+	cmdQuorum config.IndexCommitQuorum,
 	restoreConf *config.RestoreConf,
-) (defs.IndexCommitQuorum, error) {
+) (config.IndexCommitQuorum, error) {
 	q := restoreConf.GetIndexCommitQuorum()
 	if cmdQuorum != "" {
 		q = cmdQuorum
 	}
 
-	if err := defs.ValidateIndexCommitQuorum(q); err != nil {
+	if err := config.ValidateIndexCommitQuorum(q); err != nil {
 		return "", err
 	}
 

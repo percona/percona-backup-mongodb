@@ -461,7 +461,7 @@ func doRestore(
 	o *restoreOpts,
 	numParallelColls *int32,
 	numInsertionWorkers *int32,
-	indexCommitQuorum defs.IndexCommitQuorum,
+	indexCommitQuorum config.IndexCommitQuorum,
 	nss []string,
 	nsFrom string,
 	nsTo string,
@@ -916,13 +916,13 @@ func parseCLINumInsertionWorkersOption(value int32) (*int32, error) {
 	return &value, nil
 }
 
-func parseCLIIndexCommitQuorumOption(value string) (defs.IndexCommitQuorum, error) {
+func parseCLIIndexCommitQuorumOption(value string) (config.IndexCommitQuorum, error) {
 	if value == "" {
 		return "", nil
 	}
 
-	q := defs.IndexCommitQuorum(value)
-	if err := defs.ValidateIndexCommitQuorum(q); err != nil {
+	q := config.IndexCommitQuorum(value)
+	if err := config.ValidateIndexCommitQuorum(q); err != nil {
 		return "", err
 	}
 

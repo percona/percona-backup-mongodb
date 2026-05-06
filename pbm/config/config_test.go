@@ -19,7 +19,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
-	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
@@ -477,11 +476,11 @@ func TestConfig(t *testing.T) {
 			{
 				desc:  "indexCommitQuorum",
 				param: "restore.indexCommitQuorum",
-				val:   string(defs.IndexCommitQuorumMajority),
+				val:   string(IndexCommitQuorumMajority),
 				check: func(t *testing.T, cfg *Config) {
 					t.Helper()
 					require.NotNil(t, cfg.Restore)
-					assert.Equal(t, defs.IndexCommitQuorumMajority, cfg.Restore.IndexCommitQuorum)
+					assert.Equal(t, IndexCommitQuorumMajority, cfg.Restore.IndexCommitQuorum)
 				},
 			},
 		}
@@ -516,14 +515,14 @@ func TestRestoreConfGetIndexCommitQuorum(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  *RestoreConf
-		want defs.IndexCommitQuorum
+		want IndexCommitQuorum
 	}{
-		{name: "nil config", cfg: nil, want: defs.DefaultRestoreIndexCommitQuorum},
-		{name: "empty value", cfg: &RestoreConf{}, want: defs.DefaultRestoreIndexCommitQuorum},
+		{name: "nil config", cfg: nil, want: DefaultRestoreIndexCommitQuorum},
+		{name: "empty value", cfg: &RestoreConf{}, want: DefaultRestoreIndexCommitQuorum},
 		{
 			name: "configured string value",
-			cfg:  &RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
-			want: defs.IndexCommitQuorumVotingMembers,
+			cfg:  &RestoreConf{IndexCommitQuorum: IndexCommitQuorumVotingMembers},
+			want: IndexCommitQuorumVotingMembers,
 		},
 		{name: "configured numeric value", cfg: &RestoreConf{IndexCommitQuorum: "3"}, want: "3"},
 	}
@@ -544,7 +543,7 @@ restore:
 `))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Restore)
-	assert.Equal(t, defs.IndexCommitQuorumVotingMembers, cfg.Restore.IndexCommitQuorum)
+	assert.Equal(t, IndexCommitQuorumVotingMembers, cfg.Restore.IndexCommitQuorum)
 }
 
 func TestSanitizeStoragePaths(t *testing.T) {

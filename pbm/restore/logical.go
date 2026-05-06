@@ -57,7 +57,7 @@ type Restore struct {
 
 	numParallelColls          int
 	numInsertionWorkersPerCol int
-	indexCommitQuorum         defs.IndexCommitQuorum
+	indexCommitQuorum         config.IndexCommitQuorum
 	// Shards to participate in restore. Num of shards in bcp could
 	// be less than in the cluster and this is ok. Only these shards
 	// would be expected to run restore (distributed transactions sync,
@@ -105,7 +105,7 @@ func New(
 	rsMap map[string]string,
 	numParallelColls,
 	numInsertionWorkersPerCol int,
-	indexCommitQuorum defs.IndexCommitQuorum,
+	indexCommitQuorum config.IndexCommitQuorum,
 ) *Restore {
 	if rsMap == nil {
 		rsMap = make(map[string]string)

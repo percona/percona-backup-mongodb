@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
-	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -158,19 +157,19 @@ func TestGetNumParallelCollsConfig(t *testing.T) {
 func TestResolveIndexCommitQuorum(t *testing.T) {
 	tests := []struct {
 		name        string
-		cmdQuorum   defs.IndexCommitQuorum
+		cmdQuorum   config.IndexCommitQuorum
 		restoreConf *config.RestoreConf
-		want        defs.IndexCommitQuorum
+		want        config.IndexCommitQuorum
 		wantErr     bool
 	}{
 		{
 			name: "default without command or config",
-			want: defs.DefaultRestoreIndexCommitQuorum,
+			want: config.DefaultRestoreIndexCommitQuorum,
 		},
 		{
 			name:        "config value",
-			restoreConf: &config.RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
-			want:        defs.IndexCommitQuorumVotingMembers,
+			restoreConf: &config.RestoreConf{IndexCommitQuorum: config.IndexCommitQuorumVotingMembers},
+			want:        config.IndexCommitQuorumVotingMembers,
 		},
 		{
 			name:      "command value",
@@ -180,7 +179,7 @@ func TestResolveIndexCommitQuorum(t *testing.T) {
 		{
 			name:        "command overrides config",
 			cmdQuorum:   "3",
-			restoreConf: &config.RestoreConf{IndexCommitQuorum: defs.IndexCommitQuorumVotingMembers},
+			restoreConf: &config.RestoreConf{IndexCommitQuorum: config.IndexCommitQuorumVotingMembers},
 			want:        "3",
 		},
 		{

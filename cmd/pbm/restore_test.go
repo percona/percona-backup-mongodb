@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -153,11 +153,11 @@ func TestParseCLIIndexCommitQuorumOption(t *testing.T) {
 	tests := []struct {
 		name    string
 		value   string
-		want    defs.IndexCommitQuorum
+		want    config.IndexCommitQuorum
 		wantErr bool
 	}{
 		{name: "empty", value: "", want: ""},
-		{name: "majority", value: "majority", want: defs.IndexCommitQuorumMajority},
+		{name: "majority", value: "majority", want: config.IndexCommitQuorumMajority},
 		{name: "numeric", value: "3", want: "3"},
 		{name: "invalid", value: "whatever", wantErr: true},
 	}

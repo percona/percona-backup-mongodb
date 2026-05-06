@@ -14,7 +14,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	pbmlog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -457,7 +457,7 @@ func getNumOfMappedChunksDocs(t *testing.T) int64 {
 }
 
 func newConfigDatabasesTestObj(t *testing.T, numOfDocs int64) (*Restore, *backup.BackupMeta, util.RSMapFunc) {
-	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1, defs.DefaultRestoreIndexCommitQuorum)
+	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1, config.DefaultRestoreIndexCommitQuorum)
 	r.log = pbmlog.DiscardEvent
 	// create backup data on the storage
 	r.bcpStg = newTestStorage(createConfigDatabasesDocs(t, numOfDocs))
@@ -477,7 +477,7 @@ func newConfigCollectionsTestObj(
 	numOfDocs int64,
 	addSession bool,
 ) (*Restore, *backup.BackupMeta, util.RSMapFunc) {
-	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1, defs.DefaultRestoreIndexCommitQuorum)
+	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1, config.DefaultRestoreIndexCommitQuorum)
 	r.log = pbmlog.DiscardEvent
 	r.bcpStg = newTestStorage(createConfigCollectionsDocs(t, numOfDocs, addSession))
 
@@ -497,7 +497,7 @@ func newConfigChunksTestObj(
 	addSessionChunk bool,
 	sysSessUUID string,
 ) (*Restore, *backup.BackupMeta, util.RSMapFunc) {
-	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1, defs.DefaultRestoreIndexCommitQuorum)
+	r := New(leadConn, nil, topo.NodeBrief{}, nil, nil, 1, 1, config.DefaultRestoreIndexCommitQuorum)
 	r.log = pbmlog.DiscardEvent
 	r.bcpStg = newTestStorage(createConfigChunksDocs(t, numOfDocs, addSessionChunk, sysSessUUID))
 
