@@ -14,9 +14,8 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -729,7 +728,7 @@ func (r *Restore) checkTopologyForOplog(currShards []topo.Shard, oplogShards []s
 // chunks defines chunks of oplog slice in given range, ensures its integrity (timeline
 // is contiguous - there are no gaps), checks for respective files on storage and returns
 // chunks list if all checks passed
-func (r *Restore) chunks(ctx context.Context, from, to primitive.Timestamp) ([]oplog.OplogChunk, error) {
+func (r *Restore) chunks(ctx context.Context, from, to bson.Timestamp) ([]oplog.OplogChunk, error) {
 	return chunks(ctx, r.leadConn, r.oplogStg, from, to, r.nodeInfo.SetName, r.rsMap)
 }
 
@@ -949,7 +948,7 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 
 		err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
 		if err != nil {
-			return errors.Wrap(err, "full restore cleanup")
+			return errors.Wrap(err, "run cmd")
 		}
 		r.log.Debug("drop %q", db)
 	}
@@ -1366,12 +1365,12 @@ func updateRouterTables(ctx context.Context, m connect.Client, sMap map[string]s
 func updateDatabasesRouterTable(ctx context.Context, m connect.Client, sMap map[string]string) error {
 	coll := m.ConfigDatabase().Collection("databases")
 
-	oldNames := make(primitive.A, 0, len(sMap))
+	oldNames := make(bson.A, 0, len(sMap))
 	for k := range sMap {
 		oldNames = append(oldNames, k)
 	}
 
-	q := primitive.M{"primary": primitive.M{"$in": oldNames}}
+	q := bson.M{"primary": bson.M{"$in": oldNames}}
 	cur, err := coll.Find(ctx, q)
 	if err != nil {
 		return errors.Wrap(err, "query")
@@ -1388,8 +1387,8 @@ func updateDatabasesRouterTable(ctx context.Context, m connect.Client, sMap map[
 		}
 
 		m := mongo.NewUpdateOneModel()
-		m.SetFilter(primitive.M{"_id": doc.ID})
-		m.SetUpdate(primitive.M{"$set": primitive.M{"primary": sMap[doc.Primary]}})
+		m.SetFilter(bson.M{"_id": doc.ID})
+		m.SetUpdate(bson.M{"$set": bson.M{"primary": sMap[doc.Primary]}})
 
 		models = append(models, m)
 	}
@@ -1407,12 +1406,12 @@ func updateDatabasesRouterTable(ctx context.Context, m connect.Client, sMap map[
 func updateChunksRouterTable(ctx context.Context, m connect.Client, sMap map[string]string) error {
 	coll := m.ConfigDatabase().Collection("chunks")
 
-	oldNames := make(primitive.A, 0, len(sMap))
+	oldNames := make(bson.A, 0, len(sMap))
 	for k := range sMap {
 		oldNames = append(oldNames, k)
 	}
 
-	q := primitive.M{"history.shard": primitive.M{"$in": oldNames}}
+	q := bson.M{"history.shard": bson.M{"$in": oldNames}}
 	cur, err := coll.Find(ctx, q)
 	if err != nil {
 		return errors.Wrap(err, "query")
@@ -1431,7 +1430,7 @@ func updateChunksRouterTable(ctx context.Context, m connect.Client, sMap map[str
 			return errors.Wrap(err, "decode")
 		}
 
-		updates := primitive.M{}
+		updates := bson.M{}
 		if n, ok := sMap[doc.Shard]; ok {
 			updates["shard"] = n
 		}
@@ -1443,8 +1442,8 @@ func updateChunksRouterTable(ctx context.Context, m connect.Client, sMap map[str
 		}
 
 		m := mongo.NewUpdateOneModel()
-		m.SetFilter(primitive.M{"_id": doc.ID})
-		m.SetUpdate(primitive.M{"$set": updates})
+		m.SetFilter(bson.M{"_id": doc.ID})
+		m.SetUpdate(bson.M{"$set": updates})
 		models = append(models, m)
 	}
 	if err := cur.Err(); err != nil {
@@ -1462,8 +1461,8 @@ func (r *Restore) setcommittedTxn(ctx context.Context, txn []phys.RestoreTxn) er
 	return RestoreSetRSTxn(ctx, r.leadConn, r.name, r.nodeInfo.SetName, txn)
 }
 
-func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]primitive.Timestamp, error) {
-	txn := make(map[string]primitive.Timestamp)
+func (r *Restore) getcommittedTxn(ctx context.Context) (map[string]bson.Timestamp, error) {
+	txn := make(map[string]bson.Timestamp)
 
 	shards := make(map[string]struct{})
 	for _, s := range r.shards {

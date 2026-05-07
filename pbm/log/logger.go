@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -152,7 +152,7 @@ func (l *loggerImpl) createLogger(logPath string) {
 	}
 }
 
-func (l *loggerImpl) NewEvent(typ, name, opid string, epoch primitive.Timestamp) LogEvent {
+func (l *loggerImpl) NewEvent(typ, name, opid string, epoch bson.Timestamp) LogEvent {
 	return &eventImpl{
 		l:    l,
 		typ:  typ,
@@ -204,7 +204,7 @@ func (l *loggerImpl) output(
 	event,
 	obj,
 	opid string,
-	epoch primitive.Timestamp,
+	epoch bson.Timestamp,
 	msg string,
 	args ...interface{},
 ) {
@@ -240,26 +240,26 @@ func (l *loggerImpl) output(
 }
 
 func (l *loggerImpl) Printf(msg string, args ...interface{}) {
-	l.output(Info, "", "", "", primitive.Timestamp{}, msg, args...)
+	l.output(Info, "", "", "", bson.Timestamp{}, msg, args...)
 }
 
-func (l *loggerImpl) Debug(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *loggerImpl) Debug(event, obj, opid string, epoch bson.Timestamp, msg string, args ...interface{}) {
 	l.output(Debug, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *loggerImpl) Info(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *loggerImpl) Info(event, obj, opid string, epoch bson.Timestamp, msg string, args ...interface{}) {
 	l.output(Info, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *loggerImpl) Warning(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *loggerImpl) Warning(event, obj, opid string, epoch bson.Timestamp, msg string, args ...interface{}) {
 	l.output(Warning, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *loggerImpl) Error(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *loggerImpl) Error(event, obj, opid string, epoch bson.Timestamp, msg string, args ...interface{}) {
 	l.output(Error, event, obj, opid, epoch, msg, args...)
 }
 
-func (l *loggerImpl) Fatal(event, obj, opid string, epoch primitive.Timestamp, msg string, args ...interface{}) {
+func (l *loggerImpl) Fatal(event, obj, opid string, epoch bson.Timestamp, msg string, args ...interface{}) {
 	l.output(Fatal, event, obj, opid, epoch, msg, args...)
 }
 

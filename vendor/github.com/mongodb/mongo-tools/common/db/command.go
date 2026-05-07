@@ -10,13 +10,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mongodb/mongo-tools/common/bsonutil"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	mopt "go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	mopt "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// Query flags
+// Query flags.
 const (
 	Snapshot = 1 << iota
 	LogReplay
@@ -27,24 +25,13 @@ type NodeType string
 
 const (
 	Mongos     NodeType = "mongos"
-	Standalone          = "standalone"
-	ReplSet             = "replset"
-	Unknown             = "unknown"
+	Standalone NodeType = "standalone"
+	ReplSet    NodeType = "replset"
+	Unknown    NodeType = "unknown"
 )
 
-// CommandRunner exposes functions that can be run against a server
-// XXX Does anything rely on this?
-type CommandRunner interface {
-	Run(command interface{}, out interface{}, database string) error
-	RunString(commandName string, out interface{}, database string) error
-	FindOne(db, collection string, skip int, query interface{}, sort []string, into interface{}, opts int) error
-	Remove(db, collection string, query interface{}) error
-	DatabaseNames() ([]string, error)
-	CollectionNames(db string) ([]string, error)
-}
-
 // // Remove removes all documents matched by query q in the db database and c collection.
-// func (sp *SessionProvider) Remove(db, c string, q interface{}) error {
+// func (sp *SessionProvider) Remove(db, c string, q any) error {
 // 	session, err := sp.GetSession()
 // 	if err != nil {
 // 		return err
@@ -56,7 +43,7 @@ type CommandRunner interface {
 // Run issues the provided command on the db database and unmarshals its result
 // into out.
 
-func (sp *SessionProvider) Run(command interface{}, out interface{}, name string) error {
+func (sp *SessionProvider) Run(command any, out any, name string) error {
 	db := sp.DB(name)
 	result := db.RunCommand(context.Background(), command)
 	if result.Err() != nil {
@@ -69,13 +56,17 @@ func (sp *SessionProvider) Run(command interface{}, out interface{}, name string
 	return nil
 }
 
-func (sp *SessionProvider) RunString(commandName string, out interface{}, name string) error {
+func (sp *SessionProvider) RunString(commandName string, out any, name string) error {
 	command := &bson.M{commandName: 1}
 	return sp.Run(command, out, name)
 }
 
 func (sp *SessionProvider) DropDatabase(dbName string) error {
 	return sp.DB(dbName).Drop(context.Background())
+}
+
+func (sp *SessionProvider) DropCollection(dbName, collName string) error {
+	return sp.DB(dbName).Collection(collName).Drop(context.Background())
 }
 
 func (sp *SessionProvider) CreateCollection(dbName, collName string) error {
@@ -115,7 +106,7 @@ func (sp *SessionProvider) ServerVersionArray() (Version, error) {
 // DatabaseNames returns a slice containing the names of all the databases on the
 // connected server.
 func (sp *SessionProvider) DatabaseNames() ([]string, error) {
-	return sp.client.ListDatabaseNames(nil, bson.D{})
+	return sp.client.ListDatabaseNames(context.TODO(), bson.D{})
 }
 
 // CollectionNames returns the names of all the collections in the dbName database.
@@ -150,20 +141,20 @@ func (sp *SessionProvider) GetNodeType() (NodeType, error) {
 		return Unknown, err
 	}
 	masterDoc := struct {
-		SetName interface{} `bson:"setName"`
-		Hosts   interface{} `bson:"hosts"`
-		Msg     string      `bson:"msg"`
+		SetName any    `bson:"setName"`
+		Hosts   any    `bson:"hosts"`
+		Msg     string `bson:"msg"`
 	}{}
 	result := session.Database("admin").RunCommand(
 		context.Background(),
 		&bson.M{"ismaster": 1},
 	)
 	if result.Err() != nil {
-		return Unknown, result.Err()
+		return Unknown, fmt.Errorf("running `ismaster` command: %w", result.Err())
 	}
 	err = result.Decode(&masterDoc)
 	if err != nil {
-		return Unknown, err
+		return Unknown, fmt.Errorf("decoding `ismaster` response: %w", err)
 	}
 	if masterDoc.SetName != nil || masterDoc.Hosts != nil {
 		return ReplSet, nil
@@ -189,7 +180,7 @@ func (sp *SessionProvider) IsReplicaSet() (bool, error) {
 func (sp *SessionProvider) IsMongos() (bool, error) {
 	nodeType, err := sp.GetNodeType()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("getting node type: %w", err)
 	}
 	return nodeType == Mongos, nil
 }
@@ -215,9 +206,16 @@ func (sp *SessionProvider) IsMongos() (bool, error) {
 // 	return (masterDoc.Ok == 1 && masterDoc.MaxWire >= 2), nil
 // }
 
-// FindOne retuns the first document in the collection and database that matches
+// FindOne returns the first document in the collection and database that matches
 // the query after skip, sort and query flags are applied.
-func (sp *SessionProvider) FindOne(db, collection string, skip int, query interface{}, sort interface{}, into interface{}, flags int) error {
+func (sp *SessionProvider) FindOne(
+	db, collection string,
+	skip int,
+	query any,
+	sort any,
+	into any,
+	flags int,
+) error {
 	session, err := sp.GetSession()
 	if err != nil {
 		return err
@@ -230,55 +228,17 @@ func (sp *SessionProvider) FindOne(db, collection string, skip int, query interf
 	opts := mopt.FindOne().SetSort(sort).SetSkip(int64(skip))
 	ApplyFlags(opts, flags)
 
-	res := session.Database(db).Collection(collection).FindOne(nil, query, opts)
+	res := session.Database(db).Collection(collection).FindOne(context.TODO(), query, opts)
 	err = res.Decode(into)
 	return err
 }
 
 // ApplyFlags applies flags to the given query session.
-func ApplyFlags(opts *mopt.FindOneOptions, flags int) {
+func ApplyFlags(opts *mopt.FindOneOptionsBuilder, flags int) {
 	if flags&Snapshot > 0 {
 		opts.SetHint(bson.D{{"_id", 1}})
 	}
 	if flags&LogReplay > 0 {
 		opts.SetOplogReplay(true)
 	}
-}
-
-// RunApplyOpsCreateIndex will create index using applyOps.
-// For versions that support collection UUIDs (<3.6) it uses an insert to system indexes.
-// Later versions use the createIndexes command.
-func (sp *SessionProvider) RunApplyOpsCreateIndex(C, DB string, index bson.D, UUID *primitive.Binary, result *interface{}) error {
-	var op Oplog
-
-	// Add an index version if it is missing. An index version could be missing because
-	// a tool stripped it out (e.g. mongorestore strips out versions before attempting createIndex)
-	// or because the index came from an oplog entry from versions <3.4.
-	_, err := bsonutil.FindValueByKey("v", &index)
-	if err != nil {
-		index = append(index, bson.E{Key: "v", Value: 1})
-	}
-
-	if UUID != nil {
-		o := append(bson.D{{Key: "createIndexes", Value: C}}, index...)
-
-		op = Oplog{
-			Operation: "c",
-			Namespace: fmt.Sprintf("%s.$cmd", DB),
-			Object:    o,
-			UI:        UUID,
-		}
-	} else {
-		op = Oplog{
-			Operation: "i",
-			Namespace: fmt.Sprintf("%s.system.indexes", DB),
-			Object:    index,
-		}
-	}
-
-	err = sp.Run(bson.D{{Key: "applyOps", Value: []Oplog{op}}}, result, DB)
-	if err != nil {
-		return fmt.Errorf("error building index: %v", err)
-	}
-	return nil
 }

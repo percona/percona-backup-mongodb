@@ -9,13 +9,11 @@ package db
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"strings"
 
 	"github.com/mongodb/mongo-tools/common/log"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type CollectionInfo struct {
@@ -43,7 +41,7 @@ func (ci *CollectionInfo) GetUUID() string {
 	}
 	if v, ok := ci.Info["uuid"]; ok {
 		switch x := v.(type) {
-		case primitive.Binary:
+		case bson.Binary:
 			if x.Subtype == 4 {
 				return hex.EncodeToString(x.Data)
 			}
@@ -63,14 +61,14 @@ func GetIndexes(coll *mongo.Collection) (*mongo.Cursor, error) {
 }
 
 // Assumes that mongo.Database will normalize legacy names to omit database
-// name as required by the Enumerate Collections spec
+// name as required by the Enumerate Collections spec.
 func GetCollections(database *mongo.Database, name string) (*mongo.Cursor, error) {
 	filter := bson.D{}
 	if len(name) > 0 {
-		filter = append(filter, primitive.E{"name", name})
+		filter = append(filter, bson.E{"name", name})
 	}
 
-	cursor, err := database.ListCollections(nil, filter)
+	cursor, err := database.ListCollections(context.Background(), filter)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +85,7 @@ func GetCollectionInfo(coll *mongo.Collection) (*CollectionInfo, error) {
 	comparisonName := coll.Name()
 
 	var foundCollInfo *CollectionInfo
-	for iter.Next(nil) {
+	for iter.Next(context.Background()) {
 		collInfo := &CollectionInfo{}
 		err = iter.Decode(collInfo)
 		if err != nil {
@@ -102,14 +100,4 @@ func GetCollectionInfo(coll *mongo.Collection) (*CollectionInfo, error) {
 		return nil, err
 	}
 	return foundCollInfo, nil
-}
-
-func StripDBFromNamespace(namespace string, dbName string) (string, error) {
-	namespacePrefix := dbName + "."
-	// if the collection info came from querying system.indexes (2.6 or earlier) then the
-	// "name" we get includes the db name as well, so we must remove it
-	if strings.HasPrefix(namespace, namespacePrefix) {
-		return namespace[len(namespacePrefix):], nil
-	}
-	return "", fmt.Errorf("namespace '%v' format is invalid - expected to start with '%v'", namespace, namespacePrefix)
 }

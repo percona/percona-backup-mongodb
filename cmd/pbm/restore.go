@@ -11,8 +11,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -403,13 +402,13 @@ func checkBackup(
 			return "", "", errors.Errorf("backup '%s' not found", b)
 		}
 	} else {
-		var ts primitive.Timestamp
+		var ts bson.Timestamp
 		ts, err = parseTS(o.pitr)
 		if err != nil {
 			return "", "", errors.Wrap(err, "parse pitr")
 		}
 
-		bcp, err = backup.GetLastBackup(ctx, conn, &primitive.Timestamp{T: ts.T + 1, I: 0})
+		bcp, err = backup.GetLastBackup(ctx, conn, &bson.Timestamp{T: ts.T + 1, I: 0})
 		if errors.Is(err, errors.ErrNotFound) {
 			return "", "", errors.New("no base snapshot found")
 		}
@@ -579,8 +578,8 @@ func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
 	return msg, err
 }
 
-func parseTS(t string) (primitive.Timestamp, error) {
-	var ts primitive.Timestamp
+func parseTS(t string) (bson.Timestamp, error) {
+	var ts bson.Timestamp
 	if si := strings.SplitN(t, ",", 2); len(si) == 2 {
 		tt, err := strconv.ParseInt(si[0], 10, 64)
 		if err != nil {
@@ -591,7 +590,7 @@ func parseTS(t string) (primitive.Timestamp, error) {
 			return ts, errors.Wrap(err, "parse clusterTime I")
 		}
 
-		return primitive.Timestamp{T: uint32(tt), I: uint32(ti)}, nil
+		return bson.Timestamp{T: uint32(tt), I: uint32(ti)}, nil
 	}
 
 	tsto, err := parseDateT(t)
@@ -599,7 +598,7 @@ func parseTS(t string) (primitive.Timestamp, error) {
 		return ts, errors.Wrap(err, "parse date")
 	}
 
-	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
+	return bson.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
 }
 
 type getRestoreMetaFn func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error)
@@ -773,7 +772,7 @@ func describeRestore(
 			return nil, errors.Wrap(err, "get storage")
 		}
 		meta, err = restore.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
-			NewEvent("", "", "", primitive.Timestamp{}))
+			NewEvent("", "", "", bson.Timestamp{}))
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}

@@ -5,9 +5,9 @@ import (
 	"slices"
 	"strings"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
+
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 )
@@ -168,10 +168,10 @@ func (s uuidChunkMap) Selected(d bson.Raw) bool {
 }
 
 func (s uuidChunkMap) BuildFilter() bson.D {
-	uuids := make([]primitive.Binary, 0, len(s))
+	uuids := make([]bson.Binary, 0, len(s))
 	for ns := range s {
 		data, _ := hex.DecodeString(ns)
-		uuids = append(uuids, primitive.Binary{Subtype: 0x4, Data: data})
+		uuids = append(uuids, bson.Binary{Subtype: 0x4, Data: data})
 	}
 
 	return bson.D{{"uuid", bson.M{"$in": uuids}}}

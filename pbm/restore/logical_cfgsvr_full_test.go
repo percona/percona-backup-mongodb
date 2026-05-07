@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -291,9 +290,9 @@ func createConfigDatabasesDocs(t *testing.T, n int64) *bytes.Buffer {
 	t.Helper()
 
 	type version struct {
-		UUID      primitive.Binary    `bson:"uuid"`
-		Timestamp primitive.Timestamp `bson:"timestamp"`
-		LastMod   int64               `bson:"lastMod,omitempty"`
+		UUID      bson.Binary    `bson:"uuid"`
+		Timestamp bson.Timestamp `bson:"timestamp"`
+		LastMod   int64          `bson:"lastMod,omitempty"`
 	}
 	type databasesSchema struct {
 		ID      string  `bson:"_id"`
@@ -307,8 +306,8 @@ func createConfigDatabasesDocs(t *testing.T, n int64) *bytes.Buffer {
 			ID:      fmt.Sprintf("%d", i),
 			Primary: "rs1",
 			Version: version{
-				UUID:      primitive.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
-				Timestamp: primitive.Timestamp{T: uint32(i), I: 1},
+				UUID:      bson.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
+				Timestamp: bson.Timestamp{T: uint32(i), I: 1},
 				LastMod:   i,
 			},
 		}
@@ -328,25 +327,25 @@ func createConfigCollectionsDocs(t *testing.T, n int64, addSession bool) *bytes.
 	t.Helper()
 
 	type collectionsSchema struct {
-		ID                string              `bson:"_id"`
-		LastmodEpoch      primitive.ObjectID  `bson:"lastmodEpoch"`
-		LastMod           primitive.DateTime  `bson:"lastMod"`
-		Timestamp         primitive.Timestamp `bson:"timestamp"`
-		UUID              primitive.Binary    `bson:"uuid,omitempty"`
-		Key               bson.D              `bson:"key"`
-		Unique            bool                `bson:"unique"`
-		NoBalance         bool                `bson:"noBalance"`
-		MaxChunkSizeBytes int64               `bson:"maxChunkSizeBytes"`
+		ID                string         `bson:"_id"`
+		LastmodEpoch      bson.ObjectID  `bson:"lastmodEpoch"`
+		LastMod           bson.DateTime  `bson:"lastMod"`
+		Timestamp         bson.Timestamp `bson:"timestamp"`
+		UUID              bson.Binary    `bson:"uuid,omitempty"`
+		Key               bson.D         `bson:"key"`
+		Unique            bool           `bson:"unique"`
+		NoBalance         bool           `bson:"noBalance"`
+		MaxChunkSizeBytes int64          `bson:"maxChunkSizeBytes"`
 	}
 
 	b := &bytes.Buffer{}
 	for i := range n {
 		dbDoc := collectionsSchema{
 			ID:                fmt.Sprintf("%d", i),
-			LastmodEpoch:      primitive.NewObjectID(),
+			LastmodEpoch:      bson.NewObjectID(),
 			LastMod:           10,
-			Timestamp:         primitive.Timestamp{T: uint32(i), I: 1},
-			UUID:              primitive.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
+			Timestamp:         bson.Timestamp{T: uint32(i), I: 1},
+			UUID:              bson.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)},
 			Key:               bson.D{{"_id", 1}},
 			Unique:            false,
 			NoBalance:         false,
@@ -355,7 +354,7 @@ func createConfigCollectionsDocs(t *testing.T, n int64, addSession bool) *bytes.
 		if addSession && i == 0 {
 			dbDoc.ID = "config.system.sessions"
 			uuid, _ := hex.DecodeString(configSystemSessionsUUID)
-			dbDoc.UUID = primitive.Binary{Subtype: 0x04, Data: uuid}
+			dbDoc.UUID = bson.Binary{Subtype: 0x04, Data: uuid}
 		}
 		bsonDoc, err := bson.Marshal(dbDoc)
 		if err != nil {
@@ -373,39 +372,39 @@ func createConfigChunksDocs(t *testing.T, n int64, addSessionChunk bool, sysSess
 	t.Helper()
 
 	type historyEntry struct {
-		ValidAfter primitive.Timestamp `bson:"validAfter"`
-		Shard      string              `bson:"shard"`
+		ValidAfter bson.Timestamp `bson:"validAfter"`
+		Shard      string         `bson:"shard"`
 	}
 	type chunksSchema struct {
-		ID                  primitive.ObjectID  `bson:"_id"`
-		UUID                primitive.Binary    `bson:"uuid"`
-		Min                 bson.D              `bson:"min"`
-		Max                 bson.D              `bson:"max"`
-		Shard               string              `bson:"shard"`
-		Lastmod             primitive.Timestamp `bson:"lastmod"`
-		OnCurrentShardSince primitive.Timestamp `bson:"onCurrentShardSince"`
-		History             []historyEntry      `bson:"history"`
+		ID                  bson.ObjectID  `bson:"_id"`
+		UUID                bson.Binary    `bson:"uuid"`
+		Min                 bson.D         `bson:"min"`
+		Max                 bson.D         `bson:"max"`
+		Shard               string         `bson:"shard"`
+		Lastmod             bson.Timestamp `bson:"lastmod"`
+		OnCurrentShardSince bson.Timestamp `bson:"onCurrentShardSince"`
+		History             []historyEntry `bson:"history"`
 	}
 
 	b := &bytes.Buffer{}
 	for i := range n {
-		uuid := primitive.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)}
+		uuid := bson.Binary{Subtype: 0x04, Data: fmt.Appendf([]byte("abcd"), "%d", i)}
 		if addSessionChunk && i == 0 {
 			uuidBytes, _ := hex.DecodeString(sysSessUUID)
-			uuid = primitive.Binary{Subtype: 0x04, Data: uuidBytes}
+			uuid = bson.Binary{Subtype: 0x04, Data: uuidBytes}
 		}
 
 		dbDoc := chunksSchema{
-			ID:                  primitive.NewObjectID(),
+			ID:                  bson.NewObjectID(),
 			UUID:                uuid,
-			Min:                 bson.D{{"_id", primitive.MinKey{}}},
-			Max:                 bson.D{{"_id", primitive.MaxKey{}}},
+			Min:                 bson.D{{"_id", bson.MinKey{}}},
+			Max:                 bson.D{{"_id", bson.MaxKey{}}},
 			Shard:               "rs1",
-			Lastmod:             primitive.Timestamp{T: uint32(i), I: 0},
-			OnCurrentShardSince: primitive.Timestamp{T: uint32(time.Now().Unix()), I: 15},
+			Lastmod:             bson.Timestamp{T: uint32(i), I: 0},
+			OnCurrentShardSince: bson.Timestamp{T: uint32(time.Now().Unix()), I: 15},
 			History: []historyEntry{
 				{
-					ValidAfter: primitive.Timestamp{T: uint32(time.Now().Unix()), I: 15},
+					ValidAfter: bson.Timestamp{T: uint32(time.Now().Unix()), I: 15},
 					Shard:      "rs1",
 				},
 			},

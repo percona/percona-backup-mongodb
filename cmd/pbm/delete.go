@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -125,7 +125,7 @@ func deleteBackupByName(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) 
 }
 
 func deleteManyBackup(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
-	var ts primitive.Timestamp
+	var ts bson.Timestamp
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return sdk.NoOpID, errors.Wrap(err, "parse --older-than")
@@ -190,9 +190,9 @@ func deletePITR(
 		}
 	}
 
-	var until primitive.Timestamp
+	var until bson.Timestamp
 	if d.all {
-		until = primitive.Timestamp{T: uint32(time.Now().UTC().Unix())}
+		until = bson.Timestamp{T: uint32(time.Now().UTC().Unix())}
 	} else {
 		var err error
 		until, err = parseOlderThan(d.olderThan)
@@ -329,10 +329,10 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 	return rv, err
 }
 
-func parseOlderThan(s string) (primitive.Timestamp, error) {
+func parseOlderThan(s string) (bson.Timestamp, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return primitive.Timestamp{}, errInvalidFormat
+		return bson.Timestamp{}, errInvalidFormat
 	}
 
 	ts, err := parseTS(s)
@@ -345,11 +345,11 @@ func parseOlderThan(s string) (primitive.Timestamp, error) {
 		if errors.Is(err, errInvalidDuration) {
 			err = errInvalidFormat
 		}
-		return primitive.Timestamp{}, err
+		return bson.Timestamp{}, err
 	}
 
 	unix := time.Now().UTC().Add(-dur).Unix()
-	return primitive.Timestamp{T: uint32(unix), I: 0}, nil
+	return bson.Timestamp{T: uint32(unix), I: 0}, nil
 }
 
 var errInvalidDuration = errors.New("invalid duration")
@@ -394,7 +394,7 @@ func printDeleteInfoTo(w io.Writer, backups []backup.BackupMeta, chunks []oplog.
 	}
 
 	type oplogRange struct {
-		Start, End primitive.Timestamp
+		Start, End bson.Timestamp
 	}
 
 	oplogRanges := make(map[string][]oplogRange)

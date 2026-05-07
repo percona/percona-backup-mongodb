@@ -7,9 +7,12 @@
 package mongorestore
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/bsonutil"
@@ -21,9 +24,12 @@ import (
 	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/common/util"
 	"github.com/pkg/errors"
-
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"github.com/samber/lo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	mopt "go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/xoptions"
+	"golang.org/x/exp/maps"
 )
 
 const insertBufferFactor = 16
@@ -35,9 +41,9 @@ type Result struct {
 	Err       error
 }
 
-// log pretty-prints the result, associated with restoring the given namespace
+// log pretty-prints the result, associated with restoring the given namespace.
 func (result *Result) log(ns string) {
-	log.Logvf(log.Always, "finished restoring %v (%v %v, %v %v)",
+	log.Logvf(log.Always, "finished restoring %#q (%v %v, %v %v)",
 		ns, result.Successes, util.Pluralize(int(result.Successes), "document", "documents"),
 		result.Failures, util.Pluralize(int(result.Failures), "failure", "failures"))
 }
@@ -50,7 +56,7 @@ func (result *Result) combineWith(other Result) {
 	result.Err = other.Err
 }
 
-// withErr returns a copy of the current result with the provided error
+// withErr returns a copy of the current result with the provided error.
 func (result Result) withErr(err error) Result {
 	result.Err = err
 	return result
@@ -73,7 +79,11 @@ func NewResultFromBulkResult(result *mongo.BulkWriteResult, err error) Result {
 }
 
 func (restore *MongoRestore) RestoreIndexes() error {
-	log.Logvf(log.DebugLow, "building indexes up to %v collections in parallel", restore.OutputOptions.NumParallelCollections)
+	log.Logvf(
+		log.DebugLow,
+		"building indexes up to %v collections in parallel",
+		restore.OutputOptions.NumParallelCollections,
+	)
 
 	namespaceQueue := restore.indexCatalog.Queue()
 
@@ -87,7 +97,11 @@ func (restore *MongoRestore) RestoreIndexes() error {
 				for {
 					namespace := namespaceQueue.Pop()
 					if namespace == nil {
-						log.Logvf(log.DebugHigh, "ending index build routine with id=%v, no more work to do", id)
+						log.Logvf(
+							log.DebugHigh,
+							"ending index build routine with id=%v, no more work to do",
+							id,
+						)
 						errChan <- nil // done
 						return
 					}
@@ -126,25 +140,42 @@ func (restore *MongoRestore) RestoreIndexes() error {
 }
 
 func (restore *MongoRestore) RestoreIndexesForNamespace(namespace *options.Namespace) error {
-	var err error
 	namespaceString := fmt.Sprintf("%s.%s", namespace.DB, namespace.Collection)
-	indexes := restore.indexCatalog.GetIndexes(namespace.DB, namespace.Collection)
+	indexesFull := restore.indexCatalog.GetIndexes(namespace.DB, namespace.Collection)
 
-	for i, index := range indexes {
-		var key []string
-		for k := range index.Key.Map() {
-			key = append(key, k)
-		}
-		if len(key) == 1 && key[0] == "_id" {
-			// The _id index was created when the collection was created,
-			// so we do not build the index here.
-			indexes = append(indexes[:i], indexes[i+1:]...)
-			break
-		}
+	// The default _id index is created along with the collection,
+	// so we do not build that index here. We could try to submit it
+	// and tolerate errors, but since we create the indexes in batch
+	// that would significantly complicate the logic.
+	indexes, err := removeDefaultIdIndex(indexesFull)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to remove default _id index from indexes list (%+v): %w",
+			indexesFull,
+			err,
+		)
 	}
 
 	if len(indexes) > 0 && !restore.OutputOptions.NoIndexRestore {
-		log.Logvf(log.Always, "restoring indexes for collection %v from metadata", namespaceString)
+		for _, index := range indexes {
+			if addedOpts := index.EnsureIndexVersions(); len(addedOpts) != 0 {
+				optNames := maps.Keys(addedOpts)
+				slices.Sort(optNames)
+
+				for _, optName := range optNames {
+					log.Logvf(
+						log.Info,
+						"index %#q (%v) lacks %#q; inferring %#q",
+						index.Options["name"],
+						index.Key,
+						optName,
+						addedOpts[optName],
+					)
+				}
+			}
+		}
+
+		log.Logvf(log.Always, "restoring indexes for collection %#q from metadata", namespaceString)
 		if restore.OutputOptions.ConvertLegacyIndexes {
 			indexes = restore.convertLegacyIndexes(indexes, namespaceString)
 		}
@@ -156,13 +187,39 @@ func (restore *MongoRestore) RestoreIndexesForNamespace(namespace *options.Names
 		}
 		err = restore.CreateIndexes(namespace.DB, namespace.Collection, indexes)
 		if err != nil {
-			return fmt.Errorf("%s: error creating indexes for %s: %v", namespaceString, namespaceString, err)
+			return fmt.Errorf(
+				"%s: error creating indexes for %s: %v",
+				namespaceString,
+				namespaceString,
+				err,
+			)
 		}
 	} else {
-		log.Logvf(log.Always, "no indexes to restore for collection %v", namespaceString)
+		log.Logvf(log.Always, "no indexes to restore for collection %#q", namespaceString)
 	}
 
 	return nil
+}
+
+func removeDefaultIdIndex(indexes []*idx.IndexDocument) ([]*idx.IndexDocument, error) {
+	var defaultIdIndexAt *int
+
+	for i, index := range indexes {
+		if index.IsDefaultIdIndex() {
+			if defaultIdIndexAt != nil {
+				return nil, fmt.Errorf("Found second default _id index (%+v)", indexes)
+			}
+
+			var i2 = i
+			defaultIdIndexAt = &i2
+		}
+	}
+
+	if defaultIdIndexAt != nil {
+		indexes = slices.Delete(indexes, *defaultIdIndexAt, 1+*defaultIdIndexAt)
+	}
+
+	return indexes, nil
 }
 
 func (restore *MongoRestore) PopulateMetadataForIntents() error {
@@ -186,8 +243,8 @@ func (restore *MongoRestore) PopulateMetadataForIntents() error {
 			}
 			defer intent.MetadataFile.Close()
 
-			log.Logvf(log.Always, "reading metadata for %v from %v", intent.Namespace(), intent.MetadataLocation)
-			metadataJSON, err := ioutil.ReadAll(intent.MetadataFile)
+			log.Logvf(log.Always, "reading metadata for %#q from %#q", intent.Namespace(), intent.MetadataLocation)
+			metadataJSON, err := io.ReadAll(intent.MetadataFile)
 			if err != nil {
 				return fmt.Errorf("error reading metadata from %v: %v", intent.MetadataLocation, err)
 			}
@@ -211,7 +268,7 @@ func (restore *MongoRestore) PopulateMetadataForIntents() error {
 
 				if restore.OutputOptions.PreserveUUID {
 					if metadata.UUID == "" {
-						log.Logvf(log.Always, "--preserveUUID used but no UUID found in %v, generating new UUID for %v", intent.MetadataLocation, intent.Namespace())
+						log.Logvf(log.Always, "--preserveUUID used but no UUID found in %#q, generating new UUID for %#q", intent.MetadataLocation, intent.Namespace())
 					}
 					intent.UUID = metadata.UUID
 				}
@@ -223,7 +280,11 @@ func (restore *MongoRestore) PopulateMetadataForIntents() error {
 
 // RestoreIntents iterates through all of the intents stored in the IntentManager, and restores them.
 func (restore *MongoRestore) RestoreIntents() Result {
-	log.Logvf(log.DebugLow, "restoring up to %v collections in parallel", restore.OutputOptions.NumParallelCollections)
+	log.Logvf(
+		log.DebugLow,
+		"restoring up to %v collections in parallel",
+		restore.OutputOptions.NumParallelCollections,
+	)
 
 	if restore.OutputOptions.NumParallelCollections > 0 {
 		resultChan := make(chan Result)
@@ -237,7 +298,11 @@ func (restore *MongoRestore) RestoreIntents() Result {
 				for {
 					intent := restore.manager.Pop()
 					if intent == nil {
-						log.Logvf(log.DebugHigh, "ending restore routine with id=%v, no more work to do", id)
+						log.Logvf(
+							log.DebugHigh,
+							"ending restore routine with id=%v, no more work to do",
+							id,
+						)
 						resultChan <- workerResult // done
 						return
 					}
@@ -301,15 +366,23 @@ func (restore *MongoRestore) RestoreIntent(intent *intents.Intent) Result {
 	}
 
 	if !restore.OutputOptions.Drop && collectionExists {
-		log.Logvf(log.Always, "restoring to existing collection %v without dropping", intent.Namespace())
+		log.Logvf(
+			log.Always,
+			"restoring to existing collection %#q without dropping",
+			intent.Namespace(),
+		)
 	}
 
 	if restore.OutputOptions.Drop {
 		if collectionExists {
 			if strings.HasPrefix(intent.C, "system.") {
-				log.Logvf(log.Always, "cannot drop system collection %v, skipping", intent.Namespace())
+				log.Logvf(
+					log.Always,
+					"cannot drop system collection %#q, skipping",
+					intent.Namespace(),
+				)
 			} else {
-				log.Logvf(log.Always, "dropping collection %v before restoring", intent.Namespace())
+				log.Logvf(log.Always, "dropping collection %#q before restoring", intent.Namespace())
 				err = restore.DropCollection(intent)
 				if err != nil {
 					return Result{Err: err} // no context needed
@@ -317,7 +390,7 @@ func (restore *MongoRestore) RestoreIntent(intent *intents.Intent) Result {
 				collectionExists = false
 			}
 		} else {
-			log.Logvf(log.DebugLow, "collection %v doesn't exist, skipping drop command", intent.Namespace())
+			log.Logvf(log.DebugLow, "collection %#q doesn't exist, skipping drop command", intent.Namespace())
 		}
 	}
 
@@ -368,15 +441,17 @@ func (restore *MongoRestore) RestoreIntent(intent *intents.Intent) Result {
 	}
 
 	if !collectionExists {
-		log.Logvf(log.Info, "creating collection %v %s", intent.Namespace(), logMessageSuffix)
+		log.Logvf(log.Info, "creating collection %#q %s", intent.Namespace(), logMessageSuffix)
 		log.Logvf(log.DebugHigh, "using collection options: %#v", options)
 		err = restore.CreateCollection(intent, options, uuid)
 		if err != nil {
-			return Result{Err: fmt.Errorf("error creating collection %v: %v", intent.Namespace(), err)}
+			return Result{
+				Err: fmt.Errorf("error creating collection %v: %v", intent.Namespace(), err),
+			}
 		}
 		restore.addToKnownCollections(intent)
 	} else {
-		log.Logvf(log.Info, "collection %v already exists - skipping collection create", intent.Namespace())
+		log.Logvf(log.Info, "collection %#q already exists - skipping collection create", intent.Namespace())
 	}
 
 	var result Result
@@ -387,12 +462,19 @@ func (restore *MongoRestore) RestoreIntent(intent *intents.Intent) Result {
 		}
 		defer intent.BSONFile.Close()
 
-		log.Logvf(log.Always, "restoring %v from %v", intent.DataNamespace(), intent.Location)
+		log.Logvf(log.Always, "restoring %#q from %#q", intent.DataNamespace(), intent.Location)
 
 		bsonSource := db.NewDecodedBSONSource(db.NewBSONSource(intent.BSONFile))
 		defer bsonSource.Close()
 
-		result = restore.RestoreCollectionToDB(intent.DB, intent.DataCollection(), bsonSource, intent.BSONFile, intent.Size, intent.Type)
+		result = restore.RestoreCollectionToDB(
+			intent.DB,
+			intent.DataCollection(),
+			bsonSource,
+			intent.BSONFile,
+			intent.Size,
+			intent.Type,
+		)
 		if result.Err != nil {
 			result.Err = fmt.Errorf("error restoring from %v: %v", intent.Location, result.Err)
 			return result
@@ -402,7 +484,10 @@ func (restore *MongoRestore) RestoreIntent(intent *intents.Intent) Result {
 	return result
 }
 
-func (restore *MongoRestore) convertLegacyIndexes(indexes []*idx.IndexDocument, ns string) []*idx.IndexDocument {
+func (restore *MongoRestore) convertLegacyIndexes(
+	indexes []*idx.IndexDocument,
+	ns string,
+) []*idx.IndexDocument {
 	var indexKeys []bson.D
 	var indexesConverted []*idx.IndexDocument
 	for _, index := range indexes {
@@ -417,7 +502,11 @@ func (restore *MongoRestore) convertLegacyIndexes(indexes []*idx.IndexDocument, 
 		}
 
 		if foundIdenticalIndex {
-			log.Logvf(log.Always, "index %v contains duplicate key with an existing index after ConvertLegacyIndexKeys, Skipping...", index.Options["name"])
+			log.Logvf(
+				log.Always,
+				"index %v contains duplicate key with an existing index after ConvertLegacyIndexKeys, Skipping...",
+				index.Options["name"],
+			)
 			continue
 		}
 
@@ -456,8 +545,13 @@ func fixDottedHashedIndex(index *idx.IndexDocument) {
 
 // RestoreCollectionToDB pipes the given BSON data into the database.
 // Returns the number of documents restored and any errors that occurred.
-func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
-	bsonSource *db.DecodedBSONSource, file PosReader, fileSize int64, collectionType string) Result {
+func (restore *MongoRestore) RestoreCollectionToDB(
+	dbName, colName string,
+	bsonSource *db.DecodedBSONSource,
+	file PosReader,
+	fileSize int64,
+	collectionType string,
+) Result {
 
 	var termErr error
 	session, err := restore.SessionProvider.GetSession()
@@ -488,8 +582,8 @@ func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
 				break
 			}
 
-			if restore.terminate {
-				log.Logvf(log.Always, "terminating read on %v.%v", dbName, colName)
+			if restore.terminate.Load() {
+				log.Logvf(log.Always, "terminating read on %#q", dbName+"."+colName)
 				termErr = util.ErrTerminated
 				close(docChan)
 				return
@@ -505,11 +599,17 @@ func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
 
 	log.Logvf(log.DebugLow, "using %v insertion workers", maxInsertWorkers)
 
+	var warnedAboutEmptyTimestamp atomic.Bool
+
 	for i := 0; i < maxInsertWorkers; i++ {
 		go func() {
 			var result Result
 
-			bulk := db.NewUnorderedBufferedBulkInserter(collection, restore.OutputOptions.BulkBufferSize).
+			bulk := db.NewUnorderedBufferedBulkInserter(
+				collection,
+				restore.OutputOptions.BulkBufferSize,
+				restore.serverVersion,
+			).
 				SetOrdered(restore.OutputOptions.MaintainInsertionOrder)
 			if collectionType != "timeseries" {
 				bulk.SetBypassDocumentValidation(restore.OutputOptions.BypassDocumentValidation)
@@ -522,8 +622,58 @@ func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
 						return
 					}
 				}
-				result.combineWith(NewResultFromBulkResult(bulk.InsertRaw(rawDoc)))
-				result.Err = db.FilterError(restore.OutputOptions.StopOnError, result.Err)
+
+				needsSpecialZeroTimestampHandling := false
+				if !bulk.CanDoZeroTimestamp() {
+					emptyTsFields, err := FindZeroTimestamps(rawDoc)
+					if err != nil {
+						result.Err = errors.Wrapf(
+							err,
+							"failed to seek empty timestamps in document",
+						)
+					}
+
+					needsSpecialZeroTimestampHandling = len(emptyTsFields) > 0
+				}
+
+				if result.Err == nil {
+					var newResult Result
+					if needsSpecialZeroTimestampHandling {
+						if !warnedAboutEmptyTimestamp.Swap(true) {
+							log.Logvf(
+								lo.Ternary(
+									restore.OutputOptions.StopOnError,
+									log.Always,
+									log.DebugLow,
+								),
+								"Restoring document(s) with empty timestamp. mongorestore will ignore pre-existing documents without giving notice.",
+							)
+						}
+
+						ctx, cancel := restore.writeContext()
+						err := insertDocWithEmptyTimestamps(
+							ctx,
+							restore.serverVersion,
+							collection,
+							rawDoc,
+						)
+						cancel()
+
+						if err != nil {
+							newResult = Result{0, 1, err}
+						} else {
+							newResult = Result{1, 0, nil}
+						}
+					} else {
+						ctx, cancel := restore.writeContext()
+						newResult = NewResultFromBulkResult(bulk.InsertRaw(ctx, rawDoc))
+						cancel()
+					}
+
+					result.combineWith(newResult)
+					result.Err = db.FilterError(restore.OutputOptions.StopOnError, result.Err)
+				}
+
 				if result.Err != nil {
 					resultChan <- result
 					return
@@ -531,12 +681,17 @@ func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
 				watchProgressor.Set(file.Pos())
 			}
 			// flush the remaining docs
-			bwResult, bwErr := bulk.TryFlush()
+			ctx, cancel := restore.writeContext()
+			bwResult, bwErr := bulk.TryFlush(ctx)
+			cancel()
 			defer bulk.ResetBulk()
 
 			if db.TimeseriesBucketNeedsMixedSchema(bwErr) {
 				// Modify the timeseries collection and retry flushing the bulk writer.
-				logicalColName, nameErr := db.GetTimeseriesCollNameFromBucket(colName)
+				logicalColName, nameErr := db.GetLogicalTimeseriesCollName(
+					restore.serverVersion,
+					colName,
+				)
 				if nameErr != nil {
 					resultChan <- result.withErr(nameErr)
 					return
@@ -546,7 +701,9 @@ func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
 					resultChan <- result.withErr(errors.Wrap(collModErr, "failed to enable mixed schema in a timeseries bucket"))
 					return
 				}
-				bwResult, bwErr = bulk.TryFlush()
+				ctx, cancel := restore.writeContext()
+				bwResult, bwErr = bulk.TryFlush(ctx)
+				cancel()
 			}
 			result.combineWith(NewResultFromBulkResult(bwResult, bwErr))
 			resultChan <- result.withErr(db.FilterError(restore.OutputOptions.StopOnError, result.Err))
@@ -565,7 +722,7 @@ func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
 		totalResult.combineWith(<-resultChan)
 		if finalErr == nil && totalResult.Err != nil {
 			finalErr = totalResult.Err
-			restore.terminate = true
+			restore.terminate.Store(true)
 		}
 	}
 
@@ -577,4 +734,69 @@ func (restore *MongoRestore) RestoreCollectionToDB(dbName, colName string,
 		totalResult.Err = termErr
 	}
 	return totalResult
+}
+
+// This is here to accommodate 4.4, 4.2, and any other server versions that
+// lack the `bypassEmptyTsReplacement` insert/update flag.
+func insertDocWithEmptyTimestamps(
+	ctx context.Context,
+	serverVersion db.Version,
+	collection *mongo.Collection,
+	rawDoc bson.Raw,
+) error {
+	parsedDoc := struct {
+		ID any `bson:"_id"`
+	}{}
+
+	err := bson.Unmarshal(rawDoc, &parsedDoc)
+
+	if err != nil {
+		return errors.Wrap(err, "failed to unmarshal document with empty timestamp")
+	}
+
+	opts := mopt.InsertOne()
+	if serverVersion.SupportsRawData() {
+		err := xoptions.SetInternalInsertOneOptions(opts, "rawData", true)
+		if err != nil {
+			return err
+		}
+	}
+
+	// NB: insert preserves empty-timestamp _id.
+	_, err = collection.InsertOne(
+		ctx,
+		rawDoc,
+		opts,
+	)
+	if err != nil {
+		return errors.Wrapf(
+			err,
+			"failed to insert document with empty timestamp (_id=%#q)",
+			parsedDoc.ID,
+		)
+	}
+
+	// Ideally we’d do this in a transaction with the insert, but we have
+	// support standalone mongod, which can’t do transactions.
+	_, err = collection.UpdateOne(
+		ctx,
+		bson.D{{"_id", parsedDoc.ID}},
+		mongo.Pipeline{
+			{
+				{"$replaceRoot", bson.D{
+					{"newRoot", bson.D{{"$literal", rawDoc}}},
+				}},
+			},
+		},
+	)
+
+	if err != nil {
+		return errors.Wrapf(
+			err,
+			"failed to fix document with empty timestamp (_id=%#q)",
+			parsedDoc.ID,
+		)
+	}
+
+	return nil
 }

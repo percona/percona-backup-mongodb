@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -60,24 +60,24 @@ func (c Command) String() string {
 	}
 }
 
-type OPID primitive.ObjectID
+type OPID bson.ObjectID
 
 func ParseOPID(s string) (OPID, error) {
-	o, err := primitive.ObjectIDFromHex(s)
+	o, err := bson.ObjectIDFromHex(s)
 	if err != nil {
-		return OPID(primitive.NilObjectID), err
+		return OPID(bson.NilObjectID), err
 	}
 	return OPID(o), nil
 }
 
-var NilOPID = OPID(primitive.NilObjectID)
+var NilOPID = OPID(bson.NilObjectID)
 
 func (o OPID) String() string {
-	return primitive.ObjectID(o).Hex()
+	return bson.ObjectID(o).Hex()
 }
 
-func (o OPID) Obj() primitive.ObjectID {
-	return primitive.ObjectID(o)
+func (o OPID) Obj() bson.ObjectID {
+	return bson.ObjectID(o)
 }
 
 type Cmd struct {
@@ -165,12 +165,12 @@ type RestoreCmd struct {
 	NumInsertionWorkers *int32                   `bson:"numInsertionWorkers,omitempty"`
 	IndexCommitQuorum   config.IndexCommitQuorum `bson:"indexCommitQuorum,omitempty"`
 
-	OplogTS primitive.Timestamp `bson:"oplogTS,omitempty"`
+	OplogTS bson.Timestamp `bson:"oplogTS,omitempty"`
 
-	External bool                `bson:"external"`
-	ExtConf  topo.ExternOpts     `bson:"extConf"`
-	ExtTS    primitive.Timestamp `bson:"extTS"`
-	Exit     bool                `bson:"exit"`
+	External bool            `bson:"external"`
+	ExtConf  topo.ExternOpts `bson:"extConf"`
+	ExtTS    bson.Timestamp  `bson:"extTS"`
+	Exit     bool            `bson:"exit"`
 }
 
 func (r RestoreCmd) String() string {
@@ -195,10 +195,10 @@ func (r RestoreCmd) String() string {
 }
 
 type ReplayCmd struct {
-	Name  string              `bson:"name"`
-	Start primitive.Timestamp `bson:"start,omitempty"`
-	End   primitive.Timestamp `bson:"end,omitempty"`
-	RSMap map[string]string   `bson:"rsMap,omitempty"`
+	Name  string            `bson:"name"`
+	Start bson.Timestamp    `bson:"start,omitempty"`
+	End   bson.Timestamp    `bson:"end,omitempty"`
+	RSMap map[string]string `bson:"rsMap,omitempty"`
 }
 
 func (c ReplayCmd) String() string {
@@ -217,8 +217,8 @@ type DeletePITRCmd struct {
 }
 
 type CleanupCmd struct {
-	OlderThan primitive.Timestamp `bson:"olderThan"`
-	Profile   string              `bson:"profile"`
+	OlderThan bson.Timestamp `bson:"olderThan"`
+	Profile   string         `bson:"profile"`
 }
 
 func (d DeleteBackupCmd) String() string {

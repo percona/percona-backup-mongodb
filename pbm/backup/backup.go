@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -125,9 +125,9 @@ func (b *Backup) Init(
 		Status:   defs.StatusStarting,
 		Replsets: []BackupReplset{},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		LastWriteTS: primitive.Timestamp{T: 1, I: 1},
+		LastWriteTS: bson.Timestamp{T: 1, I: 1},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1},
+		FirstWriteTS:   bson.Timestamp{T: 1, I: 1},
 		PBMVersion:     version.Current().Version,
 		MongoVersion:   b.mongoVersion,
 		Nomination:     []BackupRsNomination{},
@@ -628,7 +628,7 @@ func (b *Backup) waitForStatus(
 func (b *Backup) waitForFirstLastWrite(
 	ctx context.Context,
 	bcpName string,
-) (first, last primitive.Timestamp, err error) {
+) (first, last bson.Timestamp, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
@@ -703,17 +703,17 @@ func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error
 }
 
 func (b *Backup) setClusterLastWrite(ctx context.Context, bcpName string) error {
-	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.Before, bcpName)
+	return setClusterLastWriteImpl(ctx, b.leadConn, bson.Timestamp.Before, bcpName)
 }
 
 func (b *Backup) setClusterLastWriteForPhysical(ctx context.Context, bcpName string) error {
-	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.After, bcpName)
+	return setClusterLastWriteImpl(ctx, b.leadConn, bson.Timestamp.After, bcpName)
 }
 
 func setClusterLastWriteImpl(
 	ctx context.Context,
 	conn connect.Client,
-	cmp func(a, b primitive.Timestamp) bool,
+	cmp func(a, b bson.Timestamp) bool,
 	bcpName string,
 ) error {
 	var err error
