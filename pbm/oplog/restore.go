@@ -915,7 +915,7 @@ func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 		// so we are assigning them from the parent transaction op
 		op.Timestamp = txnOp.Timestamp
 		op.Term = txnOp.Term
-		// driver migration v1->v2: check this
+		// migration mongo-driver v1->v2: fix this in PBM-1682
 		// op.Hash = txnOp.Hash
 
 		ops[i] = *op
@@ -1276,7 +1276,6 @@ func extractIndexDocumentFromCreateIndexes(op db.Oplog) (string, *idx.IndexDocum
 		case "key":
 			indexDocument.Key = elem.Value.(bson.D)
 		case "partialFilterExpression":
-			// migration driver v1->v2: check this
 			v := elem.Value.(bson.D)
 			indexDocument.PartialFilterExpression = &v
 		default:
@@ -1311,7 +1310,6 @@ func extractIndexDocumentFromCommitIndexBuilds(op db.Oplog) (string, []*idx.Inde
 					case "key":
 						indexSpec.Key = elem.Value.(bson.D)
 					case "partialFilterExpression":
-						// migration driver v1->v2: check this
 						v := elem.Value.(bson.D)
 						indexSpec.PartialFilterExpression = &v
 					default:

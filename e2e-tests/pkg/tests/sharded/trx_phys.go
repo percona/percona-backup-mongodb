@@ -58,7 +58,9 @@ func (c *Cluster) DistributedTransactionsPhys(bcp Backuper, col string) {
 				options.Transaction().
 					SetReadPreference(readpref.Primary()).
 					SetReadConcern(readconcern.Majority()).
-					SetWriteConcern(writeconcern.Majority())))
+					SetWriteConcern(writeconcern.Majority()),
+			),
+	)
 	if err != nil {
 		log.Fatalln("ERROR: start session:", err)
 	}

@@ -1741,7 +1741,8 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "delete from system.replset")
 	}
 
-	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
+	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(
+		ctx,
 		bson.M{"_id": bson.NewObjectID(), "t": -1, "ts": bson.Timestamp{0, 1}},
 	)
 	if err != nil {
