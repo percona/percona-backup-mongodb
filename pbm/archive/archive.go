@@ -224,8 +224,7 @@ func closeChunk(w io.Writer, ns *Namespace) error {
 		Database:   ns.Database,
 		Collection: ns.Collection,
 		EOF:        true,
-		// migration mongo-driver v1->v2: fix this in PBM-1682
-		CRC: uint64(ns.CRC), //nolint:gosec
+		CRC:        uint64(ns.CRC), //nolint:gosec
 	}
 	if ns.Type == "timeseries" {
 		nsHeader.Collection = "system.buckets." + nsHeader.Collection
