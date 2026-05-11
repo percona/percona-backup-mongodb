@@ -5,8 +5,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"testing"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -133,6 +136,96 @@ func TestConfigureClient(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, client)
+}
+
+func TestCopyObjectRequest(t *testing.T) {
+	o := &OCI{cfg: &Config{
+		Region:    "eu-frankfurt-1",
+		Namespace: "testns",
+		Bucket:    "testbucket",
+		Prefix:    "prefix",
+	}}
+
+	req := o.copyObjectRequest("src/file", "dst/file")
+
+	require.NotNil(t, req.NamespaceName)
+	assert.Equal(t, "testns", *req.NamespaceName)
+	require.NotNil(t, req.BucketName)
+	assert.Equal(t, "testbucket", *req.BucketName)
+	require.NotNil(t, req.SourceObjectName)
+	assert.Equal(t, "prefix/src/file", *req.SourceObjectName)
+	require.NotNil(t, req.DestinationRegion)
+	assert.Equal(t, "eu-frankfurt-1", *req.DestinationRegion)
+	require.NotNil(t, req.DestinationNamespace)
+	assert.Equal(t, "testns", *req.DestinationNamespace)
+	require.NotNil(t, req.DestinationBucket)
+	assert.Equal(t, "testbucket", *req.DestinationBucket)
+	require.NotNil(t, req.DestinationObjectName)
+	assert.Equal(t, "prefix/dst/file", *req.DestinationObjectName)
+}
+
+func TestCopyWorkRequestError(t *testing.T) {
+	listErr := errors.New("list errors failed")
+
+	tests := []struct {
+		name string
+		err  *copyWorkRequestError
+		want string
+	}{
+		{
+			name: "with details",
+			err: &copyWorkRequestError{
+				id:     "wr1",
+				status: objectstorage.WorkRequestStatusFailed,
+				details: []objectstorage.WorkRequestError{
+					{
+						Code:    common.String("NotFound"),
+						Message: common.String("source missing"),
+					},
+					{Message: common.String("copy failed")},
+					{},
+				},
+			},
+			want: "copy object work request wr1 finished with status FAILED: NotFound: source missing; copy failed; unknown work request error",
+		},
+		{
+			name: "no error details returned",
+			err: &copyWorkRequestError{
+				id:     "wr1",
+				status: objectstorage.WorkRequestStatusCanceled,
+			},
+			want: "copy object work request wr1 finished with status CANCELED; no error details returned",
+		},
+		{
+			name: "first list failed",
+			err: &copyWorkRequestError{
+				id:      "wr1",
+				status:  objectstorage.WorkRequestStatusFailed,
+				listErr: listErr,
+			},
+			want: "copy object work request wr1 finished with status FAILED; failed to list error details: list errors failed",
+		},
+		{
+			name: "later list failed",
+			err: &copyWorkRequestError{
+				id:     "wr1",
+				status: objectstorage.WorkRequestStatusFailed,
+				details: []objectstorage.WorkRequestError{
+					{Code: common.String("NotFound")},
+				},
+				listErr: listErr,
+			},
+			want: "copy object work request wr1 finished with status FAILED: NotFound; failed to list complete error details: list errors failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.err.Error())
+		})
+	}
+
+	assert.ErrorIs(t, (&copyWorkRequestError{listErr: listErr}), listErr)
 }
 
 func testConfig(privateKey string) *Config {

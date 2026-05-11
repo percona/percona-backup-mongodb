@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -17,6 +18,8 @@ import (
 )
 
 var _ storage.Storage = (*OCI)(nil)
+
+const defaultCopyWorkRequestPollDelay = 2 * time.Second
 
 func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	if err := cfg.Cast(); err != nil {
@@ -253,21 +256,97 @@ func (o *OCI) Delete(name string) error {
 }
 
 func (o *OCI) Copy(src, dst string) error {
-	stat, err := o.FileStat(src)
+	res, err := o.client.CopyObject(context.Background(), o.copyObjectRequest(src, dst))
 	if err != nil {
-		return errors.Wrap(err, "get source stat")
+		if isNotFound(err) {
+			return storage.ErrNotExist
+		}
+		return errors.Wrap(err, "copy object")
 	}
-	r, err := o.SourceReader(src)
-	if err != nil {
-		return errors.Wrap(err, "read source")
+	if res.OpcWorkRequestId == nil || *res.OpcWorkRequestId == "" {
+		return errors.New("copy object work request id is empty")
 	}
-	defer r.Close()
 
-	return o.Save(dst, r, storage.Size(stat.Size))
+	return o.waitCopyWorkRequest(context.Background(), *res.OpcWorkRequestId)
 }
 
 func (o *OCI) DownloadStat() storage.DownloadStat {
 	return storage.DownloadStat{}
+}
+
+func (o *OCI) copyObjectRequest(src, dst string) objectstorage.CopyObjectRequest {
+	return objectstorage.CopyObjectRequest{
+		NamespaceName: common.String(o.cfg.Namespace),
+		BucketName:    common.String(o.cfg.Bucket),
+		CopyObjectDetails: objectstorage.CopyObjectDetails{
+			SourceObjectName:      common.String(o.key(src)),
+			DestinationRegion:     common.String(o.cfg.Region),
+			DestinationNamespace:  common.String(o.cfg.Namespace),
+			DestinationBucket:     common.String(o.cfg.Bucket),
+			DestinationObjectName: common.String(o.key(dst)),
+		},
+	}
+}
+
+func (o *OCI) waitCopyWorkRequest(ctx context.Context, id string) error {
+	for {
+		res, err := o.client.GetWorkRequest(ctx, objectstorage.GetWorkRequestRequest{
+			WorkRequestId: common.String(id),
+		})
+		if err != nil {
+			return errors.Wrap(err, "get copy work request")
+		}
+
+		switch res.Status {
+		case objectstorage.WorkRequestStatusCompleted:
+			return nil
+		case objectstorage.WorkRequestStatusFailed, objectstorage.WorkRequestStatusCanceled:
+			return o.copyWorkRequestError(ctx, id, res.Status)
+		case objectstorage.WorkRequestStatusAccepted,
+			objectstorage.WorkRequestStatusInProgress,
+			objectstorage.WorkRequestStatusCanceling:
+		default:
+			return errors.Errorf("copy object work request %s has unexpected status %q", id, res.Status)
+		}
+
+		poll := time.After(copyWorkRequestPollDelay(res.RetryAfter))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-poll:
+		}
+	}
+}
+
+func (o *OCI) copyWorkRequestError(ctx context.Context, id string, status objectstorage.WorkRequestStatusEnum) error {
+	copyErr := &copyWorkRequestError{id: id, status: status}
+	var page *string
+	for {
+		res, err := o.client.ListWorkRequestErrors(ctx, objectstorage.ListWorkRequestErrorsRequest{
+			WorkRequestId: common.String(id),
+			Page:          page,
+		})
+		if err != nil {
+			copyErr.listErr = err
+			return copyErr
+		}
+
+		copyErr.details = append(copyErr.details, res.Items...)
+		page = res.OpcNextPage
+		if page == nil {
+			break
+		}
+	}
+
+	return copyErr
+}
+
+func copyWorkRequestPollDelay(retryAfter *float32) time.Duration {
+	if retryAfter != nil && *retryAfter > 0 {
+		return time.Duration(float64(*retryAfter) * float64(time.Second))
+	}
+
+	return defaultCopyWorkRequestPollDelay
 }
 
 func (o *OCI) key(name string) string {
@@ -279,4 +358,58 @@ func isNotFound(err error) bool {
 		return se.GetHTTPStatusCode() == http.StatusNotFound
 	}
 	return false
+}
+
+type copyWorkRequestError struct {
+	id      string
+	status  objectstorage.WorkRequestStatusEnum
+	details []objectstorage.WorkRequestError
+	listErr error
+}
+
+func (e *copyWorkRequestError) Error() string {
+	msg := "copy object work request " + e.id + " finished with status " + string(e.status)
+	details := e.detailMessages()
+
+	if len(details) > 0 {
+		msg += ": " + strings.Join(details, "; ")
+		if e.listErr != nil {
+			msg += "; failed to list complete error details: " + e.listErr.Error()
+		}
+		return msg
+	}
+
+	if e.listErr != nil {
+		msg += "; failed to list error details: " + e.listErr.Error()
+		return msg
+	}
+
+	msg += "; no error details returned"
+	return msg
+}
+
+func (e *copyWorkRequestError) detailMessages() []string {
+	if len(e.details) == 0 {
+		return nil
+	}
+
+	messages := make([]string, 0, len(e.details))
+	for _, item := range e.details {
+		switch {
+		case item.Code != nil && item.Message != nil:
+			messages = append(messages, *item.Code+": "+*item.Message)
+		case item.Message != nil:
+			messages = append(messages, *item.Message)
+		case item.Code != nil:
+			messages = append(messages, *item.Code)
+		default:
+			messages = append(messages, "unknown work request error")
+		}
+	}
+
+	return messages
+}
+
+func (e *copyWorkRequestError) Unwrap() error {
+	return e.listErr
 }
