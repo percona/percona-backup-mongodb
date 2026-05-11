@@ -24,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/mio"
+	ocistorage "github.com/percona/percona-backup-mongodb/pbm/storage/oci"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
@@ -274,6 +275,54 @@ func TestIsSameStorage(t *testing.T) {
 		neq.EndpointURL = "ep2.com"
 		if cfg.IsSameStorage(neq) {
 			t.Errorf("storage instances has different EndpointURL: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.Bucket = "b2"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different bucket: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.Prefix = "p2"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different prefix: cfg=%+v, eq=%+v", cfg, neq)
+		}
+	})
+
+	t.Run("OCI", func(t *testing.T) {
+		cfg := &ocistorage.Config{
+			Region:    "eu-frankfurt-1",
+			Namespace: "ns1",
+			Bucket:    "b1",
+			Prefix:    "p1",
+			Credentials: ocistorage.Credentials{
+				Tenancy:     "t1",
+				User:        "u1",
+				Fingerprint: "f1",
+				PrivateKey:  "pk1",
+			},
+		}
+		eq := &ocistorage.Config{
+			Region:    "eu-frankfurt-1",
+			Namespace: "ns1",
+			Bucket:    "b1",
+			Prefix:    "p1",
+		}
+		if !cfg.IsSameStorage(eq) {
+			t.Errorf("config storage should identify the same instance: cfg=%+v, eq=%+v", cfg, eq)
+		}
+
+		neq := cfg.Clone()
+		neq.Region = "us-ashburn-1"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different region: cfg=%+v, eq=%+v", cfg, neq)
+		}
+
+		neq = cfg.Clone()
+		neq.Namespace = "ns2"
+		if cfg.IsSameStorage(neq) {
+			t.Errorf("storage instances has different namespace: cfg=%+v, eq=%+v", cfg, neq)
 		}
 
 		neq = cfg.Clone()
@@ -593,6 +642,11 @@ func TestSanitizeStoragePaths(t *testing.T) {
 			StorageConf{Type: storage.OSS, OSS: &oss.Config{Bucket: "bcp/", Prefix: "/pfx/"}},
 			"bcp", "pfx",
 		},
+		{
+			"oci trailing slash",
+			StorageConf{Type: storage.OCI, OCI: &ocistorage.Config{Bucket: "bcp/", Prefix: "/pfx/"}},
+			"bcp", "pfx",
+		},
 	}
 
 	for _, tt := range tests {
@@ -611,6 +665,9 @@ func TestSanitizeStoragePaths(t *testing.T) {
 			case storage.OSS:
 				assert.Equal(t, tt.wantBucket, tt.conf.OSS.Bucket)
 				assert.Equal(t, tt.wantPrefix, tt.conf.OSS.Prefix)
+			case storage.OCI:
+				assert.Equal(t, tt.wantBucket, tt.conf.OCI.Bucket)
+				assert.Equal(t, tt.wantPrefix, tt.conf.OCI.Prefix)
 			}
 		})
 	}
@@ -636,6 +693,8 @@ func TestIsStoragePathKey(t *testing.T) {
 		"storage.azure.prefix",
 		"storage.oss.bucket",
 		"storage.oss.prefix",
+		"storage.oci.bucket",
+		"storage.oci.prefix",
 	} {
 		assert.True(t, isStoragePathKey(key), "expected true for %q", key)
 	}
