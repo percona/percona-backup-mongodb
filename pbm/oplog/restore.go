@@ -915,8 +915,6 @@ func txnInnerOps(txnOp *db.Oplog) ([]db.Oplog, error) {
 		// so we are assigning them from the parent transaction op
 		op.Timestamp = txnOp.Timestamp
 		op.Term = txnOp.Term
-		// migration mongo-driver v1->v2: fix this in PBM-1682
-		// op.Hash = txnOp.Hash
 
 		ops[i] = *op
 	}
