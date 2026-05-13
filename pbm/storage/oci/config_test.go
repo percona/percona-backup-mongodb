@@ -23,12 +23,85 @@ func TestCastSetsDefaults(t *testing.T) {
 
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
 	assert.Equal(t, defaultMaxUploadParts, cfg.MaxUploadParts)
+	require.NotNil(t, cfg.Retryer)
+	assert.Equal(t, defaultRetryMaxAttempts, cfg.Retryer.MaxAttempts)
+	assert.Equal(t, defaultRetryMaxBackoff, cfg.Retryer.MaxBackoff)
 }
 
 func TestCastMissingConfig(t *testing.T) {
 	var cfg *Config
 
 	require.Error(t, cfg.Cast())
+}
+
+func TestCastRetryer(t *testing.T) {
+	tests := []struct {
+		name      string
+		retryer   *Retryer
+		want      Retryer
+		wantError string
+	}{
+		{
+			name:    "nil retryer",
+			retryer: nil,
+			want: Retryer{
+				MaxAttempts: defaultRetryMaxAttempts,
+				MaxBackoff:  defaultRetryMaxBackoff,
+			},
+		},
+		{
+			name: "partial retryer",
+			retryer: &Retryer{
+				MaxAttempts: 3,
+			},
+			want: Retryer{
+				MaxAttempts: 3,
+				MaxBackoff:  defaultRetryMaxBackoff,
+			},
+		},
+		{
+			name: "custom retryer",
+			retryer: &Retryer{
+				MaxAttempts: 4,
+				MaxBackoff:  defaultRetryMaxBackoff * 2,
+			},
+			want: Retryer{
+				MaxAttempts: 4,
+				MaxBackoff:  defaultRetryMaxBackoff * 2,
+			},
+		},
+		{
+			name: "negative attempts",
+			retryer: &Retryer{
+				MaxAttempts: -1,
+			},
+			wantError: "retryer.maxAttempts cannot be negative",
+		},
+		{
+			name: "negative backoff",
+			retryer: &Retryer{
+				MaxBackoff: -1,
+			},
+			wantError: "retryer.maxBackoff cannot be negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Retryer: tt.retryer}
+
+			err := cfg.Cast()
+
+			if tt.wantError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, cfg.Retryer)
+			assert.Equal(t, tt.want, *cfg.Retryer)
+		})
+	}
 }
 
 func TestIsSameStorage(t *testing.T) {
@@ -72,7 +145,7 @@ func TestIsSameStorage(t *testing.T) {
 func TestConfigureClientMissingFields(t *testing.T) {
 	privateKey := testPrivateKey(t)
 
-	_, err := configureClient(nil)
+	_, _, err := configureClient(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "config is nil")
 
@@ -123,7 +196,7 @@ func TestConfigureClientMissingFields(t *testing.T) {
 			cfg := testConfig(privateKey)
 			tt.mutate(cfg)
 
-			_, err := configureClient(cfg)
+			_, _, err := configureClient(cfg)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
@@ -132,10 +205,12 @@ func TestConfigureClientMissingFields(t *testing.T) {
 }
 
 func TestConfigureClient(t *testing.T) {
-	client, err := configureClient(testConfig(testPrivateKey(t)))
+	client, retryPolicy, err := configureClient(testConfig(testPrivateKey(t)))
 
 	require.NoError(t, err)
 	require.NotNil(t, client)
+	require.NotNil(t, retryPolicy)
+	assert.Same(t, retryPolicy, client.RetryPolicy())
 }
 
 func TestCopyObjectRequest(t *testing.T) {

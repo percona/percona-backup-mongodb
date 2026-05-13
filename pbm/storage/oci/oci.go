@@ -28,45 +28,46 @@ func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	if l == nil {
 		l = log.DiscardEvent
 	}
-	client, err := configureClient(cfg)
+	client, retryPolicy, err := configureClient(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "configure client")
 	}
 
 	o := &OCI{
-		cfg:    cfg,
-		node:   node,
-		log:    l,
-		client: client,
+		cfg:         cfg,
+		node:        node,
+		log:         l,
+		client:      client,
+		retryPolicy: retryPolicy,
 	}
 
 	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
 }
 
-func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
+func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, *common.RetryPolicy, error) {
 	if cfg == nil {
-		return nil, errors.New("config is nil")
+		return nil, nil, errors.New("config is nil")
 	}
 	if cfg.Region == "" {
-		return nil, errors.New("region is required")
+		return nil, nil, errors.New("region is required")
 	}
 	if cfg.Namespace == "" {
-		return nil, errors.New("namespace is required")
+		return nil, nil, errors.New("namespace is required")
 	}
 	if cfg.Bucket == "" {
-		return nil, errors.New("bucket is required")
+		return nil, nil, errors.New("bucket is required")
 	}
 	if cfg.Credentials.Tenancy == "" {
-		return nil, errors.New("credentials.tenancy is required")
+		return nil, nil, errors.New("credentials.tenancy is required")
 	}
 	if cfg.Credentials.User == "" {
-		return nil, errors.New("credentials.user is required")
+		return nil, nil, errors.New("credentials.user is required")
 	}
 	if cfg.Credentials.Fingerprint == "" {
-		return nil, errors.New("credentials.fingerprint is required")
+		return nil, nil, errors.New("credentials.fingerprint is required")
 	}
 	if cfg.Credentials.PrivateKey == "" {
-		return nil, errors.New("credentials.privateKey is required")
+		return nil, nil, errors.New("credentials.privateKey is required")
 	}
 
 	var passphrase *string
@@ -84,19 +85,39 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 
 	client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	retryPolicy := newRetryPolicy(cfg.Retryer)
+	client.SetCustomClientConfiguration(common.CustomClientConfiguration{
+		RetryPolicy: retryPolicy,
+	})
 	// Match OCI transfer manager behavior: use a no-timeout client for large uploads.
 	client.HTTPClient = &http.Client{}
 
-	return &client, nil
+	return &client, retryPolicy, nil
+}
+
+func newRetryPolicy(cfg *Retryer) *common.RetryPolicy {
+	r := retryerWithDefaults(cfg)
+
+	// Use OCI's standard retry rules but disable the SDK's extra
+	// eventual-consistency retry window so failed storage calls don't wait longer
+	// than the configured attempt count and backoff cap imply.
+	nonEventuallyConsistent := common.NewRetryPolicyWithOptions(
+		common.ReplaceWithValuesFromRetryPolicy(common.DefaultRetryPolicyWithoutEventualConsistency()),
+		common.WithMaximumNumberAttempts(uint(r.MaxAttempts)),
+		common.WithExponentialBackoff(r.MaxBackoff, retryBackoffBase),
+	)
+
+	return &nonEventuallyConsistent
 }
 
 type OCI struct {
-	cfg    *Config
-	node   string
-	log    log.LogEvent
-	client *objectstorage.ObjectStorageClient
+	cfg         *Config
+	node        string
+	log         log.LogEvent
+	client      *objectstorage.ObjectStorageClient
+	retryPolicy *common.RetryPolicy
 }
 
 func (*OCI) Type() storage.Type {
@@ -137,6 +158,8 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 			AllowMultipartUploads: common.Bool(true),
 			AllowParrallelUploads: common.Bool(true),
 			ObjectStorageClient:   o.client,
+			// Override transfer manager's default, which retries any non-2xx response.
+			RequestMetadata: o.requestMetadataWithRetryPolicy(),
 		},
 		StreamReader: data,
 	})
@@ -272,6 +295,10 @@ func (o *OCI) Copy(src, dst string) error {
 
 func (o *OCI) DownloadStat() storage.DownloadStat {
 	return storage.DownloadStat{}
+}
+
+func (o *OCI) requestMetadataWithRetryPolicy() common.RequestMetadata {
+	return common.RequestMetadata{RetryPolicy: o.retryPolicy}
 }
 
 func (o *OCI) copyObjectRequest(src, dst string) objectstorage.CopyObjectRequest {

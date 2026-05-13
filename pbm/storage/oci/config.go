@@ -2,6 +2,7 @@ package oci
 
 import (
 	"reflect"
+	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -11,6 +12,10 @@ const (
 	defaultUploadPartSize int64 = 10 * 1024 * 1024 // 10MiB
 	defaultMaxUploadParts int32 = 10000
 	defaultMaxObjSizeGB         = 5018 // 4.9 TB
+
+	defaultRetryMaxAttempts = 8
+	defaultRetryMaxBackoff  = 30 * time.Second
+	retryBackoffBase        = 2.0
 )
 
 //nolint:lll
@@ -20,10 +25,20 @@ type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
 	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
+	Retryer     *Retryer    `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
 	UploadPartSize int64    `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxUploadParts int32    `bson:"maxUploadParts,omitempty" json:"maxUploadParts,omitempty" yaml:"maxUploadParts,omitempty"`
 	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+}
+
+// Retryer configures OCI SDK retries for Object Storage requests.
+type Retryer struct {
+	// MaxAttempts is the total number of attempts, including the first call.
+	// 0 means use the PBM default; 1 disables retries. Unlimited retries are not supported.
+	MaxAttempts int `bson:"maxAttempts" json:"maxAttempts" yaml:"maxAttempts"`
+	// MaxBackoff caps the exponential retry backoff. 0 means use the PBM default.
+	MaxBackoff time.Duration `bson:"maxBackoff" json:"maxBackoff" yaml:"maxBackoff"`
 }
 
 //nolint:lll
@@ -44,6 +59,10 @@ func (cfg *Config) Clone() *Config {
 	if cfg.MaxObjSizeGB != nil {
 		v := *cfg.MaxObjSizeGB
 		rv.MaxObjSizeGB = &v
+	}
+	if cfg.Retryer != nil {
+		v := *cfg.Retryer
+		rv.Retryer = &v
 	}
 
 	return &rv
@@ -85,8 +104,40 @@ func (cfg *Config) Cast() error {
 	if cfg.MaxUploadParts <= 0 {
 		cfg.MaxUploadParts = defaultMaxUploadParts
 	}
+	if cfg.Retryer == nil {
+		r := retryerWithDefaults(nil)
+		cfg.Retryer = &r
+	} else {
+		if cfg.Retryer.MaxAttempts < 0 {
+			return errors.New("retryer.maxAttempts cannot be negative")
+		}
+		if cfg.Retryer.MaxBackoff < 0 {
+			return errors.New("retryer.maxBackoff cannot be negative")
+		}
+		r := retryerWithDefaults(cfg.Retryer)
+		cfg.Retryer = &r
+	}
 
 	return nil
+}
+
+func retryerWithDefaults(cfg *Retryer) Retryer {
+	if cfg == nil {
+		return Retryer{
+			MaxAttempts: defaultRetryMaxAttempts,
+			MaxBackoff:  defaultRetryMaxBackoff,
+		}
+	}
+
+	r := *cfg
+	if r.MaxAttempts == 0 {
+		r.MaxAttempts = defaultRetryMaxAttempts
+	}
+	if r.MaxBackoff == 0 {
+		r.MaxBackoff = defaultRetryMaxBackoff
+	}
+
+	return r
 }
 
 func (cfg *Config) GetMaxObjSizeGB() float64 {
