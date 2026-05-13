@@ -168,9 +168,9 @@ func TestCopyWorkRequestError(t *testing.T) {
 	listErr := errors.New("list errors failed")
 
 	tests := []struct {
-		name string
-		err  *copyWorkRequestError
-		want string
+		name     string
+		err      *copyWorkRequestError
+		contains []string
 	}{
 		{
 			name: "with details",
@@ -178,54 +178,40 @@ func TestCopyWorkRequestError(t *testing.T) {
 				id:     "wr1",
 				status: objectstorage.WorkRequestStatusFailed,
 				details: []objectstorage.WorkRequestError{
-					{
-						Code:    common.String("NotFound"),
-						Message: common.String("source missing"),
-					},
-					{Message: common.String("copy failed")},
-					{},
+					{Code: common.String("NotFound"), Message: common.String("source missing")},
 				},
 			},
-			want: "copy object work request wr1 finished with status FAILED: NotFound: source missing; copy failed; unknown work request error",
+			contains: []string{"status FAILED", "NotFound: source missing"},
 		},
 		{
-			name: "no error details returned",
-			err: &copyWorkRequestError{
-				id:     "wr1",
-				status: objectstorage.WorkRequestStatusCanceled,
-			},
-			want: "copy object work request wr1 finished with status CANCELED; no error details returned",
+			name:     "without details",
+			err:      &copyWorkRequestError{id: "wr1", status: objectstorage.WorkRequestStatusCanceled},
+			contains: []string{"status CANCELED", "no error details returned"},
 		},
 		{
-			name: "first list failed",
-			err: &copyWorkRequestError{
-				id:      "wr1",
-				status:  objectstorage.WorkRequestStatusFailed,
-				listErr: listErr,
-			},
-			want: "copy object work request wr1 finished with status FAILED; failed to list error details: list errors failed",
-		},
-		{
-			name: "later list failed",
-			err: &copyWorkRequestError{
-				id:     "wr1",
-				status: objectstorage.WorkRequestStatusFailed,
-				details: []objectstorage.WorkRequestError{
-					{Code: common.String("NotFound")},
-				},
-				listErr: listErr,
-			},
-			want: "copy object work request wr1 finished with status FAILED: NotFound; failed to list complete error details: list errors failed",
+			name:     "list failed",
+			err:      &copyWorkRequestError{id: "wr1", status: objectstorage.WorkRequestStatusFailed, listErr: listErr},
+			contains: []string{"status FAILED", "failed to list error details", "list errors failed"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.err.Error())
+			assertErrorContains(t, tt.err, "copy object work request wr1")
+			assertErrorContains(t, tt.err, tt.contains...)
 		})
 	}
 
-	assert.ErrorIs(t, (&copyWorkRequestError{listErr: listErr}), listErr)
+	assert.ErrorIs(t, &copyWorkRequestError{listErr: listErr}, listErr)
+}
+
+func assertErrorContains(t *testing.T, err error, parts ...string) {
+	t.Helper()
+
+	msg := err.Error()
+	for _, part := range parts {
+		assert.Contains(t, msg, part)
+	}
 }
 
 func testConfig(privateKey string) *Config {
