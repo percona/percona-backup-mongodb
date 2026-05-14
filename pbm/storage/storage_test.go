@@ -1,9 +1,20 @@
 package storage_test
 
 import (
+	"context"
+	"encoding/binary"
+	"flag"
+	"fmt"
+	"io"
+	"math/rand/v2"
 	"testing"
+	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 func TestComputePartSize(t *testing.T) {
@@ -96,4 +107,97 @@ func TestComputePartSize(t *testing.T) {
 			}
 		})
 	}
+}
+
+var (
+	pbmConnString = flag.String("pbm-url", "mongodb://bcp:test1234@rs100:30100/?authSource=admin", "pbm/mongodb conn string")
+	fSize         = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
+	fName         = flag.String("file-name", "test-file", "upload file name")
+	compression   = flag.String("compression", string(compress.CompressionTypeNone),
+		"compression type: none|gzip|pgzip|snappy|lz4|s2|zstd")
+)
+
+/*
+for sz in 10 50 100 500; do
+go test -v -run=^$ -bench=BenchmarkStorageUpload -benchtime=10x ./pbm/storage/ -file-size=$sz
+done
+*/
+func BenchmarkStorageUpload(b *testing.B) {
+	MiB := int64(1024 * 1024)
+	size := *fSize * MiB // from MiB to B
+	client, err := connect.Connect(context.Background(), *pbmConnString, "storage-bench")
+	if err != nil {
+		b.Fatalf("connect to mongodb-pbm: %v", err)
+	}
+	defer client.Disconnect(context.Background())
+
+	stg, err := util.GetStorage(context.Background(), client, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("get storage: %v", err)
+	}
+
+	cType := compress.CompressionType(*compression)
+	src := NewSizedInfiniteCustomReader(size)
+
+	b.SetBytes(size)
+
+	runDir := time.Now().Format("20060102-150405.000000")
+	for b.Loop() {
+		fileName := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
+
+		ts := time.Now()
+		sz, err := storage.Upload(context.Background(), src, stg, cType, nil, fileName, -1)
+		if err != nil {
+			b.Fatalf("storage upload: %v", err)
+		}
+		elapsed := time.Since(ts)
+		r := Results{
+			Size:        sz / MiB,
+			Time:        elapsed,
+			UploadSpeed: float64(sz/MiB) / elapsed.Seconds(),
+		}
+
+		b.Logf("%+v", r)
+	}
+}
+
+type Results struct {
+	Size        int64
+	Time        time.Duration
+	UploadSpeed float64
+}
+
+// InfiniteCustomReader is source for random test data.
+type InfiniteCustomReader struct {
+	size int64
+}
+
+func NewInfiniteCustomReader() *InfiniteCustomReader {
+	return &InfiniteCustomReader{}
+}
+
+func NewSizedInfiniteCustomReader(size int64) *InfiniteCustomReader {
+	return &InfiniteCustomReader{size: size}
+}
+
+func (r *InfiniteCustomReader) Read(p []byte) (int, error) {
+	n := len(p)
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		binary.LittleEndian.PutUint64(p[i:], rand.Uint64())
+	}
+	if i < n {
+		v := rand.Uint64()
+		for j := 0; i+j < n; j++ {
+			p[i+j] = byte(v >> (j * 8))
+		}
+	}
+	return n, nil
+}
+
+func (r *InfiniteCustomReader) WriteTo(w io.Writer) (int64, error) {
+	if r.size <= 0 {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return io.CopyN(w, struct{ io.Reader }{r}, r.size)
 }
