@@ -20,6 +20,11 @@ const (
 	minUploadPartSize   = defaultUploadPartSize
 	defaultMaxObjSizeGB = 10138 // 9.9 TiB application limit
 
+	// Match OCI SDK's defaultNumberOfGoroutines for UploadManager.
+	defaultUploadConcurrency = 5
+	// Match OCI CLI's --parallel-upload-count maximum instead of the SDK's much higher bound.
+	maxUploadConcurrency = 1000
+
 	defaultRetryMaxAttempts = 8
 	defaultRetryMaxBackoff  = 30 * time.Second
 	retryBackoffBase        = 2.0
@@ -35,6 +40,9 @@ type Config struct {
 	Retryer     *Retryer    `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
 	UploadPartSize int64 `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	// Increasing upload concurrency is not recommended by the OCI SDK because it can cause
+	// 409 responses or client timeouts.
+	UploadConcurrency int `bson:"uploadConcurrency,omitempty" json:"uploadConcurrency,omitempty" yaml:"uploadConcurrency,omitempty"`
 }
 
 // Retryer configures OCI SDK retries for Object Storage requests.
@@ -104,6 +112,12 @@ func (cfg *Config) Cast() error {
 	}
 	if cfg.UploadPartSize > maxUploadPartSize {
 		return errors.Errorf("uploadPartSize cannot exceed %d", maxUploadPartSize)
+	}
+	if cfg.UploadConcurrency <= 0 {
+		cfg.UploadConcurrency = defaultUploadConcurrency
+	}
+	if cfg.UploadConcurrency > maxUploadConcurrency {
+		return errors.Errorf("uploadConcurrency cannot exceed %d", maxUploadConcurrency)
 	}
 	if cfg.Retryer == nil {
 		r := retryerWithDefaults(nil)

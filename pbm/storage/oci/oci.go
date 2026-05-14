@@ -189,6 +189,7 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 			PartSize:              common.Int64(partSize),
 			AllowMultipartUploads: common.Bool(true),
 			AllowParrallelUploads: common.Bool(true),
+			NumberOfGoroutines:    common.Int(o.cfg.UploadConcurrency),
 			ObjectStorageClient:   o.client,
 			// Override transfer manager's default, which retries any non-2xx response.
 			RequestMetadata: o.requestMetadataWithRetryPolicy(),

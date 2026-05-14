@@ -19,6 +19,7 @@ func TestCastSetsDefaults(t *testing.T) {
 	require.NoError(t, cfg.Cast())
 
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
+	assert.Equal(t, defaultUploadConcurrency, cfg.UploadConcurrency)
 	require.NotNil(t, cfg.Retryer)
 	assert.Equal(t, defaultRetryMaxAttempts, cfg.Retryer.MaxAttempts)
 	assert.Equal(t, defaultRetryMaxBackoff, cfg.Retryer.MaxBackoff)
@@ -109,7 +110,8 @@ func TestCastObjectStorageLimits(t *testing.T) {
 		{
 			name: "maximums pass",
 			cfg: &Config{
-				UploadPartSize: maxUploadPartSize,
+				UploadPartSize:    maxUploadPartSize,
+				UploadConcurrency: maxUploadConcurrency,
 			},
 		},
 		{
@@ -118,6 +120,13 @@ func TestCastObjectStorageLimits(t *testing.T) {
 				UploadPartSize: maxUploadPartSize + 1,
 			},
 			wantError: "uploadPartSize cannot exceed",
+		},
+		{
+			name: "upload concurrency exceeds maximum",
+			cfg: &Config{
+				UploadConcurrency: maxUploadConcurrency + 1,
+			},
+			wantError: "uploadConcurrency cannot exceed",
 		},
 	}
 
@@ -151,7 +160,8 @@ func TestIsSameStorage(t *testing.T) {
 			Fingerprint: "f1",
 			PrivateKey:  "pk1",
 		},
-		UploadPartSize: 1,
+		UploadPartSize:    1,
+		UploadConcurrency: 2,
 	}
 	eq := &Config{
 		Region:    cfg.Region,
