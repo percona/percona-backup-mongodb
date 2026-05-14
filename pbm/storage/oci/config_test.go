@@ -101,6 +101,94 @@ func TestCastRetryer(t *testing.T) {
 	}
 }
 
+func TestCastObjectStorageLimits(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       *Config
+		wantError string
+	}{
+		{
+			name: "maximums pass",
+			cfg: &Config{
+				UploadPartSize: maxUploadPartSize,
+				MaxUploadParts: maxUploadParts,
+				MaxObjSizeGB:   storage.Ref(float64(maxObjSizeGB)),
+			},
+		},
+		{
+			name: "upload part size exceeds maximum",
+			cfg: &Config{
+				UploadPartSize: maxUploadPartSize + 1,
+			},
+			wantError: "uploadPartSize cannot exceed",
+		},
+		{
+			name: "max upload parts exceeds maximum",
+			cfg: &Config{
+				MaxUploadParts: maxUploadParts + 1,
+			},
+			wantError: "maxUploadParts cannot exceed",
+		},
+		{
+			name: "max object size exceeds maximum",
+			cfg: &Config{
+				MaxObjSizeGB: storage.Ref(float64(maxObjSizeGB) + 1),
+			},
+			wantError: "maxObjSizeGB cannot exceed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Cast()
+
+			if tt.wantError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestGetMaxObjSizeGB(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+		want float64
+	}{
+		{
+			name: "nil MaxObjSizeGB returns default",
+			cfg:  &Config{},
+			want: defaultMaxObjSizeGB,
+		},
+		{
+			name: "MaxObjSizeGB below lower bound returns default",
+			cfg:  &Config{MaxObjSizeGB: storage.Ref(0.5)},
+			want: defaultMaxObjSizeGB,
+		},
+		{
+			name: "MaxObjSizeGB at lower bound returns configured value",
+			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(storage.MinValidMaxObjSizeGB))},
+			want: storage.MinValidMaxObjSizeGB,
+		},
+		{
+			name: "MaxObjSizeGB at upper bound returns configured value",
+			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(maxObjSizeGB))},
+			want: maxObjSizeGB,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.GetMaxObjSizeGB()
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestIsSameStorage(t *testing.T) {
 	cfg := &Config{
 		Region:    "eu-frankfurt-1",

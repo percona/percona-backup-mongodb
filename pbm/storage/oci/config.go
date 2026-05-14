@@ -9,9 +9,14 @@ import (
 )
 
 const (
-	defaultUploadPartSize int64 = 10 * 1024 * 1024 // 10MiB
-	defaultMaxUploadParts int32 = 10000
-	defaultMaxObjSizeGB         = 5018 // 4.9 TB
+	// OCI Object Storage limits: https://docs.oracle.com/en-us/iaas/Content/Object/Concepts/objectstorageoverview.htm
+	maxUploadPartSize int64 = 50 * 1024 * 1024 * 1024 // 50 GiB
+	maxUploadParts    int32 = 10000
+	maxObjSizeGB            = 10 * 1024 // 10 TiB
+
+	defaultUploadPartSize int64 = 10 * 1024 * 1024 // 10 MiB
+	defaultMaxUploadParts       = maxUploadParts
+	defaultMaxObjSizeGB         = maxObjSizeGB
 
 	defaultRetryMaxAttempts = 8
 	defaultRetryMaxBackoff  = 30 * time.Second
@@ -101,8 +106,17 @@ func (cfg *Config) Cast() error {
 	if cfg.UploadPartSize <= 0 {
 		cfg.UploadPartSize = defaultUploadPartSize
 	}
+	if cfg.UploadPartSize > maxUploadPartSize {
+		return errors.Errorf("uploadPartSize cannot exceed %d", maxUploadPartSize)
+	}
 	if cfg.MaxUploadParts <= 0 {
 		cfg.MaxUploadParts = defaultMaxUploadParts
+	}
+	if cfg.MaxUploadParts > maxUploadParts {
+		return errors.Errorf("maxUploadParts cannot exceed %d", maxUploadParts)
+	}
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB > maxObjSizeGB {
+		return errors.Errorf("maxObjSizeGB cannot exceed %d", maxObjSizeGB)
 	}
 	if cfg.Retryer == nil {
 		r := retryerWithDefaults(nil)
