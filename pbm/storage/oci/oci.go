@@ -19,7 +19,10 @@ import (
 
 var _ storage.Storage = (*OCI)(nil)
 
-const defaultCopyWorkRequestPollDelay = 2 * time.Second
+const (
+	defaultCopyWorkRequestPollDelay = 2 * time.Second
+	defaultCopyWorkRequestTimeout   = time.Hour
+)
 
 func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	if err := cfg.Cast(); err != nil {
@@ -279,7 +282,10 @@ func (o *OCI) Delete(name string) error {
 }
 
 func (o *OCI) Copy(src, dst string) error {
-	res, err := o.client.CopyObject(context.Background(), o.copyObjectRequest(src, dst))
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCopyWorkRequestTimeout)
+	defer cancel()
+
+	res, err := o.client.CopyObject(ctx, o.copyObjectRequest(src, dst))
 	if err != nil {
 		if isNotFound(err) {
 			return storage.ErrNotExist
@@ -290,7 +296,7 @@ func (o *OCI) Copy(src, dst string) error {
 		return errors.New("copy object work request id is empty")
 	}
 
-	return o.waitCopyWorkRequest(context.Background(), *res.OpcWorkRequestId)
+	return o.waitCopyWorkRequest(ctx, *res.OpcWorkRequestId)
 }
 
 func (o *OCI) DownloadStat() storage.DownloadStat {

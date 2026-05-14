@@ -1,12 +1,17 @@
 package oci
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -280,6 +285,23 @@ func TestCopyWorkRequestError(t *testing.T) {
 	assert.ErrorIs(t, &copyWorkRequestError{listErr: listErr}, listErr)
 }
 
+func TestWaitCopyWorkRequestContextDeadline(t *testing.T) {
+	client, _, err := configureClient(testConfig(testPrivateKey(t)))
+	require.NoError(t, err)
+
+	httpClient := &inProgressWorkRequestHTTPClient{}
+	client.HTTPClient = httpClient
+	o := &OCI{client: client}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+
+	err = o.waitCopyWorkRequest(ctx, "wr1")
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Positive(t, httpClient.calls)
+}
+
 func assertErrorContains(t *testing.T, err error, parts ...string) {
 	t.Helper()
 
@@ -287,6 +309,23 @@ func assertErrorContains(t *testing.T, err error, parts ...string) {
 	for _, part := range parts {
 		assert.Contains(t, msg, part)
 	}
+}
+
+type inProgressWorkRequestHTTPClient struct {
+	calls int
+}
+
+func (c *inProgressWorkRequestHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	c.calls++
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header: http.Header{
+			"Retry-After": []string{"0.001"},
+		},
+		Body:    io.NopCloser(strings.NewReader(`{"id":"wr1","status":"IN_PROGRESS"}`)),
+		Request: req,
+	}, nil
 }
 
 func testConfig(privateKey string) *Config {
