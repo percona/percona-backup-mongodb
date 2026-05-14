@@ -31,7 +31,7 @@ func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	}
 	o.d = newDownload(1, storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)
 
-	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
+	return storage.NewSplitMergeMW(o, defaultMaxObjSizeGB), nil
 }
 
 func NewWithDownloader(
@@ -49,7 +49,7 @@ func NewWithDownloader(
 	o.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
 	o.d = newDownload(cc, arenaSize, spanSize)
 
-	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
+	return storage.NewSplitMergeMW(o, defaultMaxObjSizeGB), nil
 }
 
 func newOCI(cfg *Config, node string, l log.LogEvent) (*OCI, error) {
@@ -167,8 +167,8 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 	partSize := storage.ComputePartSize(
 		opts.Size,
 		defaultUploadPartSize,
-		defaultUploadPartSize,
-		int64(o.cfg.MaxUploadParts),
+		minUploadPartSize,
+		int64(maxUploadParts),
 		o.cfg.UploadPartSize,
 	)
 

@@ -19,7 +19,6 @@ func TestCastSetsDefaults(t *testing.T) {
 	require.NoError(t, cfg.Cast())
 
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
-	assert.Equal(t, defaultMaxUploadParts, cfg.MaxUploadParts)
 	require.NotNil(t, cfg.Retryer)
 	assert.Equal(t, defaultRetryMaxAttempts, cfg.Retryer.MaxAttempts)
 	assert.Equal(t, defaultRetryMaxBackoff, cfg.Retryer.MaxBackoff)
@@ -111,8 +110,6 @@ func TestCastObjectStorageLimits(t *testing.T) {
 			name: "maximums pass",
 			cfg: &Config{
 				UploadPartSize: maxUploadPartSize,
-				MaxUploadParts: maxUploadParts,
-				MaxObjSizeGB:   storage.Ref(float64(maxObjSizeGB)),
 			},
 		},
 		{
@@ -121,20 +118,6 @@ func TestCastObjectStorageLimits(t *testing.T) {
 				UploadPartSize: maxUploadPartSize + 1,
 			},
 			wantError: "uploadPartSize cannot exceed",
-		},
-		{
-			name: "max upload parts exceeds maximum",
-			cfg: &Config{
-				MaxUploadParts: maxUploadParts + 1,
-			},
-			wantError: "maxUploadParts cannot exceed",
-		},
-		{
-			name: "max object size exceeds maximum",
-			cfg: &Config{
-				MaxObjSizeGB: storage.Ref(float64(maxObjSizeGB) + 1),
-			},
-			wantError: "maxObjSizeGB cannot exceed",
 		},
 	}
 
@@ -152,41 +135,8 @@ func TestCastObjectStorageLimits(t *testing.T) {
 	}
 }
 
-func TestGetMaxObjSizeGB(t *testing.T) {
-	tests := []struct {
-		name string
-		cfg  *Config
-		want float64
-	}{
-		{
-			name: "nil MaxObjSizeGB returns default",
-			cfg:  &Config{},
-			want: defaultMaxObjSizeGB,
-		},
-		{
-			name: "MaxObjSizeGB below lower bound returns default",
-			cfg:  &Config{MaxObjSizeGB: storage.Ref(0.5)},
-			want: defaultMaxObjSizeGB,
-		},
-		{
-			name: "MaxObjSizeGB at lower bound returns configured value",
-			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(storage.MinValidMaxObjSizeGB))},
-			want: storage.MinValidMaxObjSizeGB,
-		},
-		{
-			name: "MaxObjSizeGB at upper bound returns configured value",
-			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(maxObjSizeGB))},
-			want: maxObjSizeGB,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.cfg.GetMaxObjSizeGB()
-
-			assert.Equal(t, tt.want, got)
-		})
-	}
+func TestDefaultMaxObjSizeGB(t *testing.T) {
+	assert.Less(t, defaultMaxObjSizeGB, maxObjSizeGB)
 }
 
 func TestIsSameStorage(t *testing.T) {
@@ -202,7 +152,6 @@ func TestIsSameStorage(t *testing.T) {
 			PrivateKey:  "pk1",
 		},
 		UploadPartSize: 1,
-		MaxUploadParts: 2,
 	}
 	eq := &Config{
 		Region:    cfg.Region,
