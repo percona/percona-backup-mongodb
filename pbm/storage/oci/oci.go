@@ -25,6 +25,34 @@ const (
 )
 
 func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
+	o, err := newOCI(cfg, node, l)
+	if err != nil {
+		return nil, err
+	}
+	o.d = newDownload(1, storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)
+
+	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
+}
+
+func NewWithDownloader(
+	cfg *Config,
+	node string,
+	l log.LogEvent,
+	cc, bufSizeMb, spanSizeMb int,
+) (storage.Storage, error) {
+	o, err := newOCI(cfg, node, l)
+	if err != nil {
+		return nil, err
+	}
+
+	arenaSize, spanSize, cc := storage.DownloadOpts(cc, bufSizeMb, spanSizeMb)
+	o.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
+	o.d = newDownload(cc, arenaSize, spanSize)
+
+	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
+}
+
+func newOCI(cfg *Config, node string, l log.LogEvent) (*OCI, error) {
 	if err := cfg.Cast(); err != nil {
 		return nil, errors.Wrap(err, "set defaults")
 	}
@@ -44,7 +72,7 @@ func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 		retryPolicy: retryPolicy,
 	}
 
-	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
+	return o, nil
 }
 
 func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, *common.RetryPolicy, error) {
@@ -121,6 +149,7 @@ type OCI struct {
 	log         log.LogEvent
 	client      *objectstorage.ObjectStorageClient
 	retryPolicy *common.RetryPolicy
+	d           *Download
 }
 
 func (*OCI) Type() storage.Type {
@@ -168,22 +197,6 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 	})
 
 	return errors.Wrap(err, "upload stream")
-}
-
-func (o *OCI) SourceReader(name string) (io.ReadCloser, error) {
-	res, err := o.client.GetObject(context.Background(), objectstorage.GetObjectRequest{
-		NamespaceName: common.String(o.cfg.Namespace),
-		BucketName:    common.String(o.cfg.Bucket),
-		ObjectName:    common.String(o.key(name)),
-	})
-	if err != nil {
-		if isNotFound(err) {
-			return nil, storage.ErrNotExist
-		}
-		return nil, errors.Wrap(err, "get object")
-	}
-
-	return res.Content, nil
 }
 
 func (o *OCI) FileStat(name string) (storage.FileInfo, error) {
@@ -297,10 +310,6 @@ func (o *OCI) Copy(src, dst string) error {
 	}
 
 	return o.waitCopyWorkRequest(ctx, *res.OpcWorkRequestId)
-}
-
-func (o *OCI) DownloadStat() storage.DownloadStat {
-	return storage.DownloadStat{}
 }
 
 func (o *OCI) requestMetadataWithRetryPolicy() common.RequestMetadata {

@@ -66,6 +66,9 @@ func StorageWithDownloaderFromConfig(
 	case storage.GCS:
 		return gcs.NewWithDownloader(cfg.GCS, node, l,
 			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
+	case storage.OCI:
+		return oci.NewWithDownloader(cfg.OCI, node, l,
+			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
 	default:
 		return StorageFromConfig(cfg, node, l)
 	}
