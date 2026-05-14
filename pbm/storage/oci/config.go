@@ -14,11 +14,13 @@ const (
 	maxUploadParts    int32 = 10000
 	maxObjSizeGB            = 10 * 1024 // 10 TiB
 
+	// Keep PBM's split/merge threshold slightly below OCI's object size limit.
+	defaultMaxObjSizeGB = 10138 // 9.9 TiB application limit
+
 	defaultUploadPartSize int64 = 10 * 1024 * 1024 // 10 MiB
 	// OCI CLI documents the multipart lower bound as greater than 10 MiB,
 	// while OCI SDK stream uploads default to 10 MiB.
-	minUploadPartSize   = defaultUploadPartSize
-	defaultMaxObjSizeGB = 10138 // 9.9 TiB application limit
+	minUploadPartSize = defaultUploadPartSize
 
 	// Match OCI SDK's defaultNumberOfGoroutines for UploadManager.
 	defaultUploadConcurrency = 5
