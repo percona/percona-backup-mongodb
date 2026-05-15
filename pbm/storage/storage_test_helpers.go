@@ -2,13 +2,15 @@ package storage
 
 import (
 	"bytes"
-	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"path"
 	"strings"
 	"testing"
+	"time"
 )
 
 func RunStorageBaseTests(t *testing.T, stg Storage, stgType Type) {
@@ -936,7 +938,48 @@ func CalcPartSizes(partSize, totalSize int64) []int64 {
 }
 
 func randomSuffix() string {
-	randomBytes := make([]byte, 8)
-	_, _ = rand.Read(randomBytes)
-	return hex.EncodeToString(randomBytes)
+	var b [8]byte
+	binary.LittleEndian.PutUint64(b[:], rand.Uint64())
+	return hex.EncodeToString(b[:])
+}
+
+type Results struct {
+	Size        int64
+	Time        time.Duration
+	UploadSpeed float64
+}
+
+// RandomDataSrc is source for random test data.
+type RandomDataSrc struct {
+	size int64
+}
+
+func NewRandomDataSrc() *RandomDataSrc {
+	return &RandomDataSrc{}
+}
+
+func NewSizedRandomDataSrc(size int64) *RandomDataSrc {
+	return &RandomDataSrc{size: size}
+}
+
+func (r *RandomDataSrc) Read(p []byte) (int, error) {
+	n := len(p)
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		binary.LittleEndian.PutUint64(p[i:], rand.Uint64())
+	}
+	if i < n {
+		v := rand.Uint64()
+		for j := 0; i+j < n; j++ {
+			p[i+j] = byte(v >> (j * 8))
+		}
+	}
+	return n, nil
+}
+
+func (r *RandomDataSrc) WriteTo(w io.Writer) (int64, error) {
+	if r.size <= 0 {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return io.CopyN(w, struct{ io.Reader }{r}, r.size)
 }

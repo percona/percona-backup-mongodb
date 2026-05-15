@@ -2,10 +2,8 @@ package storage_test
 
 import (
 	"context"
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"testing"
 	"time"
@@ -137,7 +135,7 @@ func BenchmarkStorageUpload(b *testing.B) {
 	}
 
 	cType := compress.CompressionType(*compression)
-	src := NewSizedInfiniteCustomReader(size)
+	src := storage.NewSizedRandomDataSrc(size)
 
 	b.SetBytes(size)
 
@@ -151,7 +149,7 @@ func BenchmarkStorageUpload(b *testing.B) {
 			b.Fatalf("storage upload: %v", err)
 		}
 		elapsed := time.Since(ts)
-		r := Results{
+		r := storage.Results{
 			Size:        sz / MiB,
 			Time:        elapsed,
 			UploadSpeed: float64(sz/MiB) / elapsed.Seconds(),
@@ -159,45 +157,4 @@ func BenchmarkStorageUpload(b *testing.B) {
 
 		b.Logf("%+v", r)
 	}
-}
-
-type Results struct {
-	Size        int64
-	Time        time.Duration
-	UploadSpeed float64
-}
-
-// InfiniteCustomReader is source for random test data.
-type InfiniteCustomReader struct {
-	size int64
-}
-
-func NewInfiniteCustomReader() *InfiniteCustomReader {
-	return &InfiniteCustomReader{}
-}
-
-func NewSizedInfiniteCustomReader(size int64) *InfiniteCustomReader {
-	return &InfiniteCustomReader{size: size}
-}
-
-func (r *InfiniteCustomReader) Read(p []byte) (int, error) {
-	n := len(p)
-	i := 0
-	for ; i+8 <= n; i += 8 {
-		binary.LittleEndian.PutUint64(p[i:], rand.Uint64())
-	}
-	if i < n {
-		v := rand.Uint64()
-		for j := 0; i+j < n; j++ {
-			p[i+j] = byte(v >> (j * 8))
-		}
-	}
-	return n, nil
-}
-
-func (r *InfiniteCustomReader) WriteTo(w io.Writer) (int64, error) {
-	if r.size <= 0 {
-		return 0, io.ErrUnexpectedEOF
-	}
-	return io.CopyN(w, struct{ io.Reader }{r}, r.size)
 }

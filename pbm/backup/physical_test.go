@@ -2,12 +2,22 @@ package backup
 
 import (
 	"context"
+	"flag"
+	"fmt"
+	"io"
+	"math/rand/v2"
+	"os"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
 func TestBackupCursor(t *testing.T) {
@@ -197,5 +207,74 @@ func disableBcpCurErr(t *testing.T, m *mongo.Client) {
 	}).Err()
 	if err != nil {
 		t.Fatalf("configureFailPoint disable err: %v", err)
+	}
+}
+
+var (
+	pbmConnString = flag.String("pbm-url", "mongodb://bcp:test1234@rs100:30100/?authSource=admin", "pbm/mongodb conn string")
+	fSize         = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
+	fName         = flag.String("file-name", "test-file", "upload file name")
+	compression   = flag.String("compression", string(compress.CompressionTypeNone),
+		"compression type: none|gzip|pgzip|snappy|lz4|s2|zstd")
+	compressionLevel = flag.Int("compression-level", -1, "compression level")
+)
+
+/*
+for sz in 10 50 100 500 2000; do
+go test -v -run=^$ -bench=BenchmarkWriteFile -benchtime=10x ./pbm/backup/ -file-size=$sz
+done
+*/
+func BenchmarkWriteFile(b *testing.B) {
+	MiB := int64(1024 * 1024)
+	size := *fSize * MiB
+	client, err := connect.Connect(context.Background(), *pbmConnString, "bency")
+	if err != nil {
+		b.Fatalf("connect to mongodb-pbm: %v", err)
+	}
+	defer client.Disconnect(context.Background()) //nolint:errcheck
+
+	stg, err := util.GetStorage(context.Background(), client, "", log.DiscardEvent)
+	if err != nil {
+		b.Fatalf("get storage: %v", err)
+	}
+
+	cType := compress.CompressionType(*compression)
+	var cLevel *int
+	if *compressionLevel != -1 {
+		cLevel = compressionLevel
+	}
+
+	tmpFile, err := os.CreateTemp("", "writefile-bench-*")
+	if err != nil {
+		b.Fatalf("create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := io.CopyN(tmpFile, storage.NewSizedRandomDataSrc(size), size); err != nil {
+		b.Fatalf("write to temp file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		b.Fatalf("close temp file: %v", err)
+	}
+
+	b.SetBytes(int64(size))
+
+	runDir := time.Now().Format("20060102-150405.000000")
+	for b.Loop() {
+		dst := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
+
+		ts := time.Now()
+		f, err := writeFile(context.Background(), File{Name: tmpFile.Name()}, dst, stg, cType, cLevel)
+		if err != nil {
+			b.Fatalf("writeFile: %v", err)
+		}
+		elapsed := time.Since(ts)
+		r := storage.Results{
+			Size:        f.StgSize / MiB,
+			Time:        elapsed,
+			UploadSpeed: float64(f.StgSize/MiB) / elapsed.Seconds(),
+		}
+
+		b.Logf("%+v", r)
 	}
 }
