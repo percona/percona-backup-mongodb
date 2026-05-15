@@ -31,7 +31,7 @@ func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 	}
 	o.d = newDownload(1, storage.DownloadChuckSizeDefault, storage.DownloadChuckSizeDefault)
 
-	return storage.NewSplitMergeMW(o, defaultMaxObjSizeGB), nil
+	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
 }
 
 func NewWithDownloader(
@@ -49,7 +49,7 @@ func NewWithDownloader(
 	o.log.Debug("download max buf %d (arena %d, span %d, concurrency %d)", arenaSize*cc, arenaSize, spanSize, cc)
 	o.d = newDownload(cc, arenaSize, spanSize)
 
-	return storage.NewSplitMergeMW(o, defaultMaxObjSizeGB), nil
+	return storage.NewSplitMergeMW(o, cfg.GetMaxObjSizeGB()), nil
 }
 
 func newOCI(cfg *Config, node string, l log.LogEvent) (*OCI, error) {

@@ -20,6 +20,7 @@ func TestCastSetsDefaults(t *testing.T) {
 
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
 	assert.Equal(t, defaultUploadConcurrency, cfg.UploadConcurrency)
+	assert.Equal(t, float64(defaultMaxObjSizeGB), cfg.GetMaxObjSizeGB())
 	require.NotNil(t, cfg.Retryer)
 	assert.Equal(t, defaultRetryMaxAttempts, cfg.Retryer.MaxAttempts)
 	assert.Equal(t, defaultRetryMaxBackoff, cfg.Retryer.MaxBackoff)
@@ -108,9 +109,10 @@ func TestCastObjectStorageLimits(t *testing.T) {
 		wantError string
 	}{
 		{
-			name: "maximums pass",
+			name: "valid limits pass",
 			cfg: &Config{
 				UploadPartSize:    maxUploadPartSize,
+				MaxObjSizeGB:      storage.Ref(float64(maxObjSizeGB) - 1),
 				UploadConcurrency: maxUploadConcurrency,
 			},
 		},
@@ -120,6 +122,13 @@ func TestCastObjectStorageLimits(t *testing.T) {
 				UploadPartSize: maxUploadPartSize + 1,
 			},
 			wantError: "uploadPartSize cannot exceed",
+		},
+		{
+			name: "max object size reaches maximum",
+			cfg: &Config{
+				MaxObjSizeGB: storage.Ref(float64(maxObjSizeGB)),
+			},
+			wantError: "maxObjSizeGB must be less than",
 		},
 		{
 			name: "upload concurrency exceeds maximum",
@@ -144,7 +153,42 @@ func TestCastObjectStorageLimits(t *testing.T) {
 	}
 }
 
-func TestDefaultMaxObjSizeGB(t *testing.T) {
+func TestGetMaxObjSizeGB(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+		want float64
+	}{
+		{
+			name: "nil MaxObjSizeGB returns default",
+			cfg:  &Config{},
+			want: defaultMaxObjSizeGB,
+		},
+		{
+			name: "MaxObjSizeGB below lower bound returns default",
+			cfg:  &Config{MaxObjSizeGB: storage.Ref(0.5)},
+			want: defaultMaxObjSizeGB,
+		},
+		{
+			name: "MaxObjSizeGB at lower bound returns configured value",
+			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(storage.MinValidMaxObjSizeGB))},
+			want: storage.MinValidMaxObjSizeGB,
+		},
+		{
+			name: "MaxObjSizeGB below upper bound returns configured value",
+			cfg:  &Config{MaxObjSizeGB: storage.Ref(float64(maxObjSizeGB) - 1)},
+			want: maxObjSizeGB - 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.GetMaxObjSizeGB()
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
 	assert.Less(t, defaultMaxObjSizeGB, maxObjSizeGB)
 }
 

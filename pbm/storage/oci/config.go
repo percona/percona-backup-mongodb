@@ -9,13 +9,15 @@ import (
 )
 
 const (
-	// OCI Object Storage limits: https://docs.oracle.com/en-us/iaas/Content/Object/Concepts/objectstorageoverview.htm
+	// OCI Object Storage service limits:
+	// https://docs.oracle.com/en-us/iaas/Content/Object/Concepts/objectstorageoverview.htm
 	maxUploadPartSize int64 = 50 * 1024 * 1024 * 1024 // 50 GiB
 	maxUploadParts    int32 = 10000
 	maxObjSizeGB            = 10 * 1024 // 10 TiB
 
-	// Keep PBM's split/merge threshold slightly below OCI's object size limit.
-	defaultMaxObjSizeGB = 10138 // 9.9 TiB application limit
+	// PBM split/merge default. Keep it below maxObjSizeGB so PBM does not
+	// intentionally create objects at OCI's service limit.
+	defaultMaxObjSizeGB = 10138 // 9.9 TiB
 
 	defaultUploadPartSize int64 = 10 * 1024 * 1024 // 10 MiB
 	// OCI CLI documents the multipart lower bound as greater than 10 MiB,
@@ -41,7 +43,8 @@ type Config struct {
 	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
 	Retryer     *Retryer    `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
-	UploadPartSize int64 `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	UploadPartSize int64    `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
+	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 	// Increasing upload concurrency is not recommended by the OCI SDK because it can cause
 	// 409 responses or client timeouts.
 	UploadConcurrency int `bson:"uploadConcurrency,omitempty" json:"uploadConcurrency,omitempty" yaml:"uploadConcurrency,omitempty"`
@@ -71,6 +74,10 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	if cfg.MaxObjSizeGB != nil {
+		v := *cfg.MaxObjSizeGB
+		rv.MaxObjSizeGB = &v
+	}
 	if cfg.Retryer != nil {
 		v := *cfg.Retryer
 		rv.Retryer = &v
@@ -115,6 +122,9 @@ func (cfg *Config) Cast() error {
 	if cfg.UploadPartSize > maxUploadPartSize {
 		return errors.Errorf("uploadPartSize cannot exceed %d", maxUploadPartSize)
 	}
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB >= maxObjSizeGB {
+		return errors.Errorf("maxObjSizeGB must be less than %d", maxObjSizeGB)
+	}
 	if cfg.UploadConcurrency <= 0 {
 		cfg.UploadConcurrency = defaultUploadConcurrency
 	}
@@ -136,6 +146,13 @@ func (cfg *Config) Cast() error {
 	}
 
 	return nil
+}
+
+func (cfg *Config) GetMaxObjSizeGB() float64 {
+	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB >= storage.MinValidMaxObjSizeGB {
+		return *cfg.MaxObjSizeGB
+	}
+	return defaultMaxObjSizeGB
 }
 
 func retryerWithDefaults(cfg *Retryer) Retryer {
