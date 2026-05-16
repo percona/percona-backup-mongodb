@@ -297,10 +297,13 @@ func TestIsSameStorage(t *testing.T) {
 			Bucket:    "b1",
 			Prefix:    "p1",
 			Credentials: ocistorage.Credentials{
-				Tenancy:     "t1",
-				User:        "u1",
-				Fingerprint: "f1",
-				PrivateKey:  "pk1",
+				Type: ocistorage.AuthTypeUserPrincipal,
+				UserPrincipal: &ocistorage.UserPrincipalCredentials{
+					Tenancy:     "t1",
+					User:        "u1",
+					Fingerprint: "f1",
+					PrivateKey:  "pk1",
+				},
 			},
 		}
 		eq := &ocistorage.Config{

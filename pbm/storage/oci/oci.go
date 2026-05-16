@@ -86,31 +86,11 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 	if cfg.Bucket == "" {
 		return nil, errors.New("bucket is required")
 	}
-	if cfg.Credentials.Tenancy == "" {
-		return nil, errors.New("credentials.tenancy is required")
-	}
-	if cfg.Credentials.User == "" {
-		return nil, errors.New("credentials.user is required")
-	}
-	if cfg.Credentials.Fingerprint == "" {
-		return nil, errors.New("credentials.fingerprint is required")
-	}
-	if cfg.Credentials.PrivateKey == "" {
-		return nil, errors.New("credentials.privateKey is required")
-	}
 
-	var passphrase *string
-	if cfg.Credentials.PrivateKeyPassphrase != "" {
-		passphrase = common.String(string(cfg.Credentials.PrivateKeyPassphrase))
+	provider, err := configurationProvider(cfg)
+	if err != nil {
+		return nil, err
 	}
-	provider := common.NewRawConfigurationProvider(
-		string(cfg.Credentials.Tenancy),
-		string(cfg.Credentials.User),
-		cfg.Region,
-		string(cfg.Credentials.Fingerprint),
-		string(cfg.Credentials.PrivateKey),
-		passphrase,
-	)
 
 	client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
 	if err != nil {
@@ -124,6 +104,53 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 	client.HTTPClient = &http.Client{}
 
 	return &client, nil
+}
+
+func configurationProvider(cfg *Config) (common.ConfigurationProvider, error) {
+	authType := cfg.Credentials.Type
+	if authType == "" {
+		authType = AuthTypeUserPrincipal
+	}
+
+	switch authType {
+	case AuthTypeUserPrincipal:
+		return userPrincipalProvider(cfg)
+	default:
+		return nil, errors.Errorf("unsupported OCI credentials type %q", authType)
+	}
+}
+
+func userPrincipalProvider(cfg *Config) (common.ConfigurationProvider, error) {
+	creds := cfg.Credentials.UserPrincipal
+	if creds == nil {
+		return nil, errors.New("credentials.userPrincipal is required")
+	}
+	if creds.Tenancy == "" {
+		return nil, errors.New("credentials.userPrincipal.tenancy is required")
+	}
+	if creds.User == "" {
+		return nil, errors.New("credentials.userPrincipal.user is required")
+	}
+	if creds.Fingerprint == "" {
+		return nil, errors.New("credentials.userPrincipal.fingerprint is required")
+	}
+	if creds.PrivateKey == "" {
+		return nil, errors.New("credentials.userPrincipal.privateKey is required")
+	}
+
+	var passphrase *string
+	if creds.PrivateKeyPassphrase != "" {
+		passphrase = common.String(string(creds.PrivateKeyPassphrase))
+	}
+
+	return common.NewRawConfigurationProvider(
+		string(creds.Tenancy),
+		string(creds.User),
+		cfg.Region,
+		string(creds.Fingerprint),
+		string(creds.PrivateKey),
+		passphrase,
+	), nil
 }
 
 func newRetryPolicy(cfg *Retryer) *common.RetryPolicy {
