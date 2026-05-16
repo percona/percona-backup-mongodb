@@ -62,8 +62,9 @@ type Retryer struct {
 type AuthType string
 
 const (
-	AuthTypeUserPrincipal     AuthType = "userPrincipal"
-	AuthTypeInstancePrincipal AuthType = "instancePrincipal"
+	AuthTypeUserPrincipal       AuthType = "userPrincipal"
+	AuthTypeInstancePrincipal   AuthType = "instancePrincipal"
+	AuthTypeOkeWorkloadIdentity AuthType = "okeWorkloadIdentity"
 )
 
 //nolint:lll

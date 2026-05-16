@@ -101,6 +101,13 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 	client.SetCustomClientConfiguration(common.CustomClientConfiguration{
 		RetryPolicy: retryPolicy,
 	})
+	if cfg.Credentials.Type == AuthTypeOkeWorkloadIdentity {
+		// OKE provider gets its region from OCI_RESOURCE_PRINCIPAL_REGION and has no ForRegion variant.
+		// PBM's cfg.Region is the Object Storage bucket region, so override the service endpoint.
+		// This must happen after SetCustomClientConfiguration because the OCI SDK refreshes
+		// the endpoint from provider.Region() when custom config is applied.
+		client.SetRegion(cfg.Region)
+	}
 	// Match OCI transfer manager behavior: use a no-timeout client for large uploads.
 	client.HTTPClient = &http.Client{}
 
@@ -118,6 +125,8 @@ func configurationProvider(cfg *Config) (common.ConfigurationProvider, error) {
 		return userPrincipalProvider(cfg)
 	case AuthTypeInstancePrincipal:
 		return auth.InstancePrincipalConfigurationProviderForRegion(common.StringToRegion(cfg.Region))
+	case AuthTypeOkeWorkloadIdentity:
+		return auth.OkeWorkloadIdentityConfigurationProvider()
 	default:
 		return nil, errors.Errorf("unsupported OCI credentials type %q", authType)
 	}
