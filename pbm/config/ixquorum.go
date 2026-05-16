@@ -14,7 +14,10 @@ const (
 	IndexCommitQuorumVotingMembers IndexCommitQuorum = "votingMembers"
 )
 
-const DefaultRestoreIndexCommitQuorum = IndexCommitQuorumVotingMembers
+const (
+	DefaultRestoreIndexCommitQuorum = IndexCommitQuorumVotingMembers
+	MaxIndexCommitQuorum            = 50
+)
 
 // CommandValue returns the value shape expected by MongoDB's createIndexes
 // commitQuorum field. MongoDB accepts symbolic string values or an integer
@@ -40,7 +43,7 @@ func ValidateIndexCommitQuorum(q IndexCommitQuorum) error {
 	}
 
 	n, err := strconv.ParseInt(val, 10, 32)
-	if err != nil || n <= 0 {
+	if err != nil || n <= 0 || n > MaxIndexCommitQuorum {
 		return errors.Errorf("invalid restore.indexCommitQuorum %q", val)
 	}
 
