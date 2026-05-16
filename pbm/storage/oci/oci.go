@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage/transfer"
 
@@ -115,6 +116,8 @@ func configurationProvider(cfg *Config) (common.ConfigurationProvider, error) {
 	switch authType {
 	case AuthTypeUserPrincipal:
 		return userPrincipalProvider(cfg)
+	case AuthTypeInstancePrincipal:
+		return auth.InstancePrincipalConfigurationProviderForRegion(common.StringToRegion(cfg.Region))
 	default:
 		return nil, errors.Errorf("unsupported OCI credentials type %q", authType)
 	}
