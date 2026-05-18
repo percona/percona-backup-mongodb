@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"os"
 	"testing"
@@ -202,23 +203,27 @@ func TempStorageProfile(t *testing.T, name string) Storage {
 var TestEnv *TestEnvironment
 
 func TestMain(m *testing.M) {
-	TestEnv = &TestEnvironment{}
-	ctx := context.Background()
+	flag.Parse()
+	benchFlag := flag.Lookup("test.bench")
+	benchOnly := benchFlag != nil && benchFlag.Value.String() != ""
 
-	err := TestEnv.StartMongo(ctx)
-	if err != nil {
-		log.Fatalf("failed to start test MongoDB: %s", err)
+	if !benchOnly {
+		// Do not run testcontainers for bench type of tests.
+		// This allows running bench on test/staging/prod systems,
+		// where docker is not present.
+		TestEnv = &TestEnvironment{}
+		ctx := context.Background()
+		if err := TestEnv.StartMongo(ctx); err != nil {
+			log.Fatalf("failed to start test MongoDB: %s", err)
+		}
+		defer func() {
+			if err := TestEnv.Cleanup(ctx); err != nil {
+				log.Fatalf("failed to cleanup test environment: %s", err)
+			}
+		}()
 	}
 
-	defer func() {
-		err = TestEnv.Cleanup(ctx)
-		if err != nil {
-			log.Fatalf("failed to cleanup test environment: %s", err)
-		}
-	}()
-
-	code := m.Run()
-	os.Exit(code)
+	os.Exit(m.Run())
 }
 
 type bcp struct {
