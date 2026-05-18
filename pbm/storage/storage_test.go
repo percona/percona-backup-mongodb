@@ -116,7 +116,7 @@ var (
 )
 
 /*
-for sz in 10 50 100 500; do
+for sz in 10 50 100 500 2000; do
 go test -v -run=^$ -bench=BenchmarkStorageUpload -benchtime=10x ./pbm/storage/ -file-size=$sz
 done
 */

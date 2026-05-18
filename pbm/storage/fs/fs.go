@@ -19,8 +19,9 @@ const (
 )
 
 type Config struct {
-	Path         string   `bson:"path" json:"path" yaml:"path"`
-	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+	Path           string   `bson:"path" json:"path" yaml:"path"`
+	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+	BackupBuffSize int      `bson:"backupBuffSize,omitempty" json:"backupBuffSize,omitempty" yaml:"backupBuffSize,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -81,8 +82,21 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	return defaultMaxObjSizeGB
 }
 
+func (cfg *Config) GetBackupBuffSize() int {
+	if cfg.BackupBuffSize == 0 {
+		return cfg.BackupBuffSize
+	}
+
+	// normalize buff size within range: 32KiB - 10MiB
+	buffSize := max(32*1024, cfg.BackupBuffSize)
+	buffSize = min(10*1024*1024, cfg.BackupBuffSize)
+
+	return buffSize
+}
+
 type FS struct {
-	root string
+	root  string
+	wBuff int
 }
 
 func New(opts *Config) (storage.Storage, error) {
@@ -93,7 +107,11 @@ func New(opts *Config) (storage.Storage, error) {
 				return nil, errors.Wrapf(err, "mkdir %s", opts.Path)
 			}
 
-			return &FS{opts.Path}, nil
+			fs := &FS{
+				root:  opts.Path,
+				wBuff: opts.GetBackupBuffSize(),
+			}
+			return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 		}
 
 		return nil, errors.Wrapf(err, "stat %s", opts.Path)
@@ -114,7 +132,10 @@ func New(opts *Config) (storage.Storage, error) {
 		return nil, errors.Errorf("%s is not directory", root)
 	}
 
-	fs := &FS{root}
+	fs := &FS{
+		root:  root,
+		wBuff: opts.BackupBuffSize,
+	}
 	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 }
 
@@ -156,9 +177,17 @@ func (fs *FS) writeSync(name string, data io.Reader) (err error) {
 		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
 	}
 
-	_, err = io.Copy(fw, data)
-	if err != nil {
-		return errors.Wrapf(err, "copy file <%s>", filepath)
+	if fs.wBuff == 0 {
+		_, err = io.Copy(fw, data)
+		if err != nil {
+			return errors.Wrapf(err, "copy file <%s>", filepath)
+		}
+	} else {
+		buff := make([]byte, fs.wBuff)
+		_, err = io.CopyBuffer(fw, data, buff)
+		if err != nil {
+			return errors.Wrapf(err, "copy file <%s>, using buffer size: %d", filepath, fs.wBuff)
+		}
 	}
 
 	err = fw.Sync()
