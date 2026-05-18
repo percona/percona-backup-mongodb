@@ -36,6 +36,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
+const mongoErrUnsatisfiableCommitQuorum = 278
+
 // mDBCl represents mDB client iterface for the DB related ops.
 type mDBCl interface {
 	runCmdShardsvrDropDatabase(ctx context.Context, db string, configDBDoc *configDatabasesDoc) error
@@ -1316,22 +1318,48 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 			delete(index.Options, "v")
 		}
 
-		rawCommand := bson.D{
-			{"createIndexes", ns.Collection},
-			{"indexes", indexes},
-			{"ignoreUnknownIndexOptions", true},
-			{"commitQuorum", r.indexCommitQuorum.CommandValue()},
-		}
+		commitQuorum := r.indexCommitQuorum.CommandValue()
+		rawCommand := createIndexesCommand(ns.Collection, indexes, commitQuorum)
 
 		r.log.Info("restoring indexes for %s.%s: %s",
 			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
 		err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+		if shouldRetryWithDefaultIndexCommitQuorum(err, commitQuorum) {
+			commitQuorum = config.DefaultRestoreIndexCommitQuorum.CommandValue()
+			r.log.Warning(
+				"index commit quorum cannot be satisfied for %s.%s, retrying with %s",
+				ns.DB, ns.Collection, commitQuorum,
+			)
+			rawCommand = createIndexesCommand(ns.Collection, indexes, commitQuorum)
+			err = r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+		}
 		if err != nil {
 			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
 		}
 	}
 
 	return nil
+}
+
+func createIndexesCommand(collection string, indexes []*idx.IndexDocument, commitQuorum any) bson.D {
+	return bson.D{
+		{"createIndexes", collection},
+		{"indexes", indexes},
+		{"ignoreUnknownIndexOptions", true},
+		{"commitQuorum", commitQuorum},
+	}
+}
+
+func shouldRetryWithDefaultIndexCommitQuorum(err error, commitQuorum any) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := commitQuorum.(int32); !ok {
+		return false
+	}
+
+	var cmdErr mongo.CommandError
+	return errors.As(err, &cmdErr) && cmdErr.HasErrorCode(mongoErrUnsatisfiableCommitQuorum)
 }
 
 func (r *Restore) updateRouterConfig(ctx context.Context) error {
