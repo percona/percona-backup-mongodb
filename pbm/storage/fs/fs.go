@@ -123,7 +123,8 @@ func (*FS) Type() storage.Type {
 }
 
 //nolint:nonamedreturns
-func writeSync(finalpath string, data io.Reader) (err error) {
+func (fs *FS) writeSync(name string, data io.Reader) (err error) {
+	finalpath := path.Join(fs.root, name)
 	filepath := finalpath + tmpFileSuffix
 
 	err = os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
@@ -180,7 +181,7 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 }
 
 func (fs *FS) Save(name string, data io.Reader, _ ...storage.Option) error {
-	return writeSync(path.Join(fs.root, name), data)
+	return fs.writeSync(name, data)
 }
 
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
@@ -263,7 +264,7 @@ func (fs *FS) Copy(src, dst string) error {
 		return errors.Wrap(err, "open src")
 	}
 
-	return writeSync(path.Join(fs.root, dst), from)
+	return fs.writeSync(dst, from)
 }
 
 func (fs *FS) DownloadStat() storage.DownloadStat {
