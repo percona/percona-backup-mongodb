@@ -83,13 +83,13 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 }
 
 func (cfg *Config) GetBackupBuffSize() int {
-	if cfg.BackupBuffSize == 0 {
-		return cfg.BackupBuffSize
+	if cfg.BackupBuffSize <= 0 {
+		return 0
 	}
 
 	// normalize buff size within range: 32KiB - 10MiB
 	buffSize := max(32*1024, cfg.BackupBuffSize)
-	buffSize = min(10*1024*1024, cfg.BackupBuffSize)
+	buffSize = min(10*1024*1024, buffSize)
 
 	return buffSize
 }

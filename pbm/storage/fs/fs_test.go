@@ -1285,6 +1285,73 @@ func TestGetMaxObjSizeGB(t *testing.T) {
 	}
 }
 
+func TestGetBackupBuffSize(t *testing.T) {
+	const (
+		minBuffSize = 32 * 1024
+		maxBuffSize = 10 * 1024 * 1024
+	)
+
+	tests := []struct {
+		name string
+		cfg  *Config
+		want int
+	}{
+		{
+			name: "zero value returns zero",
+			cfg:  &Config{},
+			want: 0,
+		},
+		{
+			name: "negative value returns zero",
+			cfg:  &Config{BackupBuffSize: -1},
+			want: 0,
+		},
+		{
+			name: "below lower bound is normalized to min",
+			cfg:  &Config{BackupBuffSize: 1024},
+			want: minBuffSize,
+		},
+		{
+			name: "one byte below lower bound is normalized to min",
+			cfg:  &Config{BackupBuffSize: minBuffSize - 1},
+			want: minBuffSize,
+		},
+		{
+			name: "at lower bound returns configured value",
+			cfg:  &Config{BackupBuffSize: minBuffSize},
+			want: minBuffSize,
+		},
+		{
+			name: "within range returns configured value",
+			cfg:  &Config{BackupBuffSize: 1 * 1024 * 1024},
+			want: 1 * 1024 * 1024,
+		},
+		{
+			name: "at upper bound returns configured value",
+			cfg:  &Config{BackupBuffSize: maxBuffSize},
+			want: maxBuffSize,
+		},
+		{
+			name: "one byte above upper bound is normalized to max",
+			cfg:  &Config{BackupBuffSize: maxBuffSize + 1},
+			want: maxBuffSize,
+		},
+		{
+			name: "above upper bound is normalized to max",
+			cfg:  &Config{BackupBuffSize: 20 * 1024 * 1024},
+			want: maxBuffSize,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.GetBackupBuffSize()
+			if got != tt.want {
+				t.Errorf("GetBackupBuffSize: got=%d, want=%d", got, tt.want)
+			}
+		})
+	}
+}
+
 func setupTestDir(t *testing.T) string {
 	tmpDir, err := os.MkdirTemp("", "fs-test-*")
 	if err != nil {
