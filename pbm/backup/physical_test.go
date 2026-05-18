@@ -14,10 +14,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
-	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/util"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 )
 
 func TestBackupCursor(t *testing.T) {
@@ -211,31 +210,31 @@ func disableBcpCurErr(t *testing.T, m *mongo.Client) {
 }
 
 var (
-	pbmConnString = flag.String("pbm-url", "mongodb://bcp:test1234@rs100:30100/?authSource=admin", "pbm/mongodb conn string")
-	fSize         = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
-	fName         = flag.String("file-name", "test-file", "upload file name")
-	compression   = flag.String("compression", string(compress.CompressionTypeNone),
+	fsPath         = flag.String("fs-path", "/mnt/nfs/pbm", "storage path where file will be saved")
+	backupBuffSize = flag.Int("buff-size", 0, "backup buffer size: size of internal write buffer, 0 means no buffer")
+	fSize          = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
+	fName          = flag.String("file-name", "test-file", "upload file name")
+	compression    = flag.String("compression", string(compress.CompressionTypeNone),
 		"compression type: none|gzip|pgzip|snappy|lz4|s2|zstd")
 	compressionLevel = flag.Int("compression-level", -1, "compression level")
 )
 
 /*
 for sz in 10 50 100 500 2000; do
-go test -v -run=^$ -bench=BenchmarkWriteFile -benchtime=10x ./pbm/backup/ -file-size=$sz
+go test -v -run=^$ -bench=BenchmarkWriteFile -benchtime=10x ./pbm/backup/ -file-size=$sz -buff-size=$((1*1024*1024))
 done
 */
 func BenchmarkWriteFile(b *testing.B) {
 	MiB := int64(1024 * 1024)
 	size := *fSize * MiB
-	client, err := connect.Connect(context.Background(), *pbmConnString, "bency")
-	if err != nil {
-		b.Fatalf("connect to mongodb-pbm: %v", err)
-	}
-	defer client.Disconnect(context.Background()) //nolint:errcheck
 
-	stg, err := util.GetStorage(context.Background(), client, "", log.DiscardEvent)
+	fsCfg := &fs.Config{
+		Path:           *fsPath,
+		BackupBuffSize: *backupBuffSize,
+	}
+	stg, err := fs.New(fsCfg)
 	if err != nil {
-		b.Fatalf("get storage: %v", err)
+		b.Fatalf("create fs storage: %v", err)
 	}
 
 	cType := compress.CompressionType(*compression)
@@ -257,7 +256,7 @@ func BenchmarkWriteFile(b *testing.B) {
 		b.Fatalf("close temp file: %v", err)
 	}
 
-	b.SetBytes(int64(size))
+	b.SetBytes(size)
 
 	runDir := time.Now().Format("20060102-150405.000000")
 	for b.Loop() {
@@ -271,6 +270,7 @@ func BenchmarkWriteFile(b *testing.B) {
 		elapsed := time.Since(ts)
 		r := storage.Results{
 			Size:        f.StgSize / MiB,
+			BuffSize:    fsCfg.GetBackupBuffSize(),
 			Time:        elapsed,
 			UploadSpeed: float64(f.StgSize/MiB) / elapsed.Seconds(),
 		}

@@ -945,6 +945,7 @@ func randomSuffix() string {
 
 type Results struct {
 	Size        int64
+	BuffSize    int
 	Time        time.Duration
 	UploadSpeed float64
 }
