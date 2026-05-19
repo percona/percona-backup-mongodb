@@ -835,7 +835,7 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	)
 	restoreCmd.Flags().StringVar(
 		&restoreOptions.indexCommitQuorum, "index-commit-quorum", "",
-		"Index commit quorum for logical restore index builds: majority, votingMembers, or a positive integer.",
+		"Index commit quorum for logical restore index builds: majority, votingMembers, or an integer from 1 to 50.",
 	)
 	restoreCmd.Flags().StringVar(
 		&restoreOptions.ns, "ns", "",

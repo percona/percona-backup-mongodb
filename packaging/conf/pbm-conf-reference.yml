@@ -253,7 +253,7 @@
 #  numParallelCollections:
 
 ## Set the commit quorum for index creation during logical restore.
-## Supported values are majority, votingMembers, or a positive integer.
+## Supported values are majority, votingMembers, or an integer from 1 to 50.
 ## Default value is votingMembers.
 #  indexCommitQuorum: votingMembers
 
