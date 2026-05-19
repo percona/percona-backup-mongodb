@@ -1326,6 +1326,7 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 		err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
 		if shouldRetryWithDefaultIndexCommitQuorum(err, commitQuorum) {
 			commitQuorum = config.DefaultRestoreIndexCommitQuorum.CommandValue()
+			r.log.Debug("createIndexes for %s.%s failed with MongoDB error: %v", ns.DB, ns.Collection, err)
 			r.log.Warning(
 				"index commit quorum cannot be satisfied for %s.%s, retrying with %s",
 				ns.DB, ns.Collection, commitQuorum,
