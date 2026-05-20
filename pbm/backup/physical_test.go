@@ -274,10 +274,10 @@ func BenchmarkWriteFile(b *testing.B) {
 		}
 		elapsed := time.Since(ts)
 		r := storage.Results{
-			Size:        f.StgSize / MiB,
-			BuffSize:    fsCfg.GetBackupBuffSize(),
-			Time:        elapsed,
-			UploadSpeed: float64(f.StgSize/MiB) / elapsed.Seconds(),
+			Size:          f.StgSize / MiB,
+			BuffSize:      fsCfg.GetBackupBuffSize(),
+			Time:          elapsed,
+			TransferSpeed: float64(f.StgSize/MiB) / elapsed.Seconds(),
 		}
 
 		b.Logf("%+v", r)

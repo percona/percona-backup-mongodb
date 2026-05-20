@@ -153,10 +153,10 @@ func BenchmarkStorageUpload(b *testing.B) {
 		}
 		elapsed := time.Since(ts)
 		r := storage.Results{
-			Size:        sz / MiB,
-			BuffSize:    fsCfg.GetBackupBuffSize(),
-			Time:        elapsed,
-			UploadSpeed: float64(sz/MiB) / elapsed.Seconds(),
+			Size:          sz / MiB,
+			BuffSize:      fsCfg.GetBackupBuffSize(),
+			Time:          elapsed,
+			TransferSpeed: float64(sz/MiB) / elapsed.Seconds(),
 		}
 
 		b.Logf("%+v", r)

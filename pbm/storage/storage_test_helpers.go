@@ -944,10 +944,10 @@ func randomSuffix() string {
 }
 
 type Results struct {
-	Size        int64
-	BuffSize    int
-	Time        time.Duration
-	UploadSpeed float64
+	Size          int64
+	BuffSize      int
+	Time          time.Duration
+	TransferSpeed float64
 }
 
 // RandomDataSrc is source for random test data.

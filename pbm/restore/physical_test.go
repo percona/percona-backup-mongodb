@@ -1,7 +1,10 @@
 package restore
 
 import (
+	"context"
+	"flag"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path"
@@ -11,8 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 )
 
 func TestNodeStatus(t *testing.T) {
@@ -546,5 +553,80 @@ func createTestDir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatalf("error while creating dir %s: %v", path, err)
+	}
+}
+
+var (
+	fsPath          = flag.String("fs-path", "/mnt/nfs/pbm", "storage path where file will be saved")
+	restoreBuffSize = flag.Int("buff-size", 32*1024, "restore internal buffer size, 32KiB default")
+	fSize           = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
+	fName           = flag.String("file-name", "test-file", "upload file name")
+	compression     = flag.String("compression", string(compress.CompressionTypeNone),
+		"compression type: none|gzip|pgzip|snappy|lz4|s2|zstd")
+)
+
+/*
+for sz in 10 50 100 500 2000; do
+
+	go test -v -run=^$ -bench=BenchmarkCopyFile ./pbm/restore/ \
+		-benchtime=10x \
+		-file-size=$sz \
+		-buff-size=$((1*1024*1024))
+
+done
+*/
+func BenchmarkCopyFile(b *testing.B) {
+	MiB := int64(1024 * 1024)
+	size := *fSize * MiB
+
+	fsCfg := &fs.Config{
+		Path: *fsPath,
+	}
+	stg, err := fs.New(fsCfg)
+	if err != nil {
+		b.Fatalf("create fs storage: %v", err)
+	}
+
+	cType := compress.CompressionType(*compression)
+
+	runDir := time.Now().Format("20060102-150405.000000")
+	src := fmt.Sprintf("%s/%s-src", runDir, *fName)
+	_, err = storage.Upload(context.Background(),
+		storage.NewSizedRandomDataSrc(size), stg, cType, nil, src, -1)
+	if err != nil {
+		b.Fatalf("upload source: %v", err)
+	}
+
+	dbpath, err := os.MkdirTemp("", "copyfile-bench-*")
+	if err != nil {
+		b.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(dbpath)
+
+	r := &PhysRestore{
+		bcpStg: stg,
+		log:    log.DiscardEvent,
+	}
+	cpbuf := make([]byte, *restoreBuffSize)
+
+	b.SetBytes(size)
+
+	for b.Loop() {
+		dst := filepath.Join(dbpath, fmt.Sprintf("%s-%d", *fName, rand.Uint64()))
+
+		ts := time.Now()
+		err := r.copyFile(src, dst, backup.File{Fmode: 0o600}, cType, cpbuf)
+		if err != nil {
+			b.Fatalf("copyFile: %v", err)
+		}
+		elapsed := time.Since(ts)
+		res := storage.Results{
+			Size:          size / MiB,
+			BuffSize:      *restoreBuffSize,
+			Time:          elapsed,
+			TransferSpeed: float64(size/MiB) / elapsed.Seconds(),
+		}
+
+		b.Logf("%+v", res)
 	}
 }
