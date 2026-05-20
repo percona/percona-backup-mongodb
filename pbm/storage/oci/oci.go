@@ -58,46 +58,45 @@ func newOCI(cfg *Config, node string, l log.LogEvent) (*OCI, error) {
 	if l == nil {
 		l = log.DiscardEvent
 	}
-	client, retryPolicy, err := configureClient(cfg)
+	client, err := configureClient(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "configure client")
 	}
 
 	o := &OCI{
-		cfg:         cfg,
-		node:        node,
-		log:         l,
-		client:      client,
-		retryPolicy: retryPolicy,
+		cfg:    cfg,
+		node:   node,
+		log:    l,
+		client: client,
 	}
 
 	return o, nil
 }
 
-func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, *common.RetryPolicy, error) {
+func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 	if cfg == nil {
-		return nil, nil, errors.New("config is nil")
+		return nil, errors.New("config is nil")
 	}
 	if cfg.Region == "" {
-		return nil, nil, errors.New("region is required")
+		return nil, errors.New("region is required")
 	}
 	if cfg.Namespace == "" {
-		return nil, nil, errors.New("namespace is required")
+		return nil, errors.New("namespace is required")
 	}
 	if cfg.Bucket == "" {
-		return nil, nil, errors.New("bucket is required")
+		return nil, errors.New("bucket is required")
 	}
 	if cfg.Credentials.Tenancy == "" {
-		return nil, nil, errors.New("credentials.tenancy is required")
+		return nil, errors.New("credentials.tenancy is required")
 	}
 	if cfg.Credentials.User == "" {
-		return nil, nil, errors.New("credentials.user is required")
+		return nil, errors.New("credentials.user is required")
 	}
 	if cfg.Credentials.Fingerprint == "" {
-		return nil, nil, errors.New("credentials.fingerprint is required")
+		return nil, errors.New("credentials.fingerprint is required")
 	}
 	if cfg.Credentials.PrivateKey == "" {
-		return nil, nil, errors.New("credentials.privateKey is required")
+		return nil, errors.New("credentials.privateKey is required")
 	}
 
 	var passphrase *string
@@ -115,7 +114,7 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, *common.R
 
 	client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	retryPolicy := newRetryPolicy(cfg.Retryer)
 	client.SetCustomClientConfiguration(common.CustomClientConfiguration{
@@ -124,7 +123,7 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, *common.R
 	// Match OCI transfer manager behavior: use a no-timeout client for large uploads.
 	client.HTTPClient = &http.Client{}
 
-	return &client, retryPolicy, nil
+	return &client, nil
 }
 
 func newRetryPolicy(cfg *Retryer) *common.RetryPolicy {
@@ -143,12 +142,11 @@ func newRetryPolicy(cfg *Retryer) *common.RetryPolicy {
 }
 
 type OCI struct {
-	cfg         *Config
-	node        string
-	log         log.LogEvent
-	client      *objectstorage.ObjectStorageClient
-	retryPolicy *common.RetryPolicy
-	d           *Download
+	cfg    *Config
+	node   string
+	log    log.LogEvent
+	client *objectstorage.ObjectStorageClient
+	d      *Download
 }
 
 func (*OCI) Type() storage.Type {
@@ -191,7 +189,7 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 			NumberOfGoroutines:    common.Int(o.cfg.UploadConcurrency),
 			ObjectStorageClient:   o.client,
 			// Override transfer manager's default, which retries any non-2xx response.
-			RequestMetadata: o.requestMetadataWithRetryPolicy(),
+			RequestMetadata: common.RequestMetadata{RetryPolicy: o.client.RetryPolicy()},
 		},
 		StreamReader: data,
 	})
@@ -313,10 +311,6 @@ func (o *OCI) Copy(src, dst string) error {
 	}
 
 	return nil
-}
-
-func (o *OCI) requestMetadataWithRetryPolicy() common.RequestMetadata {
-	return common.RequestMetadata{RetryPolicy: o.retryPolicy}
 }
 
 func (o *OCI) copyObjectRequest(src, dst string) objectstorage.CopyObjectRequest {

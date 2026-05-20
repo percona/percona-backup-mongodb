@@ -83,7 +83,7 @@ func TestCopyWorkRequestError(t *testing.T) {
 }
 
 func TestWaitCopyWorkRequestContextDeadline(t *testing.T) {
-	client, _, err := configureClient(testConfig(testPrivateKey(t)))
+	client, err := configureClient(testConfig(testPrivateKey(t)))
 	require.NoError(t, err)
 
 	httpClient := &inProgressWorkRequestHTTPClient{}

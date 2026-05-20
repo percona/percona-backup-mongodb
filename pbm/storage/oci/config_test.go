@@ -244,7 +244,7 @@ func TestIsSameStorage(t *testing.T) {
 func TestConfigureClientMissingFields(t *testing.T) {
 	privateKey := testPrivateKey(t)
 
-	_, _, err := configureClient(nil)
+	_, err := configureClient(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "config is nil")
 
@@ -295,7 +295,7 @@ func TestConfigureClientMissingFields(t *testing.T) {
 			cfg := testConfig(privateKey)
 			tt.mutate(cfg)
 
-			_, _, err := configureClient(cfg)
+			_, err := configureClient(cfg)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
@@ -304,12 +304,21 @@ func TestConfigureClientMissingFields(t *testing.T) {
 }
 
 func TestConfigureClient(t *testing.T) {
-	client, retryPolicy, err := configureClient(testConfig(testPrivateKey(t)))
+	cfg := testConfig(testPrivateKey(t))
+	client, err := configureClient(cfg)
 
 	require.NoError(t, err)
 	require.NotNil(t, client)
-	require.NotNil(t, retryPolicy)
-	assert.Same(t, retryPolicy, client.RetryPolicy())
+
+	wantRetryPolicy := newRetryPolicy(cfg.Retryer)
+	gotRetryPolicy := client.RetryPolicy()
+	require.NotNil(t, gotRetryPolicy)
+	assert.Equal(t, wantRetryPolicy.MaximumNumberAttempts, gotRetryPolicy.MaximumNumberAttempts)
+	assert.Equal(t, wantRetryPolicy.MaxSleepBetween, gotRetryPolicy.MaxSleepBetween)
+	assert.Equal(t, wantRetryPolicy.ExponentialBackoffBase, gotRetryPolicy.ExponentialBackoffBase)
+	assert.Nil(t, gotRetryPolicy.NonEventuallyConsistentPolicy)
+	require.NotNil(t, gotRetryPolicy.ShouldRetryOperation)
+	require.NotNil(t, gotRetryPolicy.NextDuration)
 }
 
 func testConfig(privateKey string) *Config {

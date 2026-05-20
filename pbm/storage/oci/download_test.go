@@ -51,7 +51,7 @@ func TestGetPartialObjectUsesRangeHeader(t *testing.T) {
 	const body = "chunk"
 
 	cfg := testConfig(testPrivateKey(t))
-	client, _, err := configureClient(cfg)
+	client, err := configureClient(cfg)
 	require.NoError(t, err)
 
 	httpClient := &rangeTestHTTPClient{body: body}
@@ -71,7 +71,7 @@ func TestGetPartialObjectUsesRangeHeader(t *testing.T) {
 
 func TestGetPartialObjectNotFoundIsGetObjError(t *testing.T) {
 	cfg := testConfig(testPrivateKey(t))
-	client, _, err := configureClient(cfg)
+	client, err := configureClient(cfg)
 	require.NoError(t, err)
 
 	client.HTTPClient = &statusTestHTTPClient{status: http.StatusNotFound}
@@ -90,7 +90,7 @@ func TestSourceReaderUsesRangedRequests(t *testing.T) {
 	const body = "abcdefghijklmno"
 
 	cfg := testConfig(testPrivateKey(t))
-	client, _, err := configureClient(cfg)
+	client, err := configureClient(cfg)
 	require.NoError(t, err)
 
 	httpClient := &sourceReaderTestHTTPClient{body: body}

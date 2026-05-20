@@ -82,8 +82,10 @@ func TestRetryPolicyRetriesDirectRequests(t *testing.T) {
 		MaxAttempts: maxAttempts,
 		MaxBackoff:  time.Second,
 	}
-	client, retryPolicy, err := configureClient(cfg)
+	client, err := configureClient(cfg)
 	require.NoError(t, err)
+	retryPolicy := client.RetryPolicy()
+	require.NotNil(t, retryPolicy)
 
 	// Avoid sleeping between retries; this test only verifies retry attempts.
 	retryPolicy.NextDuration = func(common.OCIOperationResponse) time.Duration { return 0 }
