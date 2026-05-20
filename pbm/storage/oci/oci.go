@@ -21,7 +21,6 @@ var _ storage.Storage = (*OCI)(nil)
 
 const (
 	defaultCopyWorkRequestPollDelay = 2 * time.Second
-	defaultCopyWorkRequestTimeout   = time.Hour
 )
 
 func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
@@ -296,8 +295,7 @@ func (o *OCI) Delete(name string) error {
 }
 
 func (o *OCI) Copy(src, dst string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultCopyWorkRequestTimeout)
-	defer cancel()
+	ctx := context.Background()
 
 	res, err := o.client.CopyObject(ctx, o.copyObjectRequest(src, dst))
 	if err != nil {
