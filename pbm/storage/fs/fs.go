@@ -134,7 +134,7 @@ func New(opts *Config) (storage.Storage, error) {
 
 	fs := &FS{
 		root:  root,
-		wBuff: opts.BackupBuffSize,
+		wBuff: opts.GetBackupBuffSize(),
 	}
 	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 }
