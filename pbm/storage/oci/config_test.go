@@ -102,6 +102,17 @@ func TestCastRetryer(t *testing.T) {
 	}
 }
 
+func TestCastRetryerPreservesExistingPointer(t *testing.T) {
+	retryer := &Retryer{MaxAttempts: 3}
+	cfg := &Config{Retryer: retryer}
+
+	require.NoError(t, cfg.Cast())
+
+	assert.Same(t, retryer, cfg.Retryer)
+	assert.Equal(t, 3, cfg.Retryer.MaxAttempts)
+	assert.Equal(t, defaultRetryMaxBackoff, cfg.Retryer.MaxBackoff)
+}
+
 func TestCastObjectStorageLimits(t *testing.T) {
 	tests := []struct {
 		name      string

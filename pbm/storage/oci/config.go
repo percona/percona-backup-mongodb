@@ -116,33 +116,41 @@ func (cfg *Config) Cast() error {
 	if cfg == nil {
 		return errors.New("missing oci configuration with oci storage type")
 	}
-	if cfg.UploadPartSize <= 0 {
-		cfg.UploadPartSize = defaultUploadPartSize
-	}
+
 	if cfg.UploadPartSize > maxUploadPartSize {
 		return errors.Errorf("uploadPartSize cannot exceed %d", maxUploadPartSize)
 	}
 	if cfg.MaxObjSizeGB != nil && *cfg.MaxObjSizeGB >= maxObjSizeGB {
 		return errors.Errorf("maxObjSizeGB must be less than %d", maxObjSizeGB)
 	}
-	if cfg.UploadConcurrency <= 0 {
-		cfg.UploadConcurrency = defaultUploadConcurrency
-	}
 	if cfg.UploadConcurrency > maxUploadConcurrency {
 		return errors.Errorf("uploadConcurrency cannot exceed %d", maxUploadConcurrency)
 	}
+	if cfg.Retryer != nil && cfg.Retryer.MaxAttempts < 0 {
+		return errors.New("retryer.maxAttempts cannot be negative")
+	}
+	if cfg.Retryer != nil && cfg.Retryer.MaxBackoff < 0 {
+		return errors.New("retryer.maxBackoff cannot be negative")
+	}
+
+	if cfg.UploadPartSize <= 0 {
+		cfg.UploadPartSize = defaultUploadPartSize
+	}
+	if cfg.UploadConcurrency <= 0 {
+		cfg.UploadConcurrency = defaultUploadConcurrency
+	}
 	if cfg.Retryer == nil {
-		r := retryerWithDefaults(nil)
-		cfg.Retryer = &r
+		cfg.Retryer = &Retryer{
+			MaxAttempts: defaultRetryMaxAttempts,
+			MaxBackoff:  defaultRetryMaxBackoff,
+		}
 	} else {
-		if cfg.Retryer.MaxAttempts < 0 {
-			return errors.New("retryer.maxAttempts cannot be negative")
+		if cfg.Retryer.MaxAttempts == 0 {
+			cfg.Retryer.MaxAttempts = defaultRetryMaxAttempts
 		}
-		if cfg.Retryer.MaxBackoff < 0 {
-			return errors.New("retryer.maxBackoff cannot be negative")
+		if cfg.Retryer.MaxBackoff == 0 {
+			cfg.Retryer.MaxBackoff = defaultRetryMaxBackoff
 		}
-		r := retryerWithDefaults(cfg.Retryer)
-		cfg.Retryer = &r
 	}
 
 	return nil
