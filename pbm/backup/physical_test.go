@@ -221,7 +221,12 @@ var (
 
 /*
 for sz in 10 50 100 500 2000; do
-go test -v -run=^$ -bench=BenchmarkWriteFile -benchtime=10x ./pbm/backup/ -file-size=$sz -buff-size=$((1*1024*1024))
+
+	go test -v -run=^$ -bench=BenchmarkWriteFile ./pbm/backup/ \
+		-benchtime=10x \
+		-file-size=$sz \
+		-buff-size=$((1*1024*1024))
+
 done
 */
 func BenchmarkWriteFile(b *testing.B) {

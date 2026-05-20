@@ -18,6 +18,7 @@ const (
 	tmpFileSuffix = ".tmp"
 )
 
+//nolint:lll
 type Config struct {
 	Path           string   `bson:"path" json:"path" yaml:"path"`
 	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
