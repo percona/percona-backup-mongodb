@@ -302,13 +302,17 @@ func (o *OCI) Copy(src, dst string) error {
 		if isNotFound(err) {
 			return storage.ErrNotExist
 		}
-		return errors.Wrap(err, "copy object")
+		return errors.Wrapf(err, "copy %q/%q to %q file in OCI", o.cfg.Bucket, src, dst)
 	}
 	if res.OpcWorkRequestId == nil || *res.OpcWorkRequestId == "" {
-		return errors.New("copy object work request id is empty")
+		return errors.Errorf("copy %q/%q to %q file in OCI: work request id is empty", o.cfg.Bucket, src, dst)
 	}
 
-	return o.waitCopyWorkRequest(ctx, *res.OpcWorkRequestId)
+	if err := o.waitCopyWorkRequest(ctx, *res.OpcWorkRequestId); err != nil {
+		return errors.Wrapf(err, "copy %q/%q to %q file in OCI", o.cfg.Bucket, src, dst)
+	}
+
+	return nil
 }
 
 func (o *OCI) requestMetadataWithRetryPolicy() common.RequestMetadata {
