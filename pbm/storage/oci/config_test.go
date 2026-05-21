@@ -18,6 +18,7 @@ func TestCastSetsDefaults(t *testing.T) {
 
 	require.NoError(t, cfg.Cast())
 
+	assert.Equal(t, AuthTypeUserPrincipal, cfg.Credentials.Type)
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
 	assert.Equal(t, defaultUploadConcurrency, cfg.UploadConcurrency)
 	assert.Equal(t, float64(defaultMaxObjSizeGB), cfg.GetMaxObjSizeGB())
@@ -203,6 +204,16 @@ func TestGetMaxObjSizeGB(t *testing.T) {
 	assert.Less(t, defaultMaxObjSizeGB, maxObjSizeGB)
 }
 
+func TestCloneCopiesUserPrincipal(t *testing.T) {
+	cfg := testConfig(testPrivateKey(t))
+
+	clone := cfg.Clone()
+	require.NotNil(t, clone)
+	require.NotNil(t, clone.Credentials.UserPrincipal)
+	require.NotSame(t, cfg.Credentials.UserPrincipal, clone.Credentials.UserPrincipal)
+	assert.Equal(t, cfg, clone)
+}
+
 func TestIsSameStorage(t *testing.T) {
 	cfg := &Config{
 		Region:    "eu-frankfurt-1",
@@ -210,10 +221,13 @@ func TestIsSameStorage(t *testing.T) {
 		Bucket:    "b1",
 		Prefix:    "p1",
 		Credentials: Credentials{
-			Tenancy:     "t1",
-			User:        "u1",
-			Fingerprint: "f1",
-			PrivateKey:  "pk1",
+			Type: AuthTypeUserPrincipal,
+			UserPrincipal: &UserPrincipalCredentials{
+				Tenancy:     "t1",
+				User:        "u1",
+				Fingerprint: "f1",
+				PrivateKey:  "pk1",
+			},
 		},
 		UploadPartSize:    1,
 		UploadConcurrency: 2,
@@ -269,24 +283,34 @@ func TestConfigureClientMissingFields(t *testing.T) {
 			wantErr: "bucket is required",
 		},
 		{
+			name:    "unsupported credentials type",
+			mutate:  func(cfg *Config) { cfg.Credentials.Type = "unknown" },
+			wantErr: "unsupported OCI credentials type",
+		},
+		{
+			name:    "user principal config",
+			mutate:  func(cfg *Config) { cfg.Credentials.UserPrincipal = nil },
+			wantErr: "credentials.userPrincipal is required",
+		},
+		{
 			name:    "tenancy",
-			mutate:  func(cfg *Config) { cfg.Credentials.Tenancy = "" },
-			wantErr: "credentials.tenancy is required",
+			mutate:  func(cfg *Config) { cfg.Credentials.UserPrincipal.Tenancy = "" },
+			wantErr: "credentials.userPrincipal.tenancy is required",
 		},
 		{
 			name:    "user",
-			mutate:  func(cfg *Config) { cfg.Credentials.User = "" },
-			wantErr: "credentials.user is required",
+			mutate:  func(cfg *Config) { cfg.Credentials.UserPrincipal.User = "" },
+			wantErr: "credentials.userPrincipal.user is required",
 		},
 		{
 			name:    "fingerprint",
-			mutate:  func(cfg *Config) { cfg.Credentials.Fingerprint = "" },
-			wantErr: "credentials.fingerprint is required",
+			mutate:  func(cfg *Config) { cfg.Credentials.UserPrincipal.Fingerprint = "" },
+			wantErr: "credentials.userPrincipal.fingerprint is required",
 		},
 		{
 			name:    "private key",
-			mutate:  func(cfg *Config) { cfg.Credentials.PrivateKey = "" },
-			wantErr: "credentials.privateKey is required",
+			mutate:  func(cfg *Config) { cfg.Credentials.UserPrincipal.PrivateKey = "" },
+			wantErr: "credentials.userPrincipal.privateKey is required",
 		},
 	}
 
@@ -321,16 +345,30 @@ func TestConfigureClient(t *testing.T) {
 	require.NotNil(t, gotRetryPolicy.NextDuration)
 }
 
+func TestConfigureClientDefaultsToUserPrincipal(t *testing.T) {
+	cfg := testConfig(testPrivateKey(t))
+	cfg.Credentials.Type = ""
+
+	client, err := configureClient(cfg)
+
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	require.NotNil(t, client.RetryPolicy())
+}
+
 func testConfig(privateKey string) *Config {
 	return &Config{
 		Region:    "eu-frankfurt-1",
 		Namespace: "testns",
 		Bucket:    "testbucket",
 		Credentials: Credentials{
-			Tenancy:     "ocid1.tenancy.oc1..test",
-			User:        "ocid1.user.oc1..test",
-			Fingerprint: "00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff",
-			PrivateKey:  storage.MaskedString(privateKey),
+			Type: AuthTypeUserPrincipal,
+			UserPrincipal: &UserPrincipalCredentials{
+				Tenancy:     "ocid1.tenancy.oc1..test",
+				User:        "ocid1.user.oc1..test",
+				Fingerprint: "00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff",
+				PrivateKey:  storage.MaskedString(privateKey),
+			},
 		},
 	}
 }

@@ -59,8 +59,22 @@ type Retryer struct {
 	MaxBackoff time.Duration `bson:"maxBackoff" json:"maxBackoff" yaml:"maxBackoff"`
 }
 
+type AuthType string
+
+const (
+	AuthTypeUserPrincipal       AuthType = "userPrincipal"
+	AuthTypeInstancePrincipal   AuthType = "instancePrincipal"
+	AuthTypeOkeWorkloadIdentity AuthType = "okeWorkloadIdentity"
+)
+
 //nolint:lll
 type Credentials struct {
+	Type          AuthType                  `bson:"type,omitempty" json:"type,omitempty" yaml:"type,omitempty"`
+	UserPrincipal *UserPrincipalCredentials `bson:"userPrincipal,omitempty" json:"userPrincipal,omitempty" yaml:"userPrincipal,omitempty"`
+}
+
+//nolint:lll
+type UserPrincipalCredentials struct {
 	Tenancy              storage.MaskedString `bson:"tenancy" json:"tenancy,omitempty" yaml:"tenancy,omitempty"`
 	User                 storage.MaskedString `bson:"user" json:"user,omitempty" yaml:"user,omitempty"`
 	Fingerprint          storage.MaskedString `bson:"fingerprint" json:"fingerprint,omitempty" yaml:"fingerprint,omitempty"`
@@ -74,6 +88,10 @@ func (cfg *Config) Clone() *Config {
 	}
 
 	rv := *cfg
+	if cfg.Credentials.UserPrincipal != nil {
+		v := *cfg.Credentials.UserPrincipal
+		rv.Credentials.UserPrincipal = &v
+	}
 	if cfg.MaxObjSizeGB != nil {
 		v := *cfg.MaxObjSizeGB
 		rv.MaxObjSizeGB = &v
@@ -116,7 +134,9 @@ func (cfg *Config) Cast() error {
 	if cfg == nil {
 		return errors.New("missing oci configuration with oci storage type")
 	}
-
+	if cfg.Credentials.Type == "" {
+		cfg.Credentials.Type = AuthTypeUserPrincipal
+	}
 	if cfg.UploadPartSize > maxUploadPartSize {
 		return errors.Errorf("uploadPartSize cannot exceed %d", maxUploadPartSize)
 	}
