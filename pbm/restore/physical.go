@@ -126,6 +126,7 @@ type PhysRestore struct {
 	rsMap           map[string]string
 	fallback        bool
 	allowPartlyDone bool
+	bufSize         int
 }
 
 func NewPhysical(
@@ -136,6 +137,7 @@ func NewPhysical(
 	rsMap map[string]string,
 	fallback bool,
 	allowPartlyDone bool,
+	bufSize int,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
@@ -203,6 +205,7 @@ func NewPhysical(
 		rsMap:           rsMap,
 		fallback:        fallback,
 		allowPartlyDone: allowPartlyDone,
+		bufSize:         bufSize,
 	}, nil
 }
 
@@ -1609,7 +1612,14 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	}()
 
 	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-	cpbuf := make([]byte, 32*1024)
+
+	var cpBuf []byte
+	if r.bufSize == 0 {
+		// original/default bufSize
+		cpBuf = make([]byte, 32*1024)
+	} else {
+		cpBuf = make([]byte, r.bufSize)
+	}
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
@@ -1631,7 +1641,7 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 				continue
 			}
 
-			err = r.copyFile(src, dst, f, set.Cmpr, cpbuf)
+			err = r.copyFile(src, dst, f, set.Cmpr, cpBuf)
 			if err != nil {
 				return stat, err
 			}
@@ -1668,7 +1678,15 @@ func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compres
 		}
 	}
 
-	_, err = io.CopyBuffer(fw, data, cpbuf)
+	if r.bufSize == 0 {
+		_, err = io.CopyBuffer(fw, data, cpbuf)
+	} else {
+		_, err = io.CopyBuffer(
+			struct{ io.Writer }{fw},
+			struct{ io.Reader }{data},
+			cpbuf,
+		)
+	}
 	if err != nil {
 		return errors.Wrapf(err, "copy file <%s>", dst)
 	}

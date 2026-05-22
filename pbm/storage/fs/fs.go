@@ -20,9 +20,10 @@ const (
 
 //nolint:lll
 type Config struct {
-	Path           string   `bson:"path" json:"path" yaml:"path"`
-	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
-	BackupBuffSize int      `bson:"backupBuffSize,omitempty" json:"backupBuffSize,omitempty" yaml:"backupBuffSize,omitempty"`
+	Path            string   `bson:"path" json:"path" yaml:"path"`
+	MaxObjSizeGB    *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+	BackupBuffSize  int      `bson:"backupBuffSize,omitempty" json:"backupBuffSize,omitempty" yaml:"backupBuffSize,omitempty"`
+	RestoreBuffSize int      `bson:"restoreBuffSize,omitempty" json:"restoreBuffSize,omitempty" yaml:"restoreBuffSize,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -87,9 +88,18 @@ func (cfg *Config) GetBackupBuffSize() int {
 	if cfg.BackupBuffSize <= 0 {
 		return 0
 	}
+	return normalizeBuffSize(cfg.BackupBuffSize)
+}
+func (cfg *Config) GetRestoreBuffSize() int {
+	if cfg.RestoreBuffSize <= 0 {
+		return 0
+	}
+	return normalizeBuffSize(cfg.RestoreBuffSize)
+}
 
+func normalizeBuffSize(sz int) int {
 	// normalize buff size within range: 32KiB - 10MiB
-	buffSize := max(32*1024, cfg.BackupBuffSize)
+	buffSize := max(32*1024, sz)
 	buffSize = min(10*1024*1024, buffSize)
 
 	return buffSize
