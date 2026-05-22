@@ -44,13 +44,29 @@ type wInfo struct {
 // before saving them to the storage.
 func (sm *SplitMergeMiddleware) Save(name string, data io.Reader, options ...Option) error {
 	fName := name
+	opts := GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
+	cpBuf := opts.SaveBuf
 
 	wInfoC := make(chan wInfo)
 	for {
 		pr, pw := io.Pipe()
 
 		go func() {
-			n, err := io.CopyN(pw, data, sm.maxObjSize)
+			var err error
+			var n int64
+			if len(cpBuf) == 0 {
+				n, err = io.CopyN(pw, data, sm.maxObjSize)
+			} else {
+				n, err = io.CopyBuffer(pw, io.LimitReader(data, sm.maxObjSize), cpBuf)
+				if err == nil && n < sm.maxObjSize {
+					err = io.EOF
+				}
+			}
 			pw.Close()
 			wInfoC <- wInfo{n, err}
 		}()

@@ -558,6 +558,7 @@ func createTestDir(t *testing.T, path string) {
 
 var (
 	fsPath          = flag.String("fs-path", "/mnt/nfs/pbm", "storage path where file will be saved")
+	inputFile       = flag.String("if", "", "input file name, random file will not be generated")
 	restoreBuffSize = flag.Int("buff-size", 32*1024, "restore internal buffer size, 32KiB default")
 	fSize           = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
 	fName           = flag.String("file-name", "test-file", "upload file name")
@@ -592,7 +593,7 @@ func BenchmarkCopyFile(b *testing.B) {
 	runDir := time.Now().Format("20060102-150405.000000")
 	src := fmt.Sprintf("%s/%s-src", runDir, *fName)
 	_, err = storage.Upload(context.Background(),
-		storage.NewSizedRandomDataSrc(size), stg, cType, nil, src, -1)
+		storage.NewSizedRandomDataSrc(size), stg, cType, nil, src)
 	if err != nil {
 		b.Fatalf("upload source: %v", err)
 	}
@@ -616,6 +617,64 @@ func BenchmarkCopyFile(b *testing.B) {
 
 		ts := time.Now()
 		err := r.copyFile(src, dst, backup.File{Fmode: 0o600}, cType, cpbuf)
+		if err != nil {
+			b.Fatalf("copyFile: %v", err)
+		}
+		elapsed := time.Since(ts)
+		res := storage.Results{
+			Size:          size / MiB,
+			BuffSize:      *restoreBuffSize,
+			Time:          elapsed,
+			TransferSpeed: float64(size/MiB) / elapsed.Seconds(),
+		}
+
+		b.Logf("%+v", res)
+	}
+}
+
+func BenchmarkCopyFileExact(b *testing.B) {
+	MiB := int64(1024 * 1024)
+	if *inputFile == "" {
+		b.Fatal("-if needs to be specified")
+	}
+	d := filepath.Dir(*inputFile)
+	f := filepath.Base(*inputFile)
+
+	fi, err := os.Stat(*inputFile)
+	if err != nil {
+		b.Fatalf("file stat: %v", err)
+	}
+	size := fi.Size()
+
+	fsCfg := &fs.Config{
+		Path: d,
+	}
+	stg, err := fs.New(fsCfg)
+	if err != nil {
+		b.Fatalf("create fs storage: %v", err)
+	}
+
+	cType := compress.CompressionType(*compression)
+
+	dbpath, err := os.MkdirTemp("", "copyfile-bench-*")
+	if err != nil {
+		b.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(dbpath)
+
+	r := &PhysRestore{
+		bcpStg: stg,
+		log:    log.DiscardEvent,
+	}
+	cpbuf := make([]byte, *restoreBuffSize)
+
+	b.SetBytes(size)
+
+	for b.Loop() {
+		dst := filepath.Join(dbpath, fmt.Sprintf("%s-%d", *fName, rand.Uint64()))
+
+		ts := time.Now()
+		err := r.copyFile(f, dst, backup.File{Fmode: 0o600}, cType, cpbuf)
 		if err != nil {
 			b.Fatalf("copyFile: %v", err)
 		}

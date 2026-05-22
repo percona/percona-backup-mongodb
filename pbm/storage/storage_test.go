@@ -136,6 +136,8 @@ func BenchmarkStorageUpload(b *testing.B) {
 	if err != nil {
 		b.Fatalf("create fs storage: %v", err)
 	}
+	saveBuf := make([]byte, *backupBuffSize)
+	fsSaveBuf := make([]byte, *backupBuffSize)
 
 	cType := compress.CompressionType(*compression)
 	src := storage.NewSizedRandomDataSrc(size)
@@ -147,7 +149,8 @@ func BenchmarkStorageUpload(b *testing.B) {
 		fileName := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
 
 		ts := time.Now()
-		sz, err := storage.Upload(context.Background(), src, stg, cType, nil, fileName, -1)
+		sz, err := storage.UploadWithOpts(context.Background(), src, stg, cType, nil, fileName,
+			-1, saveBuf, fsSaveBuf)
 		if err != nil {
 			b.Fatalf("storage upload: %v", err)
 		}

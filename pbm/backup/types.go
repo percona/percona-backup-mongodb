@@ -185,6 +185,33 @@ func (f *File) WriteTo(w io.Writer) (int64, error) {
 	return io.Copy(w, io.NewSectionReader(fd, f.Off, f.Len))
 }
 
+type FileReader struct {
+	File
+	buf []byte
+}
+
+func NewFileReader(f File, buf []byte) *FileReader {
+	return &FileReader{f, buf}
+}
+
+func (f *FileReader) WriteTo(w io.Writer) (int64, error) {
+	fd, err := os.Open(f.Name)
+	if err != nil {
+		return 0, errors.Wrap(err, "open file for reading")
+	}
+	defer fd.Close()
+
+	if f.Len == 0 && f.Off == 0 {
+		return io.CopyBuffer(w, struct{ io.Reader }{fd}, f.buf)
+	}
+
+	return io.CopyBuffer(
+		w,
+		struct{ io.Reader }{io.NewSectionReader(fd, f.Off, f.Len)},
+		f.buf,
+	)
+}
+
 // FilelistName is filename that is used to store list of files for physical backup
 const FilelistName = "filelist.pbm"
 

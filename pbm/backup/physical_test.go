@@ -211,6 +211,7 @@ func disableBcpCurErr(t *testing.T, m *mongo.Client) {
 
 var (
 	fsPath         = flag.String("fs-path", "/mnt/nfs/pbm", "storage path where file will be saved")
+	inputFile      = flag.String("if", "", "input file name, random file will not be generated")
 	backupBuffSize = flag.Int("buff-size", 0, "backup buffer size: size of internal write buffer, 0 means no buffer")
 	fSize          = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
 	fName          = flag.String("file-name", "test-file", "upload file name")
@@ -222,7 +223,7 @@ var (
 /*
 for sz in 10 50 100 500 2000; do
 
-	go test -v -run=^$ -bench=BenchmarkWriteFile ./pbm/backup/ \
+	go test -v -run=^$ -bench=^BenchmarkWriteFile$ ./pbm/backup/ \
 		-benchtime=10x \
 		-file-size=$sz \
 		-buff-size=$((1*1024*1024))
@@ -241,6 +242,9 @@ func BenchmarkWriteFile(b *testing.B) {
 	if err != nil {
 		b.Fatalf("create fs storage: %v", err)
 	}
+	cpBuf := make([]byte, fsCfg.GetBackupBuffSize())
+	saveBuf := make([]byte, fsCfg.GetBackupBuffSize())
+	fsSaveBuf := make([]byte, fsCfg.GetBackupBuffSize())
 
 	cType := compress.CompressionType(*compression)
 	var cLevel *int
@@ -268,7 +272,62 @@ func BenchmarkWriteFile(b *testing.B) {
 		dst := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
 
 		ts := time.Now()
-		f, err := writeFile(context.Background(), File{Name: tmpFile.Name()}, dst, stg, cType, cLevel)
+		f, err := writeFile(context.Background(), &File{Name: tmpFile.Name()},
+			dst, stg, cType, cLevel, cpBuf, saveBuf, fsSaveBuf)
+		if err != nil {
+			b.Fatalf("writeFile: %v", err)
+		}
+		elapsed := time.Since(ts)
+		r := storage.Results{
+			Size:          f.StgSize / MiB,
+			BuffSize:      fsCfg.GetBackupBuffSize(),
+			Time:          elapsed,
+			TransferSpeed: float64(f.StgSize/MiB) / elapsed.Seconds(),
+		}
+
+		b.Logf("%+v", r)
+	}
+}
+
+func BenchmarkWriteFileExact(b *testing.B) {
+	MiB := int64(1024 * 1024)
+	if *inputFile == "" {
+		b.Fatal("-if needs to be specified")
+	}
+
+	fi, err := os.Stat(*inputFile)
+	if err != nil {
+		b.Fatalf("file stat %s: %v", *inputFile, err)
+	}
+	size := fi.Size()
+
+	fsCfg := &fs.Config{
+		Path:           *fsPath,
+		BackupBuffSize: *backupBuffSize,
+	}
+	stg, err := fs.New(fsCfg)
+	if err != nil {
+		b.Fatalf("create fs storage: %v", err)
+	}
+	cpBuf := make([]byte, fsCfg.GetBackupBuffSize())
+	saveBuf := make([]byte, fsCfg.GetBackupBuffSize())
+	fsSaveBuf := make([]byte, fsCfg.GetBackupBuffSize())
+
+	cType := compress.CompressionType(*compression)
+	var cLevel *int
+	if *compressionLevel != -1 {
+		cLevel = compressionLevel
+	}
+
+	b.SetBytes(size)
+
+	runDir := time.Now().Format("20060102-150405.000000")
+	for b.Loop() {
+		dst := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
+
+		ts := time.Now()
+		f, err := writeFile(context.Background(), &File{Name: *inputFile},
+			dst, stg, cType, cLevel, cpBuf, saveBuf, fsSaveBuf)
 		if err != nil {
 			b.Fatalf("writeFile: %v", err)
 		}

@@ -106,8 +106,7 @@ func normalizeBuffSize(sz int) int {
 }
 
 type FS struct {
-	root  string
-	wBuff int
+	root string
 }
 
 func New(opts *Config) (storage.Storage, error) {
@@ -119,8 +118,7 @@ func New(opts *Config) (storage.Storage, error) {
 			}
 
 			fs := &FS{
-				root:  opts.Path,
-				wBuff: opts.GetBackupBuffSize(),
+				root: opts.Path,
 			}
 			return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 		}
@@ -144,8 +142,7 @@ func New(opts *Config) (storage.Storage, error) {
 	}
 
 	fs := &FS{
-		root:  root,
-		wBuff: opts.GetBackupBuffSize(),
+		root: root,
 	}
 	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 }
@@ -155,7 +152,7 @@ func (*FS) Type() storage.Type {
 }
 
 //nolint:nonamedreturns
-func (fs *FS) writeSync(name string, data io.Reader) (err error) {
+func (fs *FS) writeSync(name string, data io.Reader, cpBuf []byte) (err error) {
 	finalpath := path.Join(fs.root, name)
 	filepath := finalpath + tmpFileSuffix
 
@@ -187,17 +184,18 @@ func (fs *FS) writeSync(name string, data io.Reader) (err error) {
 	if err != nil {
 		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
 	}
-
-	if fs.wBuff == 0 {
+	if len(cpBuf) == 0 {
 		_, err = io.Copy(fw, data)
 		if err != nil {
 			return errors.Wrapf(err, "copy file <%s>", filepath)
 		}
 	} else {
-		buff := make([]byte, fs.wBuff)
-		_, err = io.CopyBuffer(fw, data, buff)
+		_, err = io.CopyBuffer(
+			struct{ io.Writer }{fw},
+			struct{ io.Reader }{data},
+			cpBuf)
 		if err != nil {
-			return errors.Wrapf(err, "copy file <%s>, using buffer size: %d", filepath, fs.wBuff)
+			return errors.Wrapf(err, "copy file <%s>, using buffer size: %d", filepath, len(cpBuf))
 		}
 	}
 
@@ -220,8 +218,15 @@ func (fs *FS) writeSync(name string, data io.Reader) (err error) {
 	return nil
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ ...storage.Option) error {
-	return fs.writeSync(name, data)
+func (fs *FS) Save(name string, data io.Reader, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
+	cpBuf := opts.FSSaveBuf
+	return fs.writeSync(name, data, cpBuf)
 }
 
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
@@ -304,7 +309,7 @@ func (fs *FS) Copy(src, dst string) error {
 		return errors.Wrap(err, "open src")
 	}
 
-	return fs.writeSync(dst, from)
+	return fs.writeSync(dst, from, nil)
 }
 
 func (fs *FS) DownloadStat() storage.DownloadStat {

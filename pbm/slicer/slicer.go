@@ -482,7 +482,7 @@ func (s *Slicer) upload(
 	s.oplog.SetTailingSpan(from, to)
 	fname := oplog.FormatChunkFilepath(s.rs, from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
-	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level, fname, -1)
+	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level, fname)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although

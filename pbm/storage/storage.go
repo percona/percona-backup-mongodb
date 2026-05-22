@@ -83,6 +83,8 @@ func ParseType(s string) Type {
 type Opts struct {
 	UseLogger bool
 	Size      int64
+	SaveBuf   []byte
+	FSSaveBuf []byte
 }
 
 // GetDefaultOpts creates default options.
@@ -113,6 +115,25 @@ func Size(size int64) Option {
 			return errors.New("invalid size option value")
 		}
 		o.Size = size
+		return nil
+	}
+}
+
+// SaveBuf is preallocated buffer for cp op within split-merge mw
+// Save op.
+// If it's nil, it's not used.
+func SaveBuf(buf []byte) Option {
+	return func(o *Opts) error {
+		o.SaveBuf = buf
+		return nil
+	}
+}
+
+// FSSaveBuf is preallocated buffer for cp op within FS Save op.
+// If it's nil, it's not used.
+func FSSaveBuf(buf []byte) Option {
+	return func(o *Opts) error {
+		o.FSSaveBuf = buf
 		return nil
 	}
 }
@@ -226,7 +247,7 @@ type Canceller interface {
 // ErrCancelled means backup was canceled
 var ErrCancelled = errors.New("backup canceled")
 
-// Upload writes data to dst from given src and returns an amount of written bytes
+// Upload writes data to dst from given src and returns an amount of written bytes.
 func Upload(
 	ctx context.Context,
 	src Source,
@@ -234,7 +255,22 @@ func Upload(
 	compression compress.CompressionType,
 	compressLevel *int,
 	fname string,
+) (int64, error) {
+	return UploadWithOpts(ctx, src, dst, compression, compressLevel, fname, -1, nil, nil)
+}
+
+// UploadWithOpts expands Upload with few options: size of stream,
+// preallocated save and FS save buffer.
+func UploadWithOpts(
+	ctx context.Context,
+	src Source,
+	dst Storage,
+	compression compress.CompressionType,
+	compressLevel *int,
+	fname string,
 	sizeb int64,
+	saveBuf []byte,
+	fsSaveBuf []byte,
 ) (int64, error) {
 	r, pw := io.Pipe()
 
@@ -253,7 +289,13 @@ func Upload(
 
 	saveDone := make(chan struct{})
 	go func() {
-		rwErr.write = dst.Save(fname, r, Size(sizeb))
+		rwErr.write = dst.Save(
+			fname,
+			r,
+			Size(sizeb),
+			SaveBuf(saveBuf),
+			FSSaveBuf(fsSaveBuf),
+		)
 		saveDone <- struct{}{}
 	}()
 
