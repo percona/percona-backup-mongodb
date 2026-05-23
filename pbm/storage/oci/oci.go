@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -216,8 +217,20 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 			partSize,
 			storage.PrettySize(partSize))
 	}
+	// OCI SDK UploadStream mishandles empty streams: known empty readers lose
+	// encryption headers, and generic empty readers can fail multipart commit.
+	// opts.Size is only a hint, so inspect the actual reader before UploadStream.
+	empty, data, err := checkEmptyReader(data)
+	if err != nil {
+		return errors.Wrap(err, "check empty stream")
+	}
 
-	_, err := transfer.NewUploadManager().UploadStream(context.Background(), transfer.UploadStreamRequest{
+	if empty {
+		err := o.putEmptyObject(name)
+		return errors.Wrap(err, "upload stream")
+	}
+
+	_, err = transfer.NewUploadManager().UploadStream(context.Background(), transfer.UploadStreamRequest{
 		UploadRequest: transfer.UploadRequest{
 			NamespaceName:         common.String(o.cfg.Namespace),
 			BucketName:            common.String(o.cfg.Bucket),
@@ -234,6 +247,40 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 	})
 
 	return errors.Wrap(err, "upload stream")
+}
+
+// checkEmptyReader checks whether r is empty by reading at most one byte.
+// If r is not empty, it returns a reader that replays the consumed byte before
+// continuing with r.
+func checkEmptyReader(r io.Reader) (bool, io.Reader, error) {
+	var b [1]byte
+	n, err := r.Read(b[:])
+	if n == 1 {
+		if err != nil && !errors.Is(err, io.EOF) {
+			return false, r, err
+		}
+		return false, io.MultiReader(bytes.NewReader(b[:]), r), nil
+	}
+	if errors.Is(err, io.EOF) {
+		return true, r, nil
+	}
+	if err != nil {
+		return false, r, err
+	}
+
+	return false, r, io.ErrNoProgress
+}
+
+func (o *OCI) putEmptyObject(name string) error {
+	_, err := o.client.PutObject(context.Background(), objectstorage.PutObjectRequest{
+		NamespaceName:   common.String(o.cfg.Namespace),
+		BucketName:      common.String(o.cfg.Bucket),
+		ObjectName:      common.String(o.key(name)),
+		ContentLength:   common.Int64(0),
+		PutObjectBody:   http.NoBody,
+		RequestMetadata: common.RequestMetadata{RetryPolicy: o.client.RetryPolicy()},
+	})
+	return err
 }
 
 func (o *OCI) FileStat(name string) (storage.FileInfo, error) {
