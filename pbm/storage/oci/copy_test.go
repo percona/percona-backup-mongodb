@@ -39,6 +39,23 @@ func TestCopyObjectRequest(t *testing.T) {
 	assert.Equal(t, "testbucket", *req.DestinationBucket)
 	require.NotNil(t, req.DestinationObjectName)
 	assert.Equal(t, "prefix/dst/file", *req.DestinationObjectName)
+	assert.Nil(t, req.OpcSseKmsKeyId)
+}
+
+func TestCopyObjectRequestSetsKMSKey(t *testing.T) {
+	const kmsKeyID = "ocid1.key.oc1..test"
+	o := &OCI{cfg: &Config{
+		Region:               "eu-frankfurt-1",
+		Namespace:            "testns",
+		Bucket:               "testbucket",
+		Prefix:               "prefix",
+		ServerSideEncryption: SSE{KmsKeyID: kmsKeyID},
+	}}
+
+	req := o.copyObjectRequest("src/file", "dst/file")
+
+	require.NotNil(t, req.OpcSseKmsKeyId)
+	assert.Equal(t, kmsKeyID, *req.OpcSseKmsKeyId)
 }
 
 func TestCopyWorkRequestError(t *testing.T) {

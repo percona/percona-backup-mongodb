@@ -22,6 +22,7 @@ func TestCastSetsDefaults(t *testing.T) {
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
 	assert.Equal(t, defaultUploadConcurrency, cfg.UploadConcurrency)
 	assert.Equal(t, float64(defaultMaxObjSizeGB), cfg.GetMaxObjSizeGB())
+	assert.Empty(t, cfg.ServerSideEncryption.KmsKeyID)
 	require.NotNil(t, cfg.Retryer)
 	assert.Equal(t, defaultRetryMaxAttempts, cfg.Retryer.MaxAttempts)
 	assert.Equal(t, defaultRetryMaxBackoff, cfg.Retryer.MaxBackoff)

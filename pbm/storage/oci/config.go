@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
+
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -43,6 +45,8 @@ type Config struct {
 	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
 	Retryer     *Retryer    `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
+	ServerSideEncryption SSE `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+
 	UploadPartSize int64    `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 	// Increasing upload concurrency is not recommended by the OCI SDK because it can cause
@@ -57,6 +61,17 @@ type Retryer struct {
 	MaxAttempts int `bson:"maxAttempts" json:"maxAttempts" yaml:"maxAttempts"`
 	// MaxBackoff caps the exponential retry backoff. 0 means use the PBM default.
 	MaxBackoff time.Duration `bson:"maxBackoff" json:"maxBackoff" yaml:"maxBackoff"`
+}
+
+type SSE struct {
+	KmsKeyID string `bson:"kmsKeyID,omitempty" json:"kmsKeyID,omitempty" yaml:"kmsKeyID,omitempty"`
+}
+
+func (s SSE) kmsKeyID() *string {
+	if s.KmsKeyID == "" {
+		return nil
+	}
+	return common.String(s.KmsKeyID)
 }
 
 type AuthType string

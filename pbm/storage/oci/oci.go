@@ -235,6 +235,7 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 			NamespaceName:         common.String(o.cfg.Namespace),
 			BucketName:            common.String(o.cfg.Bucket),
 			ObjectName:            common.String(o.key(name)),
+			OpcSseKmsKeyId:        o.cfg.ServerSideEncryption.kmsKeyID(),
 			PartSize:              common.Int64(partSize),
 			AllowMultipartUploads: common.Bool(true),
 			AllowParrallelUploads: common.Bool(true),
@@ -278,6 +279,7 @@ func (o *OCI) putEmptyObject(name string) error {
 		ObjectName:      common.String(o.key(name)),
 		ContentLength:   common.Int64(0),
 		PutObjectBody:   http.NoBody,
+		OpcSseKmsKeyId:  o.cfg.ServerSideEncryption.kmsKeyID(),
 		RequestMetadata: common.RequestMetadata{RetryPolicy: o.client.RetryPolicy()},
 	})
 	return err
@@ -402,8 +404,9 @@ func (o *OCI) Copy(src, dst string) error {
 
 func (o *OCI) copyObjectRequest(src, dst string) objectstorage.CopyObjectRequest {
 	return objectstorage.CopyObjectRequest{
-		NamespaceName: common.String(o.cfg.Namespace),
-		BucketName:    common.String(o.cfg.Bucket),
+		NamespaceName:  common.String(o.cfg.Namespace),
+		BucketName:     common.String(o.cfg.Bucket),
+		OpcSseKmsKeyId: o.cfg.ServerSideEncryption.kmsKeyID(),
 		CopyObjectDetails: objectstorage.CopyObjectDetails{
 			SourceObjectName:      common.String(o.key(src)),
 			DestinationRegion:     common.String(o.cfg.Region),

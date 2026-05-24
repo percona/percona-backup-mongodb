@@ -144,22 +144,86 @@ func TestSaveEmptyObjectWorkaround(t *testing.T) {
 	}
 }
 
+func TestSaveEmptyObjectSetsKMSKey(t *testing.T) {
+	const kmsKeyID = "ocid1.key.oc1..test"
+	client, err := configureClient(testConfig(testPrivateKey(t)))
+	require.NoError(t, err)
+	httpClient := &emptyPutHTTPClient{}
+	client.HTTPClient = httpClient
+	o := &OCI{cfg: &Config{
+		Region:               "eu-frankfurt-1",
+		Namespace:            "testns",
+		Bucket:               "testbucket",
+		ServerSideEncryption: SSE{KmsKeyID: kmsKeyID},
+	}, client: client}
+
+	err = o.Save("file", strings.NewReader(""))
+
+	require.NoError(t, err)
+	assert.Equal(t, kmsKeyID, httpClient.header.Get("opc-sse-kms-key-id"))
+}
+
+func TestSaveMultipartUploadSetsKMSKey(t *testing.T) {
+	const kmsKeyID = "ocid1.key.oc1..test"
+	cfg := testConfig(testPrivateKey(t))
+	cfg.Retryer = &Retryer{MaxAttempts: 1}
+	client, err := configureClient(cfg)
+	require.NoError(t, err)
+	httpClient := &failedUploadHTTPClient{}
+	client.HTTPClient = httpClient
+	o := &OCI{cfg: &Config{
+		Region:               "eu-frankfurt-1",
+		Namespace:            "testns",
+		Bucket:               "testbucket",
+		UploadConcurrency:    defaultUploadConcurrency,
+		ServerSideEncryption: SSE{KmsKeyID: kmsKeyID},
+	}, client: client}
+
+	err = o.Save("file", strings.NewReader("data"))
+
+	require.Error(t, err)
+	assert.Positive(t, httpClient.calls)
+	assert.Equal(t, kmsKeyID, httpClient.header.Get("opc-sse-kms-key-id"))
+}
+
 type emptyPutHTTPClient struct {
 	calls  int
 	method string
 	path   string
+	header http.Header
 }
 
 func (c *emptyPutHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	c.calls++
 	c.method = req.Method
 	c.path = req.URL.Path
+	c.header = req.Header.Clone()
 
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Status:     "200 OK",
 		Header:     http.Header{},
 		Body:       http.NoBody,
+		Request:    req,
+	}, nil
+}
+
+type failedUploadHTTPClient struct {
+	calls  int
+	header http.Header
+}
+
+func (c *failedUploadHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	c.calls++
+	if c.header == nil {
+		c.header = req.Header.Clone()
+	}
+
+	return &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Status:     "500 Internal Server Error",
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(`{"code":"InternalError","message":"stop"}`)),
 		Request:    req,
 	}, nil
 }
