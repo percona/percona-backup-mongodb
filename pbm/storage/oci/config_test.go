@@ -23,6 +23,7 @@ func TestCastSetsDefaults(t *testing.T) {
 	assert.Equal(t, defaultUploadConcurrency, cfg.UploadConcurrency)
 	assert.Equal(t, float64(defaultMaxObjSizeGB), cfg.GetMaxObjSizeGB())
 	assert.Empty(t, cfg.ServerSideEncryption.KmsKeyID)
+	assert.Empty(t, cfg.ServerSideEncryption.SseCustomerKey)
 	require.NotNil(t, cfg.Retryer)
 	assert.Equal(t, defaultRetryMaxAttempts, cfg.Retryer.MaxAttempts)
 	assert.Equal(t, defaultRetryMaxBackoff, cfg.Retryer.MaxBackoff)
@@ -32,6 +33,74 @@ func TestCastMissingConfig(t *testing.T) {
 	var cfg *Config
 
 	require.Error(t, cfg.Cast())
+}
+
+func TestSSEHeaders(t *testing.T) {
+	const kmsKeyID = "ocid1.key.oc1..test"
+	tests := []struct {
+		name            string
+		sse             SSE
+		wantKMSKeyID    string
+		wantSSECustomer bool
+		wantError       string
+	}{
+		{
+			name: "default encryption",
+		},
+		{
+			name:         "kms",
+			sse:          SSE{KmsKeyID: kmsKeyID},
+			wantKMSKeyID: kmsKeyID,
+		},
+		{
+			name:            "sse-c",
+			sse:             testSSECustomerConfig(),
+			wantSSECustomer: true,
+		},
+		{
+			name: "kms and sse-c",
+			sse: SSE{
+				KmsKeyID:       kmsKeyID,
+				SseCustomerKey: testSSECustomerConfig().SseCustomerKey,
+			},
+			wantError: "kmsKeyID cannot be used with SSE-C",
+		},
+		{
+			name: "invalid sse-c key",
+			sse: SSE{
+				SseCustomerKey: storage.MaskedString("invalid"),
+			},
+			wantError: "decode sseCustomerKey",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers, err := tt.sse.headers()
+
+			if tt.wantError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+
+			if tt.wantKMSKeyID != "" {
+				require.NotNil(t, headers.kmsKeyID)
+				assert.Equal(t, tt.wantKMSKeyID, *headers.kmsKeyID)
+			} else {
+				assert.Nil(t, headers.kmsKeyID)
+			}
+
+			if tt.wantSSECustomer {
+				assertSSECustomerRequest(t, headers.customerAlgorithm, headers.customerKey, headers.customerKeySHA256)
+			} else {
+				assert.Nil(t, headers.customerAlgorithm)
+				assert.Nil(t, headers.customerKey)
+				assert.Nil(t, headers.customerKeySHA256)
+			}
+		})
+	}
 }
 
 func TestCastRetryer(t *testing.T) {

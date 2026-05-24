@@ -2,6 +2,8 @@ package oci
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"strings"
@@ -184,6 +186,77 @@ func TestSaveMultipartUploadSetsKMSKey(t *testing.T) {
 	require.Error(t, err)
 	assert.Positive(t, httpClient.calls)
 	assert.Equal(t, kmsKeyID, httpClient.header.Get("opc-sse-kms-key-id"))
+}
+
+func TestSaveEmptyObjectSetsSSECHeaders(t *testing.T) {
+	client, err := configureClient(testConfig(testPrivateKey(t)))
+	require.NoError(t, err)
+	httpClient := &emptyPutHTTPClient{}
+	client.HTTPClient = httpClient
+	o := &OCI{cfg: &Config{
+		Region:               "eu-frankfurt-1",
+		Namespace:            "testns",
+		Bucket:               "testbucket",
+		ServerSideEncryption: testSSECustomerConfig(),
+	}, client: client}
+
+	err = o.Save("file", strings.NewReader(""))
+
+	require.NoError(t, err)
+	assertSSECustomerHTTPHeaders(t, httpClient.header)
+}
+
+func TestSaveMultipartUploadSetsSSECHeaders(t *testing.T) {
+	cfg := testConfig(testPrivateKey(t))
+	cfg.Retryer = &Retryer{MaxAttempts: 1}
+	client, err := configureClient(cfg)
+	require.NoError(t, err)
+	httpClient := &failedUploadHTTPClient{}
+	client.HTTPClient = httpClient
+	o := &OCI{cfg: &Config{
+		Region:               "eu-frankfurt-1",
+		Namespace:            "testns",
+		Bucket:               "testbucket",
+		UploadConcurrency:    defaultUploadConcurrency,
+		ServerSideEncryption: testSSECustomerConfig(),
+	}, client: client}
+
+	err = o.Save("file", strings.NewReader("data"))
+
+	require.Error(t, err)
+	assert.Positive(t, httpClient.calls)
+	assertSSECustomerHTTPHeaders(t, httpClient.header)
+}
+
+func testSSECustomerConfig() SSE {
+	return SSE{
+		SseCustomerKey: storage.MaskedString(base64.StdEncoding.EncodeToString([]byte("0123456789abcdefghijklmnopqrstuv"))),
+	}
+}
+
+func assertSSECustomerHTTPHeaders(t *testing.T, header http.Header) {
+	t.Helper()
+
+	assert.Equal(t, sseCustomerAlgorithm, header.Get("opc-sse-customer-algorithm"))
+	assert.Equal(t, string(testSSECustomerConfig().SseCustomerKey), header.Get("opc-sse-customer-key"))
+	assert.Equal(t, testSSECustomerKeySHA256(), header.Get("opc-sse-customer-key-sha256"))
+}
+
+func assertSSECustomerRequest(t *testing.T, algorithm, key, keySHA256 *string) {
+	t.Helper()
+
+	require.NotNil(t, algorithm)
+	assert.Equal(t, sseCustomerAlgorithm, *algorithm)
+	require.NotNil(t, key)
+	assert.Equal(t, string(testSSECustomerConfig().SseCustomerKey), *key)
+	require.NotNil(t, keySHA256)
+	assert.Equal(t, testSSECustomerKeySHA256(), *keySHA256)
+}
+
+func testSSECustomerKeySHA256() string {
+	key, _ := base64.StdEncoding.DecodeString(string(testSSECustomerConfig().SseCustomerKey))
+	sum := sha256.Sum256(key)
+	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
 type emptyPutHTTPClient struct {

@@ -23,7 +23,8 @@ func TestCopyObjectRequest(t *testing.T) {
 		Prefix:    "prefix",
 	}}
 
-	req := o.copyObjectRequest("src/file", "dst/file")
+	req, err := o.copyObjectRequest("src/file", "dst/file")
+	require.NoError(t, err)
 
 	require.NotNil(t, req.NamespaceName)
 	assert.Equal(t, "testns", *req.NamespaceName)
@@ -52,10 +53,33 @@ func TestCopyObjectRequestSetsKMSKey(t *testing.T) {
 		ServerSideEncryption: SSE{KmsKeyID: kmsKeyID},
 	}}
 
-	req := o.copyObjectRequest("src/file", "dst/file")
+	req, err := o.copyObjectRequest("src/file", "dst/file")
+	require.NoError(t, err)
 
 	require.NotNil(t, req.OpcSseKmsKeyId)
 	assert.Equal(t, kmsKeyID, *req.OpcSseKmsKeyId)
+}
+
+func TestCopyObjectRequestSetsSSECHeaders(t *testing.T) {
+	o := &OCI{cfg: &Config{
+		Region:               "eu-frankfurt-1",
+		Namespace:            "testns",
+		Bucket:               "testbucket",
+		Prefix:               "prefix",
+		ServerSideEncryption: testSSECustomerConfig(),
+	}}
+
+	req, err := o.copyObjectRequest("src/file", "dst/file")
+	require.NoError(t, err)
+
+	assert.Nil(t, req.OpcSseKmsKeyId)
+	assertSSECustomerRequest(t, req.OpcSseCustomerAlgorithm, req.OpcSseCustomerKey, req.OpcSseCustomerKeySha256)
+	assertSSECustomerRequest(
+		t,
+		req.OpcSourceSseCustomerAlgorithm,
+		req.OpcSourceSseCustomerKey,
+		req.OpcSourceSseCustomerKeySha256,
+	)
 }
 
 func TestCopyWorkRequestError(t *testing.T) {

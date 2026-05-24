@@ -227,9 +227,10 @@
 #      maxBackoff: 30s
 
 ## OCI Object Storage always encrypts data at rest. Optionally specify an OCI Vault/KMS key
-## to use instead of the default OCI-managed encryption key.
+## or SSE-C customer key to use instead of the default OCI-managed encryption key.
 #    serverSideEncryption:
 #      kmsKeyID:
+#      sseCustomerKey:
 
 ## The size of data chunks in bytes to upload to the bucket in a single request.
 #    uploadPartSize: 10485760

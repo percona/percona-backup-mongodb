@@ -1,6 +1,8 @@
 package oci
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"reflect"
 	"time"
 
@@ -34,6 +36,7 @@ const (
 	defaultRetryMaxAttempts = 8
 	defaultRetryMaxBackoff  = 30 * time.Second
 	retryBackoffBase        = 2.0
+	sseCustomerAlgorithm    = "AES256"
 )
 
 //nolint:lll
@@ -63,15 +66,43 @@ type Retryer struct {
 	MaxBackoff time.Duration `bson:"maxBackoff" json:"maxBackoff" yaml:"maxBackoff"`
 }
 
+//nolint:lll
 type SSE struct {
-	KmsKeyID string `bson:"kmsKeyID,omitempty" json:"kmsKeyID,omitempty" yaml:"kmsKeyID,omitempty"`
+	KmsKeyID       string               `bson:"kmsKeyID,omitempty" json:"kmsKeyID,omitempty" yaml:"kmsKeyID,omitempty"`
+	SseCustomerKey storage.MaskedString `bson:"sseCustomerKey,omitempty" json:"sseCustomerKey,omitempty" yaml:"sseCustomerKey,omitempty"`
 }
 
-func (s SSE) kmsKeyID() *string {
-	if s.KmsKeyID == "" {
-		return nil
+type sseHeaders struct {
+	kmsKeyID          *string
+	customerAlgorithm *string
+	customerKey       *string
+	customerKeySHA256 *string
+}
+
+func (s SSE) headers() (sseHeaders, error) {
+	hasKMS := s.KmsKeyID != ""
+	hasSSECKey := s.SseCustomerKey != ""
+
+	switch {
+	case !hasKMS && !hasSSECKey:
+		return sseHeaders{}, nil
+	case hasKMS && !hasSSECKey:
+		return sseHeaders{kmsKeyID: common.String(s.KmsKeyID)}, nil
+	case hasKMS:
+		return sseHeaders{}, errors.New("kmsKeyID cannot be used with SSE-C")
 	}
-	return common.String(s.KmsKeyID)
+
+	decodedKey, err := base64.StdEncoding.DecodeString(string(s.SseCustomerKey))
+	if err != nil {
+		return sseHeaders{}, errors.Wrap(err, "decode sseCustomerKey")
+	}
+	sum := sha256.Sum256(decodedKey)
+
+	return sseHeaders{
+		customerAlgorithm: common.String(sseCustomerAlgorithm),
+		customerKey:       common.String(string(s.SseCustomerKey)),
+		customerKeySHA256: common.String(base64.StdEncoding.EncodeToString(sum[:])),
+	}, nil
 }
 
 type AuthType string
@@ -166,6 +197,9 @@ func (cfg *Config) Cast() error {
 	}
 	if cfg.Retryer != nil && cfg.Retryer.MaxBackoff < 0 {
 		return errors.New("retryer.maxBackoff cannot be negative")
+	}
+	if _, err := cfg.ServerSideEncryption.headers(); err != nil {
+		return errors.Wrap(err, "serverSideEncryption")
 	}
 
 	if cfg.UploadPartSize <= 0 {
