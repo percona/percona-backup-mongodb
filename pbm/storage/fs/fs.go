@@ -90,6 +90,7 @@ func (cfg *Config) GetBackupBuffSize() int {
 	}
 	return normalizeBuffSize(cfg.BackupBuffSize)
 }
+
 func (cfg *Config) GetRestoreBuffSize() int {
 	if cfg.RestoreBuffSize <= 0 {
 		return 0
@@ -193,7 +194,8 @@ func (fs *FS) writeSync(name string, data io.Reader, cpBuf []byte) (err error) {
 		_, err = io.CopyBuffer(
 			struct{ io.Writer }{fw},
 			struct{ io.Reader }{data},
-			cpBuf)
+			cpBuf,
+		)
 		if err != nil {
 			return errors.Wrapf(err, "copy file <%s>, using buffer size: %d", filepath, len(cpBuf))
 		}

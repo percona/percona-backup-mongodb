@@ -106,38 +106,39 @@ func TestComputePartSize(t *testing.T) {
 }
 
 var (
-	fsPath         = flag.String("fs-path", "/mnt/nfs/pbm", "storage path where file will be saved")
-	backupBuffSize = flag.Int("buff-size", 0, "backup buffer size: size of internal write buffer, 0 means no buffer")
-	fSize          = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
-	fName          = flag.String("file-name", "test-file", "upload file name")
-	compression    = flag.String("compression", string(compress.CompressionTypeNone),
+	storagePath = flag.String("storage-path", "/mnt/nfs/pbm", "FS/NFS file storage dir path")
+	bufSize     = flag.Int("buf-size", 0, "backup buffer size: size of internal write buffer, 0 means no buffer")
+	fileSize    = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
+	fName       = flag.String("file-name", "test-file", "upload file name")
+	compression = flag.String("compression", string(compress.CompressionTypeNone),
 		"compression type: none|gzip|pgzip|snappy|lz4|s2|zstd")
 )
 
+// BenchmarkStorageUpload is benchmark for uploading data from the stream.
+// Destination for uploade is set by `storage-path`.
+// The bench is used to measure upload speed (MiB/sec) for different stream & buffer sizes.
 /*
 for sz in 10 50 100 500 2000; do
-
-	go test -v -run=^$ -bench=BenchmarkStorageUpload ./pbm/storage/ \
-		-benchtime=10x \
-		-file-size=$sz \
-		-buff-size=$((1*1024*1024))
-
+go test -v -run=^$ -bench=BenchmarkStorageUpload ./pbm/storage/ \
+	-benchtime=10x \
+	-storage-path=/tmp \
+	-file-size=$sz \
+	-buf-size=$((1*1024*1024))
 done
 */
 func BenchmarkStorageUpload(b *testing.B) {
-	MiB := int64(1024 * 1024)
-	size := *fSize * MiB // from MiB to B
+	size := *fileSize * storage.MiB // from MiB to B
 
 	fsCfg := &fs.Config{
-		Path:           *fsPath,
-		BackupBuffSize: *backupBuffSize,
+		Path:           *storagePath,
+		BackupBuffSize: *bufSize,
 	}
 	stg, err := fs.New(fsCfg)
 	if err != nil {
 		b.Fatalf("create fs storage: %v", err)
 	}
-	saveBuf := make([]byte, *backupBuffSize)
-	fsSaveBuf := make([]byte, *backupBuffSize)
+	saveBuf := make([]byte, fsCfg.GetBackupBuffSize())
+	fsSaveBuf := make([]byte, fsCfg.GetBackupBuffSize())
 
 	cType := compress.CompressionType(*compression)
 	src := storage.NewSizedRandomDataSrc(size)
@@ -156,10 +157,10 @@ func BenchmarkStorageUpload(b *testing.B) {
 		}
 		elapsed := time.Since(ts)
 		r := storage.Results{
-			Size:          sz / MiB,
+			Size:          sz / storage.MiB,
 			BuffSize:      fsCfg.GetBackupBuffSize(),
 			Time:          elapsed,
-			TransferSpeed: float64(sz/MiB) / elapsed.Seconds(),
+			TransferSpeed: float64(sz/storage.MiB) / elapsed.Seconds(),
 		}
 
 		b.Logf("%+v", r)

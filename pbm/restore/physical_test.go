@@ -616,8 +616,6 @@ func BenchmarkCopyGenFilesFromFSStorage(b *testing.B) {
 		b.Fatalf("close temp file: %v", err)
 	}
 
-	b.SetBytes(size)
-
 	dstDir, err := os.MkdirTemp(*localPath, "copyfile-bench-*")
 	if err != nil {
 		b.Fatalf("create temp dir: %v", err)
@@ -708,7 +706,7 @@ func BenchmarkCopyFileFromFSStorage(b *testing.B) {
 		// use value from v2.14
 		cpbuf = make([]byte, 32*1024)
 	} else {
-		cpbuf = make([]byte, *bufSize)
+		cpbuf = make([]byte, fsCfg.GetRestoreBuffSize())
 	}
 
 	b.SetBytes(fSize)
