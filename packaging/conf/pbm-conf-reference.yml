@@ -15,7 +15,8 @@
 ##  - GCS,
 ##  - Minio (for S3 compatible storage),
 ##  - shared filesystem,
-##  - Azure
+##  - Azure,
+##  - OCI
 
 
 #---------------------S3 Storage Configuration--------------------------
@@ -194,6 +195,46 @@
 ## The maximum object size that will be stored on the storage
 #      maxObjSizeGB: 194560
 
+#--------------------Oracle Cloud Infrastructure Object Storage Configuration-----------------------
+#  type: oci
+#  oci:
+
+## OCI Object Storage bucket region, namespace, and bucket name.
+#    region:
+#    namespace:
+#    bucket:
+
+## The data directory to store backups in.
+## When undefined, backups are saved at the root of the bucket.
+#    prefix:
+
+## OCI authentication configuration.
+## Supported types: userPrincipal, instancePrincipal, okeWorkloadIdentity.
+## userPrincipal requires the nested userPrincipal block.
+## instancePrincipal and okeWorkloadIdentity do not require further configuration.
+#    credentials:
+#      type: userPrincipal
+#      userPrincipal:
+#        tenancy:
+#        user:
+#        fingerprint:
+#        privateKey:
+#        privateKeyPassphrase:
+
+## Retry configuration options.
+#    retryer:
+#      maxAttempts: 8
+#      maxBackoff: 30s
+
+## The size of data chunks in bytes to upload to the bucket in a single request.
+#    uploadPartSize: 10485760
+
+## The maximum number of parallel upload workers.
+#    uploadConcurrency: 5
+
+## The maximum object size that will be stored on the storage.
+#    maxObjSizeGB: 10138
+
 #====================Point-in-Time Recovery Configuration==================
 
 #pitr:
@@ -253,7 +294,7 @@
 #  numParallelCollections:
 
 ## Set the commit quorum for index creation during logical restore.
-## Supported values are majority, votingMembers, or a positive integer.
+## Supported values are majority, votingMembers, or an integer from 1 to 50.
 ## Default value is votingMembers.
 #  indexCommitQuorum: votingMembers
 

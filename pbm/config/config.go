@@ -26,6 +26,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/mio"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/oci"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -187,6 +188,7 @@ type StorageConf struct {
 	Azure      *azure.Config `bson:"azure,omitempty" json:"azure,omitempty" yaml:"azure,omitempty"`
 	Filesystem *fs.Config    `bson:"filesystem,omitempty" json:"filesystem,omitempty" yaml:"filesystem,omitempty"`
 	OSS        *oss.Config   `bson:"oss,omitempty" json:"oss,omitempty" yaml:"oss,omitempty"`
+	OCI        *oci.Config   `bson:"oci,omitempty" json:"oci,omitempty" yaml:"oci,omitempty"`
 }
 
 func (s *StorageConf) Clone() *StorageConf {
@@ -211,6 +213,8 @@ func (s *StorageConf) Clone() *StorageConf {
 		rv.GCS = s.GCS.Clone()
 	case storage.OSS:
 		rv.OSS = s.OSS.Clone()
+	case storage.OCI:
+		rv.OCI = s.OCI.Clone()
 	case storage.Blackhole: // no config
 	}
 
@@ -233,6 +237,8 @@ func (s *StorageConf) Equal(other *StorageConf) bool {
 		return s.GCS.Equal(other.GCS)
 	case storage.Filesystem:
 		return s.Filesystem.Equal(other.Filesystem)
+	case storage.OCI:
+		return s.OCI.Equal(other.OCI)
 	case storage.Blackhole:
 		return true
 	}
@@ -262,6 +268,8 @@ func (s *StorageConf) IsSameStorage(other *StorageConf) bool {
 		return s.OSS.IsSameStorage(other.OSS)
 	case storage.Filesystem:
 		return s.Filesystem.IsSameStorage(other.Filesystem)
+	case storage.OCI:
+		return s.OCI.IsSameStorage(other.OCI)
 	case storage.Blackhole:
 		return true
 	}
@@ -283,6 +291,8 @@ func (s *StorageConf) Cast() error {
 		return s.Azure.Cast()
 	case storage.GCS:
 		return s.GCS.Cast()
+	case storage.OCI:
+		return s.OCI.Cast()
 	case storage.Blackhole: // noop
 		return nil
 	}
@@ -302,6 +312,8 @@ func (s *StorageConf) Typ() string {
 		return "GCS"
 	case storage.OSS:
 		return "OSS"
+	case storage.OCI:
+		return "OCI"
 	case storage.Filesystem:
 		return "FS"
 	case storage.Blackhole:
@@ -369,6 +381,15 @@ func (s *StorageConf) Path() string {
 		if s.OSS.Prefix != "" {
 			path += "/" + s.OSS.Prefix
 		}
+	case storage.OCI:
+		path = "oci://"
+		if s.OCI.Namespace != "" {
+			path += s.OCI.Namespace + "/"
+		}
+		path += s.OCI.Bucket
+		if s.OCI.Prefix != "" {
+			path += "/" + s.OCI.Prefix
+		}
 	case storage.Filesystem:
 		path = s.Filesystem.Path
 	}
@@ -386,6 +407,8 @@ func (s *StorageConf) Region() string {
 		region = s.Minio.Region
 	case storage.OSS:
 		region = s.OSS.Region
+	case storage.OCI:
+		region = s.OCI.Region
 	}
 
 	return region
@@ -724,6 +747,11 @@ func sanitizeStoragePaths(s *StorageConf) {
 		if s.OSS != nil {
 			s.OSS.Bucket = storage.TrimSlashes(s.OSS.Bucket)
 			s.OSS.Prefix = storage.TrimSlashes(s.OSS.Prefix)
+		}
+	case storage.OCI:
+		if s.OCI != nil {
+			s.OCI.Bucket = storage.TrimSlashes(s.OCI.Bucket)
+			s.OCI.Prefix = storage.TrimSlashes(s.OCI.Prefix)
 		}
 	}
 }

@@ -40,6 +40,7 @@ const (
 	GCS        Type = "gcs"
 	Minio      Type = "minio"
 	OSS        Type = "oss"
+	OCI        Type = "oci"
 )
 
 type FileInfo struct {
@@ -82,6 +83,8 @@ func ParseType(s string) Type {
 		return Minio
 	case string(OSS):
 		return OSS
+	case string(OCI):
+		return OCI
 	default:
 		return Undefined
 	}
