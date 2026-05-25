@@ -20,6 +20,14 @@ var (
 	ErrUninitialized = errors.New("uninitialized")
 )
 
+const (
+	B int64 = 1 << (10 * iota)
+	KiB
+	MiB
+	GiB
+	TiB
+)
+
 // Type represents a type of the destination storage for backups
 type Type string
 
@@ -363,14 +371,6 @@ func ComputePartSize(fileSize, defaultSize, minSize, maxParts, userSize int64) i
 }
 
 func PrettySize(size int64) string {
-	const (
-		_          = iota
-		KB float64 = 1 << (10 * iota)
-		MB
-		GB
-		TB
-	)
-
 	if size < 0 {
 		return "unknown"
 	}
@@ -378,14 +378,14 @@ func PrettySize(size int64) string {
 	s := float64(size)
 
 	switch {
-	case s >= TB:
-		return fmt.Sprintf("%.2fTB", s/TB)
-	case s >= GB:
-		return fmt.Sprintf("%.2fGB", s/GB)
-	case s >= MB:
-		return fmt.Sprintf("%.2fMB", s/MB)
-	case s >= KB:
-		return fmt.Sprintf("%.2fKB", s/KB)
+	case size >= TiB:
+		return fmt.Sprintf("%.2fTB", s/float64(TiB))
+	case size >= GiB:
+		return fmt.Sprintf("%.2fGB", s/float64(GiB))
+	case size >= MiB:
+		return fmt.Sprintf("%.2fMB", s/float64(MiB))
+	case size >= KiB:
+		return fmt.Sprintf("%.2fKB", s/float64(KiB))
 	}
 	return fmt.Sprintf("%.2fB", s)
 }

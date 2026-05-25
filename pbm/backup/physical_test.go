@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -210,33 +211,42 @@ func disableBcpCurErr(t *testing.T, m *mongo.Client) {
 }
 
 var (
-	fsPath         = flag.String("fs-path", "/mnt/nfs/pbm", "storage path where file will be saved")
-	inputFile      = flag.String("if", "", "input file name, random file will not be generated")
-	backupBuffSize = flag.Int("buff-size", 0, "backup buffer size: size of internal write buffer, 0 means no buffer")
-	fSize          = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
-	fName          = flag.String("file-name", "test-file", "upload file name")
-	compression    = flag.String("compression", string(compress.CompressionTypeNone),
+	localFile = flag.String("local-file", "", "full path to existing local file")
+	localPath = flag.String("local-path", "/tmp", "local path where test file will be generated and uploaded")
+	fileSize  = flag.Int64("file-size", 100, "file size in MiB that will be generated and uploaded")
+	cleanup   = flag.Bool("cleanup", true, "cleanup generated/uploaded files after the test")
+
+	storagePath = flag.String("storage-path", "/mnt/nfs/pbm", "storage dir path where file will be saved,"+
+		" destination name of the file will be unique")
+	bufSize = flag.Int("buf-size", 0, "backup buffer size: size of internal write buffer,"+
+		" 0 means no PBM level buffer, golang internal will be used")
+
+	compression = flag.String("compression", string(compress.CompressionTypeNone),
 		"compression type: none|gzip|pgzip|snappy|lz4|s2|zstd")
 	compressionLevel = flag.Int("compression-level", -1, "compression level")
 )
 
+// BenchmarkCopyGenFilesToFSStorage generates a local file of size `file-size` in `local-path` dir.
+// It's used to measure upload speed (MiB/sec) for different file & buffer sizes.
+// Bench starts benchmarking only for the copy operation to FS/NFS storage (`storage-path`).
+// For copying, it uses the backup buffer size (`buf-size`). At the end, all generated/copied files are
+// removed from the local/backup storage, or optionally left there (`-cleanup=false`)
 /*
 for sz in 10 50 100 500 2000; do
-
-	go test -v -run=^$ -bench=^BenchmarkWriteFile$ ./pbm/backup/ \
-		-benchtime=10x \
-		-file-size=$sz \
-		-buff-size=$((1*1024*1024))
-
+go test -v -run=^$ -bench=^BenchmarkCopyGenFilesToFSStorage$ ./pbm/backup/ \
+	-benchtime=10x \
+	-local-path=/tmp \
+	-file-size=$sz \
+	-storage-path=/mnt/nfs/pbm \
+	-buf-size=$((5*1024*1024))
 done
 */
-func BenchmarkWriteFile(b *testing.B) {
-	MiB := int64(1024 * 1024)
-	size := *fSize * MiB
+func BenchmarkCopyGenFilesToFSStorage(b *testing.B) {
+	size := *fileSize * storage.MiB
 
 	fsCfg := &fs.Config{
-		Path:           *fsPath,
-		BackupBuffSize: *backupBuffSize,
+		Path:           *storagePath,
+		BackupBuffSize: *bufSize,
 	}
 	stg, err := fs.New(fsCfg)
 	if err != nil {
@@ -252,11 +262,16 @@ func BenchmarkWriteFile(b *testing.B) {
 		cLevel = compressionLevel
 	}
 
-	tmpFile, err := os.CreateTemp("", "writefile-bench-*")
+	tmpFile, err := os.CreateTemp(*localPath, "writefile-bench-*")
 	if err != nil {
 		b.Fatalf("create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+
+	if *cleanup {
+		b.Cleanup(func() {
+			os.Remove(tmpFile.Name())
+		})
+	}
 
 	if _, err := io.CopyN(tmpFile, storage.NewSizedRandomDataSrc(size), size); err != nil {
 		b.Fatalf("write to temp file: %v", err)
@@ -268,8 +283,13 @@ func BenchmarkWriteFile(b *testing.B) {
 	b.SetBytes(size)
 
 	runDir := time.Now().Format("20060102-150405.000000")
+	if *cleanup {
+		b.Cleanup(func() {
+			os.RemoveAll(*storagePath)
+		})
+	}
 	for b.Loop() {
-		dst := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
+		dst := fmt.Sprintf("%s/%s-%d", runDir, filepath.Base(tmpFile.Name()), rand.Uint64())
 
 		ts := time.Now()
 		f, err := writeFile(context.Background(), &File{Name: tmpFile.Name()},
@@ -279,31 +299,41 @@ func BenchmarkWriteFile(b *testing.B) {
 		}
 		elapsed := time.Since(ts)
 		r := storage.Results{
-			Size:          f.StgSize / MiB,
+			Size:          f.StgSize / storage.MiB,
 			BuffSize:      fsCfg.GetBackupBuffSize(),
 			Time:          elapsed,
-			TransferSpeed: float64(f.StgSize/MiB) / elapsed.Seconds(),
+			TransferSpeed: float64(f.StgSize/storage.MiB) / elapsed.Seconds(),
 		}
 
 		b.Logf("%+v", r)
 	}
 }
 
-func BenchmarkWriteFileExact(b *testing.B) {
-	MiB := int64(1024 * 1024)
-	if *inputFile == "" {
-		b.Fatal("-if needs to be specified")
+// BenchmarkCopyFileToFSStorage copies existing local file (`local-file`) to FS/NFS storage (`storage-path`).
+// It's used to bench different backup buffer sizes (`buf-size`) and how does it influence on performance
+// and sys calls numbers.
+/*
+dd if=/dev/urandom of=/tmp/pbm-test-file bs=1M count=1024 status=progress
+go test -v -run=^$ -bench=^BenchmarkCopyFileToFSStorage$ ./pbm/backup/ -benchtime=10x \
+	-local-file=/tmp/pbm-test-file \
+	-storage-path=/mnt/nfs/pbm \
+	-buf-size=$((5*1024*1024))
+*/
+func BenchmarkCopyFileToFSStorage(b *testing.B) {
+	if *localFile == "" {
+		b.Fatal("-local-file needs to be specified")
 	}
 
-	fi, err := os.Stat(*inputFile)
+	fi, err := os.Stat(*localFile)
 	if err != nil {
-		b.Fatalf("file stat %s: %v", *inputFile, err)
+		b.Fatalf("file stat %s: %v", *localFile, err)
 	}
-	size := fi.Size()
+	fSize := fi.Size()
+	fName := filepath.Base(*localFile)
 
 	fsCfg := &fs.Config{
-		Path:           *fsPath,
-		BackupBuffSize: *backupBuffSize,
+		Path:           *storagePath,
+		BackupBuffSize: *bufSize,
 	}
 	stg, err := fs.New(fsCfg)
 	if err != nil {
@@ -319,24 +349,24 @@ func BenchmarkWriteFileExact(b *testing.B) {
 		cLevel = compressionLevel
 	}
 
-	b.SetBytes(size)
+	b.SetBytes(fSize)
 
 	runDir := time.Now().Format("20060102-150405.000000")
 	for b.Loop() {
-		dst := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
+		dst := fmt.Sprintf("%s/%s-%d", runDir, fName, rand.Uint64())
 
 		ts := time.Now()
-		f, err := writeFile(context.Background(), &File{Name: *inputFile},
+		f, err := writeFile(context.Background(), &File{Name: *localFile},
 			dst, stg, cType, cLevel, cpBuf, saveBuf, fsSaveBuf)
 		if err != nil {
 			b.Fatalf("writeFile: %v", err)
 		}
 		elapsed := time.Since(ts)
 		r := storage.Results{
-			Size:          f.StgSize / MiB,
+			Size:          f.StgSize / storage.MiB,
 			BuffSize:      fsCfg.GetBackupBuffSize(),
 			Time:          elapsed,
-			TransferSpeed: float64(f.StgSize/MiB) / elapsed.Seconds(),
+			TransferSpeed: float64(f.StgSize/storage.MiB) / elapsed.Seconds(),
 		}
 
 		b.Logf("%+v", r)
