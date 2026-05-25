@@ -1,9 +1,9 @@
 package restore
 
 import (
-	"context"
 	"flag"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -557,31 +557,40 @@ func createTestDir(t *testing.T, path string) {
 }
 
 var (
-	fsPath          = flag.String("fs-path", "/mnt/nfs/pbm", "storage path where file will be saved")
-	inputFile       = flag.String("if", "", "input file name, random file will not be generated")
-	restoreBuffSize = flag.Int("buff-size", 32*1024, "restore internal buffer size, 32KiB default")
-	fSize           = flag.Int64("file-size", 100, "file size in MiB that will be uploaded")
-	fName           = flag.String("file-name", "test-file", "upload file name")
-	compression     = flag.String("compression", string(compress.CompressionTypeNone),
+	storagePath = flag.String("storage-path", "/mnt/nfs/pbm", "FS/NFS file storage dir path")
+	storageFile = flag.String("storage-file", "", "full path to existing file on storage (relative to storage path)")
+	fileSize    = flag.Int64("file-size", 100, "file size in MiB that will be generated and downloaded")
+
+	localPath = flag.String("local-path", "/tmp", "local path where test file will be downloaded")
+
+	bufSize = flag.Int("buf-size", 0, "restore buffer size: size of internal write buffer, "+
+		"0 for 32KiB default used in v2.14")
+	cleanup = flag.Bool("cleanup", true, "cleanup generated/uploaded files after the test")
+
+	compression = flag.String("compression", string(compress.CompressionTypeNone),
 		"compression type: none|gzip|pgzip|snappy|lz4|s2|zstd")
 )
 
+// BenchmarkCopyGenFilesFromFSStorage generates a file on FS storage of size `file-size`, with unique name relative to
+// `storage-path` dir. The bench is used to measure download speed (MiB/sec) for different file & buffer sizes.
+// Benchmarking is started only for copy (download) operation from FS/NFS storage specified with `storage-path`.
+// During copying `buf-size` is used. File is copyied into `local-path`. At the end, all generated/copied files
+// are removed from the local/backup storage, or optionally left there (`-cleanup=false`).
 /*
 for sz in 10 50 100 500 2000; do
-
-	go test -v -run=^$ -bench=BenchmarkCopyFile ./pbm/restore/ \
-		-benchtime=10x \
-		-file-size=$sz \
-		-buff-size=$((1*1024*1024))
-
+go test -v -run=^$ -bench=^BenchmarkCopyGenFilesFromFSStorage$ ./pbm/restore/ -benchtime=10x \
+	-storage-path=/tmp/backup-storage \
+	-file-size=$sz \
+	-local-path=/tmp \
+	-buf-size=$((5*1024*1024))
 done
 */
-func BenchmarkCopyFile(b *testing.B) {
-	MiB := int64(1024 * 1024)
-	size := *fSize * MiB
+func BenchmarkCopyGenFilesFromFSStorage(b *testing.B) {
+	size := *fileSize * storage.MiB
 
 	fsCfg := &fs.Config{
-		Path: *fsPath,
+		Path:            *storagePath,
+		RestoreBuffSize: *bufSize,
 	}
 	stg, err := fs.New(fsCfg)
 	if err != nil {
@@ -590,64 +599,97 @@ func BenchmarkCopyFile(b *testing.B) {
 
 	cType := compress.CompressionType(*compression)
 
-	runDir := time.Now().Format("20060102-150405.000000")
-	src := fmt.Sprintf("%s/%s-src", runDir, *fName)
-	_, err = storage.Upload(context.Background(),
-		storage.NewSizedRandomDataSrc(size), stg, cType, nil, src)
+	f, err := os.CreateTemp(*storagePath, "copyfile-bench-*")
 	if err != nil {
-		b.Fatalf("upload source: %v", err)
+		b.Fatalf("create temp file: %v", err)
+	}
+	if *cleanup {
+		b.Cleanup(func() {
+			os.Remove(f.Name())
+		})
 	}
 
-	dbpath, err := os.MkdirTemp("", "copyfile-bench-*")
+	if _, err := io.CopyN(f, storage.NewSizedRandomDataSrc(size), size); err != nil {
+		b.Fatalf("write to temp file: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		b.Fatalf("close temp file: %v", err)
+	}
+
+	b.SetBytes(size)
+
+	dstDir, err := os.MkdirTemp(*localPath, "copyfile-bench-*")
 	if err != nil {
 		b.Fatalf("create temp dir: %v", err)
 	}
-	defer os.RemoveAll(dbpath)
+	if *cleanup {
+		b.Cleanup(func() {
+			os.RemoveAll(dstDir)
+		})
+	}
 
 	r := &PhysRestore{
-		bcpStg: stg,
-		log:    log.DiscardEvent,
+		bcpStg:  stg,
+		log:     log.DiscardEvent,
+		bufSize: fsCfg.RestoreBuffSize,
 	}
-	cpbuf := make([]byte, *restoreBuffSize)
+	var cpbuf []byte
+	if fsCfg.GetRestoreBuffSize() == 0 {
+		cpbuf = make([]byte, 32*1024) // use old value and optimization
+	} else {
+		cpbuf = make([]byte, fsCfg.GetRestoreBuffSize())
+	}
 
 	b.SetBytes(size)
 
 	for b.Loop() {
-		dst := filepath.Join(dbpath, fmt.Sprintf("%s-%d", *fName, rand.Uint64()))
+		dst := filepath.Join(dstDir, fmt.Sprintf("%s-%d", filepath.Base(f.Name()), rand.Uint64()))
 
 		ts := time.Now()
-		err := r.copyFile(src, dst, backup.File{Fmode: 0o600}, cType, cpbuf)
+		err := r.copyFile(filepath.Base(f.Name()), dst, backup.File{Fmode: 0o600, Size: size}, cType, cpbuf)
 		if err != nil {
 			b.Fatalf("copyFile: %v", err)
 		}
 		elapsed := time.Since(ts)
 		res := storage.Results{
-			Size:          size / MiB,
-			BuffSize:      *restoreBuffSize,
+			Size:          size / storage.MiB,
+			BuffSize:      fsCfg.GetRestoreBuffSize(),
 			Time:          elapsed,
-			TransferSpeed: float64(size/MiB) / elapsed.Seconds(),
+			TransferSpeed: float64(size/storage.MiB) / elapsed.Seconds(),
 		}
 
 		b.Logf("%+v", res)
 	}
 }
 
-func BenchmarkCopyFileExact(b *testing.B) {
-	MiB := int64(1024 * 1024)
-	if *inputFile == "" {
-		b.Fatal("-if needs to be specified")
+// BenchmarkCopyFileFromFSStorage copies existing file from FS/NFS backup storage specified with `storage-path`.
+// File is specified with `storeage-file` which represents file path from the storage root. Destination location
+// is specified with `local-path`.
+// It's used to bench different backup buffer sizes (`buf-size`) and how it influences performance
+// and sys calls invocation/numbers.
+/*
+mkdir -p /tmp/backup-storage/backup-name/ && mkdir -p /tmp/local-storage
+dd if=/dev/urandom of=/tmp/backup-storage/backup-name/pbm-test-file bs=1M count=1024 status=progress
+go test -v -run=^$ -bench=^BenchmarkCopyFileFromFSStorage$ ./pbm/restore/ -benchtime=10x \
+	-storage-path=/tmp/backup-storage \
+	-storage-file=backup-name/pbm-test-file \
+	-local-path=/tmp/local-storage \
+	-buf-size=$((5*1024*1024))
+*/
+func BenchmarkCopyFileFromFSStorage(b *testing.B) {
+	if *storageFile == "" {
+		b.Fatal("storage-file needs to be specified and it should exist on backup storage")
 	}
-	d := filepath.Dir(*inputFile)
-	f := filepath.Base(*inputFile)
 
-	fi, err := os.Stat(*inputFile)
+	fi, err := os.Stat(filepath.Join(*storagePath, *storageFile))
 	if err != nil {
 		b.Fatalf("file stat: %v", err)
 	}
-	size := fi.Size()
+	fSize := fi.Size()
 
 	fsCfg := &fs.Config{
-		Path: d,
+		Path:            *storagePath,
+		RestoreBuffSize: *bufSize,
 	}
 	stg, err := fs.New(fsCfg)
 	if err != nil {
@@ -656,34 +698,35 @@ func BenchmarkCopyFileExact(b *testing.B) {
 
 	cType := compress.CompressionType(*compression)
 
-	dbpath, err := os.MkdirTemp("", "copyfile-bench-*")
-	if err != nil {
-		b.Fatalf("create temp dir: %v", err)
-	}
-	defer os.RemoveAll(dbpath)
-
 	r := &PhysRestore{
-		bcpStg: stg,
-		log:    log.DiscardEvent,
+		bcpStg:  stg,
+		log:     log.DiscardEvent,
+		bufSize: fsCfg.GetRestoreBuffSize(),
 	}
-	cpbuf := make([]byte, *restoreBuffSize)
+	var cpbuf []byte
+	if *bufSize == 0 {
+		// use value from v2.14
+		cpbuf = make([]byte, 32*1024)
+	} else {
+		cpbuf = make([]byte, *bufSize)
+	}
 
-	b.SetBytes(size)
+	b.SetBytes(fSize)
 
 	for b.Loop() {
-		dst := filepath.Join(dbpath, fmt.Sprintf("%s-%d", *fName, rand.Uint64()))
+		dst := filepath.Join(*localPath, fmt.Sprintf("%s-%d", filepath.Base(*storageFile), rand.Uint64()))
 
 		ts := time.Now()
-		err := r.copyFile(f, dst, backup.File{Fmode: 0o600}, cType, cpbuf)
+		err := r.copyFile(*storageFile, dst, backup.File{Fmode: 0o600, Size: fSize}, cType, cpbuf)
 		if err != nil {
 			b.Fatalf("copyFile: %v", err)
 		}
 		elapsed := time.Since(ts)
 		res := storage.Results{
-			Size:          size / MiB,
-			BuffSize:      *restoreBuffSize,
+			Size:          fSize / storage.MiB,
+			BuffSize:      *bufSize,
 			Time:          elapsed,
-			TransferSpeed: float64(size/MiB) / elapsed.Seconds(),
+			TransferSpeed: float64(fSize/storage.MiB) / elapsed.Seconds(),
 		}
 
 		b.Logf("%+v", res)
