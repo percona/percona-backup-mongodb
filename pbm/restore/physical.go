@@ -1713,7 +1713,9 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 
 func (r *PhysRestore) prepareData() error {
 	err := r.startMongo("--dbpath", r.dbpath,
-		"--setParameter", "disableLogicalSessionCacheRefresh=true")
+		"--setParameter", "disableLogicalSessionCacheRefresh=true",
+		"--setParameter", "ttlMonitorEnabled=false",
+	)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
@@ -1798,7 +1800,9 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 func (r *PhysRestore) recoverStandaloneFromOplog() error {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "recoverFromOplogAsStandalone=true",
-		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
+		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
+		"--setParameter", "ttlMonitorEnabled=false",
+	)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
@@ -1822,6 +1826,7 @@ func (r *PhysRestore) replayPITROnStandalone(
 		"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
 		"--setParameter", "takeUnstableCheckpointOnShutdown=true",
+		"--setParameter", "ttlMonitorEnabled=false",
 	}
 	err := r.startMongo(flags...)
 	if err != nil {
