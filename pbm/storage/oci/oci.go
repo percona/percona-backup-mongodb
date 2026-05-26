@@ -237,7 +237,7 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 }
 
 func (o *OCI) FileStat(name string) (storage.FileInfo, error) {
-	inf := storage.FileInfo{Name: name}
+	inf := storage.FileInfo{}
 	res, err := o.client.HeadObject(context.Background(), objectstorage.HeadObjectRequest{
 		NamespaceName: common.String(o.cfg.Namespace),
 		BucketName:    common.String(o.cfg.Bucket),
@@ -250,6 +250,7 @@ func (o *OCI) FileStat(name string) (storage.FileInfo, error) {
 		return inf, errors.Wrap(err, "head object")
 	}
 
+	inf.Name = name
 	if res.ContentLength != nil {
 		inf.Size = *res.ContentLength
 	}

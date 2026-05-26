@@ -69,6 +69,20 @@ func TestGetPartialObjectUsesRangeHeader(t *testing.T) {
 	assert.Equal(t, "bytes=10-20", httpClient.rangeHeader)
 }
 
+func TestFileStatNotFoundReturnsEmptyFileInfo(t *testing.T) {
+	cfg := testConfig(testPrivateKey(t))
+	client, err := configureClient(cfg)
+	require.NoError(t, err)
+
+	client.HTTPClient = &statusTestHTTPClient{status: http.StatusNotFound}
+
+	o := &OCI{cfg: cfg, client: client}
+	inf, err := o.FileStat("test.dat")
+
+	require.ErrorIs(t, err, storage.ErrNotExist)
+	assert.Equal(t, storage.FileInfo{}, inf)
+}
+
 func TestGetPartialObjectNotFoundIsGetObjError(t *testing.T) {
 	cfg := testConfig(testPrivateKey(t))
 	client, err := configureClient(cfg)
