@@ -85,6 +85,11 @@ override_dh_auto_install:
 		--source-name "percona-backup-mongodb" \
 		--source-version "$(VERSION)" \
 		-o "cyclonedx-json@1.6=$(TMP)/percona-backup-mongodb-$(VERSION).cdx.json"
+	# Overwrite syft's auto-generated metadata.component (type=file, opaque
+	# bom-ref) with a proper application identity including a deb PURL.
+	jq --arg purl "pkg:deb/percona-backup-mongodb@$(VERSION)" --arg ver "$(VERSION)" '.metadata.component = {"bom-ref": $purl, "type": "application", "name": "percona-backup-mongodb", "version": $ver, "purl": $purl}' \
+		$(TMP)/percona-backup-mongodb-$(VERSION).cdx.json > $(TMP)/sbom.tmp \
+		&& mv $(TMP)/sbom.tmp $(TMP)/percona-backup-mongodb-$(VERSION).cdx.json
 	test "$$(jq '.components | length' $(TMP)/percona-backup-mongodb-$(VERSION).cdx.json)" -ge 10 \
 		|| { echo "ERROR: DEB SBOM has too few components" >&2; exit 1; }
 	ls -la $(TMP)

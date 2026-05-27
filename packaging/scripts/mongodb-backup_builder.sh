@@ -493,6 +493,17 @@ build_tarball() {
         --source-version "${VERSION}" \
         -o "cyclonedx-json@1.6=${SBOM_FILE}" \
         || { echo "ERROR: syft scan failed for binary tarball" >&2; exit 1; }
+    # Overwrite syft's auto-generated metadata.component (type=file, opaque
+    # bom-ref) with a proper application identity including a PURL. Tarball is
+    # OS-agnostic, so PURL type is "generic".
+    SBOM_PURL="pkg:generic/percona-backup-mongodb@${VERSION}"
+    jq --arg purl "${SBOM_PURL}" --arg ver "${VERSION}" '.metadata.component = {
+        "bom-ref": $purl,
+        "type": "application",
+        "name": "percona-backup-mongodb",
+        "version": $ver,
+        "purl": $purl
+    }' "${SBOM_FILE}" > "${SBOM_FILE}.tmp" && mv "${SBOM_FILE}.tmp" "${SBOM_FILE}"
     COMPONENT_COUNT=$(jq '.components | length' "${SBOM_FILE}")
     if [ "$COMPONENT_COUNT" -lt 10 ]; then
         echo "ERROR: tarball SBOM has only ${COMPONENT_COUNT} components" >&2
