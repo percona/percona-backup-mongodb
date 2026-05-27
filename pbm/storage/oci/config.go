@@ -1,12 +1,8 @@
 package oci
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
 	"reflect"
 	"time"
-
-	"github.com/oracle/oci-go-sdk/v65/common"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -36,7 +32,6 @@ const (
 	defaultRetryMaxAttempts = 8
 	defaultRetryMaxBackoff  = 30 * time.Second
 	retryBackoffBase        = 2.0
-	sseCustomerAlgorithm    = "AES256"
 )
 
 //nolint:lll
@@ -70,39 +65,6 @@ type Retryer struct {
 type SSE struct {
 	KmsKeyID       string               `bson:"kmsKeyID,omitempty" json:"kmsKeyID,omitempty" yaml:"kmsKeyID,omitempty"`
 	SseCustomerKey storage.MaskedString `bson:"sseCustomerKey,omitempty" json:"sseCustomerKey,omitempty" yaml:"sseCustomerKey,omitempty"`
-}
-
-type sseHeaders struct {
-	kmsKeyID          *string
-	customerAlgorithm *string
-	customerKey       *string
-	customerKeySHA256 *string
-}
-
-func (s SSE) headers() (sseHeaders, error) {
-	hasKMS := s.KmsKeyID != ""
-	hasSSECKey := s.SseCustomerKey != ""
-
-	switch {
-	case !hasKMS && !hasSSECKey:
-		return sseHeaders{}, nil
-	case hasKMS && !hasSSECKey:
-		return sseHeaders{kmsKeyID: common.String(s.KmsKeyID)}, nil
-	case hasKMS:
-		return sseHeaders{}, errors.New("kmsKeyID cannot be used with SSE-C")
-	}
-
-	decodedKey, err := base64.StdEncoding.DecodeString(string(s.SseCustomerKey))
-	if err != nil {
-		return sseHeaders{}, errors.Wrap(err, "decode sseCustomerKey")
-	}
-	sum := sha256.Sum256(decodedKey)
-
-	return sseHeaders{
-		customerAlgorithm: common.String(sseCustomerAlgorithm),
-		customerKey:       common.String(string(s.SseCustomerKey)),
-		customerKeySHA256: common.String(base64.StdEncoding.EncodeToString(sum[:])),
-	}, nil
 }
 
 type AuthType string
@@ -198,7 +160,7 @@ func (cfg *Config) Cast() error {
 	if cfg.Retryer != nil && cfg.Retryer.MaxBackoff < 0 {
 		return errors.New("retryer.maxBackoff cannot be negative")
 	}
-	if _, err := cfg.ServerSideEncryption.headers(); err != nil {
+	if err := validateSSE(cfg.ServerSideEncryption); err != nil {
 		return errors.Wrap(err, "serverSideEncryption")
 	}
 

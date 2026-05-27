@@ -152,7 +152,7 @@ func (o *OCI) getPartialObject(
 ) (io.ReadCloser, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
-	sse, err := o.cfg.ServerSideEncryption.headers()
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
 	if err != nil {
 		return nil, errors.Wrap(err, "server-side encryption")
 	}

@@ -229,7 +229,7 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 		err := o.putEmptyObject(name)
 		return errors.Wrap(err, "upload stream")
 	}
-	sse, err := o.cfg.ServerSideEncryption.headers()
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
 	if err != nil {
 		return errors.Wrap(err, "server-side encryption")
 	}
@@ -280,7 +280,7 @@ func checkEmptyReader(r io.Reader) (bool, io.Reader, error) {
 }
 
 func (o *OCI) putEmptyObject(name string) error {
-	sse, err := o.cfg.ServerSideEncryption.headers()
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
 	if err != nil {
 		return errors.Wrap(err, "server-side encryption")
 	}
@@ -302,7 +302,7 @@ func (o *OCI) putEmptyObject(name string) error {
 
 func (o *OCI) FileStat(name string) (storage.FileInfo, error) {
 	inf := storage.FileInfo{}
-	sse, err := o.cfg.ServerSideEncryption.headers()
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
 	if err != nil {
 		return inf, errors.Wrap(err, "server-side encryption")
 	}
@@ -429,7 +429,7 @@ func (o *OCI) Copy(src, dst string) error {
 }
 
 func (o *OCI) copyObjectRequest(src, dst string) (objectstorage.CopyObjectRequest, error) {
-	sse, err := o.cfg.ServerSideEncryption.headers()
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
 	if err != nil {
 		return objectstorage.CopyObjectRequest{}, err
 	}

@@ -53,7 +53,7 @@ func TestSSEHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			headers, err := tt.sse.headers()
+			headers, err := sseHeadersFor(tt.sse)
 
 			if tt.wantError != "" {
 				require.Error(t, err)
