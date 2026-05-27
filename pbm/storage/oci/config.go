@@ -43,6 +43,8 @@ type Config struct {
 	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
 	Retryer     *Retryer    `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
+	ServerSideEncryption SSE `bson:"serverSideEncryption" json:"serverSideEncryption" yaml:"serverSideEncryption"`
+
 	UploadPartSize int64    `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 	// Increasing upload concurrency is not recommended by the OCI SDK because it can cause
@@ -57,6 +59,12 @@ type Retryer struct {
 	MaxAttempts int `bson:"maxAttempts" json:"maxAttempts" yaml:"maxAttempts"`
 	// MaxBackoff caps the exponential retry backoff. 0 means use the PBM default.
 	MaxBackoff time.Duration `bson:"maxBackoff" json:"maxBackoff" yaml:"maxBackoff"`
+}
+
+//nolint:lll
+type SSE struct {
+	KmsKeyID       string               `bson:"kmsKeyID,omitempty" json:"kmsKeyID,omitempty" yaml:"kmsKeyID,omitempty"`
+	SseCustomerKey storage.MaskedString `bson:"sseCustomerKey,omitempty" json:"sseCustomerKey,omitempty" yaml:"sseCustomerKey,omitempty"`
 }
 
 type AuthType string
@@ -151,6 +159,9 @@ func (cfg *Config) Cast() error {
 	}
 	if cfg.Retryer != nil && cfg.Retryer.MaxBackoff < 0 {
 		return errors.New("retryer.maxBackoff cannot be negative")
+	}
+	if err := validateSSE(cfg.ServerSideEncryption); err != nil {
+		return errors.Wrap(err, "serverSideEncryption")
 	}
 
 	if cfg.UploadPartSize <= 0 {

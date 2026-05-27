@@ -152,12 +152,19 @@ func (o *OCI) getPartialObject(
 ) (io.ReadCloser, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
+	if err != nil {
+		return nil, errors.Wrap(err, "server-side encryption")
+	}
 
 	res, err := client.GetObject(ctx, objectstorage.GetObjectRequest{
-		NamespaceName: common.String(o.cfg.Namespace),
-		BucketName:    common.String(o.cfg.Bucket),
-		ObjectName:    common.String(o.key(fname)),
-		Range:         common.String(fmt.Sprintf("bytes=%d-%d", start, start+length-1)),
+		NamespaceName:           common.String(o.cfg.Namespace),
+		BucketName:              common.String(o.cfg.Bucket),
+		ObjectName:              common.String(o.key(fname)),
+		Range:                   common.String(fmt.Sprintf("bytes=%d-%d", start, start+length-1)),
+		OpcSseCustomerAlgorithm: sse.customerAlgorithm,
+		OpcSseCustomerKey:       sse.customerKey,
+		OpcSseCustomerKeySha256: sse.customerKeySHA256,
 	})
 	if err != nil {
 		if isRangeNotSatisfiable(err) {

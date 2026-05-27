@@ -69,6 +69,56 @@ func TestGetPartialObjectUsesRangeHeader(t *testing.T) {
 	assert.Equal(t, "bytes=10-20", httpClient.rangeHeader)
 }
 
+func TestGetPartialObjectSetsSSECHeaders(t *testing.T) {
+	const body = "chunk"
+
+	cfg := testConfig(testPrivateKey(t))
+	cfg.ServerSideEncryption = testSSECustomerConfig()
+	client, err := configureClient(cfg)
+	require.NoError(t, err)
+
+	httpClient := &rangeTestHTTPClient{body: body}
+	client.HTTPClient = httpClient
+
+	o := &OCI{cfg: cfg, client: client}
+	arena := storage.NewArena(1024, 1024)
+	r, err := o.getPartialObject("test.dat", arena, client, 10, 11)
+	require.NoError(t, err)
+	defer r.Close()
+
+	assertSSECustomerHTTPHeaders(t, httpClient.header)
+}
+
+func TestFileStatSetsSSECHeaders(t *testing.T) {
+	cfg := testConfig(testPrivateKey(t))
+	cfg.ServerSideEncryption = testSSECustomerConfig()
+	client, err := configureClient(cfg)
+	require.NoError(t, err)
+
+	httpClient := &statusTestHTTPClient{status: http.StatusOK, size: 1}
+	client.HTTPClient = httpClient
+
+	o := &OCI{cfg: cfg, client: client}
+	_, err = o.FileStat("test.dat")
+	require.NoError(t, err)
+
+	assertSSECustomerHTTPHeaders(t, httpClient.header)
+}
+
+func TestFileStatNotFoundReturnsEmptyFileInfo(t *testing.T) {
+	cfg := testConfig(testPrivateKey(t))
+	client, err := configureClient(cfg)
+	require.NoError(t, err)
+
+	client.HTTPClient = &statusTestHTTPClient{status: http.StatusNotFound}
+
+	o := &OCI{cfg: cfg, client: client}
+	inf, err := o.FileStat("test.dat")
+
+	require.ErrorIs(t, err, storage.ErrNotExist)
+	assert.Equal(t, storage.FileInfo{}, inf)
+}
+
 func TestGetPartialObjectNotFoundIsGetObjError(t *testing.T) {
 	cfg := testConfig(testPrivateKey(t))
 	client, err := configureClient(cfg)
@@ -115,10 +165,12 @@ func TestSourceReaderUsesRangedRequests(t *testing.T) {
 type rangeTestHTTPClient struct {
 	body        string
 	rangeHeader string
+	header      http.Header
 }
 
 func (c *rangeTestHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	c.rangeHeader = req.Header.Get("Range")
+	c.header = req.Header.Clone()
 
 	return &http.Response{
 		StatusCode: http.StatusPartialContent,
@@ -133,13 +185,21 @@ func (c *rangeTestHTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 type statusTestHTTPClient struct {
 	status int
+	size   int64
+	header http.Header
 }
 
 func (c *statusTestHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	c.header = req.Header.Clone()
+	header := make(http.Header)
+	if c.size > 0 {
+		header.Set("Content-Length", strconv.FormatInt(c.size, 10))
+	}
+
 	return &http.Response{
 		StatusCode: c.status,
 		Status:     strconv.Itoa(c.status),
-		Header:     make(http.Header),
+		Header:     header,
 		Body:       http.NoBody,
 		Request:    req,
 	}, nil
