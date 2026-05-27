@@ -95,6 +95,20 @@ install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-
   install -m 0750 github.com/percona/percona-backup-mongodb/packaging/rpm/pbm-agent.init $RPM_BUILD_ROOT/etc/rc.d/init.d/pbm-agent
 %endif
 
+# CycloneDX 1.6 SBOM for the .rpm. Scope = Go binaries in %{_bindir}; filename
+# is self-identifying when extracted from /usr/share/doc/. Catalogers limited
+# to go-module-binary-cataloger (tarball-equivalent scope); file catalogers
+# disabled to keep package-level granularity.
+install -m 0755 -d $RPM_BUILD_ROOT/%{_docdir}/percona-backup-mongodb
+syft scan "dir:$RPM_BUILD_ROOT/%{_bindir}" \
+    --override-default-catalogers go-module-binary-cataloger \
+    --select-catalogers "-file" \
+    --source-name "percona-backup-mongodb" \
+    --source-version "%{version}" \
+    -o "cyclonedx-json@1.6=$RPM_BUILD_ROOT/%{_docdir}/percona-backup-mongodb/percona-backup-mongodb-%{version}.cdx.json"
+test "$(jq '.components | length' $RPM_BUILD_ROOT/%{_docdir}/percona-backup-mongodb/percona-backup-mongodb-%{version}.cdx.json)" -ge 10 \
+    || { echo "ERROR: RPM SBOM has too few components" >&2; exit 1; }
+
 
 %pre -n percona-backup-mongodb
 /usr/bin/getent group mongod || /usr/sbin/groupadd -r mongod
@@ -157,6 +171,8 @@ esac
 %{_bindir}/pbm
 %{_bindir}/pbm-speed-test
 %{_bindir}/pbm-agent-entrypoint
+%dir %{_docdir}/percona-backup-mongodb
+%{_docdir}/percona-backup-mongodb/percona-backup-mongodb-%{version}.cdx.json
 %{_datadir}/bash-completion/completions/pbm-agent
 %{_datadir}/bash-completion/completions/pbm
 %{_datadir}/bash-completion/completions/pbm-speed-test
