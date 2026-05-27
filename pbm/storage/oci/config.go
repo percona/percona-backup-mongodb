@@ -48,7 +48,7 @@ type Config struct {
 	Credentials Credentials `bson:"credentials" json:"credentials" yaml:"credentials"`
 	Retryer     *Retryer    `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 
-	ServerSideEncryption SSE `bson:"serverSideEncryption,omitempty" json:"serverSideEncryption,omitempty" yaml:"serverSideEncryption,omitempty"`
+	ServerSideEncryption SSE `bson:"serverSideEncryption" json:"serverSideEncryption" yaml:"serverSideEncryption"`
 
 	UploadPartSize int64    `bson:"uploadPartSize,omitempty" json:"uploadPartSize,omitempty" yaml:"uploadPartSize,omitempty"`
 	MaxObjSizeGB   *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
