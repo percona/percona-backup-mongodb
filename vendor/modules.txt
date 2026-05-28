@@ -537,8 +537,8 @@ github.com/minio/crc64nvme
 # github.com/minio/md5-simd v1.1.2
 ## explicit; go 1.14
 github.com/minio/md5-simd
-# github.com/minio/minio-go/v7 v7.0.98
-## explicit; go 1.24.0
+# github.com/minio/minio-go/v7 v7.1.0
+## explicit; go 1.25
 github.com/minio/minio-go/v7
 github.com/minio/minio-go/v7/pkg/cors
 github.com/minio/minio-go/v7/pkg/credentials
@@ -787,6 +787,9 @@ github.com/youmark/pkcs8
 # github.com/yusufpapurcu/wmi v1.2.4
 ## explicit; go 1.16
 github.com/yusufpapurcu/wmi
+# github.com/zeebo/xxh3 v1.1.0
+## explicit; go 1.22
+github.com/zeebo/xxh3
 # go.mongodb.org/mongo-driver/v2 v2.6.0
 ## explicit; go 1.19
 go.mongodb.org/mongo-driver/v2/bson
