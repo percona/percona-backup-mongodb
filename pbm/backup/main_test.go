@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"os"
 	"testing"
@@ -202,6 +203,16 @@ func TempStorageProfile(t *testing.T, name string) Storage {
 var TestEnv *TestEnvironment
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	benchFlag := flag.Lookup("test.bench")
+	benchOnly := benchFlag != nil && benchFlag.Value.String() != ""
+
+	if benchOnly {
+		// Do not run testcontainers for bench type of tests.
+		// This allows running bench on test/staging/prod systems,
+		// where docker is not present.
+		os.Exit(m.Run())
+	}
 	TestEnv = &TestEnvironment{}
 	ctx := context.Background()
 
@@ -217,8 +228,7 @@ func TestMain(m *testing.M) {
 		}
 	}()
 
-	code := m.Run()
-	os.Exit(code)
+	os.Exit(m.Run())
 }
 
 type bcp struct {

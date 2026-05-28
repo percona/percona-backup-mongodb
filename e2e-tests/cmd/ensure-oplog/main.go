@@ -292,7 +292,7 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till bson.Timesta
 		o := oplog.NewOplogBackup(m)
 		o.SetTailingSpan(t.from, t.till)
 
-		n, err := storage.Upload(ctx, o, stg, compression, compressionLevel, filename, -1)
+		n, err := storage.Upload(ctx, o, stg, compression, compressionLevel, filename)
 		if err != nil {
 			return errors.Wrapf(err, "failed to upload %s - %s chunk",
 				formatTimestamp(t.from), formatTimestamp(t.till))

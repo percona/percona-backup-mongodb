@@ -126,6 +126,7 @@ type PhysRestore struct {
 	rsMap           map[string]string
 	fallback        bool
 	allowPartlyDone bool
+	bufSize         int
 }
 
 func NewPhysical(
@@ -136,6 +137,7 @@ func NewPhysical(
 	rsMap map[string]string,
 	fallback bool,
 	allowPartlyDone bool,
+	bufSize int,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
@@ -203,6 +205,7 @@ func NewPhysical(
 		rsMap:           rsMap,
 		fallback:        fallback,
 		allowPartlyDone: allowPartlyDone,
+		bufSize:         bufSize,
 	}, nil
 }
 
@@ -1609,7 +1612,14 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	}()
 
 	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-	cpbuf := make([]byte, 32*1024)
+
+	var cpBuf []byte
+	if r.bufSize == 0 {
+		// original/default bufSize
+		cpBuf = make([]byte, 32*1024)
+	} else {
+		cpBuf = make([]byte, r.bufSize)
+	}
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
@@ -1631,46 +1641,63 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 				continue
 			}
 
-			r.log.Info("copy <%s> to <%s>", src, dst)
-			sr, err := r.bcpStg.SourceReader(src)
+			err = r.copyFile(src, dst, f, set.Cmpr, cpBuf)
 			if err != nil {
-				return stat, errors.Wrapf(err, "create source reader for <%s>", src)
-			}
-			defer sr.Close()
-
-			data, err := compress.Decompress(sr, set.Cmpr)
-			if err != nil {
-				return stat, errors.Wrapf(err, "decompress object %s", src)
-			}
-			defer data.Close()
-
-			fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, f.Fmode)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create/open destination file <%s>", dst)
-			}
-			defer fw.Close()
-
-			if f.Off != 0 {
-				_, err := fw.Seek(f.Off, io.SeekStart)
-				if err != nil {
-					return stat, errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
-				}
-			}
-
-			_, err = io.CopyBuffer(fw, data, cpbuf)
-			if err != nil {
-				return stat, errors.Wrapf(err, "copy file <%s>", dst)
-			}
-
-			if f.Size != 0 {
-				err = fw.Truncate(f.Size)
-				if err != nil {
-					return stat, errors.Wrapf(err, "truncate file <%s>|%d", dst, f.Size)
-				}
+				return stat, err
 			}
 		}
 	}
 	return stat, nil
+}
+
+// copyFile copies file from the storage into local FS.
+func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compress.CompressionType, cpbuf []byte) error {
+	r.log.Info("copy <%s> to <%s>", src, dst)
+	sr, err := r.bcpStg.SourceReader(src)
+	if err != nil {
+		return errors.Wrapf(err, "create source reader for <%s>", src)
+	}
+	defer sr.Close()
+
+	data, err := compress.Decompress(sr, cType)
+	if err != nil {
+		return errors.Wrapf(err, "decompress object %s", src)
+	}
+	defer data.Close()
+
+	fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, fMeta.Fmode)
+	if err != nil {
+		return errors.Wrapf(err, "create/open destination file <%s>", dst)
+	}
+	defer fw.Close()
+
+	if fMeta.Off != 0 {
+		_, err := fw.Seek(fMeta.Off, io.SeekStart)
+		if err != nil {
+			return errors.Wrapf(err, "set file offset <%s>|%d", dst, fMeta.Off)
+		}
+	}
+
+	if r.bufSize == 0 {
+		_, err = io.CopyBuffer(fw, data, cpbuf)
+	} else {
+		_, err = io.CopyBuffer(
+			struct{ io.Writer }{fw},
+			struct{ io.Reader }{data},
+			cpbuf,
+		)
+	}
+	if err != nil {
+		return errors.Wrapf(err, "copy file <%s>", dst)
+	}
+
+	if fMeta.Size != 0 {
+		err = fw.Truncate(fMeta.Size)
+		if err != nil {
+			return errors.Wrapf(err, "truncate file <%s>|%d", dst, fMeta.Size)
+		}
+	}
+	return nil
 }
 
 func (r *PhysRestore) getLasOpTime() (bson.Timestamp, error) {

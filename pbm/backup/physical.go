@@ -432,7 +432,7 @@ func (b *Backup) handleExternal(
 	if bcp.Filelist {
 		// keep filelist on backup storage for listing files to copy
 		bcpStoragePath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, bcpStoragePath, -1)
+		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, bcpStoragePath)
 		if err != nil {
 			return errors.Wrapf(err, "save filelist to storage: %q", bcpStoragePath)
 		}
@@ -502,6 +502,13 @@ func writeRSmetaToDisk(fname string, rsMeta *BackupReplset) error {
 	return nil
 }
 
+func (b *Backup) getBackupBufSize() int {
+	if b.config.Storage.Filesystem != nil {
+		return b.config.Storage.Filesystem.GetBackupBuffSize()
+	}
+	return 0
+}
+
 func (b *Backup) uploadPhysical(
 	ctx context.Context,
 	bcp *ctrl.BackupCmd,
@@ -522,6 +529,7 @@ func (b *Backup) uploadPhysical(
 		stg,
 		bcp.Compression,
 		bcp.CompressionLevel,
+		b.getBackupBufSize(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
@@ -538,6 +546,7 @@ func (b *Backup) uploadPhysical(
 		stg,
 		bcp.Compression,
 		bcp.CompressionLevel,
+		b.getBackupBufSize(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
@@ -560,7 +569,7 @@ func (b *Backup) uploadPhysical(
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath, -1)
+	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath)
 	if err != nil {
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
@@ -656,6 +665,7 @@ func uploadFiles(
 	stg storage.Storage,
 	comprT compress.CompressionType,
 	comprL *int,
+	bufSize int,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -669,6 +679,9 @@ func uploadFiles(
 
 	wfile := files[0]
 	data := []File{}
+	cpBuf := make([]byte, bufSize)
+	saveBuf := make([]byte, bufSize)
+	fsSaveBuf := make([]byte, bufSize)
 	for _, file := range files[1:] {
 		select {
 		case <-ctx.Done():
@@ -697,7 +710,8 @@ func uploadFiles(
 			continue
 		}
 
-		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
+		fw, err := writeFile(ctx, &wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL,
+			cpBuf, saveBuf, fsSaveBuf)
 		if err != nil {
 			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
@@ -712,7 +726,8 @@ func uploadFiles(
 		return data, nil
 	}
 
-	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
+	f, err := writeFile(ctx, &wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL,
+		cpBuf, saveBuf, fsSaveBuf)
 	if err != nil {
 		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
@@ -725,30 +740,38 @@ func uploadFiles(
 
 func writeFile(
 	ctx context.Context,
-	src File,
+	file *File,
 	dst string,
 	stg storage.Storage,
 	compression compress.CompressionType,
 	compressLevel *int,
+	cpBuf []byte,
+	saveBuf []byte,
+	fsSaveBuf []byte,
 ) (*File, error) {
-	fstat, err := os.Stat(src.Name)
+	fstat, err := os.Stat(file.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
 	}
 
 	dst += compression.Suffix()
 	sz := fstat.Size()
-	if src.Len != 0 {
+	if file.Len != 0 {
 		// Len is always a multiple of the fixed size block (16Mb default)
 		// so Off + Len might be bigger than the actual file size
-		sz = src.Len
-		if src.Off+src.Len > src.Size {
-			sz = src.Size - src.Off
+		sz = file.Len
+		if file.Off+file.Len > file.Size {
+			sz = file.Size - file.Off
 		}
-		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
+		dst += fmt.Sprintf(".%d-%d", file.Off, file.Len)
 	}
 
-	_, err = storage.Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
+	var src storage.Source = file
+	if len(cpBuf) > 0 {
+		src = NewFileReader(*file, cpBuf)
+	}
+	_, err = storage.UploadWithOpts(ctx, src, stg, compression, compressLevel, dst,
+		sz, saveBuf, fsSaveBuf)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
@@ -759,12 +782,12 @@ func writeFile(
 	}
 
 	return &File{
-		Name:                src.Name,
+		Name:                file.Name,
 		Size:                fstat.Size(),
 		Fmode:               fstat.Mode(),
 		StgSize:             finf.Size,
 		StgSizeUncompressed: sz,
-		Off:                 src.Off,
-		Len:                 src.Len,
+		Off:                 file.Off,
+		Len:                 file.Len,
 	}, nil
 }

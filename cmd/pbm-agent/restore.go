@@ -187,6 +187,10 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		if r.AllowPartlyDone != nil {
 			allowPartlyDoneOpt = *r.AllowPartlyDone
 		}
+		var bufSize int
+		if cfg.Storage.Filesystem != nil {
+			bufSize = cfg.Storage.Filesystem.GetRestoreBuffSize()
+		}
 
 		var rstr *restore.PhysRestore
 		rstr, err = restore.NewPhysical(
@@ -197,6 +201,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			r.RSMap,
 			fallbackOpt,
 			allowPartlyDoneOpt,
+			bufSize,
 		)
 		if err != nil {
 			l.Error("init physical backup: %v", err)
