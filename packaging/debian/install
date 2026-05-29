@@ -13,3 +13,4 @@ completions/zsh/_pbm-agent /usr/share/zsh/vendor-completions/
 completions/zsh/_pbm /usr/share/zsh/vendor-completions/
 completions/zsh/_pbm-speed-test /usr/share/zsh/vendor-completions/
 LICENSE /usr/share/doc/percona-backup-mongodb/
+percona-backup-mongodb-*.cdx.json /usr/share/doc/percona-backup-mongodb/

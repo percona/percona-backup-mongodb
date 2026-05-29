@@ -95,6 +95,31 @@ install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-
   install -m 0750 github.com/percona/percona-backup-mongodb/packaging/rpm/pbm-agent.init $RPM_BUILD_ROOT/etc/rc.d/init.d/pbm-agent
 %endif
 
+# CycloneDX 1.6 SBOM for the .rpm. Scope = Go binaries in %{_bindir}; filename
+# is self-identifying when extracted from /usr/share/doc/. Catalogers limited
+# to go-module-binary-cataloger (tarball-equivalent scope); file catalogers
+# disabled to keep package-level granularity.
+install -m 0755 -d $RPM_BUILD_ROOT/%{_docdir}/percona-backup-mongodb
+SBOM_PATH=$RPM_BUILD_ROOT/%{_docdir}/percona-backup-mongodb/percona-backup-mongodb-%{version}.cdx.json
+syft scan "dir:$RPM_BUILD_ROOT/%{_bindir}" \
+    --override-default-catalogers go-module-binary-cataloger \
+    --select-catalogers "-file" \
+    --source-name "percona-backup-mongodb" \
+    --source-version "%{version}" \
+    -o "cyclonedx-json@1.6=$SBOM_PATH"
+# Overwrite syft's auto-generated metadata.component (type=file, opaque
+# bom-ref) with a proper application identity including an rpm PURL.
+SBOM_PURL="pkg:rpm/percona-backup-mongodb@%{version}"
+jq --arg purl "$SBOM_PURL" --arg ver "%{version}" '.metadata.component = {
+    "bom-ref": $purl,
+    "type": "application",
+    "name": "percona-backup-mongodb",
+    "version": $ver,
+    "purl": $purl
+}' "$SBOM_PATH" > "$SBOM_PATH.tmp" && mv "$SBOM_PATH.tmp" "$SBOM_PATH"
+test "$(jq '.components | length' $SBOM_PATH)" -ge 10 \
+    || { echo "ERROR: RPM SBOM has too few components" >&2; exit 1; }
+
 
 %pre -n percona-backup-mongodb
 /usr/bin/getent group mongod || /usr/sbin/groupadd -r mongod
@@ -157,6 +182,8 @@ esac
 %{_bindir}/pbm
 %{_bindir}/pbm-speed-test
 %{_bindir}/pbm-agent-entrypoint
+%dir %{_docdir}/percona-backup-mongodb
+%{_docdir}/percona-backup-mongodb/percona-backup-mongodb-%{version}.cdx.json
 %{_datadir}/bash-completion/completions/pbm-agent
 %{_datadir}/bash-completion/completions/pbm
 %{_datadir}/bash-completion/completions/pbm-speed-test
