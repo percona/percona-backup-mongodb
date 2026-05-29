@@ -658,12 +658,61 @@ func trimFilePrefix(fname, trimPrefix string) string {
 	return path.Clean("./" + strings.TrimPrefix(fname, trimPrefix))
 }
 
-// Uploads given files to the storage. files may come as 16Mb (by default)
-// blocks in that case it will concat consecutive blocks in one bigger file.
+// upItem is one entry of an upload.
+// It contains the file name and and info about whether it's necessary to upload it.
+type upItem struct {
+	file   File
+	upload bool
+}
+
+// planUploads walks files in order and produces the upload plan. files may
+// come as 16Mb (by default) blocks; in that case consecutive blocks of the
+// same file are coalesced into one bigger upload.
 // For example: f1[0-16], f1[16-24], f1[64-16] becomes f1[0-24], f1[50-16].
-// If this is an incremental, NOT base backup, it will skip uploading of
-// unchanged files (Len == 0) but add them to the meta as we need know
-// what files shouldn't be restored (those which isn't in the target backup).
+// If this is an incremental, NOT base backup, unchanged files (Len == 0) are
+// not uploaded but still recorded in the meta as we need to know what files
+// shouldn't be restored (those which aren't in the target backup).
+func planUploads(files []File, incr bool) []upItem {
+	if len(files) == 0 {
+		return nil
+	}
+
+	upItems := make([]upItem, 0, len(files))
+	wfile := files[0]
+	for _, file := range files[1:] {
+		// Skip uploading unchanged files if incremental
+		// but add them to the meta to keep track of files to be restored
+		// from prev backups. Plus sometimes the cursor can return an offset
+		// beyond the current file size. Such phantom changes shouldn't
+		// be copied. But save meta to have file size.
+		if incr && (file.Len == 0 || file.Off >= file.Size) {
+			file.Off = -1
+			file.Len = -1
+
+			upItems = append(upItems, upItem{file: file})
+			continue
+		}
+
+		if wfile.Name == file.Name &&
+			wfile.Off+wfile.Len == file.Off {
+			wfile.Len += file.Len
+			wfile.Size = file.Size
+			continue
+		}
+
+		upItems = append(upItems, upItem{file: wfile, upload: true})
+		wfile = file
+	}
+
+	// flush the last pending file unless it's an incremental no-op
+	if !(incr && wfile.Off == 0 && wfile.Len == 0) {
+		upItems = append(upItems, upItem{file: wfile, upload: true})
+	}
+
+	return upItems
+}
+
+// uploadFiles uploads the given files to the storage.
 func uploadFiles(
 	ctx context.Context,
 	files []File,
@@ -679,63 +728,29 @@ func uploadFiles(
 		return nil, nil
 	}
 
-	wfile := files[0]
-	data := []File{}
+	upItems := planUploads(files, incr)
+
+	data := make([]File, 0, len(upItems))
 	cpBuf := make([]byte, bufSize)
 	saveBuf := make([]byte, bufSize)
 	fsSaveBuf := make([]byte, bufSize)
-	for _, file := range files[1:] {
-		select {
-		case <-ctx.Done():
-			return nil, storage.ErrCancelled
-		default:
-		}
-
-		// Skip uploading unchanged files if incremental
-		// but add them to the meta to keep track of files to be restored
-		// from prev backups. Plus sometimes the cursor can return an offset
-		// beyond the current file size. Such phantom changes shouldn't
-		// be copied. But save meta to have file size.
-		if incr && (file.Len == 0 || file.Off >= file.Size) {
-			file.Off = -1
-			file.Len = -1
-			file.Name = trimFilePrefix(file.Name, trimPrefix)
-
-			data = append(data, file)
+	for _, s := range upItems {
+		relName := trimFilePrefix(s.file.Name, trimPrefix)
+		if !s.upload {
+			s.file.Name = relName
+			data = append(data, s.file)
 			continue
 		}
 
-		if wfile.Name == file.Name &&
-			wfile.Off+wfile.Len == file.Off {
-			wfile.Len += file.Len
-			wfile.Size = file.Size
-			continue
-		}
-
-		fw, err := writeFile(ctx, &wfile, path.Join(subdir, trimFilePrefix(wfile.Name, trimPrefix)), stg, comprT, comprL,
+		fw, err := writeFile(ctx, &s.file, path.Join(subdir, relName), stg, comprT, comprL,
 			cpBuf, saveBuf, fsSaveBuf)
 		if err != nil {
-			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+			return data, errors.Wrapf(err, "upload file `%s`", s.file.Name)
 		}
-		fw.Name = trimFilePrefix(wfile.Name, trimPrefix)
+		fw.Name = relName
 
 		data = append(data, *fw)
-
-		wfile = file
 	}
-
-	if incr && wfile.Off == 0 && wfile.Len == 0 {
-		return data, nil
-	}
-
-	f, err := writeFile(ctx, &wfile, path.Join(subdir, trimFilePrefix(wfile.Name, trimPrefix)), stg, comprT, comprL,
-		cpBuf, saveBuf, fsSaveBuf)
-	if err != nil {
-		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
-	}
-	f.Name = trimFilePrefix(wfile.Name, trimPrefix)
-
-	data = append(data, *f)
 
 	return data, nil
 }
