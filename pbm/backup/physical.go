@@ -714,7 +714,7 @@ func planUploads(files []File, incr bool) []upItem {
 	}
 
 	// flush the last pending file unless it's an incremental no-op
-	if !(incr && wfile.Off == 0 && wfile.Len == 0) {
+	if !incr || wfile.Off != 0 || wfile.Len != 0 {
 		upItems = append(upItems, upItem{file: wfile, upload: true})
 	}
 
