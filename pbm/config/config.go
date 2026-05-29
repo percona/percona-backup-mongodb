@@ -516,6 +516,7 @@ type BackupConf struct {
 	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
 
 	NumParallelCollections int `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
+	NumParallelFiles       int `bson:"numParallelFiles" json:"numParallelFiles,omitempty" yaml:"numParallelFiles,omitempty"`
 }
 
 func (cfg *BackupConf) Clone() *BackupConf {
@@ -538,6 +539,13 @@ func (cfg *BackupConf) Clone() *BackupConf {
 	}
 
 	return &rv
+}
+
+func (b *BackupConf) GetNumParallelFiles() int {
+	if b == nil || b.NumParallelFiles < 1 {
+		return 1
+	}
+	return b.NumParallelFiles
 }
 
 //nolint:lll
