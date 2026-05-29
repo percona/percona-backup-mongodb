@@ -667,8 +667,8 @@ type upItem struct {
 
 // planUploads walks files in order and produces the upload plan. files may
 // come as 16Mb (by default) blocks; in that case consecutive blocks of the
-// same file are coalesced into one bigger upload.
-// For example: f1[0-16], f1[16-24], f1[64-16] becomes f1[0-24], f1[50-16].
+// same file are coalesced into one bigger upload. In [Off-Len] notation:
+// f1[0-16], f1[16-16], f1[64-16] becomes f1[0-32], f1[64-16].
 // If this is an incremental, NOT base backup, unchanged files (Len == 0) are
 // not uploaded but still recorded in the meta as we need to know what files
 // shouldn't be restored (those which aren't in the target backup).
