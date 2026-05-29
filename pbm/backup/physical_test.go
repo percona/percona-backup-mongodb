@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -406,6 +407,115 @@ func TestTrimFilePrefix(t *testing.T) {
 			if got != c.want {
 				t.Errorf("trimFilePrefix(%q, %q) = %q, want %q",
 					c.fname, c.trimPrefix, got, c.want)
+			}
+		})
+	}
+}
+
+func TestPlanUploads(t *testing.T) {
+	f := func(name string, off, length, size int64) File {
+		return File{Name: name, Off: off, Len: length, Size: size}
+	}
+	up := func(file File) upItem { return upItem{file: file, upload: true} }
+	skip := func(file File) upItem { return upItem{file: file} }
+
+	cases := []struct {
+		name  string
+		files []File
+		incr  bool
+		want  []upItem
+	}{
+		{
+			name:  "empty input",
+			files: nil,
+			want:  nil,
+		},
+		{
+			name:  "single file",
+			files: []File{f("a", 0, 16, 16)},
+			want:  []upItem{up(f("a", 0, 16, 16))},
+		},
+		{
+			name: "coalesce consecutive blocks of same file",
+			files: []File{
+				f("a", 0, 16, 48),
+				f("a", 16, 16, 48),
+				f("a", 32, 16, 48),
+			},
+			want: []upItem{up(f("a", 0, 48, 48))},
+		},
+		{
+			name: "gap between blocks is not coalesced",
+			files: []File{
+				f("a", 0, 16, 80),
+				f("a", 48, 16, 80),
+			},
+			want: []upItem{
+				up(f("a", 0, 16, 80)),
+				up(f("a", 48, 16, 80)),
+			},
+		},
+		{
+			name: "different files are separate uploads",
+			files: []File{
+				f("a", 0, 16, 16),
+				f("b", 0, 16, 16),
+			},
+			want: []upItem{
+				up(f("a", 0, 16, 16)),
+				up(f("b", 0, 16, 16)),
+			},
+		},
+		{
+			name: "incremental: unchanged file (Len==0) recorded as skip",
+			incr: true,
+			files: []File{
+				f("a", 0, 16, 48),
+				f("b", 0, 0, 100),
+				f("c", 0, 16, 16),
+			},
+			want: []upItem{
+				skip(f("b", -1, -1, 100)),
+				up(f("a", 0, 16, 48)),
+				up(f("c", 0, 16, 16)),
+			},
+		},
+		{
+			name: "incremental: phantom out-of-range (Off>=Size) recorded as skip",
+			incr: true,
+			files: []File{
+				f("a", 0, 16, 48),
+				f("b", 100, 16, 50),
+			},
+			want: []upItem{
+				skip(f("b", -1, -1, 50)),
+				up(f("a", 0, 16, 48)),
+			},
+		},
+		{
+			name:  "incremental: lone unchanged head file is dropped",
+			incr:  true,
+			files: []File{f("a", 0, 0, 100)},
+			want:  []upItem{},
+		},
+		{
+			name: "non-incremental does not skip Len==0 files",
+			files: []File{
+				f("a", 0, 16, 32),
+				f("b", 5, 0, 100), // kept as-is, no Off/Len reset
+			},
+			want: []upItem{
+				up(f("a", 0, 16, 32)),
+				up(f("b", 5, 0, 100)),
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := planUploads(c.files, c.incr)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("planUploads want=%+v, got=%+v", c.want, got)
 			}
 		})
 	}
