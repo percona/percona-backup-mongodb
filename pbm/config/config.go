@@ -424,6 +424,7 @@ type RestoreConf struct {
 	BatchSize              int               `bson:"batchSize" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 	NumInsertionWorkers    int               `bson:"numInsertionWorkers" json:"numInsertionWorkers,omitempty" yaml:"numInsertionWorkers,omitempty"`
 	NumParallelCollections int               `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
+	NumParallelFiles       int               `bson:"numParallelFiles" json:"numParallelFiles,omitempty" yaml:"numParallelFiles,omitempty"`
 	IndexCommitQuorum      IndexCommitQuorum `bson:"indexCommitQuorum,omitempty" json:"indexCommitQuorum,omitempty" yaml:"indexCommitQuorum,omitempty"`
 
 	// NumDownloadWorkers sets the num of goroutine would be requesting chunks
@@ -507,6 +508,13 @@ func (cfg *RestoreConf) GetIndexCommitQuorum() IndexCommitQuorum {
 	return DefaultRestoreIndexCommitQuorum
 }
 
+func (cfg *RestoreConf) GetNumParallelFiles() int {
+	if cfg == nil || cfg.NumParallelFiles < 1 {
+		return 1
+	}
+	return cfg.NumParallelFiles
+}
+
 //nolint:lll
 type BackupConf struct {
 	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
@@ -541,11 +549,11 @@ func (cfg *BackupConf) Clone() *BackupConf {
 	return &rv
 }
 
-func (b *BackupConf) GetNumParallelFiles() int {
-	if b == nil || b.NumParallelFiles < 1 {
+func (cfg *BackupConf) GetNumParallelFiles() int {
+	if cfg == nil || cfg.NumParallelFiles < 1 {
 		return 1
 	}
-	return b.NumParallelFiles
+	return cfg.NumParallelFiles
 }
 
 //nolint:lll

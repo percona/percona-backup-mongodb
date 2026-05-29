@@ -749,6 +749,50 @@ func TestSetConfigVarTrimsSlashes(t *testing.T) {
 	}
 }
 
+func TestBackupConfGetNumParallelFiles(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *BackupConf
+		want int
+	}{
+		{name: "nil receiver", cfg: nil, want: 1},
+		{name: "unset (zero) defaults to 1", cfg: &BackupConf{}, want: 1},
+		{name: "negative defaults to 1", cfg: &BackupConf{NumParallelFiles: -5}, want: 1},
+		{name: "one", cfg: &BackupConf{NumParallelFiles: 1}, want: 1},
+		{name: "configured value", cfg: &BackupConf{NumParallelFiles: 8}, want: 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.GetNumParallelFiles(); got != tt.want {
+				t.Errorf("GetNumParallelFiles() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRestoreConfGetNumParallelFiles(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *RestoreConf
+		want int
+	}{
+		{name: "nil receiver", cfg: nil, want: 1},
+		{name: "unset (zero) defaults to 1", cfg: &RestoreConf{}, want: 1},
+		{name: "negative defaults to 1", cfg: &RestoreConf{NumParallelFiles: -5}, want: 1},
+		{name: "one", cfg: &RestoreConf{NumParallelFiles: 1}, want: 1},
+		{name: "configured value", cfg: &RestoreConf{NumParallelFiles: 8}, want: 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.GetNumParallelFiles(); got != tt.want {
+				t.Errorf("GetNumParallelFiles() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func boolPtr(b bool) *bool {
 	return &b
 }
