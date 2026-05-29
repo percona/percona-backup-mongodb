@@ -372,3 +372,41 @@ func BenchmarkCopyFileToFSStorage(b *testing.B) {
 		b.Logf("%+v", r)
 	}
 }
+
+func TestTrimFilePrefix(t *testing.T) {
+	cases := []struct {
+		name       string
+		fname      string
+		trimPrefix string
+		want       string
+	}{
+		{
+			name:       "leading slash left after trim is cleaned",
+			fname:      "/data/db/collection.wt",
+			trimPrefix: "/data/db",
+			want:       "collection.wt",
+		},
+		{
+			name:       "prefix with trailing slash",
+			fname:      "/data/db/journal/WiredTigerLog.0001",
+			trimPrefix: "/data/db/",
+			want:       "journal/WiredTigerLog.0001",
+		},
+		{
+			name:       "no matching prefix keeps relative path",
+			fname:      "collection.wt",
+			trimPrefix: "/data/db",
+			want:       "collection.wt",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := trimFilePrefix(c.fname, c.trimPrefix)
+			if got != c.want {
+				t.Errorf("trimFilePrefix(%q, %q) = %q, want %q",
+					c.fname, c.trimPrefix, got, c.want)
+			}
+		})
+	}
+}

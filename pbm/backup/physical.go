@@ -398,7 +398,7 @@ func (b *Backup) handleExternal(
 ) error {
 	filelist := make(Filelist, 0, len(data)+len(jrnls)+2) // +2 for metadata and filelist
 	for _, f := range append(data, jrnls...) {
-		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
+		f.Name = trimFilePrefix(f.Name, dbpath)
 		filelist = append(filelist, f)
 	}
 
@@ -650,6 +650,14 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
+// trimFilePrefix strips trimPrefix from fname and returns
+// a cleaned relative path (e.g. `foo` rather than `/foo`).
+func trimFilePrefix(fname, trimPrefix string) string {
+	// path.Clean to get rid of `/` at the beginning in case it's
+	// left after TrimPrefix. Just for consistent file names in metadata
+	return path.Clean("./" + strings.TrimPrefix(fname, trimPrefix))
+}
+
 // Uploads given files to the storage. files may come as 16Mb (by default)
 // blocks in that case it will concat consecutive blocks in one bigger file.
 // For example: f1[0-16], f1[16-24], f1[64-16] becomes f1[0-24], f1[50-16].
@@ -669,12 +677,6 @@ func uploadFiles(
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
-	}
-
-	trim := func(fname string) string {
-		// path.Clean to get rid of `/` at the beginning in case it's
-		// left after TrimPrefix. Just for consistent file names in metadata
-		return path.Clean("./" + strings.TrimPrefix(fname, trimPrefix))
 	}
 
 	wfile := files[0]
@@ -697,7 +699,7 @@ func uploadFiles(
 		if incr && (file.Len == 0 || file.Off >= file.Size) {
 			file.Off = -1
 			file.Len = -1
-			file.Name = trim(file.Name)
+			file.Name = trimFilePrefix(file.Name, trimPrefix)
 
 			data = append(data, file)
 			continue
@@ -710,12 +712,12 @@ func uploadFiles(
 			continue
 		}
 
-		fw, err := writeFile(ctx, &wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL,
+		fw, err := writeFile(ctx, &wfile, path.Join(subdir, trimFilePrefix(wfile.Name, trimPrefix)), stg, comprT, comprL,
 			cpBuf, saveBuf, fsSaveBuf)
 		if err != nil {
 			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 		}
-		fw.Name = trim(wfile.Name)
+		fw.Name = trimFilePrefix(wfile.Name, trimPrefix)
 
 		data = append(data, *fw)
 
@@ -726,12 +728,12 @@ func uploadFiles(
 		return data, nil
 	}
 
-	f, err := writeFile(ctx, &wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL,
+	f, err := writeFile(ctx, &wfile, path.Join(subdir, trimFilePrefix(wfile.Name, trimPrefix)), stg, comprT, comprL,
 		cpBuf, saveBuf, fsSaveBuf)
 	if err != nil {
 		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
 	}
-	f.Name = trim(wfile.Name)
+	f.Name = trimFilePrefix(wfile.Name, trimPrefix)
 
 	data = append(data, *f)
 
