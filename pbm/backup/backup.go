@@ -98,6 +98,16 @@ func (b *Backup) SlicerInterval() time.Duration {
 	return b.oplogSlicerInterval
 }
 
+// numParallelFiles is the number of files to upload concurrently during
+// physical backup. Defaults to 1 (sequential) when unset in the config.
+func (b *Backup) numParallelFiles() int {
+	if b.config != nil && b.config.Storage.Type != storage.Filesystem {
+		// there's not paralelizm for cloud storage on this level
+		return 1
+	}
+	return b.config.Backup.GetNumParallelFiles()
+}
+
 func (b *Backup) Init(
 	ctx context.Context,
 	bcp *ctrl.BackupCmd,

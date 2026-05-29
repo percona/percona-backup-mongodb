@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -519,7 +520,13 @@ func (b *Backup) uploadPhysical(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
-	l.Info("uploading data")
+	numWorkers := b.numParallelFiles()
+	if numWorkers > 1 {
+		l.Info("uploading data (%d files in parallel)", numWorkers)
+	} else {
+		l.Info("uploading data")
+	}
+
 	dataFiles, err := uploadFiles(
 		ctx,
 		data,
@@ -530,6 +537,7 @@ func (b *Backup) uploadPhysical(
 		bcp.Compression,
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
+		numWorkers,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
@@ -547,6 +555,7 @@ func (b *Backup) uploadPhysical(
 		bcp.Compression,
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
+		numWorkers,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
@@ -712,7 +721,8 @@ func planUploads(files []File, incr bool) []upItem {
 	return upItems
 }
 
-// uploadFiles uploads the given files to the storage.
+// uploadFiles uploads the given files to the storage, running up concurrently
+// `numWorkers` function calls of writeFile.
 func uploadFiles(
 	ctx context.Context,
 	files []File,
@@ -723,6 +733,7 @@ func uploadFiles(
 	comprT compress.CompressionType,
 	comprL *int,
 	bufSize int,
+	numWorker int,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -730,29 +741,67 @@ func uploadFiles(
 
 	upItems := planUploads(files, incr)
 
-	data := make([]File, 0, len(upItems))
-	cpBuf := make([]byte, bufSize)
-	saveBuf := make([]byte, bufSize)
-	fsSaveBuf := make([]byte, bufSize)
-	for _, s := range upItems {
-		relName := trimFilePrefix(s.file.Name, trimPrefix)
+	// each concurrent upload needs its own set of buffer (x3)
+	type uploadBufs struct{ cp, save, fsSave []byte }
+	bufPool := make(chan uploadBufs, numWorker)
+	allBufs := make([]byte, numWorker*3*bufSize)
+	for i := range numWorker {
+		base := i * 3 * bufSize
+		bufPool <- uploadBufs{
+			cp:     allBufs[base : base+bufSize : base+bufSize],
+			save:   allBufs[base+bufSize : base+2*bufSize : base+2*bufSize],
+			fsSave: allBufs[base+2*bufSize : base+3*bufSize : base+3*bufSize],
+		}
+	}
+
+	// each goroutine writes a distinct index, so no locking needed.
+	results := make([]File, len(upItems))
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(numWorker)
+
+	for i, s := range upItems {
+		fname := trimFilePrefix(s.file.Name, trimPrefix)
 		if !s.upload {
-			s.file.Name = relName
-			data = append(data, s.file)
+			s.file.Name = fname
+			results[i] = s.file
 			continue
 		}
 
-		fw, err := writeFile(ctx, &s.file, path.Join(subdir, relName), stg, comprT, comprL,
-			cpBuf, saveBuf, fsSaveBuf)
-		if err != nil {
-			return data, errors.Wrapf(err, "upload file `%s`", s.file.Name)
+		// fail fast if single item fails
+		if egCtx.Err() != nil {
+			break
 		}
-		fw.Name = relName
 
-		data = append(data, *fw)
+		eg.Go(func() error {
+			bufs := <-bufPool
+			defer func() { bufPool <- bufs }()
+
+			fw, err := writeFile(
+				egCtx,
+				&s.file,
+				path.Join(subdir, fname),
+				stg,
+				comprT,
+				comprL,
+				bufs.cp,
+				bufs.save,
+				bufs.fsSave,
+			)
+			if err != nil {
+				return errors.Wrapf(err, "upload file `%s`", s.file.Name)
+			}
+			fw.Name = fname
+
+			results[i] = *fw
+			return nil
+		})
 	}
 
-	return data, nil
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 func writeFile(
