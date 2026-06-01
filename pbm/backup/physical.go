@@ -757,7 +757,7 @@ func uploadFiles(
 	// each goroutine writes a distinct index, so no locking needed.
 	results := make([]File, len(upItems))
 	eg, egCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(numWorkers)
+	eg.SetLimit(min(numWorkers, len(upItems)))
 
 	for i, s := range upItems {
 		fname := trimFilePrefix(s.file.Name, trimPrefix)

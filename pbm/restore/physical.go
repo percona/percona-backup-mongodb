@@ -1701,7 +1701,7 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	}
 
 	eg, egCtx := errgroup.WithContext(context.Background())
-	eg.SetLimit(numWorkers)
+	eg.SetLimit(min(numWorkers, len(jobs)))
 
 	for _, job := range jobs {
 		// stop processing once a copy has failed
