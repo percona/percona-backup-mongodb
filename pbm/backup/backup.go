@@ -33,6 +33,7 @@ type Backup struct {
 	incrBase            bool
 	timeouts            *config.BackupTimeouts
 	numParallelColls    int
+	numParallelFiles    int
 	oplogSlicerInterval time.Duration
 }
 
@@ -86,6 +87,10 @@ func (b *Backup) SetTimeouts(t *config.BackupTimeouts) {
 	b.timeouts = t
 }
 
+func (b *Backup) SetNumParallelFiles(n int) {
+	b.numParallelFiles = n
+}
+
 func (b *Backup) SetSlicerInterval(d time.Duration) {
 	b.oplogSlicerInterval = d
 }
@@ -98,12 +103,15 @@ func (b *Backup) SlicerInterval() time.Duration {
 	return b.oplogSlicerInterval
 }
 
-// numParallelFiles is the number of files to upload concurrently during
+// getNumParallelFiles is the number of files to upload concurrently during
 // physical backup. Defaults to 1 (sequential) when unset in the config.
-func (b *Backup) numParallelFiles() int {
+func (b *Backup) getNumParallelFiles() int {
 	if b.config != nil && b.config.Storage.Type != storage.Filesystem {
 		// there's not paralelizm for cloud storage on this level
 		return 1
+	}
+	if b.numParallelFiles > 0 {
+		return b.numParallelFiles
 	}
 	return b.config.Backup.GetNumParallelFiles()
 }

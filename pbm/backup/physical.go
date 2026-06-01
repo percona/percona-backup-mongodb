@@ -520,7 +520,7 @@ func (b *Backup) uploadPhysical(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
-	numWorkers := b.numParallelFiles()
+	numWorkers := b.getNumParallelFiles()
 	if numWorkers > 1 {
 		l.Info("uploading data (%d files in parallel)", numWorkers)
 	} else {
