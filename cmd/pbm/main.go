@@ -833,6 +833,10 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		"Number of parallel collections",
 	)
 	restoreCmd.Flags().Int32Var(
+		&restoreOptions.numParallelFiles, "num-parallel-files", 0,
+		"Number of files to copy in parallel (physical restore, filesystem storage only)",
+	)
+	restoreCmd.Flags().Int32Var(
 		&restoreOptions.numInsertionWorkers, "num-insertion-workers-per-collection", 0,
 		"Specifies the number of insertion workers to run concurrently per collection. For large imports, "+
 			"increasing the number of insertion workers may increase the speed of the import.",

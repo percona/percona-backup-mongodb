@@ -128,6 +128,8 @@ type PhysRestore struct {
 	fallback        bool
 	allowPartlyDone bool
 	bufSize         int
+
+	numParallelFiles int
 }
 
 func NewPhysical(
@@ -1212,6 +1214,10 @@ func (r *PhysRestore) Snapshot(
 		return errors.Wrap(err, "init")
 	}
 
+	if cmd.NumParallelFiles != nil && *cmd.NumParallelFiles > 0 {
+		r.numParallelFiles = int(*cmd.NumParallelFiles)
+	}
+
 	if cmd.BackupName == "" && !cmd.External {
 		return errors.New("restore isn't external and no backup set")
 	}
@@ -1674,7 +1680,7 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	jobs := r.planCopyFiles(setName)
 
-	numWorkers := r.numParallelFiles()
+	numWorkers := r.GetNumParallelFiles()
 	if numWorkers > 1 {
 		r.log.Info("downloading data (%d files in parallel)", numWorkers)
 	}
@@ -3217,12 +3223,15 @@ func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
 	return mOpts, nil
 }
 
-// numParallelFiles is the number of files to copy concurrently during
+// GetNumParallelFiles is the number of files to copy concurrently during
 // physical restore. Defaults to 1 (sequential) when unset in the config.
-func (r *PhysRestore) numParallelFiles() int {
+func (r *PhysRestore) GetNumParallelFiles() int {
 	if r.bcpStg.Type() != storage.Filesystem {
 		// there's no parallelism for cloud storage on this level
 		return 1
+	}
+	if r.numParallelFiles > 0 {
+		return r.numParallelFiles
 	}
 	return r.confOpts.GetNumParallelFiles()
 }
