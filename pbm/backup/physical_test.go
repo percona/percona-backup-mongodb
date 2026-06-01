@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -371,4 +372,331 @@ func BenchmarkCopyFileToFSStorage(b *testing.B) {
 
 		b.Logf("%+v", r)
 	}
+}
+
+func TestTrimFilePrefix(t *testing.T) {
+	cases := []struct {
+		name       string
+		fname      string
+		trimPrefix string
+		want       string
+	}{
+		{
+			name:       "leading slash left after trim is cleaned",
+			fname:      "/data/db/collection.wt",
+			trimPrefix: "/data/db",
+			want:       "collection.wt",
+		},
+		{
+			name:       "prefix with trailing slash",
+			fname:      "/data/db/journal/WiredTigerLog.0001",
+			trimPrefix: "/data/db/",
+			want:       "journal/WiredTigerLog.0001",
+		},
+		{
+			name:       "no matching prefix keeps relative path",
+			fname:      "collection.wt",
+			trimPrefix: "/data/db",
+			want:       "collection.wt",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := trimFilePrefix(c.fname, c.trimPrefix)
+			if got != c.want {
+				t.Errorf("trimFilePrefix(%q, %q) = %q, want %q",
+					c.fname, c.trimPrefix, got, c.want)
+			}
+		})
+	}
+}
+
+func TestPlanUploads(t *testing.T) {
+	f := func(name string, off, length, size int64) File {
+		return File{Name: name, Off: off, Len: length, Size: size}
+	}
+	up := func(file File) upItem { return upItem{file: file, upload: true} }
+	skip := func(file File) upItem { return upItem{file: file} }
+
+	type planUploadsCase struct {
+		name  string
+		files []File
+		incr  bool
+		want  []upItem
+	}
+
+	t.Run("physical", func(t *testing.T) {
+		cases := []planUploadsCase{
+			{
+				name:  "nil input",
+				files: nil,
+				want:  nil,
+			},
+			{
+				name:  "empty slice input",
+				files: []File{},
+				want:  nil,
+			},
+			{
+				name:  "single file",
+				files: []File{f("a", 0, 16, 16)},
+				want:  []upItem{up(f("a", 0, 16, 16))},
+			},
+			{
+				name:  "single file",
+				files: []File{f("a", 0, 0, 16)},
+				want:  []upItem{up(f("a", 0, 0, 16))},
+			},
+			{
+				name: "multiple files",
+				files: []File{
+					f("a", 0, 0, 16),
+					f("b", 0, 0, 32),
+					f("c", 0, 0, 64),
+				},
+				want: []upItem{
+					up(f("a", 0, 0, 16)),
+					up(f("b", 0, 0, 32)),
+					up(f("c", 0, 0, 64)),
+				},
+			},
+			{
+				name: "Len==0 file is uploaded, not skipped",
+				files: []File{
+					f("a", 0, 16, 32),
+					f("b", 5, 0, 100),
+				},
+				want: []upItem{
+					up(f("a", 0, 16, 32)),
+					up(f("b", 5, 0, 100)),
+				},
+			},
+			{
+				name: "Off>=Size file is uploaded, not skipped",
+				files: []File{
+					f("a", 0, 16, 16),
+					f("b", 100, 16, 50),
+				},
+				want: []upItem{
+					up(f("a", 0, 16, 16)),
+					up(f("b", 100, 16, 50)),
+				},
+			},
+		}
+
+		for _, tt := range cases {
+			t.Run(tt.name, func(t *testing.T) {
+				got := planUploads(tt.files, tt.incr)
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("planUploads want=%+v, got=%+v", tt.want, got)
+				}
+			})
+		}
+	})
+
+	t.Run("incremental base", func(t *testing.T) {
+		cases := []planUploadsCase{
+			{
+				name:  "single file, non-empty -> one upload",
+				files: []File{f("a", 0, 16, 32)},
+				incr:  true,
+				want:  []upItem{up(f("a", 0, 16, 32))},
+			},
+			{
+				name: "Off<Size is in-range -> uploaded, not skipped",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 48),
+					f("b", 49, 16, 50),
+				},
+				want: []upItem{
+					up(f("a", 0, 16, 48)),
+					up(f("b", 49, 16, 50)),
+				},
+			},
+			{
+				name: "coalesce consecutive blocks",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 48),
+					f("a", 16, 16, 48),
+					f("a", 32, 16, 48),
+				},
+				want: []upItem{up(f("a", 0, 48, 48))},
+			},
+			{
+				name: "coalesce consecutive blocks with 2 parts",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 1024),
+					f("a", 16, 16, 1024),
+					f("a", 64, 16, 1024),
+					f("a", 80, 16, 1024),
+				},
+				want: []upItem{
+					up(f("a", 0, 32, 1024)),
+					up(f("a", 64, 32, 1024)),
+				},
+			},
+			{
+				name: "same file: two blocks coalesce, gapped third separate",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 80),
+					f("a", 16, 16, 80),
+					f("a", 64, 16, 80),
+				},
+				want: []upItem{
+					up(f("a", 0, 32, 80)),
+					up(f("a", 64, 16, 80)),
+				},
+			},
+			{
+				name: "gap between blocks is not coalesced",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 80),
+					f("a", 48, 16, 80),
+				},
+				want: []upItem{
+					up(f("a", 0, 16, 80)),
+					up(f("a", 48, 16, 80)),
+				},
+			},
+			{
+				name: "coalesce updates Size to the latest block's Size",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 100),
+					f("a", 16, 16, 200),
+				},
+				want: []upItem{up(f("a", 0, 32, 200))},
+			},
+			{
+				name: "different files are separate uploads",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 16),
+					f("b", 0, 16, 16),
+				},
+				want: []upItem{
+					up(f("a", 0, 16, 16)),
+					up(f("b", 0, 16, 16)),
+				},
+			},
+			{
+				name: "coalescing block is broken",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 64),
+					f("a", 16, 16, 64),
+					f("b", 0, 16, 16),
+					f("a", 32, 16, 64),
+					f("a", 48, 16, 64),
+				},
+				want: []upItem{
+					up(f("a", 0, 32, 64)),
+					up(f("b", 0, 16, 16)),
+					up(f("a", 32, 32, 64)),
+				},
+			},
+		}
+
+		for _, tt := range cases {
+			t.Run(tt.name, func(t *testing.T) {
+				got := planUploads(tt.files, tt.incr)
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("planUploads want=%+v, got=%+v", tt.want, got)
+				}
+			})
+		}
+	})
+
+	t.Run("incremental", func(t *testing.T) {
+		cases := []planUploadsCase{
+			{
+				name: "unchanged file recorded as skip",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 48),
+					f("b", 0, 0, 100),
+					f("c", 0, 16, 16),
+				},
+				want: []upItem{
+					skip(f("b", -1, -1, 100)),
+					up(f("a", 0, 16, 48)),
+					up(f("c", 0, 16, 16)),
+				},
+			},
+			{
+				name: "out-of-range (Off>Size) recorded as skip",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 48),
+					f("b", 100, 16, 50),
+				},
+				want: []upItem{
+					skip(f("b", -1, -1, 50)),
+					up(f("a", 0, 16, 48)),
+				},
+			},
+			{
+				name: "out-of-range boundary (Off==Size) recorded as skip",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 48),
+					f("b", 50, 16, 50),
+				},
+				want: []upItem{
+					skip(f("b", -1, -1, 50)),
+					up(f("a", 0, 16, 48)),
+				},
+			},
+			{
+				name:  "unchanged head file is dropped",
+				incr:  true,
+				files: []File{f("a", 0, 0, 100)},
+				want:  []upItem{},
+			},
+			{
+				name: "skip between coalescing blocks preserves coalesce",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 32),
+					f("b", 0, 0, 16),
+					f("a", 16, 16, 32),
+				},
+				want: []upItem{
+					skip(f("b", -1, -1, 16)),
+					up(f("a", 0, 32, 32)),
+				},
+			},
+			{
+				name: "multiple skips and upload",
+				incr: true,
+				files: []File{
+					f("a", 0, 16, 16),
+					f("b", 0, 0, 16),
+					f("c", 0, 0, 16),
+					f("d", 100, 16, 50),
+				},
+				want: []upItem{
+					skip(f("b", -1, -1, 16)),
+					skip(f("c", -1, -1, 16)),
+					skip(f("d", -1, -1, 50)),
+					up(f("a", 0, 16, 16)),
+				},
+			},
+		}
+
+		for _, tt := range cases {
+			t.Run(tt.name, func(t *testing.T) {
+				got := planUploads(tt.files, tt.incr)
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("planUploads want=%+v, got=%+v", tt.want, got)
+				}
+			})
+		}
+	})
 }

@@ -135,6 +135,7 @@ type BackupCmd struct {
 	Compression      compress.CompressionType `bson:"compression"`
 	CompressionLevel *int                     `bson:"level,omitempty"`
 	NumParallelColls *int32                   `bson:"numParallelColls,omitempty"`
+	NumParallelFiles *int32                   `bson:"numParallelFiles,omitempty"`
 	Filelist         bool                     `bson:"filelist,omitempty"`
 	Profile          string                   `bson:"profile,omitempty"`
 	UsersAndRoles    bool                     `bson:"usersAndRoles,omitempty"`
@@ -162,6 +163,7 @@ type RestoreCmd struct {
 	AllowPartlyDone *bool             `bson:"allowPartlyDone"`
 
 	NumParallelColls    *int32                   `bson:"numParallelColls,omitempty"`
+	NumParallelFiles    *int32                   `bson:"numParallelFiles,omitempty"`
 	NumInsertionWorkers *int32                   `bson:"numInsertionWorkers,omitempty"`
 	IndexCommitQuorum   config.IndexCommitQuorum `bson:"indexCommitQuorum,omitempty"`
 
