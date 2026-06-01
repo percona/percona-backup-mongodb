@@ -733,7 +733,7 @@ func uploadFiles(
 	comprT compress.CompressionType,
 	comprL *int,
 	bufSize int,
-	numWorker int,
+	numWorkers int,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -743,9 +743,9 @@ func uploadFiles(
 
 	// each concurrent upload needs its own set of buffer (x3)
 	type uploadBufs struct{ cp, save, fsSave []byte }
-	bufPool := make(chan uploadBufs, numWorker)
-	allBufs := make([]byte, numWorker*3*bufSize)
-	for i := range numWorker {
+	bufPool := make(chan uploadBufs, numWorkers)
+	allBufs := make([]byte, numWorkers*3*bufSize)
+	for i := range numWorkers {
 		base := i * 3 * bufSize
 		bufPool <- uploadBufs{
 			cp:     allBufs[base : base+bufSize : base+bufSize],
@@ -757,7 +757,7 @@ func uploadFiles(
 	// each goroutine writes a distinct index, so no locking needed.
 	results := make([]File, len(upItems))
 	eg, egCtx := errgroup.WithContext(ctx)
-	eg.SetLimit(numWorker)
+	eg.SetLimit(numWorkers)
 
 	for i, s := range upItems {
 		fname := trimFilePrefix(s.file.Name, trimPrefix)
