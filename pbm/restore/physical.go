@@ -27,6 +27,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 	"golang.org/x/mod/semver"
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -1599,6 +1600,65 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	return nil
 }
 
+// copyFileJob is all copy operations targeting one destination file, in the
+// order they must be applied: base backup first and then increments.
+// The main purpose is ability to execute jobs in parallel.
+// ops is empty for a directory-only entry which ensures dst's directory exists.
+type copyFileJob struct {
+	dst string
+	ops []copyOp
+}
+
+// copyOp is a single block/layer to write into a destination file.
+type copyOp struct {
+	src   string
+	fMeta backup.File
+	cmpr  compress.CompressionType
+}
+
+// planCopyFiles walks r.files in restore order (base -> target) and groups
+// every copy operation by its destination file. The grouping is what makes
+// parallel copying safe, across jobs the destinations differ so they don't race.
+func (r *PhysRestore) planCopyFiles(setName string) []copyFileJob {
+	var jobs []copyFileJob
+	idxByDst := make(map[string]int)
+
+	add := func(dst string, op *copyOp) {
+		idx, ok := idxByDst[dst]
+		if !ok {
+			idx = len(jobs)
+			idxByDst[dst] = idx
+			jobs = append(jobs, copyFileJob{dst: dst})
+		}
+		if op != nil {
+			jobs[idx].ops = append(jobs[idx].ops, *op)
+		}
+	}
+
+	for i := len(r.files) - 1; i >= 0; i-- {
+		set := r.files[i]
+		for _, f := range set.Data {
+			src := filepath.Join(set.BcpName, setName, f.Path(set.Cmpr))
+			// cut dbpath from destination if there is any (see PBM-1058)
+			fname := f.Name
+			if set.dbpath != "" {
+				fname = strings.TrimPrefix(fname, set.dbpath)
+			}
+			dst := filepath.Join(r.dbpath, fname)
+
+			// if this is a directory, only ensure it is created.
+			if set.BcpName == bcpDir {
+				add(dst, nil)
+				continue
+			}
+
+			add(dst, &copyOp{src: src, fMeta: f, cmpr: set.Cmpr})
+		}
+	}
+
+	return jobs
+}
+
 func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	var stat *storage.DownloadStat
 	defer func() {
@@ -1612,40 +1672,58 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	}()
 
 	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	jobs := r.planCopyFiles(setName)
 
-	var cpBuf []byte
-	if r.bufSize == 0 {
-		// original/default bufSize
-		cpBuf = make([]byte, 32*1024)
-	} else {
-		cpBuf = make([]byte, r.bufSize)
+	numWorkers := r.numParallelFiles()
+	if numWorkers > 1 {
+		r.log.Info("downloading data (%d files in parallel)", numWorkers)
 	}
-	for i := len(r.files) - 1; i >= 0; i-- {
-		set := r.files[i]
-		for _, f := range set.Data {
-			src := filepath.Join(set.BcpName, setName, f.Path(set.Cmpr))
-			// cut dbpath from destination if there is any (see PBM-1058)
-			fname := f.Name
-			if set.dbpath != "" {
-				fname = strings.TrimPrefix(fname, set.dbpath)
-			}
-			dst := filepath.Join(r.dbpath, fname)
 
-			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create path %s", filepath.Dir(dst))
-			}
-			// if this is a directory, only ensure it is created.
-			if set.BcpName == bcpDir {
-				r.log.Info("create dir <%s>", filepath.Dir(f.Name))
-				continue
-			}
+	bufLen := 32 * 1024 // original/default bufSize
+	if r.bufSize != 0 {
+		bufLen = r.bufSize
+	}
+	// each concurrent copy needs its own buffer
+	bufPool := make(chan []byte, numWorkers)
+	allBufs := make([]byte, numWorkers*bufLen)
+	for i := range numWorkers {
+		// preallocate buffer for each worker
+		bufPool <- allBufs[i*bufLen : (i+1)*bufLen : (i+1)*bufLen]
+	}
 
-			err = r.copyFile(src, dst, f, set.Cmpr, cpBuf)
-			if err != nil {
-				return stat, err
-			}
+	eg, egCtx := errgroup.WithContext(context.Background())
+	eg.SetLimit(numWorkers)
+
+	for _, job := range jobs {
+		// stop processing once a copy has failed
+		if egCtx.Err() != nil {
+			break
 		}
+
+		eg.Go(func() error {
+			if err := os.MkdirAll(filepath.Dir(job.dst), os.ModeDir|0o700); err != nil {
+				return errors.Wrapf(err, "create path %s", filepath.Dir(job.dst))
+			}
+			// directory-only entry: nothing to copy.
+			if len(job.ops) == 0 {
+				r.log.Info("create dir <%s>", filepath.Dir(job.dst))
+				return nil
+			}
+
+			cpBuf := <-bufPool
+			defer func() { bufPool <- cpBuf }()
+
+			for _, op := range job.ops {
+				if err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return stat, err
 	}
 	return stat, nil
 }
@@ -3137,6 +3215,16 @@ func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
 		return nil, errors.Wrap(err, "unable to unmarshal mongod config file")
 	}
 	return mOpts, nil
+}
+
+// numParallelFiles is the number of files to copy concurrently during
+// physical restore. Defaults to 1 (sequential) when unset in the config.
+func (r *PhysRestore) numParallelFiles() int {
+	if r.bcpStg.Type() != storage.Filesystem {
+		// there's no parallelism for cloud storage on this level
+		return 1
+	}
+	return r.confOpts.GetNumParallelFiles()
 }
 
 // physRestoreFromExtDump creates PhysRestore object from dump on the storage.

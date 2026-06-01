@@ -730,3 +730,86 @@ func BenchmarkCopyFileFromFSStorage(b *testing.B) {
 		b.Logf("%+v", res)
 	}
 }
+
+func TestPlanCopyFiles(t *testing.T) {
+	const setName = "rs0"
+	none := compress.CompressionTypeNone
+
+	// f is a test constructor for the backup.File fields
+	f := func(name string, off, length, size int64) backup.File {
+		return backup.File{Name: name, Off: off, Len: length, Size: size}
+	}
+
+	tests := []struct {
+		name   string
+		dbpath string
+		files  []files
+		want   []copyFileJob
+	}{
+		{
+			name:   "empty",
+			dbpath: "/data/db",
+			files:  nil,
+			want:   nil,
+		},
+		{
+			name:   "layers and blocks of one file grouped, base-first order",
+			dbpath: "/data/db",
+			// slice order is target-first; planCopyFiles applies base-first.
+			files: []files{
+				{BcpName: "bcp-target", Cmpr: none, Data: []backup.File{
+					f("coll-1.wt", 32, 16, 48),
+				}},
+				{BcpName: "bcp-base", Cmpr: none, Data: []backup.File{
+					f("coll-1.wt", 0, 16, 48),
+					f("coll-1.wt", 16, 16, 48),
+					f("index-2.wt", 0, 0, 100),
+				}},
+			},
+			want: []copyFileJob{
+				{dst: "/data/db/coll-1.wt", ops: []copyOp{
+					{src: "bcp-base/rs0/coll-1.wt.0-16", fMeta: f("coll-1.wt", 0, 16, 48), cmpr: none},
+					{src: "bcp-base/rs0/coll-1.wt.16-16", fMeta: f("coll-1.wt", 16, 16, 48), cmpr: none},
+					{src: "bcp-target/rs0/coll-1.wt.32-16", fMeta: f("coll-1.wt", 32, 16, 48), cmpr: none},
+				}},
+				{dst: "/data/db/index-2.wt", ops: []copyOp{
+					{src: "bcp-base/rs0/index-2.wt", fMeta: f("index-2.wt", 0, 0, 100), cmpr: none},
+				}},
+			},
+		},
+		{
+			name:   "directory-only entry has no ops",
+			dbpath: "/data/db",
+			files: []files{
+				{BcpName: bcpDir, Data: []backup.File{f("somedir/coll.wt", -1, -1, -1)}},
+			},
+			want: []copyFileJob{
+				{dst: "/data/db/somedir/coll.wt"},
+			},
+		},
+		{
+			name:   "PBM-1058 dbpath stripped from destination",
+			dbpath: "/data/db",
+			files: []files{
+				{BcpName: "bcp1", Cmpr: none, dbpath: "/data/db", Data: []backup.File{
+					f("/data/db/coll-9.wt", 0, 16, 16),
+				}},
+			},
+			want: []copyFileJob{
+				{dst: "/data/db/coll-9.wt", ops: []copyOp{
+					{src: "bcp1/rs0/data/db/coll-9.wt.0-16", fMeta: f("/data/db/coll-9.wt", 0, 16, 16), cmpr: none},
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &PhysRestore{dbpath: tt.dbpath, files: tt.files}
+			got := r.planCopyFiles(setName)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("planCopyFiles: got=%+v want=%+v", got, tt.want)
+			}
+		})
+	}
+}
