@@ -1723,6 +1723,9 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 			defer func() { bufPool <- cpBuf }()
 
 			for _, op := range job.ops {
+				if err := egCtx.Err(); err != nil {
+					return err
+				}
 				if err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf); err != nil {
 					return err
 				}
