@@ -53,7 +53,11 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		if merr != nil {
 			return nil, errors.Wrap(merr, "marshal GCS credentials")
 		}
-		cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+		if cfg.parallelUploadEnabled() {
+			cli, err = storagegcs.NewGRPCClient(ctx, option.WithCredentialsJSON(creds))
+		} else {
+			cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+		}
 	} else {
 		// No explicit credentials — validate ADC resolves to allowed type (Workload Identity)
 		// We only check the credentials type, the scoped used hear doesn't really matter
@@ -65,7 +69,11 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		if adcErr != nil {
 			return nil, fmt.Errorf("validate default credential type: %w", adcErr)
 		}
-		cli, err = storagegcs.NewClient(ctx)
+		if cfg.parallelUploadEnabled() {
+			cli, err = storagegcs.NewGRPCClient(ctx)
+		} else {
+			cli, err = storagegcs.NewClient(ctx)
+		}
 	}
 
 	if err != nil {
@@ -162,6 +170,13 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 	w := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).NewWriter(ctx)
 	w.ChunkSize = int(partSize)
 	w.ChunkRetryDeadline = g.cfg.Retryer.ChunkRetryDeadline
+	if g.cfg.parallelUploadEnabled() {
+		w.EnableParallelUpload = true
+		w.ParallelUploadConfig = storagegcs.ParallelUploadConfig{
+			PartSize:       g.cfg.ParallelUpload.PartSize,
+			MaxConcurrency: g.cfg.ParallelUpload.MaxConcurrency,
+		}
+	}
 	if g.log != nil && opts.UseLogger {
 		w.ProgressFunc = func(written int64) {
 			if opts.Size > 0 {
