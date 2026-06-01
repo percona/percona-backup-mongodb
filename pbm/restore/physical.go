@@ -1668,8 +1668,11 @@ func (r *PhysRestore) planCopyFiles(setName string) []copyFileJob {
 func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	var stat *storage.DownloadStat
 	defer func() {
-		if r.bcpStg.Type() != storage.S3 || r.bcpStg.Type() != storage.GCS {
-			// currently Downloader is only supported for S3 and GCS
+		if r.bcpStg.Type() != storage.S3 &&
+			r.bcpStg.Type() != storage.GCS &&
+			r.bcpStg.Type() != storage.Minio &&
+			r.bcpStg.Type() != storage.OCI {
+			// download is not supported for the rest of providers
 			return
 		}
 		s := r.bcpStg.DownloadStat()
