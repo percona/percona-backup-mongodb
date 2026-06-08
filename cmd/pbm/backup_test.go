@@ -20,14 +20,12 @@ func TestBcpMatchCluster(t *testing.T) {
 		expect defs.Status
 	}
 	cases := []struct {
-		confsrv string
-		shards  []topo.Shard
-		bcps    []bcase
+		shards []topo.Shard
+		bcps   []bcase
 	}{
 		{
-			confsrv: "config",
 			shards: []topo.Shard{
-				{RS: "config"},
+				{ID: "config", RS: "config"},
 				{RS: "rs1"},
 				{RS: "rs2"},
 			},
@@ -104,7 +102,6 @@ func TestBcpMatchCluster(t *testing.T) {
 			},
 		},
 		{
-			confsrv: "rs1",
 			shards: []topo.Shard{
 				{RS: "rs1"},
 			},
@@ -171,7 +168,7 @@ func TestBcpMatchCluster(t *testing.T) {
 				b.meta.Status = defs.StatusDone
 				m = append(m, b.meta)
 			}
-			bcpsMatchCluster(m, "", "", c.shards, c.confsrv, nil)
+			bcpsMatchCluster(m, "", "", c.shards, nil)
 			for i := 0; i < len(c.bcps); i++ {
 				if c.bcps[i].expect != m[i].Status {
 					t.Errorf("wrong status for %s, expect %s, got %s", m[i].Name, c.bcps[i].expect, m[i].Status)
@@ -316,6 +313,31 @@ func TestBcpMatchRemappedCluster(t *testing.T) {
 	}
 }
 
+func TestBackupRequiredRSMap(t *testing.T) {
+	t.Run("sharded cluster uses config shard rs", func(t *testing.T) {
+		sh := backupRequiredRSMap([]topo.Shard{
+			{ID: "config", RS: "cfg"},
+			{ID: "rs1", RS: "rs1"},
+			{ID: "rs2", RS: "rs2"},
+		})
+
+		if !sh["cfg"] {
+			t.Fatal("expected config RS to be marked as required")
+		}
+		if sh["rs1"] || sh["rs2"] {
+			t.Fatal("expected only config RS to be marked as required")
+		}
+	})
+
+	t.Run("sole rs cluster uses only replset", func(t *testing.T) {
+		sh := backupRequiredRSMap([]topo.Shard{{RS: "rs1"}})
+
+		if !sh["rs1"] {
+			t.Fatal("expected sole RS to be marked as required")
+		}
+	})
+}
+
 func checkBcpMatchClusterError(err, target error) string {
 	if err == nil && target == nil {
 		return ""
@@ -354,7 +376,7 @@ func checkBcpMatchClusterError(err, target error) string {
 
 func BenchmarkBcpMatchCluster3x10(b *testing.B) {
 	shards := []topo.Shard{
-		{RS: "config"},
+		{ID: "config", RS: "config"},
 		{RS: "rs1"},
 		{RS: "rs2"},
 	}
@@ -374,13 +396,13 @@ func BenchmarkBcpMatchCluster3x10(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, "", "", shards, "config", nil)
+		bcpsMatchCluster(bcps, "", "", shards, nil)
 	}
 }
 
 func BenchmarkBcpMatchCluster3x100(b *testing.B) {
 	shards := []topo.Shard{
-		{RS: "config"},
+		{ID: "config", RS: "config"},
 		{RS: "rs1"},
 		{RS: "rs2"},
 	}
@@ -400,13 +422,13 @@ func BenchmarkBcpMatchCluster3x100(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, "", "", shards, "config", nil)
+		bcpsMatchCluster(bcps, "", "", shards, nil)
 	}
 }
 
 func BenchmarkBcpMatchCluster17x100(b *testing.B) {
 	shards := []topo.Shard{
-		{RS: "config"},
+		{ID: "config", RS: "config"},
 		{RS: "rs1"},
 		{RS: "rs12"},
 		{RS: "rs112"},
@@ -454,13 +476,13 @@ func BenchmarkBcpMatchCluster17x100(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, "", "", shards, "config", nil)
+		bcpsMatchCluster(bcps, "", "", shards, nil)
 	}
 }
 
 func BenchmarkBcpMatchCluster3x1000(b *testing.B) {
 	shards := []topo.Shard{
-		{RS: "config"},
+		{ID: "config", RS: "config"},
 		{RS: "rs1"},
 		{RS: "rs2"},
 	}
@@ -480,12 +502,12 @@ func BenchmarkBcpMatchCluster3x1000(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, "", "", shards, "config", nil)
+		bcpsMatchCluster(bcps, "", "", shards, nil)
 	}
 }
 
 func BenchmarkBcpMatchCluster1000x1000(b *testing.B) {
-	shards := []topo.Shard{{RS: "config"}}
+	shards := []topo.Shard{{ID: "config", RS: "config"}}
 	rss := []backup.BackupReplset{{Name: "config"}}
 
 	for i := 0; i < 1000; i++ {
@@ -503,13 +525,13 @@ func BenchmarkBcpMatchCluster1000x1000(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, "", "", shards, "config", nil)
+		bcpsMatchCluster(bcps, "", "", shards, nil)
 	}
 }
 
 func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 	shards := []topo.Shard{
-		{RS: "config"},
+		{ID: "config", RS: "config"},
 		{RS: "rs2"},
 	}
 
@@ -543,12 +565,12 @@ func BenchmarkBcpMatchCluster3x10Err(b *testing.B) {
 		})
 	}
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, "", "", shards, "config", nil)
+		bcpsMatchCluster(bcps, "", "", shards, nil)
 	}
 }
 
 func BenchmarkBcpMatchCluster1000x1000Err(b *testing.B) {
-	shards := []topo.Shard{{RS: "config"}}
+	shards := []topo.Shard{{ID: "config", RS: "config"}}
 	rss := []backup.BackupReplset{{Name: "config"}}
 
 	for i := 0; i < 1000; i++ {
@@ -567,6 +589,6 @@ func BenchmarkBcpMatchCluster1000x1000Err(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bcpsMatchCluster(bcps, "", "", shards, "config", nil)
+		bcpsMatchCluster(bcps, "", "", shards, nil)
 	}
 }

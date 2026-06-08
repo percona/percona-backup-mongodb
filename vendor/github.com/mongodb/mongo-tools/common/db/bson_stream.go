@@ -7,10 +7,11 @@
 package db
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 
-	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // BSONSource reads documents from the underlying io.ReadCloser, Stream which
@@ -19,7 +20,7 @@ type BSONSource struct {
 	reusableBuf []byte
 	Stream      io.ReadCloser
 	err         error
-	MaxBSONSize int32
+	MaxBSONSize uint32
 }
 
 // DecodedBSONSource reads documents from the underlying io.ReadCloser, Stream which
@@ -36,12 +37,12 @@ type RawDocSource interface {
 	Err() error
 }
 
-// NewBSONSource creates a BSONSource with a reusable I/O buffer
+// NewBSONSource creates a BSONSource with a reusable I/O buffer.
 func NewBSONSource(in io.ReadCloser) *BSONSource {
 	return &BSONSource{make([]byte, MaxBSONSize), in, nil, MaxBSONSize}
 }
 
-// NewBufferlessBSONSource creates a BSONSource without a reusable I/O buffer
+// NewBufferlessBSONSource creates a BSONSource without a reusable I/O buffer.
 func NewBufferlessBSONSource(in io.ReadCloser) *BSONSource {
 	return &BSONSource{nil, in, nil, MaxBSONSize}
 }
@@ -66,7 +67,7 @@ func (dbs *DecodedBSONSource) Err() error {
 
 // NextGBSON unmarshals the next BSON document into result using the official go driver. Returns true if no errors are
 // encountered and false otherwise. This function does NOT zero out the result before writing to it.
-func (dbs *DecodedBSONSource) Next(result interface{}) bool {
+func (dbs *DecodedBSONSource) Next(result any) bool {
 	doc := dbs.LoadNext()
 	if doc == nil {
 		return false
@@ -83,7 +84,7 @@ func (dbs *DecodedBSONSource) Next(result interface{}) bool {
 // BSONSource was created with NewBSONSource then each returned []byte will be
 // a slice of a single reused I/O buffer. If the BSONSource was created with
 // NewBufferlessBSONSource then each returend []byte will be individually
-// allocated
+// allocated.
 func (bs *BSONSource) LoadNext() []byte {
 	var into []byte
 	if bs.reusableBuf == nil {
@@ -103,12 +104,7 @@ func (bs *BSONSource) LoadNext() []byte {
 		return nil
 	}
 
-	bsonSize := int32(
-		(uint32(into[0]) << 0) |
-			(uint32(into[1]) << 8) |
-			(uint32(into[2]) << 16) |
-			(uint32(into[3]) << 24),
-	)
+	bsonSize := binary.LittleEndian.Uint32(into)
 
 	// Verify that the size of the BSON object we are about to read can
 	// actually fit into the buffer that was provided. If not, either the BSON is
@@ -120,7 +116,11 @@ func (bs *BSONSource) LoadNext() []byte {
 	}
 
 	if bsonSize > bs.MaxBSONSize {
-		bs.err = fmt.Errorf("invalid BSONSize: %v bytes is larger than maximum of %d bytes", bsonSize, bs.MaxBSONSize)
+		bs.err = fmt.Errorf(
+			"invalid BSONSize: %v bytes is larger than maximum of %d bytes",
+			bsonSize,
+			bs.MaxBSONSize,
+		)
 		return nil
 	}
 
@@ -153,6 +153,6 @@ func (bs *BSONSource) Err() error {
 	return bs.err
 }
 
-func (bs *BSONSource) SetMaxBSONSize(size int32) {
+func (bs *BSONSource) SetMaxBSONSize(size uint32) {
 	bs.MaxBSONSize = size
 }

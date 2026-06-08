@@ -53,7 +53,7 @@ func (d *decodeState) storeDate(v reflect.Value) {
 }
 
 // Returns a Date literal from the underlying byte data.
-func (d *decodeState) getDate() interface{} {
+func (d *decodeState) getDate() any {
 	op := d.scanWhile(scanSkipSpace)
 	if op != scanBeginCtor {
 		d.error(fmt.Errorf("expected beginning of constructor"))
@@ -69,13 +69,19 @@ func (d *decodeState) getDate() interface{} {
 	}
 	arg0num, isNumber := args[0].(Number)
 	if !isNumber {
+		arg0str, isString := args[0].(string)
+		if !isString {
+			d.error(fmt.Errorf("expected number or string for first argument of Date constructor"))
+		}
+
 		// validate the date format of the string
-		_, err := util.FormatDate(args[0].(string))
+		_, err := util.FormatDate(arg0str)
 		if err != nil {
 			d.error(fmt.Errorf("unexpected ISODate format"))
 		}
 		d.useNumber = useNumber
-		return ISODate(args[0].(string))
+
+		return ISODate(arg0str)
 	}
 	arg0, err := arg0num.Int64()
 	if err != nil {

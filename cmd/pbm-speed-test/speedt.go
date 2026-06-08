@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -142,7 +142,7 @@ func doTest(
 
 	r := &Results{}
 	ts := time.Now()
-	size, err := storage.Upload(context.Background(), src, stg, compression, level, fileName, -1)
+	size, err := storage.Upload(context.Background(), src, stg, compression, level, fileName)
 	r.Size = Byte(size)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload")

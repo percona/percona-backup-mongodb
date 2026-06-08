@@ -4,12 +4,11 @@ import (
 	"context"
 	"log"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-func (c *Cluster) DistributedCommit(restoreTo primitive.Timestamp) {
-	// c.PITRestoreCT(primitive.Timestamp{1644243375, 7})
+func (c *Cluster) DistributedCommit(restoreTo bson.Timestamp) {
+	// c.PITRestoreCT(bson.Timestamp{1644243375, 7})
 	c.PITRestoreCT(restoreTo)
 
 	exp := map[int]bool{

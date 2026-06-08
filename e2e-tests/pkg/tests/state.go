@@ -11,9 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -55,9 +54,9 @@ type dbSpec struct {
 	ID      string `bson:"_id"`
 	Primary string `bson:"primary"`
 	Version struct {
-		UUID      primitive.Binary    `bson:"uuid"`
-		Timestamp primitive.Timestamp `bson:"timestamp"`
-		LastMod   int32               `bson:"lastMod,omitempty"` // since v5.0
+		UUID      bson.Binary    `bson:"uuid"`
+		Timestamp bson.Timestamp `bson:"timestamp"`
+		LastMod   int32          `bson:"lastMod,omitempty"` // since v5.0
 	} `bson:"version"`
 }
 
@@ -72,15 +71,15 @@ type configCollState struct {
 
 // collSpec describes a sharded collection. It is a config.collections document
 type collSpec struct {
-	ID           string              `bson:"_id"`
-	LastmodEpoch primitive.ObjectID  `bson:"lastmodEpoch"`
-	LastMod      primitive.DateTime  `bson:"lastMod"`
-	Timestamp    primitive.Timestamp `bson:"timestamp"`
-	UUID         *primitive.Binary   `bson:"uuid,omitempty"` // since v5.0
-	Key          map[string]any      `bson:"key"`
-	Unique       bool                `bson:"unique"`
-	ChunksSplit  bool                `bson:"chunksAlreadySplitForDowngrade"`
-	NoBalance    bool                `bson:"noBalance"`
+	ID           string         `bson:"_id"`
+	LastmodEpoch bson.ObjectID  `bson:"lastmodEpoch"`
+	LastMod      bson.DateTime  `bson:"lastMod"`
+	Timestamp    bson.Timestamp `bson:"timestamp"`
+	UUID         *bson.Binary   `bson:"uuid,omitempty"` // since v5.0
+	Key          map[string]any `bson:"key"`
+	Unique       bool           `bson:"unique"`
+	ChunksSplit  bool           `bson:"chunksAlreadySplitForDowngrade"`
+	NoBalance    bool           `bson:"noBalance"`
 }
 
 // chunksState is chunks state for a ns for a shard
@@ -99,7 +98,7 @@ type shardState map[NSName]*shardCollState
 // shardCollState describes a collection state on a shard
 type shardCollState struct {
 	// Spec is value of listCollections command
-	Spec *mongo.CollectionSpecification
+	Spec mongo.CollectionSpecification
 
 	// Hash is dbHash value on a shard
 	Hash string
@@ -334,12 +333,12 @@ func getConfigChunkHashes(
 
 	var f bson.D
 	if useUUID {
-		in := make([]primitive.Binary, 0, len(selection))
+		in := make([]bson.Binary, 0, len(selection))
 		for uuid := range selection {
 			hashes[uuid] = md5.New()
 			counts[uuid] = make(map[ShardName]int64)
 			data, _ := hex.DecodeString(uuid)
-			in = append(in, primitive.Binary{Subtype: 0x4, Data: data})
+			in = append(in, bson.Binary{Subtype: 0x4, Data: data})
 		}
 
 		f = bson.D{{"uuid", bson.M{"$in": in}}}

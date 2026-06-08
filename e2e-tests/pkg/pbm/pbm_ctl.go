@@ -248,7 +248,7 @@ func (c *Ctl) waitForRestore(rinlist string, waitFor time.Duration) error {
 
 // Restore starts restore and returns the name of op
 func (c *Ctl) Restore(bcpName string, options []string) (string, error) {
-	command := append([]string{"pbm", "restore", bcpName, "-o", "json"}, options...)
+	command := append([]string{"pbm", "restore", bcpName, "-o", "json", "--yes"}, options...)
 	o, err := c.RunCmd(command...)
 	if err != nil {
 		return "", errors.Wrap(err, "run meta")
@@ -275,12 +275,12 @@ func (c *Ctl) ReplayOplog(a, b time.Time) error {
 }
 
 func (c *Ctl) PITRestore(t time.Time) error {
-	_, err := c.RunCmd("pbm", "restore", "--time", t.Format("2006-01-02T15:04:05"))
+	_, err := c.RunCmd("pbm", "restore", "--time", t.Format("2006-01-02T15:04:05"), "--yes")
 	return err
 }
 
 func (c *Ctl) PITRestoreClusterTime(t, i uint32) error {
-	_, err := c.RunCmd("pbm", "restore", "--time", fmt.Sprintf("%d,%d", t, i))
+	_, err := c.RunCmd("pbm", "restore", "--time", fmt.Sprintf("%d,%d", t, i), "--yes")
 	return err
 }
 

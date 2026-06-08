@@ -13,8 +13,6 @@
 package json
 
 import (
-	"go.mongodb.org/mongo-driver/bson"
-
 	"bytes"
 	"encoding"
 	"encoding/base64"
@@ -27,6 +25,9 @@ import (
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	safecast "github.com/ccoveille/go-safecast/v2"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Unmarshal parses the JSON-encoded data and stores the result
@@ -52,8 +53,8 @@ import (
 //	bool, for JSON booleans
 //	float64, for JSON numbers
 //	string, for JSON strings
-//	[]interface{}, for JSON arrays
-//	map[string]interface{}, for JSON objects
+//	[]any, for JSON arrays
+//	map[string]any, for JSON objects
 //	nil for JSON null
 //
 // If a JSON value is not appropriate for a given target type,
@@ -71,7 +72,7 @@ import (
 // invalid UTF-16 surrogate pairs are not treated as an error.
 // Instead, they are replaced by the Unicode replacement
 // character U+FFFD.
-func Unmarshal(data []byte, v interface{}) error {
+func Unmarshal(data []byte, v any) error {
 	// Check for well-formedness.
 	// Avoids filling out half a data structure
 	// before discovering a JSON syntax error.
@@ -83,20 +84,6 @@ func Unmarshal(data []byte, v interface{}) error {
 
 	d.init(data)
 	return d.unmarshal(v)
-}
-
-func UnmarshalMap(data []byte) (map[string]interface{}, error) {
-	// Check for well-formedness.
-	// Avoids filling out half a data structure
-	// before discovering a JSON syntax error.
-	var d decodeState
-	err := checkValid(data, &d.scan)
-	if err != nil {
-		return nil, err
-	}
-
-	d.init(data)
-	return d.unmarshalMap()
 }
 
 func UnmarshalBsonD(data []byte) (bson.D, error) {
@@ -143,7 +130,9 @@ type UnmarshalFieldError struct {
 }
 
 func (e *UnmarshalFieldError) Error() string {
-	return "json: cannot unmarshal object key " + strconv.Quote(e.Key) + " into unexported field " + e.Field.Name + " of type " + e.Type.String()
+	return "json: cannot unmarshal object key " + strconv.Quote(
+		e.Key,
+	) + " into unexported field " + e.Field.Name + " of type " + e.Type.String()
 }
 
 // An InvalidUnmarshalError describes an invalid argument passed to Unmarshal.
@@ -163,12 +152,13 @@ func (e *InvalidUnmarshalError) Error() string {
 	return "json: Unmarshal(nil " + e.Type.String() + ")"
 }
 
-func (d *decodeState) unmarshalMap() (out map[string]interface{}, err error) {
+func (d *decodeState) unmarshalMap() (out map[string]any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
 				panic(r)
 			}
+			//nolint:errcheck // this will always be an error
 			err = r.(error)
 		}
 	}()
@@ -186,6 +176,7 @@ func (d *decodeState) unmarshalBsonD() (out bson.D, err error) {
 			if _, ok := r.(runtime.Error); ok {
 				panic(r)
 			}
+			//nolint:errcheck // this will always be an error
 			err = r.(error)
 		}
 	}()
@@ -197,12 +188,13 @@ func (d *decodeState) unmarshalBsonD() (out bson.D, err error) {
 	return out, d.savedError
 }
 
-func (d *decodeState) unmarshal(v interface{}) (err error) {
+func (d *decodeState) unmarshal(v any) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
 				panic(r)
 			}
+			//nolint:errcheck // this will always be an error
 			err = r.(error)
 		}
 	}()
@@ -233,7 +225,12 @@ func (n Number) Float64() (float64, error) {
 // Int32 returns the number as an int32.
 func (n Number) Int32() (int32, error) {
 	x, err := n.Int64()
-	return int32(x), err
+
+	if err != nil {
+		return 0, err
+	}
+
+	return safecast.Convert[int32](x)
 }
 
 // Int64 returns the number as an int64.
@@ -248,13 +245,23 @@ func (n Number) Int64() (int64, error) {
 // Uint8 returns the number as an uint8.
 func (n Number) Uint8() (uint8, error) {
 	x, err := n.Uint64()
-	return uint8(x), err
+
+	if err != nil {
+		return 0, err
+	}
+
+	return safecast.Convert[uint8](x)
 }
 
 // Uint32 returns the number as an uint32.
 func (n Number) Uint32() (uint32, error) {
 	x, err := n.Uint64()
-	return uint32(x), err
+
+	if err != nil {
+		return 0, err
+	}
+
+	return safecast.Convert[uint32](x)
 }
 
 // Uint64 returns the number as an uint64.
@@ -345,7 +352,7 @@ func (d *decodeState) scanWhile(op int) int {
 	return newOp
 }
 
-func (d *decodeState) document() map[string]interface{} {
+func (d *decodeState) document() map[string]any {
 	switch op := d.scanWhile(scanSkipSpace); op {
 	default:
 		d.error(errPhase)
@@ -417,7 +424,10 @@ func (d *decodeState) value(v reflect.Value) {
 // until it gets to a non-pointer.
 // if it encounters an Unmarshaler, indirect stops and returns that.
 // if decodingNull is true, indirect stops at the last pointer so it can be set to nil.
-func (d *decodeState) indirect(v reflect.Value, decodingNull bool) (Unmarshaler, encoding.TextUnmarshaler, reflect.Value) {
+func (d *decodeState) indirect(
+	v reflect.Value,
+	decodingNull bool,
+) (Unmarshaler, encoding.TextUnmarshaler, reflect.Value) {
 	// If v is a named type and is addressable,
 	// start with its address, so that if the type has pointer methods,
 	// we find them.
@@ -429,7 +439,8 @@ func (d *decodeState) indirect(v reflect.Value, decodingNull bool) (Unmarshaler,
 		// usefully addressable.
 		if v.Kind() == reflect.Interface && !v.IsNil() {
 			e := v.Elem()
-			if e.Kind() == reflect.Ptr && !e.IsNil() && (!decodingNull || e.Elem().Kind() == reflect.Ptr) {
+			if e.Kind() == reflect.Ptr && !e.IsNil() &&
+				(!decodingNull || e.Elem().Kind() == reflect.Ptr) {
 				v = e
 				continue
 			}
@@ -446,7 +457,13 @@ func (d *decodeState) indirect(v reflect.Value, decodingNull bool) (Unmarshaler,
 			v.Set(reflect.New(v.Type().Elem()))
 		}
 		if v.Type().NumMethod() > 0 {
-			if u, ok := v.Interface().(Unmarshaler); ok {
+			// This check for *bson.D here is sort of a hack, but does exactly what we need it to. The
+			// whole reason this custom JSON stuff exists is so that we can have "lax" JSON parsing for
+			// backcompat with the old tools, so that {a:1} works even though it's not valid JSON. This
+			// broke when upgrading the Go driver to v2, because v2 provides a custom UnmarshalJSON method
+			// for bson.D. We explicitly _don't_ want to use that here, so we check if it's bson.D and
+			// skip this return if it is. (2026-02-02)
+			if u, ok := v.Interface().(Unmarshaler); ok && v.Type() != reflect.TypeFor[*bson.D]() {
 				return u, nil, reflect.Value{}
 			}
 			if u, ok := v.Interface().(encoding.TextUnmarshaler); ok {
@@ -740,7 +757,7 @@ func (d *decodeState) literal(v reflect.Value) {
 // string is specified in hexadecimal. It does this by parsing the string to see if it
 // can an integer, if not it is treated as a float. If the integer is within the bounds of an int32 it
 // is returned as an int32.
-func (d *decodeState) convertNumber(s string) (interface{}, error) {
+func (d *decodeState) convertNumber(s string) (any, error) {
 	if d.useNumber {
 		return Number(s), nil
 	}
@@ -756,7 +773,7 @@ func (d *decodeState) convertNumber(s string) (interface{}, error) {
 	if parsedInteger <= math.MaxInt32 && parsedInteger >= math.MinInt32 {
 		return int32(parsedInteger), nil
 	}
-	return int64(parsedInteger), nil
+	return parsedInteger, nil
 
 }
 
@@ -771,7 +788,13 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 	// Check for unmarshaler.
 	if len(item) == 0 {
 		// Empty string given
-		d.saveError(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
+		d.saveError(
+			fmt.Errorf(
+				"json: invalid use of ,string struct tag, trying to unmarshal %q into %v",
+				item,
+				v.Type(),
+			),
+		)
 		return
 	}
 	wantptr := isNull(item) // null
@@ -786,7 +809,13 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 	if ut != nil {
 		if item[0] != '"' {
 			if fromQuoted {
-				d.saveError(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
+				d.saveError(
+					fmt.Errorf(
+						"json: invalid use of ,string struct tag, trying to unmarshal %q into %v",
+						item,
+						v.Type(),
+					),
+				)
 			} else {
 				d.saveError(&UnmarshalTypeError{"string", v.Type()})
 			}
@@ -794,7 +823,13 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 		s, ok := unquoteBytes(item)
 		if !ok {
 			if fromQuoted {
-				d.error(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
+				d.error(
+					fmt.Errorf(
+						"json: invalid use of ,string struct tag, trying to unmarshal %q into %v",
+						item,
+						v.Type(),
+					),
+				)
 			} else {
 				d.error(errPhase)
 			}
@@ -820,7 +855,13 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 		switch v.Kind() {
 		default:
 			if fromQuoted {
-				d.saveError(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
+				d.saveError(
+					fmt.Errorf(
+						"json: invalid use of ,string struct tag, trying to unmarshal %q into %v",
+						item,
+						v.Type(),
+					),
+				)
 			} else {
 				d.saveError(&UnmarshalTypeError{"bool", v.Type()})
 			}
@@ -839,7 +880,13 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 		s, ok := unquoteBytes(item)
 		if !ok {
 			if fromQuoted {
-				d.error(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
+				d.error(
+					fmt.Errorf(
+						"json: invalid use of ,string struct tag, trying to unmarshal %q into %v",
+						item,
+						v.Type(),
+					),
+				)
 			} else {
 				d.error(errPhase)
 			}
@@ -879,7 +926,13 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 				break
 			}
 			if fromQuoted {
-				d.error(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
+				d.error(
+					fmt.Errorf(
+						"json: invalid use of ,string struct tag, trying to unmarshal %q into %v",
+						item,
+						v.Type(),
+					),
+				)
 			} else {
 				d.error(&UnmarshalTypeError{"number", v.Type()})
 			}
@@ -907,7 +960,12 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 			}
 			v.SetInt(n)
 
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		case reflect.Uint,
+			reflect.Uint8,
+			reflect.Uint16,
+			reflect.Uint32,
+			reflect.Uint64,
+			reflect.Uintptr:
 			base := 10
 			if isHexPrefix(s) {
 				base = 0 // strconv.ParseUint will infer base 16
@@ -931,7 +989,13 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 	default:
 		if ok := d.storeExtendedLiteral(item, v, fromQuoted); !ok {
 			if fromQuoted {
-				d.error(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
+				d.error(
+					fmt.Errorf(
+						"json: invalid use of ,string struct tag, trying to unmarshal %q into %v",
+						item,
+						v.Type(),
+					),
+				)
 			} else {
 				d.error(errPhase)
 			}
@@ -944,11 +1008,11 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 // in an empty interface.  They are not strictly necessary,
 // but they avoid the weight of reflection in this common case.
 
-// valueInterface is like value but returns interface{}. It takes a boolean
+// valueInterface is like value but returns any. It takes a boolean
 // parameter denoting whether or not the value is being unmarshalled within
 // a bson.D, so that bson.Ds can be the default object type when
 // they are inside other bson.D documents.
-func (d *decodeState) valueInterface(insideBSOND bool) interface{} {
+func (d *decodeState) valueInterface(insideBSOND bool) any {
 	switch d.scanWhile(scanSkipSpace) {
 	default:
 		d.error(errPhase)
@@ -965,12 +1029,12 @@ func (d *decodeState) valueInterface(insideBSOND bool) interface{} {
 	}
 }
 
-// arrayInterface is like array but returns []interface{}. It takes a boolean
+// arrayInterface is like array but returns []any. It takes a boolean
 // parameter denoting whether or not the value is being unmarshalled within
 // a bson.D, so that bson.Ds can be the default object type when
 // they are inside other bson.D documents.
-func (d *decodeState) arrayInterface(insideBSOND bool) []interface{} {
-	var v = make([]interface{}, 0)
+func (d *decodeState) arrayInterface(insideBSOND bool) []any {
+	var v = make([]any, 0)
 	for {
 		// Look ahead for ] - can only happen on first iteration.
 		op := d.scanWhile(scanSkipSpace)
@@ -1042,9 +1106,9 @@ func (d *decodeState) bsonDInterface() bson.D {
 	return m
 }
 
-// objectInterface is like object but returns map[string]interface{}.
-func (d *decodeState) objectInterface() map[string]interface{} {
-	m := make(map[string]interface{})
+// objectInterface is like object but returns map[string]any.
+func (d *decodeState) objectInterface() map[string]any {
+	m := make(map[string]any)
 	for {
 		// Read opening " of string key or closing }.
 		op := d.scanWhile(scanSkipSpace)
@@ -1089,7 +1153,7 @@ func (d *decodeState) objectInterface() map[string]interface{} {
 }
 
 // literalInterface is like literal but returns an interface value.
-func (d *decodeState) literalInterface() interface{} {
+func (d *decodeState) literalInterface() any {
 	// All bytes inside literal return scanContinue op code.
 	start := d.off - 1
 	op := d.scanWhile(scanContinue)

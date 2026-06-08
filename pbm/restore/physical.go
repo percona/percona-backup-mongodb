@@ -22,12 +22,12 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 	"golang.org/x/mod/semver"
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -100,7 +100,7 @@ type PhysRestore struct {
 	bcp       *backup.BackupMeta
 	files     []files
 	bcpSizeRS int64 // total uncompressed size of the backup for RS (including all increments)
-	restoreTS primitive.Timestamp
+	restoreTS bson.Timestamp
 
 	confOpts *config.RestoreConf
 
@@ -127,6 +127,9 @@ type PhysRestore struct {
 	rsMap           map[string]string
 	fallback        bool
 	allowPartlyDone bool
+	bufSize         int
+
+	numParallelFiles int
 }
 
 func NewPhysical(
@@ -137,6 +140,7 @@ func NewPhysical(
 	rsMap map[string]string,
 	fallback bool,
 	allowPartlyDone bool,
+	bufSize int,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
@@ -204,6 +208,7 @@ func NewPhysical(
 		rsMap:           rsMap,
 		fallback:        fallback,
 		allowPartlyDone: allowPartlyDone,
+		bufSize:         bufSize,
 	}, nil
 }
 
@@ -615,7 +620,7 @@ func (r *PhysRestore) checkShutdownFails(ctx context.Context) error {
 
 func nodeShutdown(ctx context.Context, m *mongo.Client) error {
 	err := m.Database("admin").RunCommand(ctx, bson.D{{"shutdown", 1}}).Err()
-	if err == nil || strings.Contains(err.Error(), "socket was unexpectedly closed") {
+	if err == nil || strings.Contains(err.Error(), "connection closed unexpectedly by the other side") {
 		return nil
 	}
 	return err
@@ -846,33 +851,33 @@ func (r *PhysRestore) toState(status defs.Status) (_ defs.Status, err error) {
 	return cstat, nil
 }
 
-func (r *PhysRestore) getTSFromSyncFile(path string) (primitive.Timestamp, error) {
+func (r *PhysRestore) getTSFromSyncFile(path string) (bson.Timestamp, error) {
 	res, err := r.stg.SourceReader(path + "." + string(defs.StatusExtTS))
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get timestamp")
+		return bson.Timestamp{}, errors.Wrap(err, "get timestamp")
 	}
 	b, err := io.ReadAll(res)
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "read timestamp")
+		return bson.Timestamp{}, errors.Wrap(err, "read timestamp")
 	}
 	tsb := bytes.Split(b, []byte(":"))
 	if len(tsb) != 2 {
-		return primitive.Timestamp{}, errors.Errorf("wrong file format: %s", tsb)
+		return bson.Timestamp{}, errors.Errorf("wrong file format: %s", tsb)
 	}
 	tsparts := bytes.Split(tsb[1], []byte(","))
 	if len(tsparts) != 2 {
-		return primitive.Timestamp{}, errors.Errorf("wrong timestamp format: %s", tsparts)
+		return bson.Timestamp{}, errors.Errorf("wrong timestamp format: %s", tsparts)
 	}
 	ctsT, err := strconv.Atoi(string(tsparts[0]))
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "parse ts.T")
+		return bson.Timestamp{}, errors.Wrap(err, "parse ts.T")
 	}
 	ctsI, err := strconv.Atoi(string(tsparts[1]))
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "parse ts.I")
+		return bson.Timestamp{}, errors.Wrap(err, "parse ts.I")
 	}
 
-	return primitive.Timestamp{
+	return bson.Timestamp{
 		T: uint32(ctsT),
 		I: uint32(ctsI),
 	}, nil
@@ -1166,7 +1171,7 @@ func (r *PhysRestore) enableLogBuffWithOrdinal(logger log.Logger, ordinal int) {
 func (r *PhysRestore) Snapshot(
 	ctx context.Context,
 	cmd *ctrl.RestoreCmd,
-	pitr primitive.Timestamp,
+	pitr bson.Timestamp,
 	opid ctrl.OPID,
 	l log.LogEvent,
 	stopAgentC chan<- struct{},
@@ -1207,6 +1212,10 @@ func (r *PhysRestore) Snapshot(
 	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
 		return errors.Wrap(err, "init")
+	}
+
+	if cmd.NumParallelFiles != nil && *cmd.NumParallelFiles > 0 {
+		r.numParallelFiles = int(*cmd.NumParallelFiles)
 	}
 
 	if cmd.BackupName == "" && !cmd.External {
@@ -1438,7 +1447,7 @@ func (r *PhysRestore) prepareExtRestore(l log.LogEvent) (*topo.MongodOpts, error
 // It uses a few mongod restarts during that process.
 func (r *PhysRestore) patchSysData(
 	l log.LogEvent,
-	pitr primitive.Timestamp,
+	pitr bson.Timestamp,
 	oplogRanges []oplogRange,
 	stats *phys.RestoreShardStat,
 ) error {
@@ -1476,7 +1485,7 @@ func (r *PhysRestore) patchSysData(
 func (r *PhysRestore) patchSysDataExt(l log.LogEvent) error {
 	return r.patchSysData(
 		l,
-		primitive.Timestamp{},
+		bson.Timestamp{},
 		nil,
 		&phys.RestoreShardStat{},
 	)
@@ -1597,20 +1606,41 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	return nil
 }
 
-func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
-	var stat *storage.DownloadStat
-	defer func() {
-		if r.bcpStg.Type() != storage.S3 || r.bcpStg.Type() != storage.GCS {
-			// currently Downloader is only supported for S3 and GCS
-			return
-		}
-		s := r.bcpStg.DownloadStat()
-		stat = &s
-		r.log.Debug("download stat: %s", s)
-	}()
+// copyFileJob is all copy operations targeting one destination file, in the
+// order they must be applied: base backup first and then increments.
+// The main purpose is ability to execute jobs in parallel.
+// ops is empty for a directory-only entry which ensures dst's directory exists.
+type copyFileJob struct {
+	dst string
+	ops []copyOp
+}
 
-	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-	cpbuf := make([]byte, 32*1024)
+// copyOp is a single block/layer to write into a destination file.
+type copyOp struct {
+	src   string
+	fMeta backup.File
+	cmpr  compress.CompressionType
+}
+
+// planCopyFiles walks r.files in restore order (base -> target) and groups
+// every copy operation by its destination file. The grouping is what makes
+// parallel copying safe, across jobs the destinations differ so they don't race.
+func (r *PhysRestore) planCopyFiles(setName string) []copyFileJob {
+	var jobs []copyFileJob
+	idxByDst := make(map[string]int)
+
+	add := func(dst string, op *copyOp) {
+		idx, ok := idxByDst[dst]
+		if !ok {
+			idx = len(jobs)
+			idxByDst[dst] = idx
+			jobs = append(jobs, copyFileJob{dst: dst})
+		}
+		if op != nil {
+			jobs[idx].ops = append(jobs[idx].ops, *op)
+		}
+	}
+
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
@@ -1622,68 +1652,154 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 			}
 			dst := filepath.Join(r.dbpath, fname)
 
-			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create path %s", filepath.Dir(dst))
-			}
 			// if this is a directory, only ensure it is created.
 			if set.BcpName == bcpDir {
-				r.log.Info("create dir <%s>", filepath.Dir(f.Name))
+				add(dst, nil)
 				continue
 			}
 
-			r.log.Info("copy <%s> to <%s>", src, dst)
-			sr, err := r.bcpStg.SourceReader(src)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create source reader for <%s>", src)
-			}
-			defer sr.Close()
-
-			data, err := compress.Decompress(sr, set.Cmpr)
-			if err != nil {
-				return stat, errors.Wrapf(err, "decompress object %s", src)
-			}
-			defer data.Close()
-
-			fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, f.Fmode)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create/open destination file <%s>", dst)
-			}
-			defer fw.Close()
-
-			if f.Off != 0 {
-				_, err := fw.Seek(f.Off, io.SeekStart)
-				if err != nil {
-					return stat, errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
-				}
-			}
-
-			_, err = io.CopyBuffer(fw, data, cpbuf)
-			if err != nil {
-				return stat, errors.Wrapf(err, "copy file <%s>", dst)
-			}
-
-			if f.Size != 0 {
-				err = fw.Truncate(f.Size)
-				if err != nil {
-					return stat, errors.Wrapf(err, "truncate file <%s>|%d", dst, f.Size)
-				}
-			}
+			add(dst, &copyOp{src: src, fMeta: f, cmpr: set.Cmpr})
 		}
+	}
+
+	return jobs
+}
+
+func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
+	var stat *storage.DownloadStat
+	defer func() {
+		if r.bcpStg.Type() != storage.S3 &&
+			r.bcpStg.Type() != storage.GCS &&
+			r.bcpStg.Type() != storage.Minio &&
+			r.bcpStg.Type() != storage.OCI {
+			// download is not supported for the rest of providers
+			return
+		}
+		s := r.bcpStg.DownloadStat()
+		stat = &s
+		r.log.Debug("download stat: %s", s)
+	}()
+
+	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	jobs := r.planCopyFiles(setName)
+
+	numWorkers := r.GetNumParallelFiles()
+	if numWorkers > 1 {
+		r.log.Info("downloading data (%d files in parallel)", numWorkers)
+	}
+
+	bufLen := 32 * 1024 // original/default bufSize
+	if r.bufSize != 0 {
+		bufLen = r.bufSize
+	}
+	// each concurrent copy needs its own buffer
+	bufPool := make(chan []byte, numWorkers)
+	allBufs := make([]byte, numWorkers*bufLen)
+	for i := range numWorkers {
+		// preallocate buffer for each worker
+		bufPool <- allBufs[i*bufLen : (i+1)*bufLen : (i+1)*bufLen]
+	}
+
+	eg, egCtx := errgroup.WithContext(context.Background())
+	eg.SetLimit(min(numWorkers, len(jobs)))
+
+	for _, job := range jobs {
+		// stop processing once a copy has failed
+		if egCtx.Err() != nil {
+			break
+		}
+
+		eg.Go(func() error {
+			if err := os.MkdirAll(filepath.Dir(job.dst), os.ModeDir|0o700); err != nil {
+				return errors.Wrapf(err, "create path %s", filepath.Dir(job.dst))
+			}
+			// directory-only entry: nothing to copy.
+			if len(job.ops) == 0 {
+				r.log.Info("create dir <%s>", filepath.Dir(job.dst))
+				return nil
+			}
+
+			cpBuf := <-bufPool
+			defer func() { bufPool <- cpBuf }()
+
+			for _, op := range job.ops {
+				if err := egCtx.Err(); err != nil {
+					return err
+				}
+				if err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return stat, err
 	}
 	return stat, nil
 }
 
-func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
+// copyFile copies file from the storage into local FS.
+func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compress.CompressionType, cpbuf []byte) error {
+	r.log.Info("copy <%s> to <%s>", src, dst)
+	sr, err := r.bcpStg.SourceReader(src)
+	if err != nil {
+		return errors.Wrapf(err, "create source reader for <%s>", src)
+	}
+	defer sr.Close()
+
+	data, err := compress.Decompress(sr, cType)
+	if err != nil {
+		return errors.Wrapf(err, "decompress object %s", src)
+	}
+	defer data.Close()
+
+	fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, fMeta.Fmode)
+	if err != nil {
+		return errors.Wrapf(err, "create/open destination file <%s>", dst)
+	}
+	defer fw.Close()
+
+	if fMeta.Off != 0 {
+		_, err := fw.Seek(fMeta.Off, io.SeekStart)
+		if err != nil {
+			return errors.Wrapf(err, "set file offset <%s>|%d", dst, fMeta.Off)
+		}
+	}
+
+	if r.bufSize == 0 {
+		_, err = io.CopyBuffer(fw, data, cpbuf)
+	} else {
+		_, err = io.CopyBuffer(
+			struct{ io.Writer }{fw},
+			struct{ io.Reader }{data},
+			cpbuf,
+		)
+	}
+	if err != nil {
+		return errors.Wrapf(err, "copy file <%s>", dst)
+	}
+
+	if fMeta.Size != 0 {
+		err = fw.Truncate(fMeta.Size)
+		if err != nil {
+			return errors.Wrapf(err, "truncate file <%s>|%d", dst, fMeta.Size)
+		}
+	}
+	return nil
+}
+
+func (r *PhysRestore) getLasOpTime() (bson.Timestamp, error) {
 	err := r.startMongo("--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true")
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "start mongo")
+		return bson.Timestamp{}, errors.Wrap(err, "start mongo")
 	}
 
 	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "connect to mongo")
+		return bson.Timestamp{}, errors.Wrap(err, "connect to mongo")
 	}
 
 	ctx := context.TODO()
@@ -1694,13 +1810,13 @@ func (r *PhysRestore) getLasOpTime() (primitive.Timestamp, error) {
 		options.FindOne().SetSort(bson.D{{"ts", -1}}),
 	)
 	if res.Err() != nil {
-		return primitive.Timestamp{}, errors.Wrap(res.Err(), "get oplog entry")
+		return bson.Timestamp{}, errors.Wrap(res.Err(), "get oplog entry")
 	}
 	rb, err := res.Raw()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "decode oplog entry")
+		return bson.Timestamp{}, errors.Wrap(err, "decode oplog entry")
 	}
-	ts := primitive.Timestamp{}
+	ts := bson.Timestamp{}
 	var ok bool
 	ts.T, ts.I, ok = rb.Lookup("ts").TimestampOK()
 	if !ok {
@@ -1742,8 +1858,9 @@ func (r *PhysRestore) prepareData() error {
 		return errors.Wrap(err, "delete from system.replset")
 	}
 
-	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(ctx,
-		bson.M{"_id": primitive.NewObjectID(), "t": -1, "ts": primitive.Timestamp{0, 1}},
+	_, err = c.Database("local").Collection("replset.minvalid").InsertOne(
+		ctx,
+		bson.M{"_id": bson.NewObjectID(), "t": -1, "ts": bson.Timestamp{0, 1}},
 	)
 	if err != nil {
 		return errors.Wrap(err, "insert to replset.minvalid")
@@ -1779,7 +1896,7 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 	res := c.Database("admin").RunCommand(context.TODO(),
 		bson.D{{"shutdown", 1}, {"force", force}})
 	err := res.Err()
-	if err != nil && !strings.Contains(err.Error(), "socket was unexpectedly closed") {
+	if err != nil && !strings.Contains(err.Error(), "connection closed unexpectedly by the other side") {
 		return errors.Wrapf(err, "run shutdown (force: %v)", force)
 	}
 
@@ -1812,8 +1929,8 @@ func (r *PhysRestore) recoverStandaloneFromOplog() error {
 }
 
 func (r *PhysRestore) replayPITROnStandalone(
-	from primitive.Timestamp,
-	to primitive.Timestamp,
+	from bson.Timestamp,
+	to bson.Timestamp,
 	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
@@ -2086,8 +2203,8 @@ func (r *PhysRestore) getShardMapping(bcp *backup.BackupMeta) map[string]string 
 // pick the oldest ts and put it as the reples ts. And the cluster will
 // pick the oldest ts proposed by replsets. All comms done via storage. Similar
 // to the restore states with proposed ts in *.lastTS files.
-func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
-	var ts primitive.Timestamp
+func (r *PhysRestore) agreeCommonRestoreTS() (bson.Timestamp, error) {
+	var ts bson.Timestamp
 	cts, err := r.getLasOpTime()
 	if err != nil {
 		return ts, errors.Wrap(err, "define last op time")
@@ -2107,7 +2224,7 @@ func (r *PhysRestore) agreeCommonRestoreTS() (primitive.Timestamp, error) {
 		if err != nil {
 			return ts, errors.Wrap(err, "wait for shards timestamp")
 		}
-		var mints primitive.Timestamp
+		var mints bson.Timestamp
 		for sh := range r.syncPathShards {
 			ts, err := r.getTSFromSyncFile(sh)
 			if err != nil {
@@ -2151,9 +2268,9 @@ func (r *PhysRestore) setcommittedTxn(_ context.Context, txn []phys.RestoreTxn) 
 	return storage.RetryableWrite(r.stg, r.syncPathRS+".txn", b)
 }
 
-func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]primitive.Timestamp, error) {
+func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]bson.Timestamp, error) {
 	shards := maps.Clone(r.syncPathShards)
-	txn := make(map[string]primitive.Timestamp)
+	txn := make(map[string]bson.Timestamp)
 	for len(shards) > 0 {
 		for f := range shards {
 			dr, err := r.stg.FileStat(f + "." + string(defs.StatusDone))
@@ -2967,7 +3084,7 @@ type extDump struct {
 	Name      string
 	Opid      string
 	NodeInfo  *topo.NodeInfo
-	RestoreTS primitive.Timestamp
+	RestoreTS bson.Timestamp
 	ConfOpts  *config.RestoreConf
 	Mongod    string
 
@@ -3110,6 +3227,19 @@ func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
 		return nil, errors.Wrap(err, "unable to unmarshal mongod config file")
 	}
 	return mOpts, nil
+}
+
+// GetNumParallelFiles is the number of files to copy concurrently during
+// physical restore. Defaults to 1 (sequential) when unset in the config.
+func (r *PhysRestore) GetNumParallelFiles() int {
+	if r.bcpStg.Type() != storage.Filesystem {
+		// there's no parallelism for cloud storage on this level
+		return 1
+	}
+	if r.numParallelFiles > 0 {
+		return r.numParallelFiles
+	}
+	return r.confOpts.GetNumParallelFiles()
 }
 
 // physRestoreFromExtDump creates PhysRestore object from dump on the storage.

@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"os"
 	"testing"
@@ -12,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -151,7 +151,7 @@ func (tenv *TestEnvironment) resetMongo(ctx context.Context) error {
 
 	// drop PBM collections
 	db := mongo.Database(defs.DB)
-	pbmColFilter := bson.D{{Key: "name", Value: primitive.Regex{Pattern: "^pbm"}}}
+	pbmColFilter := bson.D{{Key: "name", Value: bson.Regex{Pattern: "^pbm"}}}
 	collections, err := db.ListCollectionNames(ctx, pbmColFilter)
 	if err != nil {
 		return err
@@ -203,6 +203,16 @@ func TempStorageProfile(t *testing.T, name string) Storage {
 var TestEnv *TestEnvironment
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	benchFlag := flag.Lookup("test.bench")
+	benchOnly := benchFlag != nil && benchFlag.Value.String() != ""
+
+	if benchOnly {
+		// Do not run testcontainers for bench type of tests.
+		// This allows running bench on test/staging/prod systems,
+		// where docker is not present.
+		os.Exit(m.Run())
+	}
 	TestEnv = &TestEnvironment{}
 	ctx := context.Background()
 
@@ -218,8 +228,7 @@ func TestMain(m *testing.M) {
 		}
 	}()
 
-	code := m.Run()
-	os.Exit(code)
+	os.Exit(m.Run())
 }
 
 type bcp struct {
@@ -239,7 +248,7 @@ func insertTestBcpMeta(t *testing.T, env *TestEnvironment, stg Storage, b bcp) B
 
 	meta := BackupMeta{
 		Type:           b.BcpType,
-		OPID:           ctrl.OPID(primitive.NilObjectID).String(),
+		OPID:           ctrl.OPID(bson.NilObjectID).String(),
 		Name:           b.Name,
 		Namespaces:     make([]string, 0),
 		Compression:    compress.CompressionTypeS2,
@@ -247,13 +256,13 @@ func insertTestBcpMeta(t *testing.T, env *TestEnvironment, stg Storage, b bcp) B
 		StartTS:        time.Now().Unix(),
 		Status:         defs.StatusDone,
 		Replsets:       []BackupReplset{},
-		LastWriteTS:    primitive.Timestamp{T: uint32(b.LWT.Unix())},
-		FirstWriteTS:   primitive.Timestamp{T: uint32(firstWrite.Unix())},
+		LastWriteTS:    bson.Timestamp{T: uint32(b.LWT.Unix())},
+		FirstWriteTS:   bson.Timestamp{T: uint32(firstWrite.Unix())},
 		PBMVersion:     version.Current().Version,
 		MongoVersion:   env.Brief.Version.String(),
 		Nomination:     []BackupRsNomination{},
 		BalancerStatus: topo.BalancerModeOff,
-		Hb:             primitive.Timestamp{T: uint32(b.LWT.Unix())},
+		Hb:             bson.Timestamp{T: uint32(b.LWT.Unix())},
 	}
 
 	_, err := env.Client.BcpCollection().InsertOne(t.Context(), meta)

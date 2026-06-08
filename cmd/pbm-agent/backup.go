@@ -128,6 +128,9 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 	bcp.SetMongoVersion(a.brief.Version.VersionString)
 	bcp.SetSlicerInterval(cfg.BackupSlicerInterval())
 	bcp.SetTimeouts(cfg.Backup.Timeouts)
+	if cmd.NumParallelFiles != nil {
+		bcp.SetNumParallelFiles(int(*cmd.NumParallelFiles))
+	}
 
 	if isClusterLeader {
 		balancer := topo.BalancerModeOff

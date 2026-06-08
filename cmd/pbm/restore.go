@@ -11,8 +11,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -58,7 +57,9 @@ type restoreOpts struct {
 	allowPartlyDone *bool
 
 	numParallelColls    int32
+	numParallelFiles    int32
 	numInsertionWorkers int32
+	indexCommitQuorum   string
 }
 
 type restoreRet struct {
@@ -125,13 +126,21 @@ func runRestore(
 	node string,
 	outf outFormat,
 ) (fmt.Stringer, error) {
-	numParallelColls, err := parseCLINumParallelCollsOption(o.numParallelColls)
+	numParallelColls, err := parseCLINumParallelOption(o.numParallelColls)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
+	}
+	numParallelFiles, err := parseCLINumParallelOption(o.numParallelFiles)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-parallel-files option")
 	}
 	numInsertionWorkers, err := parseCLINumInsertionWorkersOption(o.numInsertionWorkers)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --num-insertion-workers option")
+	}
+	indexCommitQuorum, err := parseCLIIndexCommitQuorumOption(o.indexCommitQuorum)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --index-commit-quorum option")
 	}
 	nss, err := parseCLINSOption(o.ns)
 	if err != nil {
@@ -180,7 +189,19 @@ func runRestore(
 		return nil, errors.Wrap(err, "get storage")
 	}
 
-	m, err := doRestore(ctx, conn, o, numParallelColls, numInsertionWorkers, nss, o.nsFrom, o.nsTo, rsMap)
+	m, err := doRestore(
+		ctx,
+		conn,
+		o,
+		numParallelColls,
+		numParallelFiles,
+		numInsertionWorkers,
+		indexCommitQuorum,
+		nss,
+		o.nsFrom,
+		o.nsTo,
+		rsMap,
+	)
 	if err != nil {
 		if errors.Is(err, errUserCanceled) {
 			return outMsg{err.Error()}, nil
@@ -387,13 +408,13 @@ func checkBackup(
 			return "", "", errors.Errorf("backup '%s' not found", b)
 		}
 	} else {
-		var ts primitive.Timestamp
+		var ts bson.Timestamp
 		ts, err = parseTS(o.pitr)
 		if err != nil {
 			return "", "", errors.Wrap(err, "parse pitr")
 		}
 
-		bcp, err = backup.GetLastBackup(ctx, conn, &primitive.Timestamp{T: ts.T + 1, I: 0})
+		bcp, err = backup.GetLastBackup(ctx, conn, &bson.Timestamp{T: ts.T + 1, I: 0})
 		if errors.Is(err, errors.ErrNotFound) {
 			return "", "", errors.New("no base snapshot found")
 		}
@@ -444,7 +465,9 @@ func doRestore(
 	conn connect.Client,
 	o *restoreOpts,
 	numParallelColls *int32,
+	numParallelFiles *int32,
 	numInsertionWorkers *int32,
+	indexCommitQuorum config.IndexCommitQuorum,
 	nss []string,
 	nsFrom string,
 	nsTo string,
@@ -470,7 +493,9 @@ func doRestore(
 			Name:                name,
 			BackupName:          bcp,
 			NumParallelColls:    numParallelColls,
+			NumParallelFiles:    numParallelFiles,
 			NumInsertionWorkers: numInsertionWorkers,
+			IndexCommitQuorum:   indexCommitQuorum,
 			Namespaces:          nss,
 			NamespaceFrom:       nsFrom,
 			NamespaceTo:         nsTo,
@@ -561,8 +586,8 @@ func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
 	return msg, err
 }
 
-func parseTS(t string) (primitive.Timestamp, error) {
-	var ts primitive.Timestamp
+func parseTS(t string) (bson.Timestamp, error) {
+	var ts bson.Timestamp
 	if si := strings.SplitN(t, ",", 2); len(si) == 2 {
 		tt, err := strconv.ParseInt(si[0], 10, 64)
 		if err != nil {
@@ -573,7 +598,7 @@ func parseTS(t string) (primitive.Timestamp, error) {
 			return ts, errors.Wrap(err, "parse clusterTime I")
 		}
 
-		return primitive.Timestamp{T: uint32(tt), I: uint32(ti)}, nil
+		return bson.Timestamp{T: uint32(tt), I: uint32(ti)}, nil
 	}
 
 	tsto, err := parseDateT(t)
@@ -581,7 +606,7 @@ func parseTS(t string) (primitive.Timestamp, error) {
 		return ts, errors.Wrap(err, "parse date")
 	}
 
-	return primitive.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
+	return bson.Timestamp{T: uint32(tsto.Unix()), I: 0}, nil
 }
 
 type getRestoreMetaFn func(ctx context.Context, conn connect.Client, name string) (*restore.RestoreMeta, error)
@@ -755,7 +780,7 @@ func describeRestore(
 			return nil, errors.Wrap(err, "get storage")
 		}
 		meta, err = restore.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
-			NewEvent("", "", "", primitive.Timestamp{}))
+			NewEvent("", "", "", bson.Timestamp{}))
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}
@@ -896,4 +921,17 @@ func parseCLINumInsertionWorkersOption(value int32) (*int32, error) {
 	}
 
 	return &value, nil
+}
+
+func parseCLIIndexCommitQuorumOption(value string) (config.IndexCommitQuorum, error) {
+	if value == "" {
+		return "", nil
+	}
+
+	q := config.IndexCommitQuorum(value)
+	if err := config.ValidateIndexCommitQuorum(q); err != nil {
+		return "", err
+	}
+
+	return q, nil
 }

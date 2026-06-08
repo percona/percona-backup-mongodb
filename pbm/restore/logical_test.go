@@ -8,10 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	pbmlog "github.com/percona/percona-backup-mongodb/pbm/log"
@@ -214,6 +216,42 @@ func TestResolveNamespace(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestShouldRetryWithDefaultIndexCommitQuorum(t *testing.T) {
+	tests := []struct {
+		name         string
+		err          error
+		commitQuorum any
+		want         bool
+	}{
+		{name: "nil error", err: nil, commitQuorum: int32(3), want: false},
+		{
+			name:         "numeric unsatisfiable quorum",
+			err:          mongo.CommandError{Code: mongoErrUnsatisfiableCommitQuorum},
+			commitQuorum: int32(3),
+			want:         true,
+		},
+		{
+			name:         "string unsatisfiable quorum",
+			err:          mongo.CommandError{Code: mongoErrUnsatisfiableCommitQuorum},
+			commitQuorum: string(config.IndexCommitQuorumVotingMembers),
+			want:         false,
+		},
+		{
+			name:         "numeric other command error",
+			err:          mongo.CommandError{Code: 9},
+			commitQuorum: int32(3),
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldRetryWithDefaultIndexCommitQuorum(tt.err, tt.commitQuorum)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestShouldRestoreUsersAndRoles(t *testing.T) {
@@ -757,7 +795,7 @@ func createCleanupRestoreTest(t *testing.T, setName string) (*Restore, *mockMDB)
 			SetName: setName,
 			Sharded: true,
 		},
-		nil, nil, 1, 1)
+		nil, nil, 1, 1, config.DefaultRestoreIndexCommitQuorum)
 	restore.log = pbmlog.DiscardEvent
 	restore.nodeInfo = &topo.NodeInfo{
 		SetName:           setName,
@@ -792,8 +830,8 @@ func createConfigDatabasesDoc(t *testing.T, dbName, primaryShard string) error {
 		{"_id", dbName},
 		{"primary", primaryShard},
 		{"version", bson.D{
-			{"uuid", primitive.Binary{Subtype: 0x04, Data: []byte("test-uuid")}},
-			{"timestamp", primitive.Timestamp{T: 1, I: 0}},
+			{"uuid", bson.Binary{Subtype: 0x04, Data: []byte("test-uuid")}},
+			{"timestamp", bson.Timestamp{T: 1, I: 0}},
 			{"lastMod", int64(1)},
 		}},
 	}

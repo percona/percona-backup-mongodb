@@ -16,11 +16,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/mongodb/mongo-tools/common"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/intents"
 	"github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/util"
-	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // DemuxOut is a Demultiplexer output consumer
@@ -44,7 +45,6 @@ type Demultiplexer struct {
 	outs             map[string]DemuxOut
 	lengths          map[string]int64
 	currentNamespace string
-	buf              [db.MaxBSONSize]byte
 
 	// NamespaceChan is used to send a namespace to a consumer of namespaces.
 	NamespaceChan chan string
@@ -57,7 +57,12 @@ type Demultiplexer struct {
 	IsAtlasProxy    bool
 }
 
-func CreateDemux(namespaceMetadatas []*CollectionMetadata, in io.Reader, isAtlasProxy bool) *Demultiplexer {
+func CreateDemux(
+	version db.Version,
+	namespaceMetadatas []*CollectionMetadata,
+	in io.Reader,
+	isAtlasProxy bool,
+) *Demultiplexer {
 	demux := &Demultiplexer{
 		NamespaceStatus: make(map[string]int),
 		In:              in,
@@ -70,8 +75,9 @@ func CreateDemux(namespaceMetadatas []*CollectionMetadata, in io.Reader, isAtlas
 		}
 
 		var ns string
-		if cm.Type == "timeseries" {
-			ns = cm.Database + ".system.buckets." + cm.Collection
+		if cm.Type == "timeseries" && !version.SupportsRawData() {
+			// 8.3+ supports viewless timeseries.
+			ns = cm.Database + "." + common.TimeseriesBucketPrefix + cm.Collection
 		} else {
 			ns = cm.Database + "." + cm.Collection
 		}
@@ -80,7 +86,7 @@ func CreateDemux(namespaceMetadatas []*CollectionMetadata, in io.Reader, isAtlas
 	return demux
 }
 
-// Run creates and runs a parser with the Demultiplexer as a consumer
+// Run creates and runs a parser with the Demultiplexer as a consumer.
 func (demux *Demultiplexer) Run() error {
 	parser := Parser{In: demux.In}
 	err := parser.ReadAllBlocks(demux)
@@ -106,14 +112,14 @@ func (pe *demuxError) Error() string {
 	return err
 }
 
-// newError creates a demuxError with just a message
+// newError creates a demuxError with just a message.
 func newError(msg string) error {
 	return &demuxError{
 		Msg: msg,
 	}
 }
 
-// newWrappedError creates a demuxError with a message as well as an underlying cause error
+// newWrappedError creates a demuxError with a message as well as an underlying cause error.
 func newWrappedError(msg string, err error) error {
 	return &demuxError{
 		Err: err,
@@ -166,29 +172,28 @@ func (demux *Demultiplexer) HeaderBSON(buf []byte) error {
 		}
 		demux.outs[demux.currentNamespace].End()
 		demux.NamespaceStatus[demux.currentNamespace] = NamespaceClosed
-		length := int64(demux.lengths[demux.currentNamespace])
-		crcUInt64, ok := demux.outs[demux.currentNamespace].Sum64()
+		length := demux.lengths[demux.currentNamespace]
+		crc, ok := demux.outs[demux.currentNamespace].Sum64()
 		if ok {
-			crc := int64(crcUInt64)
 			if crc != colHeader.CRC {
-				return fmt.Errorf("CRC mismatch for namespace %v, %v!=%v",
+				return fmt.Errorf("CRC mismatch for namespace %#q, %v!=%v",
 					demux.currentNamespace,
 					crc,
 					colHeader.CRC,
 				)
 			}
 			log.Logvf(log.DebugHigh,
-				"demux checksum for namespace %v is correct (%v), %v bytes",
+				"demux checksum for namespace %#q is correct (%v), %v bytes",
 				demux.currentNamespace, crc, length)
 		} else {
 			log.Logvf(log.DebugHigh,
-				"demux checksum for namespace %v was not calculated.",
+				"demux checksum for namespace %#q was not calculated.",
 				demux.currentNamespace)
 		}
 		delete(demux.outs, demux.currentNamespace)
 		delete(demux.lengths, demux.currentNamespace)
 		// in case we get a BSONBody with this block,
-		// we want to ensure that that causes an error
+		// we want to ensure that this causes an error
 		demux.currentNamespace = ""
 	}
 	return nil
@@ -207,11 +212,16 @@ func (demux *Demultiplexer) End() error {
 			}
 			demux.outs[ns].End()
 		}
-		err = newError(fmt.Sprintf("archive finished but contained files were unfinished (%v)", openNss))
+		err = newError(
+			fmt.Sprintf(
+				"archive finished but contained files were unfinished (%v)",
+				util.QuoteAndJoin(openNss, ", "),
+			),
+		)
 	} else {
 		for ns, status := range demux.NamespaceStatus {
 			if status != NamespaceClosed {
-				err = newError(fmt.Sprintf("archive finished before all collections were seen (%v)", ns))
+				err = newError(fmt.Sprintf("archive finished before all collections were seen (%#q)", ns))
 			}
 		}
 	}
@@ -245,13 +255,13 @@ func (demux *Demultiplexer) BodyBSON(buf []byte) error {
 	return err
 }
 
-// Open installs the DemuxOut as the handler for data for the namespace ns
+// Open installs the DemuxOut as the handler for data for the namespace ns.
 func (demux *Demultiplexer) Open(ns string, out DemuxOut) {
 	// In the current implementation where this is either called before the demultiplexing is running
 	// or while the demutiplexer is inside of the NamespaceChan NamespaceErrorChan conversation
 	// I think that we don't need to lock outs, but I suspect that if the implementation changes
 	// we may need to lock when outs is accessed
-	log.Logvf(log.DebugHigh, "demux Open for %s", ns)
+	log.Logvf(log.DebugHigh, "demux Open for %#q", ns)
 	if demux.outs == nil {
 		demux.outs = make(map[string]DemuxOut)
 		demux.lengths = make(map[string]int64)
@@ -281,7 +291,7 @@ func (receiver *RegularCollectionReceiver) Sum64() (uint64, bool) {
 	return receiver.hash.Sum64(), true
 }
 
-// Read() runs in the restoring goroutine
+// Read() runs in the restoring goroutine.
 func (receiver *RegularCollectionReceiver) Read(r []byte) (int, error) {
 	if receiver.partialReadBuf != nil && len(receiver.partialReadBuf) > 0 {
 		wLen := len(receiver.partialReadBuf)
@@ -333,7 +343,7 @@ func (receiver *RegularCollectionReceiver) Pos() int64 {
 
 // Open is part of the intents.file interface.  It creates the chan's in the
 // RegularCollectionReceiver and adds the RegularCollectionReceiver to the set of
-// RegularCollectionReceivers in the demultiplexer
+// RegularCollectionReceivers in the demultiplexer.
 func (receiver *RegularCollectionReceiver) Open() error {
 	// TODO move this implementation to some non intents.file method, to be called from prioritizer.Get
 	// So that we don't have to enable this double open stuff.
@@ -386,7 +396,7 @@ func (receiver *RegularCollectionReceiver) Write(buf []byte) (int, error) {
 
 // Close is part of the DemuxOut as well as the intents.file interface. It only closes the readLenChan, as that is what will
 // cause the RegularCollectionReceiver.Read() to receive EOF
-// Close will get called twice, once in the demultiplexer, and again when the restore goroutine is done with its intent.file
+// Close will get called twice, once in the demultiplexer, and again when the restore goroutine is done with its intent.file.
 func (receiver *RegularCollectionReceiver) Close() error {
 	// Close must be idempotent and repeat channel closes panic; only do once.
 	receiver.closeOnce.Do(func() {
@@ -406,7 +416,7 @@ func (receiver *RegularCollectionReceiver) End() {
 	<-receiver.readBufChan
 }
 
-// SpecialCollectionCache implements both DemuxOut as well as intents.file
+// SpecialCollectionCache implements both DemuxOut as well as intents.file.
 type SpecialCollectionCache struct {
 	pos    int64 // updated atomically, aligned at the beginning of the struct
 	Intent *intents.Intent
@@ -415,7 +425,10 @@ type SpecialCollectionCache struct {
 	hash   hash.Hash64
 }
 
-func NewSpecialCollectionCache(intent *intents.Intent, demux *Demultiplexer) *SpecialCollectionCache {
+func NewSpecialCollectionCache(
+	intent *intents.Intent,
+	demux *Demultiplexer,
+) *SpecialCollectionCache {
 	return &SpecialCollectionCache{
 		Intent: intent,
 		Demux:  demux,
@@ -423,12 +436,12 @@ func NewSpecialCollectionCache(intent *intents.Intent, demux *Demultiplexer) *Sp
 	}
 }
 
-// Open is part of the both interfaces, and it does nothing
+// Open is part of the both interfaces, and it does nothing.
 func (cache *SpecialCollectionCache) Open() error {
 	return nil
 }
 
-// Close is part of the intents.file interface, and does nothing
+// Close is part of the intents.file interface, and does nothing.
 func (cache *SpecialCollectionCache) Close() error {
 	return nil
 }
@@ -450,6 +463,7 @@ func (cache *SpecialCollectionCache) Pos() int64 {
 }
 
 func (cache *SpecialCollectionCache) Write(b []byte) (int, error) {
+	// Writes to the hash never return an error.
 	cache.hash.Write(b)
 	return cache.buf.Write(b)
 }
@@ -459,24 +473,24 @@ func (cache *SpecialCollectionCache) Sum64() (uint64, bool) {
 }
 
 // MutedCollection implements both DemuxOut as well as intents.file. It serves as a way to
-// let the demutiplexer ignore certain embedded streams
+// let the demutiplexer ignore certain embedded streams.
 type MutedCollection struct {
 	Intent *intents.Intent
 	Demux  *Demultiplexer
 }
 
-// Read is part of the intents.file interface, and does nothing
+// Read is part of the intents.file interface, and does nothing.
 func (*MutedCollection) Read([]byte) (int, error) {
 	// Read is part of the intents.file interface, and does nothing
 	return 0, io.EOF
 }
 
-// Write is part of the intents.file interface, and does nothing
+// Write is part of the intents.file interface, and does nothing.
 func (*MutedCollection) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// Close is part of the intents.file interface, and does nothing
+// Close is part of the intents.file interface, and does nothing.
 func (*MutedCollection) Close() error {
 	return nil
 }
@@ -484,19 +498,19 @@ func (*MutedCollection) Close() error {
 // End is part of the DemuxOut interface and does nothing.
 func (*MutedCollection) End() {}
 
-// Open is part of the intents.file interface, and does nothing
+// Open is part of the intents.file interface, and does nothing.
 func (*MutedCollection) Open() error {
 	return nil
 }
 
-// Sum64 is part of the DemuxOut interface
+// Sum64 is part of the DemuxOut interface.
 func (*MutedCollection) Sum64() (uint64, bool) {
 	return 0, false
 }
 
 //===== Archive Manager Prioritizer =====
 
-// NewPrioritizer creates a new Prioritizer and hooks up its Namespace channels to the ones in demux
+// NewPrioritizer creates a new Prioritizer and hooks up its Namespace channels to the ones in demux.
 func (demux *Demultiplexer) NewPrioritizer(mgr *intents.Manager) *Prioritizer {
 	return &Prioritizer{
 		NamespaceChan:      demux.NamespaceChan,
@@ -506,27 +520,29 @@ func (demux *Demultiplexer) NewPrioritizer(mgr *intents.Manager) *Prioritizer {
 }
 
 // Prioritizer is a completely reactive prioritizer
-// Intents are handed out as they arrive in the archive
+// Intents are handed out as they arrive in the archive.
 type Prioritizer struct {
 	NamespaceChan      <-chan string
 	NamespaceErrorChan chan<- error
 	mgr                *intents.Manager
 }
 
-// Get waits for a new namespace from the NamespaceChan, and returns a Intent found for it
+// Get waits for a new namespace from the NamespaceChan, and returns a Intent found for it.
 func (prioritizer *Prioritizer) Get() *intents.Intent {
 	namespace, ok := <-prioritizer.NamespaceChan
 	if !ok {
 		return nil
 	}
 	destDB, destC := util.SplitNamespace(namespace)
-	namespace = destDB + "." + strings.TrimPrefix(destC, "system.buckets.")
+	namespace = destDB + "." + strings.TrimPrefix(destC, common.TimeseriesBucketPrefix)
 	intent := prioritizer.mgr.IntentForNamespace(namespace)
 	if intent == nil {
-		prioritizer.NamespaceErrorChan <- fmt.Errorf("no intent for namespace %v", namespace)
+		prioritizer.NamespaceErrorChan <- fmt.Errorf("no intent for namespace %#q", namespace)
 	} else {
 		if intent.BSONFile != nil {
-			intent.BSONFile.Open()
+			if err := intent.BSONFile.Open(); err != nil {
+				prioritizer.NamespaceErrorChan <- fmt.Errorf("error opening BSON file for %#q: %v", intent.Namespace(), err)
+			}
 		}
 		if intent.IsOplog() {
 			// once we see the oplog we
@@ -540,7 +556,7 @@ func (prioritizer *Prioritizer) Get() *intents.Intent {
 	return intent
 }
 
-// Finish is part of the IntentPrioritizer interface, and does nothing
+// Finish is part of the IntentPrioritizer interface, and does nothing.
 func (prioritizer *Prioritizer) Finish(*intents.Intent) {
 	// no-op
 	return

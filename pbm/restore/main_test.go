@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"testing"
@@ -15,6 +16,17 @@ import (
 var leadConn connect.Client
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	benchFlag := flag.Lookup("test.bench")
+	benchOnly := benchFlag != nil && benchFlag.Value.String() != ""
+
+	if benchOnly {
+		// Do not run testcontainers for bench type of tests.
+		// This allows running bench on test/staging/prod systems,
+		// where docker is not present.
+		os.Exit(m.Run())
+	}
+
 	ctx := context.Background()
 	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:8.0.4-multi")
 	if err != nil {

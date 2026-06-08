@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -342,6 +342,6 @@ func GetRestoreMetaStg(cfgPath, node string) (storage.Storage, error) {
 		return nil, errors.Wrap(err, "unable to unmarshal config file")
 	}
 
-	l := log.New(nil, "cli", "").NewEvent("", "", "", primitive.Timestamp{})
+	l := log.New(nil, "cli", "").NewEvent("", "", "", bson.Timestamp{})
 	return util.StorageFromConfig(&cfg.Storage, node, l)
 }

@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"maps"
+	"sync/atomic"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -37,9 +38,10 @@ const (
 )
 
 type currentPitr struct {
-	slicer *slicer.Slicer
-	w      chan ctrl.OPID // to wake up a slicer on demand (not to wait for the tick)
-	cancel context.CancelFunc
+	slicer      *slicer.Slicer
+	w           chan ctrl.OPID // to wake up a slicer on demand (not to wait for the tick)
+	bcpWakeSent atomic.Bool
+	cancel      context.CancelFunc
 }
 
 func (a *Agent) setPitr(p *currentPitr) {
@@ -154,7 +156,9 @@ func (a *Agent) sliceNow(opid ctrl.OPID) {
 		return
 	}
 
-	a.pitrjob.w <- opid
+	if opid == ctrl.NilOPID || a.pitrjob.bcpWakeSent.CompareAndSwap(false, true) {
+		a.pitrjob.w <- opid
+	}
 }
 
 // PITR starts PITR processing routine
@@ -165,7 +169,7 @@ func (a *Agent) PITR(ctx context.Context) {
 	for {
 		select {
 		case <-a.closeCMD:
-			l.Debug(string(ctrl.CmdPITR), "", "", primitive.Timestamp{}, "stopping main loop")
+			l.Debug(string(ctrl.CmdPITR), "", "", bson.Timestamp{}, "stopping main loop")
 			return
 		default:
 		}

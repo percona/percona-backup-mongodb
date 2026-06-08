@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -49,9 +49,9 @@ const (
 )
 
 type RestoreTxn struct {
-	ID    string              `bson:"id" json:"id"`
-	Ctime primitive.Timestamp `bson:"ts" json:"ts"` // commit timestamp of the transaction
-	State TxnState            `bson:"state" json:"state"`
+	ID    string         `bson:"id" json:"id"`
+	Ctime bson.Timestamp `bson:"ts" json:"ts"` // commit timestamp of the transaction
+	State TxnState       `bson:"state" json:"state"`
 }
 
 func (t RestoreTxn) Encode() []byte {
@@ -73,7 +73,7 @@ func (t *RestoreTxn) Decode(b []byte) error {
 					return errors.Wrap(err, "parse clusterTime I")
 				}
 
-				t.Ctime = primitive.Timestamp{T: uint32(tt), I: uint32(ti)}
+				t.Ctime = bson.Timestamp{T: uint32(tt), I: uint32(ti)}
 			}
 		case 2:
 			t.ID = string(v)

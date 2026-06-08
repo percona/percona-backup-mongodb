@@ -6,10 +6,9 @@ import (
 	"math/rand"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -172,7 +171,7 @@ type Counter struct {
 	Count     int
 	WallTime  time.Time
 	ID        interface{}
-	WriteTime primitive.Timestamp
+	WriteTime bson.Timestamp
 }
 
 func (c Counter) String() string {
@@ -264,13 +263,13 @@ func (m *Mongo) GetNodeInfo() (*topo.NodeInfo, error) {
 	return inf, nil
 }
 
-func (m *Mongo) GetLastWrite() (primitive.Timestamp, error) {
+func (m *Mongo) GetLastWrite() (bson.Timestamp, error) {
 	inf, err := m.GetNodeInfo()
 	if err != nil {
-		return primitive.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
+		return bson.Timestamp{}, errors.Wrap(err, "get NodeInfo data")
 	}
 	if inf.LastWrite.MajorityOpTime.TS.T == 0 {
-		return primitive.Timestamp{}, errors.New("timestamp is nil")
+		return bson.Timestamp{}, errors.New("timestamp is nil")
 	}
 	return inf.LastWrite.OpTime.TS, nil
 }

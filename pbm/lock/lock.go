@@ -4,9 +4,8 @@ import (
 	"context"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -24,12 +23,12 @@ type LockHeader struct {
 	OPID    string       `bson:"opid,omitempty" json:"opid,omitempty"`
 	// should be a pointer so mongo find with empty epoch would work
 	// otherwise it always set it at least to "epoch":{"$timestamp":{"t":0,"i":0}}
-	Epoch *primitive.Timestamp `bson:"epoch,omitempty" json:"epoch,omitempty"`
+	Epoch *bson.Timestamp `bson:"epoch,omitempty" json:"epoch,omitempty"`
 }
 
 type LockData struct {
 	LockHeader `bson:",inline"`
-	Heartbeat  primitive.Timestamp `bson:"hb"` // separated in order the lock can be searchable by the header
+	Heartbeat  bson.Timestamp `bson:"hb"` // separated in order the lock can be searchable by the header
 }
 
 // Lock is a lock for the PBM operation (e.g. backup, restore)
@@ -126,7 +125,7 @@ func (l *Lock) log(ctx context.Context) error {
 	// PITR slicing technically speaking is not an OP but
 	// long standing process. It souldn't be logged. Moreover
 	// having no opid it would block all subsequent PITR events.
-	if l.LockHeader.Type == ctrl.CmdPITR {
+	if l.Type == ctrl.CmdPITR {
 		return nil
 	}
 

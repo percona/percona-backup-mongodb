@@ -1,15 +1,13 @@
 package log
 
-import (
-	"go.mongodb.org/mongo-driver/bson/primitive"
-)
+import "go.mongodb.org/mongo-driver/v2/bson"
 
 // eventImpl provides logging for some event (backup, restore)
 type eventImpl struct {
 	l    *loggerImpl
 	typ  string
 	obj  string
-	ep   primitive.Timestamp
+	ep   bson.Timestamp
 	opid string
 }
 

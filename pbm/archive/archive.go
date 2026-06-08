@@ -7,8 +7,8 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/archive"
 	"github.com/mongodb/mongo-tools/common/db"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -224,7 +224,7 @@ func closeChunk(w io.Writer, ns *Namespace) error {
 		Database:   ns.Database,
 		Collection: ns.Collection,
 		EOF:        true,
-		CRC:        ns.CRC,
+		CRC:        uint64(ns.CRC), //nolint:gosec
 	}
 	if ns.Type == "timeseries" {
 		nsHeader.Collection = "system.buckets." + nsHeader.Collection
