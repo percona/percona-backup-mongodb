@@ -9,7 +9,11 @@ import (
 	"github.com/spf13/viper"
 )
 
-const mongoConnFlag = "mongodb-uri"
+const (
+	mongoConnFlag   = "mongodb-uri"
+	ctrlAgentFlag   = "ctrl-agent"
+	workerAgentFlag = "worker-agent"
+)
 
 func main() {
 	rootCmd := rootCommand()
@@ -60,4 +64,12 @@ func setRootFlags(rootCmd *cobra.Command) {
 	rootCmd.PersistentFlags().String(mongoConnFlag, "", "MongoDB connection string")
 	_ = viper.BindPFlag(mongoConnFlag, rootCmd.PersistentFlags().Lookup(mongoConnFlag))
 	_ = viper.BindEnv(mongoConnFlag, "PBM_MONGODB_URI")
+
+	rootCmd.PersistentFlags().Bool(ctrlAgentFlag, false, "Run as a control agent (additionally manages control collections)")
+	_ = viper.BindPFlag(ctrlAgentFlag, rootCmd.PersistentFlags().Lookup(ctrlAgentFlag))
+
+	rootCmd.PersistentFlags().Bool(workerAgentFlag, false, "Run as a worker agent (performs backup/restore)")
+	_ = viper.BindPFlag(workerAgentFlag, rootCmd.PersistentFlags().Lookup(workerAgentFlag))
+
+	rootCmd.MarkFlagsMutuallyExclusive(ctrlAgentFlag, workerAgentFlag)
 }
