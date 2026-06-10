@@ -1205,6 +1205,12 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				o.indexCatalog.SetCollation(dbName, collName, true)
 			}
 
+			// MongoDB 8.3 create oplog entries may include physical local-catalog
+			// metadata in o2, such as storage idents. PBM is about to force a
+			// drop/recreate, so keep logical data in o and ui, and let MongoDB
+			// allocate fresh physical metadata.
+			op.Query = nil
+
 			op2 := op
 			op2.Object = bson.D{{"drop", collName}}
 			if err := o.handleNonTxnOp(op2); err != nil {

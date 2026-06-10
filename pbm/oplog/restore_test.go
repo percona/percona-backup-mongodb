@@ -14,6 +14,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -66,9 +67,51 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 		invParams["cmd"] = oe.Object[0].Key
 		invParams["coll"] = oe.Object[0].Value.(string)
 	}
+	if len(oe.Query) > 0 {
+		invParams["o2"] = "1"
+	}
 	d.applyOpsInv = append(d.applyOpsInv, invParams)
 
 	return nil
+}
+
+func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
+	db := newMDBTestClient()
+	oRestore := newOplogRestoreTest(db)
+
+	uuid := bson.Binary{Subtype: 0x04, Data: []byte{1, 2, 3, 4}}
+	op := dbOplogCreateWithO2(uuid)
+
+	err := oRestore.handleNonTxnOp(op)
+	require.NoError(t, err)
+	require.Len(t, db.applyOpsInv, 2)
+
+	wantCmds := []string{"drop", "create"}
+	for i, want := range wantCmds {
+		require.Equal(t, want, db.applyOpsInv[i]["cmd"])
+		require.Empty(t, db.applyOpsInv[i]["o2"])
+	}
+}
+
+func dbOplogCreateWithO2(uuid bson.Binary) db.Oplog {
+	return db.Oplog{
+		Operation: "c",
+		Namespace: "mydb.$cmd",
+		UI:        &uuid,
+		Object: bson.D{
+			{"create", "c1"},
+			{"idIndex", bson.D{
+				{"v", int32(2)},
+				{"key", bson.D{{"_id", int32(1)}}},
+				{"name", "_id_"},
+			}},
+		},
+		Query: bson.D{
+			{"catalogId", int64(1)},
+			{"ident", "collection-ident"},
+			{"idIndexIdent", "index-ident"},
+		},
+	}
 }
 
 func TestIsOpForCloning(t *testing.T) {
