@@ -1,4 +1,4 @@
-package main
+package pbm
 
 import (
 	"context"
@@ -8,8 +8,9 @@ import (
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
-// runCtrlAgent starts the control agent
-func runCtrlAgent(ctx context.Context, dataDir string) error {
+// RunCtrlAgent starts the control agent: it brings up embedded etcd and blocks
+// until ctx is cancelled or the server reports a fatal error.
+func RunCtrlAgent(ctx context.Context, dataDir string) error {
 	etcdSrv, err := startEmbeddedEtcd(ctx, dataDir)
 	if err != nil {
 		// An interrupt during startup cancels ctx, treat it as a clean shutdown.

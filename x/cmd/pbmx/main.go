@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm"
 )
 
 const (
@@ -48,7 +50,7 @@ func rootCommand() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if viper.GetBool(ctrlAgentFlag) {
-				return runCtrlAgent(cmd.Context(), viper.GetString(etcdDataDirFlag))
+				return pbm.RunCtrlAgent(cmd.Context(), viper.GetString(etcdDataDirFlag))
 			}
 			// worker agent has no etcd; its run path lands here later.
 			return cmd.Help()
