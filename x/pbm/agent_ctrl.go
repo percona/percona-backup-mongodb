@@ -16,7 +16,7 @@ func listenURL(port int) url.URL {
 
 // RunCtrlAgent starts the control agent: it brings up embedded etcd and blocks
 // until ctx is cancelled or the server reports a fatal error.
-func RunCtrlAgent(ctx context.Context, cfg *AgentConfig) error {
+func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	etcdSrv, err := startEmbeddedEtcd(ctx, cfg.Name, cfg.EtcdConfig)
 	if err != nil {
 		// An interrupt during startup cancels ctx, treat it as a clean shutdown.

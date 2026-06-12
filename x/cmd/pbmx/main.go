@@ -56,11 +56,11 @@ func rootCommand() *cobra.Command {
 			return loadConfig()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// worker is the default agent's role
 			if viper.GetBool(ctrlAgentFlag) {
-				return pbm.RunCtrlAgent(cmd.Context(), agentConfig())
+				return pbm.RunCtrlAgent(cmd.Context(), ctrlAgentConfig())
 			}
-			// worker agent has no etcd; its run path lands here later.
-			return cmd.Help()
+			return pbm.RunWorkerAgent(cmd.Context(), workerAgentConfig())
 		},
 	}
 
@@ -70,11 +70,19 @@ func rootCommand() *cobra.Command {
 	return rootCmd
 }
 
-// agentConfig assembles the agent configuration from CLI flags / config file.
-func agentConfig() *pbm.AgentConfig {
-	return &pbm.AgentConfig{
+// workerAgentConfig assembles the worker-agent config from CLI/config flags.
+func workerAgentConfig() *pbm.WorkerAgentConfig {
+	return &pbm.WorkerAgentConfig{
 		Name:     viper.GetString(nameFlag),
 		MongoURI: viper.GetString(mongoConnFlag),
+	}
+}
+
+// ctrlAgentConfig assembles the ctrl-agent config from CLI/config.
+// ctrl-agent is also usually worker agent so that config is reused.
+func ctrlAgentConfig() *pbm.CtrlAgentConfig {
+	return &pbm.CtrlAgentConfig{
+		WorkerAgentConfig: *workerAgentConfig(),
 		EtcdConfig: pbm.EtcdConfig{
 			DataDir:            viper.GetString(etcdDataDirFlag),
 			ListenPeerPort:     viper.GetInt(etcdListenPeerPortFlag),
