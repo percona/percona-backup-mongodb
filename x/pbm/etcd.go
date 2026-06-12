@@ -3,15 +3,21 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
+// listenURL builds an http bind URL on 0.0.0.0 for the given port.
+func listenURL(port int) url.URL {
+	return url.URL{Scheme: "http", Host: fmt.Sprintf("0.0.0.0:%d", port)}
+}
+
 // RunCtrlAgent starts the control agent: it brings up embedded etcd and blocks
 // until ctx is cancelled or the server reports a fatal error.
-func RunCtrlAgent(ctx context.Context, dataDir string) error {
-	etcdSrv, err := startEmbeddedEtcd(ctx, dataDir)
+func RunCtrlAgent(ctx context.Context, cfg *AgentConfig) error {
+	etcdSrv, err := startEmbeddedEtcd(ctx, cfg.Name, cfg.EtcdConfig)
 	if err != nil {
 		// An interrupt during startup cancels ctx, treat it as a clean shutdown.
 		if ctx.Err() != nil {
@@ -29,13 +35,49 @@ func RunCtrlAgent(ctx context.Context, dataDir string) error {
 	}
 }
 
-func startEmbeddedEtcd(ctx context.Context, dataDir string) (*embed.Etcd, error) {
-	cfg := embed.NewConfig()
-	if dataDir != "" {
-		cfg.Dir = dataDir
+func startEmbeddedEtcd(ctx context.Context, name string, cfg EtcdConfig) (*embed.Etcd, error) {
+	ecfg := embed.NewConfig()
+	if cfg.DataDir != "" {
+		ecfg.Dir = cfg.DataDir
+	}
+	if name != "" {
+		ecfg.Name = name
 	}
 
-	etcdSrv, err := embed.StartEtcd(cfg)
+	ecfg.InitialClusterToken = "pbm-cc-cluster"
+	ecfg.ClusterState = embed.ClusterStateFlagNew
+
+	if cfg.ListenClientPort != 0 {
+		ecfg.ListenClientUrls = []url.URL{listenURL(cfg.ListenClientPort)}
+	}
+	if cfg.ListenPeerPort != 0 {
+		ecfg.ListenPeerUrls = []url.URL{listenURL(cfg.ListenPeerPort)}
+	}
+
+	if cfg.AdvertiseClientURL != "" {
+		u, err := url.Parse(cfg.AdvertiseClientURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse advertise client url: %w", err)
+		}
+		ecfg.AdvertiseClientUrls = []url.URL{*u}
+	}
+	if cfg.AdvertisePeerURL != "" {
+		u, err := url.Parse(cfg.AdvertisePeerURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse advertise peer url: %w", err)
+		}
+		ecfg.AdvertisePeerUrls = []url.URL{*u}
+	}
+
+	// Bootstrap membership: an explicit member list wins; otherwise derive a
+	// single-node cluster from this member's name and advertised peer URL.
+	if cfg.InitialCluster != "" {
+		ecfg.InitialCluster = cfg.InitialCluster
+	} else {
+		ecfg.InitialCluster = ecfg.InitialClusterFromName(ecfg.Name)
+	}
+
+	etcdSrv, err := embed.StartEtcd(ecfg)
 	if err != nil {
 		return nil, fmt.Errorf("start embedded etcd: %w", err)
 	}
