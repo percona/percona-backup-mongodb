@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	"go.etcd.io/etcd/server/v3/embed"
@@ -36,13 +38,14 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 }
 
 func startEmbeddedEtcd(ctx context.Context, name string, cfg EtcdConfig) (*embed.Etcd, error) {
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create etcd data dir: %w", err)
+	}
+
 	ecfg := embed.NewConfig()
-	if cfg.DataDir != "" {
-		ecfg.Dir = cfg.DataDir
-	}
-	if name != "" {
-		ecfg.Name = name
-	}
+	ecfg.Dir = cfg.DataDir
+	ecfg.Name = name
+	ecfg.LogOutputs = []string{filepath.Join(cfg.DataDir, fmt.Sprintf("etcd-%s.log", name))}
 
 	ecfg.InitialClusterToken = "pbm-cc-cluster"
 	ecfg.ClusterState = embed.ClusterStateFlagNew
