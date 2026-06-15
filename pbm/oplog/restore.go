@@ -1211,6 +1211,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			// allocate fresh physical metadata.
 			op.Query = nil
 
+			// This synthetic drop can be removed once PBM-1670 adds RS
+			// pre-restore cleanup matching sharded restores.
 			op2 := op
 			op2.Object = bson.D{{"drop", collName}}
 			if err := o.handleNonTxnOp(op2); err != nil {
