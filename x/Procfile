@@ -1,0 +1,17 @@
+# Local 6-node playground for goreman (github.com/mattn/goreman).
+#
+#   goreman start   # compiles via `go run` and launches all 6 processes
+#
+# Role (--ctrl-agent / --worker-agent) and --name stay as flags; all other
+# config comes from PBM_* env vars. Per-process env lives in ./env/<name>.env
+# (one var per line); each ctrl line sources its file before exec. Workers have
+# no extra config yet, so they take no env file. Data dirs land in ./tmp
+# (gitignored). goreman runs each line via `sh -c`, so the `set -a; . file`
+# sourcing and `exec` work as plain shell.
+
+ctrl-0: set -a; . ./env/etcd-0.env; set +a; exec go run ./cmd/pbmx --ctrl-agent --name etcd-0
+ctrl-1: set -a; . ./env/etcd-1.env; set +a; exec go run ./cmd/pbmx --ctrl-agent --name etcd-1
+ctrl-2: set -a; . ./env/etcd-2.env; set +a; exec go run ./cmd/pbmx --ctrl-agent --name etcd-2
+worker-0: go run ./cmd/pbmx --worker-agent --name worker-0
+worker-1: go run ./cmd/pbmx --worker-agent --name worker-1
+worker-2: go run ./cmd/pbmx --worker-agent --name worker-2
