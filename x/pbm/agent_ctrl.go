@@ -3,6 +3,7 @@ package pbm
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ func listenURL(port int) url.URL {
 }
 
 // RunCtrlAgent starts the control agent: it brings up embedded etcd and blocks
-// until ctx is cancelled or the server reports a fatal error.
+// until ctx is canceled or the server reports a fatal error.
 func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	etcdSrv, err := startEmbeddedEtcd(ctx, cfg.Name, cfg.EtcdConfig)
 	if err != nil {
@@ -28,9 +29,26 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 		return err
 	}
 	defer etcdSrv.Close()
+	log.Printf("ctrl-agent %s started controll collection db", cfg.Name)
+
+	disco, err := startDiscovery(cfg.Name, cfg.DiscoConfig)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+	defer func() {
+		// leave the serf cluster before stopping etcd
+		if err := disco.stop(); err != nil {
+			log.Printf("serf shutdown: %v", err)
+		}
+	}()
+	log.Printf("ctrl-agent: %s added to PBM cluster", cfg.Name)
 
 	select {
 	case <-ctx.Done():
+		log.Printf("agent: %s is shutdown", cfg.Name)
 		return nil
 	case err := <-etcdSrv.Err():
 		return fmt.Errorf("embedded etcd stopped: %w", err)

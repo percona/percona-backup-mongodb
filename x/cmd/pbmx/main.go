@@ -28,6 +28,9 @@ const (
 	etcdAdvertiseClientURLFlag = "etcd-advertise-client-url"
 	etcdInitialClusterFlag     = "etcd-initial-cluster"
 
+	serfPortFlag = "serf-port"
+	serfJoinFlag = "serf-join"
+
 	defaultEtcdDataDir = "pbmx.etcd"
 )
 
@@ -75,6 +78,10 @@ func workerAgentConfig() *pbm.WorkerAgentConfig {
 	return &pbm.WorkerAgentConfig{
 		Name:     viper.GetString(nameFlag),
 		MongoURI: viper.GetString(mongoConnFlag),
+		DiscoConfig: pbm.DiscoConfig{
+			SerfPort: viper.GetInt(serfPortFlag),
+			SerfJoin: viper.GetString(serfJoinFlag),
+		},
 	}
 }
 
@@ -136,6 +143,11 @@ func setRootFlags(rootCmd *cobra.Command) {
 		"etcd client advertise URL (routable), e.g. http://etcd-0.example:2379")
 	persistentString(rootCmd, etcdInitialClusterFlag, "",
 		"etcd initial cluster member list: name0=peerURL0,name1=peerURL1,...")
+
+	persistentInt(rootCmd, serfPortFlag, 0,
+		"serf gossip listen port, bound on 0.0.0.0 (default 7946)")
+	persistentString(rootCmd, serfJoinFlag, "",
+		"serf seed address host:port to join; empty starts a new cluster")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and
