@@ -2,49 +2,35 @@ package pbm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"net/url"
-	"os"
-	"path/filepath"
-	"time"
-
-	"go.etcd.io/etcd/server/v3/embed"
 )
 
-// listenURL builds an http bind URL on 0.0.0.0 for the given port.
-func listenURL(port int) url.URL {
-	return url.URL{Scheme: "http", Host: fmt.Sprintf("0.0.0.0:%d", port)}
-}
-
-// RunCtrlAgent starts the control agent: it brings up embedded etcd and blocks
-// until ctx is canceled or the server reports a fatal error.
+// RunCtrlAgent starts the control agent: it joins the PBM discovery cluster,
+// brings up embedded etcd, and blocks until ctx is canceled or the server
+// reports a fatal error.
 func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
-	etcdSrv, err := startEmbeddedEtcd(ctx, cfg.Name, cfg.EtcdConfig)
-	if err != nil {
-		// An interrupt during startup cancels ctx, treat it as a clean shutdown.
-		if ctx.Err() != nil {
-			return nil
-		}
-		return err
-	}
-	defer etcdSrv.Close()
-	log.Printf("ctrl-agent %s started controll collection db", cfg.Name)
-
 	disco, err := startDiscovery(cfg.Name, cfg.DiscoConfig)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil
-		}
-		return err
+		return fmt.Errorf("start pbm cluster: %w", err)
 	}
 	defer func() {
-		// leave the serf cluster before stopping etcd
 		if err := disco.stop(); err != nil {
 			log.Printf("serf shutdown: %v", err)
 		}
 	}()
 	log.Printf("ctrl-agent: %s added to PBM cluster", cfg.Name)
+
+	etcdSrv, err := startEmbeddedEtcd(ctx, cfg.Name, cfg.EtcdConfig)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return fmt.Errorf("start etcd: %w", err)
+	}
+	defer etcdSrv.Close()
+	log.Printf("ctrl-agent %s started control collection db", cfg.Name)
 
 	select {
 	case <-ctx.Done():
@@ -52,67 +38,5 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 		return nil
 	case err := <-etcdSrv.Err():
 		return fmt.Errorf("embedded etcd stopped: %w", err)
-	}
-}
-
-func startEmbeddedEtcd(ctx context.Context, name string, cfg EtcdConfig) (*embed.Etcd, error) {
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create etcd data dir: %w", err)
-	}
-
-	ecfg := embed.NewConfig()
-	ecfg.Dir = cfg.DataDir
-	ecfg.Name = name
-	ecfg.LogOutputs = []string{filepath.Join(cfg.DataDir, fmt.Sprintf("etcd-%s.log", name))}
-
-	ecfg.InitialClusterToken = "pbm-cc-cluster"
-	ecfg.ClusterState = embed.ClusterStateFlagNew
-
-	if cfg.ListenClientPort != 0 {
-		ecfg.ListenClientUrls = []url.URL{listenURL(cfg.ListenClientPort)}
-	}
-	if cfg.ListenPeerPort != 0 {
-		ecfg.ListenPeerUrls = []url.URL{listenURL(cfg.ListenPeerPort)}
-	}
-
-	if cfg.AdvertiseClientURL != "" {
-		u, err := url.Parse(cfg.AdvertiseClientURL)
-		if err != nil {
-			return nil, fmt.Errorf("parse advertise client url: %w", err)
-		}
-		ecfg.AdvertiseClientUrls = []url.URL{*u}
-	}
-	if cfg.AdvertisePeerURL != "" {
-		u, err := url.Parse(cfg.AdvertisePeerURL)
-		if err != nil {
-			return nil, fmt.Errorf("parse advertise peer url: %w", err)
-		}
-		ecfg.AdvertisePeerUrls = []url.URL{*u}
-	}
-
-	// Bootstrap membership: an explicit member list wins; otherwise derive a
-	// single-node cluster from this member's name and advertised peer URL.
-	if cfg.InitialCluster != "" {
-		ecfg.InitialCluster = cfg.InitialCluster
-	} else {
-		ecfg.InitialCluster = ecfg.InitialClusterFromName(ecfg.Name)
-	}
-
-	etcdSrv, err := embed.StartEtcd(ecfg)
-	if err != nil {
-		return nil, fmt.Errorf("start embedded etcd: %w", err)
-	}
-
-	etcdReadyTimeout := 60 * time.Second
-	select {
-	case <-etcdSrv.Server.ReadyNotify():
-		return etcdSrv, nil
-	case <-ctx.Done():
-		// Interrupted before the server became ready: gracefully tear it down.
-		etcdSrv.Close()
-		return nil, ctx.Err()
-	case <-time.After(etcdReadyTimeout):
-		etcdSrv.Close()
-		return nil, fmt.Errorf("embedded etcd not ready within %s", etcdReadyTimeout)
 	}
 }

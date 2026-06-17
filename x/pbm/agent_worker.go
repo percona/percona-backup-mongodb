@@ -9,10 +9,7 @@ import (
 func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 	disco, err := startDiscovery(cfg.Name, cfg.DiscoConfig)
 	if err != nil {
-		// An interrupt during startup cancels ctx, treat it as a clean shutdown.
-		if ctx.Err() != nil {
-			return nil
-		}
+		log.Printf("start pbm cluster: %v", err)
 		return err
 	}
 	defer func() {
