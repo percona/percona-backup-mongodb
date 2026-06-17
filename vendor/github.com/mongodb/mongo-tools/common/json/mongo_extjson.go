@@ -7,14 +7,13 @@
 package json
 
 import (
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-
 	"fmt"
 	"reflect"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// Represents base-64 encoded binary data
+// Represents base-64 encoded binary data.
 type BinData struct {
 	Type   byte
 	Base64 string
@@ -30,15 +29,15 @@ type ObjectId string
 // Represents a reference to another document.
 type DBRef struct {
 	Collection string
-	Id         interface{}
+	Id         any
 	Database   string // optional
 }
 
 // Refers to a document in some namespace by wrapping a string containing the namespace
-// and the objectId in which the _id of the document is contained
+// and the objectId in which the _id of the document is contained.
 type DBPointer struct {
 	Namespace string
-	Id        primitive.ObjectID
+	Id        bson.ObjectID
 }
 
 // Represents the literal MinKey.
@@ -57,7 +56,7 @@ type NumberLong int64
 type NumberFloat float64
 
 type Decimal128 struct {
-	primitive.Decimal128
+	bson.Decimal128
 }
 
 // Represents a regular expression.
@@ -74,7 +73,7 @@ type Timestamp struct {
 
 type JavaScript struct {
 	Code  string
-	Scope interface{}
+	Scope any
 }
 
 type Float float64
@@ -83,12 +82,12 @@ type Float float64
 type Undefined struct{}
 
 var (
-	// primitive types
+	// primitive types.
 	byteType   = reflect.TypeOf(byte(0))
 	stringType = reflect.TypeOf(string(""))
 	uint32Type = reflect.TypeOf(uint32(0))
 
-	// object types
+	// object types.
 	binDataType     = reflect.TypeOf(BinData{})
 	dateType        = reflect.TypeOf(Date(0))
 	isoDateType     = reflect.TypeOf(ISODate(""))
@@ -98,13 +97,11 @@ var (
 	minKeyType      = reflect.TypeOf(MinKey{})
 	numberIntType   = reflect.TypeOf(NumberInt(0))
 	numberLongType  = reflect.TypeOf(NumberLong(0))
-	numberFloatType = reflect.TypeOf(NumberFloat(0))
 	objectIdType    = reflect.TypeOf(ObjectId(""))
 	regexpType      = reflect.TypeOf(RegExp{})
 	timestampType   = reflect.TypeOf(Timestamp{})
 	undefinedType   = reflect.TypeOf(Undefined{})
 	orderedBSONType = reflect.TypeOf(bson.D{})
-	interfaceType   = reflect.TypeOf((*interface{})(nil))
 )
 
 func (d Date) isFormatable() bool {
@@ -321,7 +318,7 @@ func (d *decodeState) storeExtendedLiteral(item []byte, v reflect.Value, fromQuo
 }
 
 // Returns a literal from the underlying byte data.
-func (d *decodeState) getExtendedLiteral(item []byte) (interface{}, bool) {
+func (d *decodeState) getExtendedLiteral(item []byte) (any, bool) {
 	switch c := item[0]; c {
 	case 'n':
 		return d.getNewLiteral(), true

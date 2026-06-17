@@ -13,13 +13,12 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
-	"github.com/percona/percona-backup-mongodb/pbm/log"
-	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/pkg/errors"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
@@ -45,8 +44,8 @@ func newMDBTestClient() *mdbTestClient {
 	return &mdbTestClient{applyOpsInv: []map[string]string{}}
 }
 
-func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (primitive.Binary, error) {
-	return primitive.Binary{Subtype: 0x00, Data: []byte{0x01, 0x02, 0x03}}, nil
+func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (bson.Binary, error) {
+	return bson.Binary{Subtype: 0x00, Data: []byte{0x01, 0x02, 0x03}}, nil
 }
 
 func (d *mdbTestClient) ensureCollExists(_ string) error {
@@ -1098,7 +1097,7 @@ func createConfigCollectionsEntry(shardedColl, collUUID string) *db.Oplog {
 		Namespace: "config.collections",
 		Object: bson.D{
 			{"_id", shardedColl},
-			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
+			{"uuid", bson.Binary{Subtype: bson.TypeBinaryUUID, Data: uuid}},
 		},
 	}
 }
@@ -1111,7 +1110,7 @@ func createConfigChunksEntry(uuid string) *db.Oplog {
 		Namespace: "config.chunks",
 		Object: bson.D{
 			{"_id", id},
-			{"uuid", primitive.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
+			{"uuid", bson.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
 			{"shard", "rsX"},
 		},
 	}

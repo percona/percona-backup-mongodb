@@ -14,6 +14,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/gcs"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/mio"
+	"github.com/percona/percona-backup-mongodb/pbm/storage/oci"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -40,6 +41,8 @@ func StorageFromConfig(cfg *config.StorageConf, node string, l log.LogEvent) (st
 		return gcs.New(cfg.GCS, node, l)
 	case storage.OSS:
 		return oss.New(cfg.OSS, node, l)
+	case storage.OCI:
+		return oci.New(cfg.OCI, node, l)
 	case storage.Undefined:
 		return nil, ErrStorageUndefined
 	default:
@@ -62,6 +65,9 @@ func StorageWithDownloaderFromConfig(
 			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
 	case storage.GCS:
 		return gcs.NewWithDownloader(cfg.GCS, node, l,
+			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
+	case storage.OCI:
+		return oci.NewWithDownloader(cfg.OCI, node, l,
 			rstCfg.NumDownloadWorkers, rstCfg.MaxDownloadBufferMb, rstCfg.DownloadChunkMb)
 	default:
 		return StorageFromConfig(cfg, node, l)

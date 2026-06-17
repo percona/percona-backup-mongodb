@@ -72,7 +72,7 @@ type longestTaskFirstPrioritizer struct {
 	queue []*Intent
 }
 
-// newLongestTaskFirstPrioritizer returns an initialized LTP prioritizer
+// newLongestTaskFirstPrioritizer returns an initialized LTP prioritizer.
 func newLongestTaskFirstPrioritizer(intents []*Intent) *longestTaskFirstPrioritizer {
 	sort.Sort(BySizeAndView(intents))
 	return &longestTaskFirstPrioritizer{
@@ -114,7 +114,7 @@ func (s BySizeAndView) Less(i, j int) bool {
 	return s[i].Size > s[j].Size
 }
 
-// For sorting intents from largest to smallest size
+// For sorting intents from largest to smallest size.
 type BySize []*Intent
 
 func (s BySize) Len() int           { return len(s) }
@@ -190,6 +190,7 @@ func (mdb *multiDatabaseLTFPrioritizer) Get() *Intent {
 		// we're out of things to return
 		return nil
 	}
+	//nolint:errcheck // the heap only contains *dbCounter values
 	optimalDB := heap.Pop(mdb.dbHeap).(*dbCounter)
 	optimalDB.active++
 	nextIntent := optimalDB.PopIntent()
@@ -226,7 +227,7 @@ func (dbc *dbCounter) SortCollectionsBySize() {
 	sort.Sort(BySize(dbc.collections))
 }
 
-// PopIntent returns the largest intent remaining for the database
+// PopIntent returns the largest intent remaining for the database.
 func (dbc *dbCounter) PopIntent() *Intent {
 	var intent *Intent
 	if len(dbc.collections) > 0 {
@@ -251,11 +252,12 @@ func (dbh DBHeap) Less(i, j int) bool {
 	return dbh[i].active < dbh[j].active
 }
 
-func (dbh *DBHeap) Push(x interface{}) {
+func (dbh *DBHeap) Push(x any) {
+	//nolint:errcheck
 	*dbh = append(*dbh, x.(*dbCounter))
 }
 
-func (dbh *DBHeap) Pop() interface{} {
+func (dbh *DBHeap) Pop() any {
 	// for container/heap package: removes the top entry and resizes the heap array
 	old := *dbh
 	n := len(old)

@@ -18,7 +18,7 @@ const (
 	DefaultPort            = "27017"
 )
 
-// Extract the replica set name and the list of hosts from the connection string
+// Extract the replica set name and the list of hosts from the connection string.
 func SplitHostArg(connString string) ([]string, string) {
 
 	// strip off the replica set name from the beginning
@@ -62,7 +62,7 @@ func CreateConnectionAddrs(host, port string) []string {
 }
 
 // BuildURI assembles a URI from host and port arguments, including a possible
-// replica set name on the host part
+// replica set name on the host part.
 func BuildURI(host, port string) string {
 	seedlist, setname := SplitHostArg(host)
 
@@ -77,7 +77,7 @@ func BuildURI(host, port string) string {
 	// host part is empty string, make it localhost
 	if port != "" {
 		for i := range seedlist {
-			if strings.Index(seedlist[i], ":") == -1 {
+			if !strings.Contains(seedlist[i], ":") {
 				seedlist[i] = seedlist[i] + ":" + port
 			}
 		}
@@ -110,20 +110,6 @@ func SplitNamespace(namespace string) (string, string) {
 	return database, collection
 }
 
-// SplitAndValidateNamespace splits a namespace path into a database and collection,
-// returned in that order. An error is returned if the namespace is invalid.
-func SplitAndValidateNamespace(namespace string) (string, string, error) {
-
-	// first, run validation checks
-	if err := ValidateFullNamespace(namespace); err != nil {
-		return "", "", fmt.Errorf("namespace '%v' is not valid: %v",
-			namespace, err)
-	}
-
-	database, collection := SplitNamespace(namespace)
-	return database, collection, nil
-}
-
 // ValidateFullNamespace validates a full mongodb namespace (database +
 // collection), returning an error if it is invalid.
 func ValidateFullNamespace(namespace string) error {
@@ -138,12 +124,12 @@ func ValidateFullNamespace(namespace string) error {
 
 	// the namespace cannot begin with a dot
 	if firstDotIndex == 0 {
-		return fmt.Errorf("namespace %v begins with a '.'", namespace)
+		return fmt.Errorf("namespace %#q begins with a '.'", namespace)
 	}
 
 	// the namespace cannot end with a dot
 	if firstDotIndex == len(namespace)-1 {
-		return fmt.Errorf("namespace %v ends with a '.'", namespace)
+		return fmt.Errorf("namespace %#q ends with a '.'", namespace)
 	}
 
 	// split the namespace, if applicable
@@ -182,13 +168,13 @@ func ValidateDBName(database string) error {
 
 	// must be < 64 characters
 	if len([]byte(database)) > 63 {
-		return fmt.Errorf("db name '%v' is longer than 63 characters", database)
+		return fmt.Errorf("db name %#q is longer than 63 characters", database)
 	}
 
 	// check for illegal characters
 	for _, illegalRune := range InvalidDBChars {
 		if strings.ContainsRune(database, illegalRune) {
-			return fmt.Errorf("illegal character '%c' found in db name '%v'", illegalRune, database)
+			return fmt.Errorf("illegal character %#q found in db name %#q", illegalRune, database)
 		}
 	}
 
@@ -201,8 +187,7 @@ func ValidateDBName(database string) error {
 func ValidateCollectionName(collection string) error {
 	// collection names cannot begin with 'system.'
 	if strings.HasPrefix(collection, "system.") {
-		return fmt.Errorf("collection name '%v' is not allowed to begin with"+
-			" 'system.'", collection)
+		return fmt.Errorf("collection name %#q is not allowed to begin with 'system.'", collection)
 	}
 
 	return ValidateCollectionGrammar(collection)
@@ -221,7 +206,7 @@ func ValidateCollectionGrammar(collection string) error {
 	// check for illegal characters
 	for _, illegalRune := range InvalidCollectionChars {
 		if strings.ContainsRune(collection, illegalRune) {
-			return fmt.Errorf("illegal character '%c' found in '%v'", illegalRune, collection)
+			return fmt.Errorf("illegal character %#q found in %#q", illegalRune, collection)
 		}
 	}
 

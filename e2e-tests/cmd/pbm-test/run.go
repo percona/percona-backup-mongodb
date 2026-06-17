@@ -30,6 +30,7 @@ func run(t *sharded.Cluster, typ testTyp) {
 		{"AWS_MinIO", "/etc/pbm/aws_minio.yaml"},
 		{"Azure", "/etc/pbm/azure.yaml"},
 		{"OSS", "/etc/pbm/oss.yaml"},
+		{"OCI", "/etc/pbm/oci.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
 	}
 
@@ -115,11 +116,11 @@ func run(t *sharded.Cluster, typ testTyp) {
 			t.CleanupFullRestore)
 
 		// disttxnconf := "/etc/pbm/fs-disttxn-4x.yaml"
-		// tsTo := primitive.Timestamp{1644410656, 8}
+		// tsTo := bson.Timestamp{1644410656, 8}
 
 		//if semver.Compare(cVersion, "v5.0") >= 0 {
 		//	disttxnconf = "/etc/pbm/fs-disttxn-50.yaml"
-		//	tsTo = primitive.Timestamp{1644243375, 7}
+		//	tsTo = bson.Timestamp{1644243375, 7}
 		//}
 
 		// t.ApplyConfig(context.TODO(), disttxnconf)

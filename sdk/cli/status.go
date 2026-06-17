@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -18,7 +18,7 @@ import (
 )
 
 type LostAgentError struct {
-	heartbeat primitive.Timestamp
+	heartbeat bson.Timestamp
 }
 
 func (e LostAgentError) Error() string {

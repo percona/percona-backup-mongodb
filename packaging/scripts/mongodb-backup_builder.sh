@@ -146,7 +146,7 @@ install_golang() {
     elif [ x"$ARCH" = "xaarch64" ]; then
         GO_ARCH="arm64"
     fi
-    GO_VERSION="1.25.9"
+    GO_VERSION="1.25.11"
     GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
     GO_URL="https://downloads.percona.com/downloads/packaging/go/${GO_TAR}"
     DL_PATH="/tmp/${GO_TAR}"
@@ -159,6 +159,26 @@ install_golang() {
     rm -rf /usr/local/go*
     mv go${GO_VERSION} /usr/local/
     ln -s /usr/local/go${GO_VERSION} /usr/local/go
+}
+
+install_sbom_tools() {
+    # Install Syft (SBOM generator) and Grype (vulnerability scanner) on the
+    # build host.
+    #
+    # Use the official Anchore installer scripts because they auto-detect the
+    # host architecture (x86_64 -> amd64, aarch64 -> arm64) and OS.
+    # No pinned version yet.
+    for tool in syft grype; do
+        url="https://raw.githubusercontent.com/anchore/${tool}/main/install.sh"
+        for i in {1..3}; do
+            curl -fsSL "$url" | sh -s -- -b /usr/local/bin && break
+            sleep 10
+        done
+        command -v "$tool" >/dev/null \
+            || { echo "ERROR: ${tool} not installed after 3 attempts" >&2; exit 1; }
+    done
+    syft version
+    grype version
 }
 
 install_deps() {
@@ -177,9 +197,9 @@ install_deps() {
         if [ "x$RHEL" = "x10" ]; then
             yum -y install oracle-epel-release-el10
         fi
-        INSTALL_LIST="epel-release git wget"
+        INSTALL_LIST="epel-release git wget jq"
         if [ "x$RHEL" = "x2023" -o "x$RHEL" = "x10" ]; then
-            INSTALL_LIST="git wget"
+            INSTALL_LIST="git wget jq"
         fi
         yum -y install ${INSTALL_LIST}
         yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
@@ -192,13 +212,14 @@ install_deps() {
         DEBIAN_FRONTEND=noninteractive apt-get -y install lsb_release
         export DEBIAN=$(lsb_release -sc)
         export ARCH=$(echo $(uname -m) | sed -e 's:i686:i386:g')
-        INSTALL_LIST="wget devscripts debhelper debconf pkg-config curl make golang git libkrb5-dev"
+        INSTALL_LIST="wget devscripts debhelper debconf pkg-config curl make golang git libkrb5-dev jq"
         until DEBIAN_FRONTEND=noninteractive apt-get -y install ${INSTALL_LIST}; do
             sleep 1
             echo "waiting"
         done
         install_golang
     fi
+    install_sbom_tools
     return
 }
 
@@ -455,6 +476,41 @@ build_tarball() {
     cp ./bin/pbm-agent ${WORKDIR}/${PSMDIR}/
     cp ./bin/pbm-speed-test ${WORKDIR}/${PSMDIR}/
     cp ./bin/pbm-agent-entrypoint ${WORKDIR}/${PSMDIR}/
+
+    # Place SBOM at the root of the tarball staging dir so it will be packed
+    # in the archive root.
+    # Scope = ./bin only (the 4 Go binaries that go into the tarball).
+    # Catalogers limited to go-module-binary-cataloger because a tarball is
+    # OS-agnostic; the "file" cataloger group is disabled to keep package
+    # granularity (no per-file hashes/metadata).
+    # The jq count below guards against silent syft failures.
+    SBOM_FILE="${WORKDIR}/${PSMDIR}/${PRODUCT}-${VERSION}.cdx.json"
+    echo "Generating CycloneDX 1.6 SBOM for binary tarball..."
+    syft scan "dir:./bin" \
+        --override-default-catalogers go-module-binary-cataloger \
+        --select-catalogers "-file" \
+        --source-name "percona-backup-mongodb" \
+        --source-version "${VERSION}" \
+        -o "cyclonedx-json@1.6=${SBOM_FILE}" \
+        || { echo "ERROR: syft scan failed for binary tarball" >&2; exit 1; }
+    # Overwrite syft's auto-generated metadata.component (type=file, opaque
+    # bom-ref) with a proper application identity including a PURL. Tarball is
+    # OS-agnostic, so PURL type is "generic".
+    SBOM_PURL="pkg:generic/percona-backup-mongodb@${VERSION}"
+    jq --arg purl "${SBOM_PURL}" --arg ver "${VERSION}" '.metadata.component = {
+        "bom-ref": $purl,
+        "type": "application",
+        "name": "percona-backup-mongodb",
+        "version": $ver,
+        "purl": $purl
+    }' "${SBOM_FILE}" > "${SBOM_FILE}.tmp" && mv "${SBOM_FILE}.tmp" "${SBOM_FILE}"
+    COMPONENT_COUNT=$(jq '.components | length' "${SBOM_FILE}")
+    if [ "$COMPONENT_COUNT" -lt 10 ]; then
+        echo "ERROR: tarball SBOM has only ${COMPONENT_COUNT} components" >&2
+        exit 1
+    fi
+    echo "Tarball SBOM: ${SBOM_FILE} (${COMPONENT_COUNT} components)"
+
     cd ${WORKDIR}/
 
     tar --owner=0 --group=0 -czf ${WORKDIR}/${PSMDIR}-${ARCH}.tar.gz ${PSMDIR}

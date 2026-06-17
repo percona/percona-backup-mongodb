@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strings"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/mod/semver"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -16,7 +16,7 @@ import (
 )
 
 // current PBM version
-const version = "2.14.0"
+const version = "2.15.0"
 
 var (
 	platform  string

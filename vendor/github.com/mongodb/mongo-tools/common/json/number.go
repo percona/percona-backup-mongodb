@@ -56,7 +56,7 @@ func (d *decodeState) storeNumberInt(v reflect.Value) {
 }
 
 // Returns a NumberInt literal from the underlying byte data.
-func (d *decodeState) getNumberInt() interface{} {
+func (d *decodeState) getNumberInt() any {
 	op := d.scanWhile(scanSkipSpace)
 	if op != scanBeginCtor {
 		d.error(fmt.Errorf("expected beginning of constructor"))
@@ -83,7 +83,13 @@ func (d *decodeState) getNumberInt() interface{} {
 	d.useNumber = useNumber
 	arg0, err := number.Int32()
 	if err != nil {
-		d.error(fmt.Errorf("expected int32 for first argument of NumberInt constructor, got %T (value was %v)", number, number))
+		d.error(
+			fmt.Errorf(
+				"expected int32 for first argument of NumberInt constructor, got %T (value was %v)",
+				number,
+				number,
+			),
+		)
 	}
 	return NumberInt(arg0)
 }
@@ -108,7 +114,7 @@ func (d *decodeState) storeNumberLong(v reflect.Value) {
 }
 
 // Returns a NumberLong literal from the underlying byte data.
-func (d *decodeState) getNumberLong() interface{} {
+func (d *decodeState) getNumberLong() any {
 	op := d.scanWhile(scanSkipSpace)
 	if op != scanBeginCtor {
 		d.error(fmt.Errorf("expected beginning of constructor"))
@@ -136,7 +142,13 @@ func (d *decodeState) getNumberLong() interface{} {
 	d.useNumber = useNumber
 	arg0, err := number.Int64()
 	if err != nil {
-		d.error(fmt.Errorf("expected int64 for first argument of NumberLong constructor, got %T (value was %v)", number, number))
+		d.error(
+			fmt.Errorf(
+				"expected int64 for first argument of NumberLong constructor, got %T (value was %v)",
+				number,
+				number,
+			),
+		)
 	}
 	return NumberLong(arg0)
 }

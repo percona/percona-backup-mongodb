@@ -148,8 +148,22 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 
 		numParallelColls := getNumParallelCollsConfig(r.NumParallelColls, cfg.Restore)
 		numInsertionWorkersPerCol := getNumInsertionWorkersConfig(r.NumInsertionWorkers, cfg.Restore)
+		indexCommitQuorum, qerr := resolveIndexCommitQuorum(r.IndexCommitQuorum, cfg.Restore)
+		if qerr != nil {
+			l.Error("resolve index commit quorum: %v", qerr)
+			return
+		}
 
-		rr := restore.New(a.leadConn, a.nodeConn, a.brief, cfg, r.RSMap, numParallelColls, numInsertionWorkersPerCol)
+		rr := restore.New(
+			a.leadConn,
+			a.nodeConn,
+			a.brief,
+			cfg,
+			r.RSMap,
+			numParallelColls,
+			numInsertionWorkersPerCol,
+			indexCommitQuorum,
+		)
 		if r.OplogTS.IsZero() {
 			err = rr.Snapshot(ctx, r, opid, bcp)
 		} else {
@@ -173,6 +187,10 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 		if r.AllowPartlyDone != nil {
 			allowPartlyDoneOpt = *r.AllowPartlyDone
 		}
+		var bufSize int
+		if cfg.Storage.Filesystem != nil {
+			bufSize = cfg.Storage.Filesystem.GetRestoreBuffSize()
+		}
 
 		var rstr *restore.PhysRestore
 		rstr, err = restore.NewPhysical(
@@ -183,6 +201,7 @@ func (a *Agent) Restore(ctx context.Context, r *ctrl.RestoreCmd, opid ctrl.OPID,
 			r.RSMap,
 			fallbackOpt,
 			allowPartlyDoneOpt,
+			bufSize,
 		)
 		if err != nil {
 			l.Error("init physical backup: %v", err)
@@ -232,6 +251,22 @@ func getNumInsertionWorkersConfig(rInsWorkers *int32, restoreConf *config.Restor
 		numInsertionWorkersPerCol = restoreConf.NumInsertionWorkers
 	}
 	return numInsertionWorkersPerCol
+}
+
+func resolveIndexCommitQuorum(
+	cmdQuorum config.IndexCommitQuorum,
+	restoreConf *config.RestoreConf,
+) (config.IndexCommitQuorum, error) {
+	q := restoreConf.GetIndexCommitQuorum()
+	if cmdQuorum != "" {
+		q = cmdQuorum
+	}
+
+	if err := config.ValidateIndexCommitQuorum(q); err != nil {
+		return "", err
+	}
+
+	return q, nil
 }
 
 func addRestoreMetaWithError(

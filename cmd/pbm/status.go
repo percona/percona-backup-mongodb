@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
@@ -136,7 +136,7 @@ func status(
 	}
 
 	var sfilter map[string]bool
-	if opts.sections != nil && len(opts.sections) > 0 {
+	if len(opts.sections) > 0 {
 		sfilter = make(map[string]bool)
 		for _, s := range opts.sections {
 			sfilter[s] = true
@@ -601,12 +601,10 @@ func getStorageStat(
 		return s, errors.Wrap(err, "get cluster members")
 	}
 
-	// pbm.PBM is always connected either to config server or to the sole (hence main) RS
-	// which the `confsrv` param in `bcpMatchCluster` is all about
-	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, inf.SetName, rsMap)
+	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, rsMap)
 
 	stg, err := util.GetStorage(ctx, conn, inf.Me,
-		log.FromContext(ctx).NewEvent("", "", "", primitive.Timestamp{}))
+		log.FromContext(ctx).NewEvent("", "", "", bson.Timestamp{}))
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")
 	}
@@ -718,7 +716,7 @@ func getPITRranges(
 
 	var pr []pitrRange
 	for _, tl := range oplog.MergeTimelines(rstlines...) {
-		var bcplastWrite primitive.Timestamp
+		var bcplastWrite bson.Timestamp
 
 		for i := range bcps {
 			bcp := &bcps[i]

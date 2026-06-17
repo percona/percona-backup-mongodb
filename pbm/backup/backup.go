@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
@@ -33,6 +33,7 @@ type Backup struct {
 	incrBase            bool
 	timeouts            *config.BackupTimeouts
 	numParallelColls    int
+	numParallelFiles    int
 	oplogSlicerInterval time.Duration
 }
 
@@ -86,6 +87,10 @@ func (b *Backup) SetTimeouts(t *config.BackupTimeouts) {
 	b.timeouts = t
 }
 
+func (b *Backup) SetNumParallelFiles(n int) {
+	b.numParallelFiles = n
+}
+
 func (b *Backup) SetSlicerInterval(d time.Duration) {
 	b.oplogSlicerInterval = d
 }
@@ -96,6 +101,19 @@ func (b *Backup) SlicerInterval() time.Duration {
 	}
 
 	return b.oplogSlicerInterval
+}
+
+// getNumParallelFiles is the number of files to upload concurrently during
+// physical backup. Defaults to 1 (sequential) when unset in the config.
+func (b *Backup) getNumParallelFiles() int {
+	if b.config != nil && b.config.Storage.Type != storage.Filesystem {
+		// there's not paralelizm for cloud storage on this level
+		return 1
+	}
+	if b.numParallelFiles > 0 {
+		return b.numParallelFiles
+	}
+	return b.config.Backup.GetNumParallelFiles()
 }
 
 func (b *Backup) Init(
@@ -125,9 +143,9 @@ func (b *Backup) Init(
 		Status:   defs.StatusStarting,
 		Replsets: []BackupReplset{},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		LastWriteTS: primitive.Timestamp{T: 1, I: 1},
+		LastWriteTS: bson.Timestamp{T: 1, I: 1},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		FirstWriteTS:   primitive.Timestamp{T: 1, I: 1},
+		FirstWriteTS:   bson.Timestamp{T: 1, I: 1},
 		PBMVersion:     version.Current().Version,
 		MongoVersion:   b.mongoVersion,
 		Nomination:     []BackupRsNomination{},
@@ -628,7 +646,7 @@ func (b *Backup) waitForStatus(
 func (b *Backup) waitForFirstLastWrite(
 	ctx context.Context,
 	bcpName string,
-) (first, last primitive.Timestamp, err error) {
+) (first, last bson.Timestamp, err error) {
 	tk := time.NewTicker(time.Second * 1)
 	defer tk.Stop()
 
@@ -703,17 +721,17 @@ func (b *Backup) setClusterFirstWrite(ctx context.Context, bcpName string) error
 }
 
 func (b *Backup) setClusterLastWrite(ctx context.Context, bcpName string) error {
-	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.Before, bcpName)
+	return setClusterLastWriteImpl(ctx, b.leadConn, bson.Timestamp.Before, bcpName)
 }
 
 func (b *Backup) setClusterLastWriteForPhysical(ctx context.Context, bcpName string) error {
-	return setClusterLastWriteImpl(ctx, b.leadConn, primitive.Timestamp.After, bcpName)
+	return setClusterLastWriteImpl(ctx, b.leadConn, bson.Timestamp.After, bcpName)
 }
 
 func setClusterLastWriteImpl(
 	ctx context.Context,
 	conn connect.Client,
-	cmp func(a, b primitive.Timestamp) bool,
+	cmp func(a, b bson.Timestamp) bool,
 	bcpName string,
 ) error {
 	var err error

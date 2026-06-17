@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mongodb/mongo-tools/common"
 	"github.com/mongodb/mongo-tools/common/bsonutil"
+	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/log"
 	"github.com/mongodb/mongo-tools/common/util"
-	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type file interface {
@@ -30,7 +32,7 @@ type DestinationConflictError struct {
 }
 
 func (e DestinationConflictError) Error() string {
-	return fmt.Sprintf("destination conflict: %s (src) => %s (dst)", e.Src, e.Dst)
+	return fmt.Sprintf("destination conflict: %#q (src) => %#q (dst)", e.Src, e.Dst)
 }
 
 // FileNeedsIOBuffer is an interface that denotes that a struct needs
@@ -43,8 +45,9 @@ type FileNeedsIOBuffer interface {
 }
 
 // mongorestore first scans the directory to generate a list
-// of all files to restore and what they map to. TODO comments
+// of all files to restore and what they map to. TODO comments.
 type Intent struct {
+	ServerVersion db.Version
 	// Destination namespace info
 	DB string
 	C  string
@@ -77,8 +80,13 @@ func (it *Intent) DataNamespace() string {
 }
 
 func (it *Intent) DataCollection() string {
-	if it.IsTimeseries() {
-		return "system.buckets." + it.C
+	if it.ServerVersion.IsEmpty() {
+		panic("intent requires server version")
+	}
+
+	if it.IsTimeseries() && !it.ServerVersion.SupportsRawData() {
+		// 8.3+ supports viewless timeseries.
+		return common.TimeseriesBucketPrefix + it.C
 	}
 	return it.C
 }
@@ -138,7 +146,8 @@ func (it *Intent) IsSystemProfile() bool {
 
 func (it *Intent) IsSpecialCollection() bool {
 	// can't see oplog as special collection because when restore from archive it need to be a RegularCollectionReceiver
-	return it.IsSystemIndexes() || it.IsUsers() || it.IsRoles() || it.IsAuthVersion() || it.IsSystemProfile()
+	return it.IsSystemIndexes() || it.IsUsers() || it.IsRoles() || it.IsAuthVersion() ||
+		it.IsSystemProfile()
 }
 
 func (it *Intent) IsView() bool {
@@ -165,7 +174,7 @@ func (it *Intent) MergeIntent(newIt *Intent) {
 }
 
 // HasSimpleCollation returns true if the collection does not have a collation
-// specified or if the collation locale is "simple"
+// specified or if the collation locale is "simple".
 func (it *Intent) HasSimpleCollation() bool {
 	if it == nil || it.Options == nil {
 		return true
@@ -326,7 +335,7 @@ func (mgr *Manager) putNormalIntentWithNamespace(ns string, intent *Intent) {
 // Put inserts an intent into the manager with the same source namespace as
 // its destinations.
 func (mgr *Manager) Put(intent *Intent) {
-	log.Logvf(log.DebugLow, "enqueued collection '%v'", intent.Namespace())
+	log.Logvf(log.DebugLow, "enqueued collection %#q", intent.Namespace())
 	mgr.PutWithNamespace(intent.Namespace(), intent)
 }
 
@@ -394,7 +403,7 @@ func (mgr *Manager) GetDestinationConflicts() (errs []DestinationConflictError) 
 }
 
 // Intents returns a slice containing all of the intents in the manager.
-// Intents is not thread safe
+// Intents is not thread safe.
 func (mgr *Manager) Intents() []*Intent {
 	allIntents := []*Intent{}
 	for _, intent := range mgr.intents {
@@ -470,12 +479,12 @@ func (mgr *Manager) Oplog() *Intent {
 	return mgr.oplogIntent
 }
 
-// SystemIndexes returns the system.indexes bson for a database
+// SystemIndexes returns the system.indexes bson for a database.
 func (mgr *Manager) SystemIndexes(dbName string) *Intent {
 	return mgr.indexIntents[dbName]
 }
 
-// SystemIndexes returns the databases for which there are system.indexes
+// SystemIndexes returns the databases for which there are system.indexes.
 func (mgr *Manager) SystemIndexDBs() []string {
 	databases := []string{}
 	for dbname := range mgr.indexIntents {
@@ -484,17 +493,17 @@ func (mgr *Manager) SystemIndexDBs() []string {
 	return databases
 }
 
-// Users returns the intent of the users collection to restore, a special case
+// Users returns the intent of the users collection to restore, a special case.
 func (mgr *Manager) Users() *Intent {
 	return mgr.usersIntent
 }
 
-// Roles returns the intent of the user roles collection to restore, a special case
+// Roles returns the intent of the user roles collection to restore, a special case.
 func (mgr *Manager) Roles() *Intent {
 	return mgr.rolesIntent
 }
 
-// AuthVersion returns the intent of the version collection to restore, a special case
+// AuthVersion returns the intent of the version collection to restore, a special case.
 func (mgr *Manager) AuthVersion() *Intent {
 	return mgr.versionIntent
 }
@@ -511,7 +520,10 @@ func (mgr *Manager) Finalize(pType PriorityType) {
 		log.Logv(log.DebugHigh, "finalizing intent manager with longest task first prioritizer")
 		mgr.prioritizer = newLongestTaskFirstPrioritizer(mgr.intentsByDiscoveryOrder)
 	case MultiDatabaseLTF:
-		log.Logv(log.DebugHigh, "finalizing intent manager with multi-database longest task first prioritizer")
+		log.Logv(
+			log.DebugHigh,
+			"finalizing intent manager with multi-database longest task first prioritizer",
+		)
 		mgr.prioritizer = newMultiDatabaseLTFPrioritizer(mgr.intentsByDiscoveryOrder)
 	default:
 		panic("cannot initialize IntentPrioritizer with unknown type")

@@ -12,11 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/bsontype"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
@@ -35,16 +34,16 @@ const (
 )
 
 type Meta struct {
-	ID           UUID                `bson:"backupId"`
-	DBpath       string              `bson:"dbpath"`
-	OplogStart   BCoplogTS           `bson:"oplogStart"`
-	OplogEnd     BCoplogTS           `bson:"oplogEnd"`
-	CheckpointTS primitive.Timestamp `bson:"checkpointTimestamp"`
+	ID           UUID           `bson:"backupId"`
+	DBpath       string         `bson:"dbpath"`
+	OplogStart   BCoplogTS      `bson:"oplogStart"`
+	OplogEnd     BCoplogTS      `bson:"oplogEnd"`
+	CheckpointTS bson.Timestamp `bson:"checkpointTimestamp"`
 }
 
 type BCoplogTS struct {
-	TS primitive.Timestamp `bson:"ts"`
-	T  int64               `bson:"t"`
+	TS bson.Timestamp `bson:"ts"`
+	T  int64          `bson:"t"`
 }
 
 // see https://www.percona.com/blog/2021/06/07/experimental-feature-backupcursorextend-in-percona-server-for-mongodb/
@@ -187,7 +186,7 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 	return &BackupCursorData{m, files}, nil
 }
 
-func (bc *BackupCursor) Journals(upto primitive.Timestamp) ([]File, error) {
+func (bc *BackupCursor) Journals(upto bson.Timestamp) ([]File, error) {
 	ctx := context.Background()
 	cur, err := bc.conn.Database("admin").Aggregate(ctx,
 		mongo.Pipeline{
@@ -400,7 +399,7 @@ func (b *Backup) handleExternal(
 ) error {
 	filelist := make(Filelist, 0, len(data)+len(jrnls)+2) // +2 for metadata and filelist
 	for _, f := range append(data, jrnls...) {
-		f.Name = path.Clean("./" + strings.TrimPrefix(f.Name, dbpath))
+		f.Name = trimFilePrefix(f.Name, dbpath)
 		filelist = append(filelist, f)
 	}
 
@@ -434,7 +433,7 @@ func (b *Backup) handleExternal(
 	if bcp.Filelist {
 		// keep filelist on backup storage for listing files to copy
 		bcpStoragePath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, bcpStoragePath, -1)
+		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, bcpStoragePath)
 		if err != nil {
 			return errors.Wrapf(err, "save filelist to storage: %q", bcpStoragePath)
 		}
@@ -504,6 +503,13 @@ func writeRSmetaToDisk(fname string, rsMeta *BackupReplset) error {
 	return nil
 }
 
+func (b *Backup) getBackupBufSize() int {
+	if b.config.Storage.Filesystem != nil {
+		return b.config.Storage.Filesystem.GetBackupBuffSize()
+	}
+	return 0
+}
+
 func (b *Backup) uploadPhysical(
 	ctx context.Context,
 	bcp *ctrl.BackupCmd,
@@ -514,7 +520,13 @@ func (b *Backup) uploadPhysical(
 	stg storage.Storage,
 	l log.LogEvent,
 ) error {
-	l.Info("uploading data")
+	numWorkers := b.getNumParallelFiles()
+	if numWorkers > 1 {
+		l.Info("uploading data (%d files in parallel)", numWorkers)
+	} else {
+		l.Info("uploading data")
+	}
+
 	dataFiles, err := uploadFiles(
 		ctx,
 		data,
@@ -524,6 +536,8 @@ func (b *Backup) uploadPhysical(
 		stg,
 		bcp.Compression,
 		bcp.CompressionLevel,
+		b.getBackupBufSize(),
+		numWorkers,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
@@ -540,6 +554,8 @@ func (b *Backup) uploadPhysical(
 		stg,
 		bcp.Compression,
 		bcp.CompressionLevel,
+		b.getBackupBufSize(),
+		numWorkers,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
@@ -562,7 +578,7 @@ func (b *Backup) uploadPhysical(
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath, -1)
+	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath)
 	if err != nil {
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
@@ -618,13 +634,13 @@ func getStorageBSON(dbpath string) (*File, error) {
 type UUID struct{ uuid.UUID }
 
 // MarshalBSONValue implements the bson.ValueMarshaler interface.
-func (id UUID) MarshalBSONValue() (bsontype.Type, []byte, error) {
-	return bson.TypeBinary, bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
+func (id UUID) MarshalBSONValue() (byte, []byte, error) {
+	return byte(bson.TypeBinary), bsoncore.AppendBinary(nil, 4, id.UUID[:]), nil
 }
 
 // UnmarshalBSONValue implements the bson.ValueUnmarshaler interface.
-func (id *UUID) UnmarshalBSONValue(t bsontype.Type, raw []byte) error {
-	if t != bson.TypeBinary {
+func (id *UUID) UnmarshalBSONValue(t byte, raw []byte) error {
+	if t != byte(bson.TypeBinary) {
 		return errors.New("invalid format on unmarshal bson value")
 	}
 
@@ -643,41 +659,36 @@ func (id *UUID) IsZero() bool {
 	return bytes.Equal(id.UUID[:], uuid.Nil[:])
 }
 
-// Uploads given files to the storage. files may come as 16Mb (by default)
-// blocks in that case it will concat consecutive blocks in one bigger file.
-// For example: f1[0-16], f1[16-24], f1[64-16] becomes f1[0-24], f1[50-16].
-// If this is an incremental, NOT base backup, it will skip uploading of
-// unchanged files (Len == 0) but add them to the meta as we need know
-// what files shouldn't be restored (those which isn't in the target backup).
-func uploadFiles(
-	ctx context.Context,
-	files []File,
-	subdir string,
-	trimPrefix string,
-	incr bool,
-	stg storage.Storage,
-	comprT compress.CompressionType,
-	comprL *int,
-) ([]File, error) {
+// trimFilePrefix strips trimPrefix from fname and returns
+// a cleaned relative path (e.g. `foo` rather than `/foo`).
+func trimFilePrefix(fname, trimPrefix string) string {
+	// path.Clean to get rid of `/` at the beginning in case it's
+	// left after TrimPrefix. Just for consistent file names in metadata
+	return path.Clean("./" + strings.TrimPrefix(fname, trimPrefix))
+}
+
+// upItem is one entry of an upload.
+// It contains the file name and and info about whether it's necessary to upload it.
+type upItem struct {
+	file   File
+	upload bool
+}
+
+// planUploads walks files in order and produces the upload plan. files may
+// come as 16Mb (by default) blocks; in that case consecutive blocks of the
+// same file are coalesced into one bigger upload. In [Off-Len] notation:
+// f1[0-16], f1[16-16], f1[64-16] becomes f1[0-32], f1[64-16].
+// If this is an incremental, NOT base backup, unchanged files (Len == 0) are
+// not uploaded but still recorded in the meta as we need to know what files
+// shouldn't be restored (those which aren't in the target backup).
+func planUploads(files []File, incr bool) []upItem {
 	if len(files) == 0 {
-		return nil, nil
+		return nil
 	}
 
-	trim := func(fname string) string {
-		// path.Clean to get rid of `/` at the beginning in case it's
-		// left after TrimPrefix. Just for consistent file names in metadata
-		return path.Clean("./" + strings.TrimPrefix(fname, trimPrefix))
-	}
-
+	upItems := make([]upItem, 0, len(files))
 	wfile := files[0]
-	data := []File{}
 	for _, file := range files[1:] {
-		select {
-		case <-ctx.Done():
-			return nil, storage.ErrCancelled
-		default:
-		}
-
 		// Skip uploading unchanged files if incremental
 		// but add them to the meta to keep track of files to be restored
 		// from prev backups. Plus sometimes the cursor can return an offset
@@ -686,9 +697,8 @@ func uploadFiles(
 		if incr && (file.Len == 0 || file.Off >= file.Size) {
 			file.Off = -1
 			file.Len = -1
-			file.Name = trim(file.Name)
 
-			data = append(data, file)
+			upItems = append(upItems, upItem{file: file})
 			continue
 		}
 
@@ -699,58 +709,135 @@ func uploadFiles(
 			continue
 		}
 
-		fw, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
-		if err != nil {
-			return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
-		}
-		fw.Name = trim(wfile.Name)
-
-		data = append(data, *fw)
-
+		upItems = append(upItems, upItem{file: wfile, upload: true})
 		wfile = file
 	}
 
-	if incr && wfile.Off == 0 && wfile.Len == 0 {
-		return data, nil
+	// flush the last pending file unless it's an incremental no-op
+	if !incr || wfile.Off != 0 || wfile.Len != 0 {
+		upItems = append(upItems, upItem{file: wfile, upload: true})
 	}
 
-	f, err := writeFile(ctx, wfile, path.Join(subdir, trim(wfile.Name)), stg, comprT, comprL)
-	if err != nil {
-		return data, errors.Wrapf(err, "upload file `%s`", wfile.Name)
+	return upItems
+}
+
+// uploadFiles uploads the given files to the storage, running up concurrently
+// `numWorkers` function calls of writeFile.
+func uploadFiles(
+	ctx context.Context,
+	files []File,
+	subdir string,
+	trimPrefix string,
+	incr bool,
+	stg storage.Storage,
+	comprT compress.CompressionType,
+	comprL *int,
+	bufSize int,
+	numWorkers int,
+) ([]File, error) {
+	if len(files) == 0 {
+		return nil, nil
 	}
-	f.Name = trim(wfile.Name)
 
-	data = append(data, *f)
+	upItems := planUploads(files, incr)
 
-	return data, nil
+	// each concurrent upload needs its own set of buffer (x3)
+	type uploadBufs struct{ cp, save, fsSave []byte }
+	bufPool := make(chan uploadBufs, numWorkers)
+	allBufs := make([]byte, numWorkers*3*bufSize)
+	for i := range numWorkers {
+		base := i * 3 * bufSize
+		bufPool <- uploadBufs{
+			cp:     allBufs[base : base+bufSize : base+bufSize],
+			save:   allBufs[base+bufSize : base+2*bufSize : base+2*bufSize],
+			fsSave: allBufs[base+2*bufSize : base+3*bufSize : base+3*bufSize],
+		}
+	}
+
+	// each goroutine writes a distinct index, so no locking needed.
+	results := make([]File, len(upItems))
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(min(numWorkers, len(upItems)))
+
+	for i, s := range upItems {
+		fname := trimFilePrefix(s.file.Name, trimPrefix)
+		if !s.upload {
+			s.file.Name = fname
+			results[i] = s.file
+			continue
+		}
+
+		// fail fast if single item fails
+		if egCtx.Err() != nil {
+			break
+		}
+
+		eg.Go(func() error {
+			bufs := <-bufPool
+			defer func() { bufPool <- bufs }()
+
+			fw, err := writeFile(
+				egCtx,
+				&s.file,
+				path.Join(subdir, fname),
+				stg,
+				comprT,
+				comprL,
+				bufs.cp,
+				bufs.save,
+				bufs.fsSave,
+			)
+			if err != nil {
+				return errors.Wrapf(err, "upload file `%s`", s.file.Name)
+			}
+			fw.Name = fname
+
+			results[i] = *fw
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 func writeFile(
 	ctx context.Context,
-	src File,
+	file *File,
 	dst string,
 	stg storage.Storage,
 	compression compress.CompressionType,
 	compressLevel *int,
+	cpBuf []byte,
+	saveBuf []byte,
+	fsSaveBuf []byte,
 ) (*File, error) {
-	fstat, err := os.Stat(src.Name)
+	fstat, err := os.Stat(file.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "get file stat")
 	}
 
 	dst += compression.Suffix()
 	sz := fstat.Size()
-	if src.Len != 0 {
+	if file.Len != 0 {
 		// Len is always a multiple of the fixed size block (16Mb default)
 		// so Off + Len might be bigger than the actual file size
-		sz = src.Len
-		if src.Off+src.Len > src.Size {
-			sz = src.Size - src.Off
+		sz = file.Len
+		if file.Off+file.Len > file.Size {
+			sz = file.Size - file.Off
 		}
-		dst += fmt.Sprintf(".%d-%d", src.Off, src.Len)
+		dst += fmt.Sprintf(".%d-%d", file.Off, file.Len)
 	}
 
-	_, err = storage.Upload(ctx, &src, stg, compression, compressLevel, dst, sz)
+	var src storage.Source = file
+	if len(cpBuf) > 0 {
+		src = NewFileReader(*file, cpBuf)
+	}
+	_, err = storage.UploadWithOpts(ctx, src, stg, compression, compressLevel, dst,
+		sz, saveBuf, fsSaveBuf)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}
@@ -761,12 +848,12 @@ func writeFile(
 	}
 
 	return &File{
-		Name:                src.Name,
+		Name:                file.Name,
 		Size:                fstat.Size(),
 		Fmode:               fstat.Mode(),
 		StgSize:             finf.Size,
 		StgSizeUncompressed: sz,
-		Off:                 src.Off,
-		Len:                 src.Len,
+		Off:                 file.Off,
+		Len:                 file.Len,
 	}, nil
 }

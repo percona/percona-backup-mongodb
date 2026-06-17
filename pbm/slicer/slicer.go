@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
@@ -34,7 +34,7 @@ type Slicer struct {
 	node       *mongo.Client
 	rs         string
 	span       int64
-	lastTS     primitive.Timestamp
+	lastTS     bson.Timestamp
 	storage    storage.Storage
 	oplog      *oplog.OplogBackup
 	l          log.LogEvent
@@ -333,7 +333,7 @@ func (s *Slicer) Stream(
 	}
 
 	for {
-		sliceTo := primitive.Timestamp{}
+		sliceTo := bson.Timestamp{}
 		// waiting for a trigger
 		select {
 		// wrapping up at the current point-in-time
@@ -371,7 +371,7 @@ func (s *Slicer) Stream(
 
 					s.l.Info("unsuitable backup [opid: %q]", opid)
 					s.l.Info("pausing/stopping with last_ts %v", time.Unix(int64(s.lastTS.T), 0).UTC())
-					sliceTo = primitive.Timestamp{}
+					sliceTo = bson.Timestamp{}
 				} else if s.lastTS.After(sliceTo) {
 					// it can happen that prevoius slice >= backup's fisrt_write
 					// in that case we have to just back off.
@@ -474,15 +474,15 @@ func (s *Slicer) Stream(
 
 func (s *Slicer) upload(
 	ctx context.Context,
-	from primitive.Timestamp,
-	to primitive.Timestamp,
+	from bson.Timestamp,
+	to bson.Timestamp,
 	compression compress.CompressionType,
 	level *int,
 ) error {
 	s.oplog.SetTailingSpan(from, to)
 	fname := oplog.FormatChunkFilepath(s.rs, from, to, compression)
 	// if use parent ctx, upload will be canceled on the "done" signal
-	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level, fname, -1)
+	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level, fname)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although
@@ -531,7 +531,7 @@ func (s *Slicer) deleteLastChunk(ctx context.Context) error {
 	return nil
 }
 
-func formatts(t primitive.Timestamp) string {
+func formatts(t bson.Timestamp) string {
 	return time.Unix(int64(t.T), 0).UTC().Format("2006-01-02T15:04:05")
 }
 
@@ -557,8 +557,8 @@ func (s *Slicer) getOpLock(ctx context.Context, l *lock.LockHeader, t time.Durat
 
 var errUnsuitableBackup = errors.New("unsuitable backup")
 
-func (s *Slicer) backupRSStartTS(ctx context.Context, opid string, t time.Duration) (primitive.Timestamp, error) {
-	var ts primitive.Timestamp
+func (s *Slicer) backupRSStartTS(ctx context.Context, opid string, t time.Duration) (bson.Timestamp, error) {
+	var ts bson.Timestamp
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
