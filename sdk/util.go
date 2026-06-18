@@ -136,7 +136,7 @@ func Diagnostic(ctx context.Context, c *Client, cid CommandID) (*DiagnosticRepor
 	}
 	rv.ServerVersion = serVer.String()
 
-	rv.FCV, err = version.GetFCV(ctx, c.conn.MongoClient())
+	rv.FCV, err = topo.GetClusterFCV(ctx, c.conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get fcv")
 	}

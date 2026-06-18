@@ -342,7 +342,7 @@ func getSnapshotList(
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, conn.MongoClient())
+	fcv, err := topo.GetClusterFCV(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
@@ -464,7 +464,7 @@ func getBaseSnapshotLastWrite(
 	if err != nil {
 		return bson.Timestamp{}, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := version.GetFCV(ctx, conn.MongoClient())
+	fcv, err := topo.GetClusterFCV(ctx, conn)
 	if err != nil {
 		return bson.Timestamp{}, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
