@@ -2,15 +2,15 @@ package pbm
 
 import (
 	"context"
+	"fmt"
 	"log"
 )
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
 func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
-	disco, err := startDiscovery(cfg.Name, cfg.DiscoConfig)
+	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig)
 	if err != nil {
-		log.Printf("start pbm cluster: %v", err)
-		return err
+		return fmt.Errorf("start pbm cluster: %w", err)
 	}
 	defer func() {
 		if err := disco.stop(); err != nil {

@@ -43,5 +43,8 @@ type EtcdConfig struct {
 // DiscoConfig holds Serf discovery configuration shared by all agents.
 type DiscoConfig struct {
 	SerfPort int
-	SerfJoin string
+	// SerfJoin lists seed addresses (host:port) to gossip with on startup.
+	// Reaching any one is enough; serf discovers the rest. Empty starts a new
+	// cluster.
+	SerfJoin []string
 }

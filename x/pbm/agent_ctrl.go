@@ -11,7 +11,7 @@ import (
 // brings up embedded etcd, and blocks until ctx is canceled or the server
 // reports a fatal error.
 func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
-	disco, err := startDiscovery(cfg.Name, cfg.DiscoConfig)
+	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig)
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}

@@ -1,13 +1,17 @@
 package pbm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/hashicorp/serf/serf"
 )
+
+const serfJoinInterval = 2 * time.Second
 
 // discovery runs serf node and its membership event loop.
 type discovery struct {
@@ -17,7 +21,7 @@ type discovery struct {
 
 // startDiscovery creates the serf node, starts the membership event loop, and
 // joins the seed if one is configured. The caller owns shutdown via stop().
-func startDiscovery(name string, cfg DiscoConfig) (*discovery, error) {
+func startDiscovery(ctx context.Context, name string, cfg DiscoConfig) (*discovery, error) {
 	// buffered so a momentarily slow consumer can't block serf's dispatcher.
 	eventCh := make(chan serf.Event, 64)
 
@@ -38,16 +42,36 @@ func startDiscovery(name string, cfg DiscoConfig) (*discovery, error) {
 	d := &discovery{serf: s, done: make(chan struct{})}
 	go d.eventLoop(eventCh)
 
-	if cfg.SerfJoin != "" {
-		n, err := s.Join([]string{cfg.SerfJoin}, true)
-		if err != nil {
-			log.Printf("serf join %q failed, continuing: %v", cfg.SerfJoin, err)
-		} else {
-			log.Printf("serf joined %d node(s) via %q", n, cfg.SerfJoin)
-		}
+	if len(cfg.SerfJoin) > 0 {
+		d.retryJoin(ctx, cfg.SerfJoin)
 	}
 
 	return d, nil
+}
+
+// retryJoin keeps attempting to gossip with the seed peers until this node is
+// part of a multi-member cluster.
+func (d *discovery) retryJoin(ctx context.Context, peers []string) {
+	t := time.NewTicker(serfJoinInterval)
+	defer t.Stop()
+
+	for {
+		if _, err := d.serf.Join(peers, true); err != nil {
+			log.Printf("serf: join attempt failed (%v); retrying in %s", err, serfJoinInterval)
+		}
+		if n := len(d.serf.Members()); n > 1 {
+			log.Printf("serf: clustered with %d members", n)
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.serf.ShutdownCh():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // eventLoop process cluster membership changes until the serf node shuts down.

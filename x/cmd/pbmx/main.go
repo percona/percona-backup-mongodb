@@ -80,7 +80,7 @@ func workerAgentConfig() *pbm.WorkerAgentConfig {
 		MongoURI: viper.GetString(mongoConnFlag),
 		DiscoConfig: pbm.DiscoConfig{
 			SerfPort: viper.GetInt(serfPortFlag),
-			SerfJoin: viper.GetString(serfJoinFlag),
+			SerfJoin: splitList(viper.GetString(serfJoinFlag)),
 		},
 	}
 }
@@ -147,7 +147,7 @@ func setRootFlags(rootCmd *cobra.Command) {
 	persistentInt(rootCmd, serfPortFlag, 0,
 		"serf gossip listen port, bound on 0.0.0.0 (default 7946)")
 	persistentString(rootCmd, serfJoinFlag, "",
-		"serf seed address host:port to join; empty starts a new cluster")
+		"comma-separated serf seed addresses (host:port) to join; reaching any one is enough, empty starts a new cluster")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and
@@ -164,6 +164,18 @@ func persistentInt(cmd *cobra.Command, name string, def int, usage string) {
 	cmd.PersistentFlags().Int(name, def, usage)
 	_ = viper.BindPFlag(name, cmd.PersistentFlags().Lookup(name))
 	_ = viper.BindEnv(name, envName(name))
+}
+
+// splitList parses a comma-separated flag value into a slice, trimming spaces
+// and dropping empty entries.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func envName(flag string) string {
