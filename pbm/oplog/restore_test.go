@@ -93,6 +93,56 @@ func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
 	}
 }
 
+func TestCloneEntryRemappedCreateStripsO2(t *testing.T) {
+	oRestore := newOplogRestoreTest(newMDBTestClient())
+	err := oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{
+		FromNS: "mydb.c1",
+		ToNS:   "restored.c1_clone",
+	})
+	require.NoError(t, err)
+
+	uuid := bson.Binary{Subtype: 0x04, Data: []byte{1, 2, 3, 4}}
+	op := dbOplogCreateWithO2(uuid)
+
+	oRestore.cloneEntry(&op)
+
+	require.Equal(t, "restored.$cmd", op.Namespace)
+	require.Equal(t, "c1_clone", op.Object[0].Value)
+	require.Nil(t, op.UI)
+	require.Empty(t, op.Query)
+}
+
+func TestCloneEntryDoesNotStripCreateO2WithoutCloneNS(t *testing.T) {
+	oRestore := newOplogRestoreTest(newMDBTestClient())
+
+	uuid := bson.Binary{Subtype: 0x04, Data: []byte{1, 2, 3, 4}}
+	op := dbOplogCreateWithO2(uuid)
+
+	oRestore.cloneEntry(&op)
+
+	require.Equal(t, "mydb.$cmd", op.Namespace)
+	require.Equal(t, "c1", op.Object[0].Value)
+	require.NotNil(t, op.UI)
+	require.NotEmpty(t, op.Query)
+}
+
+func TestCloneEntryPreservesO2ForClonedUpdate(t *testing.T) {
+	oRestore := newOplogRestoreTest(newMDBTestClient())
+	err := oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{
+		FromNS: "mydb.c1",
+		ToNS:   "restored.c1_clone",
+	})
+	require.NoError(t, err)
+
+	op := *createUpdateOp(t, "mydb.c1")
+
+	oRestore.cloneEntry(&op)
+
+	require.Equal(t, "restored.c1_clone", op.Namespace)
+	require.Nil(t, op.UI)
+	require.NotEmpty(t, op.Query)
+}
+
 func dbOplogCreateWithO2(uuid bson.Binary) db.Oplog {
 	return db.Oplog{
 		Operation: "c",

@@ -1059,6 +1059,12 @@ func (o *OplogRestore) cloneEntry(op *db.Oplog) {
 	op.Namespace = fmt.Sprintf("%s.$cmd", o.cloneNS.toDB)
 	op.Object[0].Value = o.cloneNS.toColl
 	op.UI = nil
+	if cmdName == "create" {
+		// MongoDB 8.3 create oplog entries may include physical local-catalog
+		// metadata in o2. Do not carry source storage idents into the cloned
+		// namespace; let MongoDB allocate fresh target metadata.
+		op.Query = nil
+	}
 }
 
 func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
