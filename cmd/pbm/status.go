@@ -591,7 +591,7 @@ func getStorageStat(
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
 	}
-	fcv, err := topo.GetClusterFCV(ctx, conn)
+	fcv, err := version.GetFCV(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get featureCompatibilityVersion")
 	}
