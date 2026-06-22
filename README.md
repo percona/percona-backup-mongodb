@@ -4,9 +4,9 @@
 ![PBM logo](percona-backup-for-mongodb.png)
 
 Percona Backup for MongoDB (PBM) is a distributed, low-impact solution for achieving
-consistent backups of MongoDB sharded clusters and replica sets. Percona Backup for MongoDB supports Percona Server for MongoDB and MongoDB Community Edition v5.0 and higher.
+consistent backups of MongoDB sharded clusters and replica sets. The latest version of Percona Backup for MongoDB supports Percona Server for MongoDB and MongoDB Community Edition v7.0 and higher.
 
-For more information about PBM components and how to use it, see
+For more information about PBM components and how to use them, see
 [Percona Backup for MongoDB documentation](https://docs.percona.com/percona-backup-mongodb/)
 
 Percona Backup for MongoDB includes the following **Features**:
@@ -28,7 +28,7 @@ Percona Backup for MongoDB consists of the following components:
 - **pbm-agent** is a process running on every mongod node within the cluster or a replica set that performs backup and restore operations.
 - **pbm** CLI is a command-line utility that instructs pbm-agents to perform an operation.
 - **PBM Control collections** are special collections in MongoDB that store the configuration data and backup states
-- Remote backup storage as either s3-compatible or filesystem-type storage
+- Remote backup storage as either S3-compatible or filesystem-type storage
 
 ![Architecture](pbm-architecture.png)
 
@@ -87,25 +87,6 @@ Percona is dedicated to **keeping open source open**. We strive to include permi
 We encourage contributions and are always looking for new members who are as dedicated to serving the community as we are.
 
 The [Contributing Guide](https://github.com/percona/percona-backup-mongodb/blob/main/CONTRIBUTING.md) contains the guidelines for contributing.
-
-## Join Percona Squad!
-Participate in monthly SWAG raffles, get early access to new product features, and invite-only ”ask me anything” sessions with database performance experts. Interested? Fill in the form at [squad.percona.com/mongodb](https://squad.percona.com/mongodb)
-```
-                    %                        _____
-                   %%%                      |  __ \
-                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
-                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
-              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
-             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
-           ,((###         ###     %%%         _____                       _
-          (((( (###        ####  %%%%        / ____|                     | |
-         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
-       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
-      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
-    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
-   ///                ((((        ####                 | |
- /////////////(((((((((((((((((########                |_|  
-```
 
 ## Contact
 
