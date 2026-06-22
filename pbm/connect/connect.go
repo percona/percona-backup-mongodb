@@ -272,27 +272,6 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 	}, nil
 }
 
-func (l *clientImpl) HasValidConnection(ctx context.Context) error {
-	err := l.client.Ping(ctx, readpref.Primary())
-	if err != nil {
-		return err
-	}
-
-	info, err := getNodeInfo(ctx, l.client)
-	if err != nil {
-		return errors.Wrap(err, "get node info ext")
-	}
-
-	if info.isMongos() {
-		return ErrMongosUnsupported
-	}
-	if !info.isClusterLeader() {
-		return ErrInvalidConnection
-	}
-
-	return nil
-}
-
 func (l *clientImpl) Disconnect(ctx context.Context) error {
 	return l.client.Disconnect(ctx)
 }
@@ -387,10 +366,7 @@ func (l *clientImpl) applyOptonsFromConnString(cmd bson.D) bson.D {
 	return cmd
 }
 
-var (
-	ErrInvalidConnection = errors.New("invalid mongo connection")
-	ErrMongosUnsupported = errors.New("mongos connection is not supported")
-)
+var ErrMongosUnsupported = errors.New("mongos connection is not supported")
 
 type Client interface {
 	Disconnect(ctx context.Context) error
