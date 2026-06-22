@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
 func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
-	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig)
+	svc := status.New(cfg.Name, status.RoleWorker, cfg.MongoURI)
+
+	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, svc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
@@ -18,6 +22,9 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 		}
 	}()
 	log.Printf("agent: %s added to PBM cluster", cfg.Name)
+
+	svc.SetPublisher(disco)
+	go svc.Run(ctx)
 
 	<-ctx.Done()
 

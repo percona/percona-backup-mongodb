@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/serf/serf"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
 const serfJoinInterval = 2 * time.Second
@@ -16,12 +18,19 @@ const serfJoinInterval = 2 * time.Second
 // discovery runs serf node and its membership event loop.
 type discovery struct {
 	serf *serf.Serf
+	sync chan<- status.StatusEvent
 	done chan struct{}
 }
 
 // startDiscovery creates the serf node, starts the membership event loop, and
-// joins the seed if one is configured. The caller owns shutdown via stop().
-func startDiscovery(ctx context.Context, name string, cfg DiscoConfig) (*discovery, error) {
+// joins the seed if one is configured. Membership changes are forwarded to sink
+// for the status service. The caller owns shutdown via stop().
+func startDiscovery(
+	ctx context.Context,
+	name string,
+	cfg DiscoConfig,
+	sync chan<- status.StatusEvent,
+) (*discovery, error) {
 	// buffered so a momentarily slow consumer can't block serf's dispatcher.
 	eventCh := make(chan serf.Event, 64)
 
@@ -39,8 +48,8 @@ func startDiscovery(ctx context.Context, name string, cfg DiscoConfig) (*discove
 		return nil, fmt.Errorf("create serf: %w", err)
 	}
 
-	d := &discovery{serf: s, done: make(chan struct{})}
-	go d.eventLoop(eventCh)
+	d := &discovery{serf: s, sync: sync, done: make(chan struct{})}
+	go d.eventLoop(ctx, eventCh)
 
 	if len(cfg.SerfJoin) > 0 {
 		d.retryJoin(ctx, cfg.SerfJoin)
@@ -74,8 +83,14 @@ func (d *discovery) retryJoin(ctx context.Context, peers []string) {
 	}
 }
 
-// eventLoop process cluster membership changes until the serf node shuts down.
-func (d *discovery) eventLoop(eventCh <-chan serf.Event) {
+// Publish broadcasts the agent's status tags to the cluster as serf member tags.
+// It publishes all the tags, not just patch.
+func (d *discovery) Publish(tags map[string]string) error {
+	return d.serf.SetTags(tags)
+}
+
+// eventLoop processes cluster membership forwarding each change to the status service.
+func (d *discovery) eventLoop(ctx context.Context, eventCh <-chan serf.Event) {
 	defer close(d.done)
 
 	shutdownCh := d.serf.ShutdownCh()
@@ -84,21 +99,60 @@ func (d *discovery) eventLoop(eventCh <-chan serf.Event) {
 		case e := <-eventCh:
 			me, ok := e.(serf.MemberEvent)
 			if !ok {
-				// ignore user events and queries for now
+				// ignore user events and queries
 				continue
 			}
-			switch me.Type {
-			case serf.EventMemberJoin, serf.EventMemberLeave, serf.EventMemberFailed:
-				for _, m := range me.Members {
-					log.Printf("serf membership: %s name=%s addr=%s:%d",
-						me.Type, m.Name, m.Addr, m.Port)
-				}
-			default:
-				// EventMemberUpdate/Reap not interesting yet.
-			}
+			d.handleMemberEvent(ctx, me)
 		case <-shutdownCh:
 			return
 		}
+	}
+}
+
+func (d *discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) {
+	kind, alive, ok := classifyEvent(me.Type)
+	if !ok {
+		return // just ignore it for now, but improve it
+	}
+
+	for _, m := range me.Members {
+		log.Printf("serf membership: %s name=%s addr=%s:%d",
+			me.Type, m.Name, m.Addr, m.Port)
+
+		ev := status.StatusEvent{
+			Kind:  kind,
+			Name:  m.Name,
+			Addr:  m.Addr.String(),
+			Port:  m.Port,
+			Alive: alive,
+		}
+		if alive {
+			ev.Payload = m.Tags
+		}
+
+		select {
+		case d.sync <- ev:
+			// todo: turn on logging here
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// classifyEvent maps a serf member event type to a status EventKind.
+func classifyEvent(t serf.EventType) (kind status.EventKind, alive, ok bool) {
+	switch t {
+	case serf.EventMemberJoin:
+		return status.MemberUp, true, true
+	case serf.EventMemberUpdate:
+		return status.MemberUpdate, true, true
+	case serf.EventMemberFailed:
+		return status.MemberFailed, false, true
+	case serf.EventMemberLeave, serf.EventMemberReap:
+		//todo: improve this
+		return status.MemberGone, false, true
+	default:
+		return 0, false, false
 	}
 }
 

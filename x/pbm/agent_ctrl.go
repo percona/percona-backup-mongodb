@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"log"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
 // RunCtrlAgent starts the control agent: it joins the PBM discovery cluster,
 // brings up embedded etcd, and blocks until ctx is canceled or the server
 // reports a fatal error.
 func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
-	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig)
+	statusSvc := status.New(cfg.Name, status.RoleCtrl, cfg.MongoURI)
+
+	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
@@ -21,6 +25,9 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 		}
 	}()
 	log.Printf("ctrl-agent: %s added to PBM cluster", cfg.Name)
+
+	statusSvc.SetPublisher(disco)
+	go statusSvc.Run(ctx)
 
 	etcdSrv, err := startEmbeddedEtcd(ctx, cfg.Name, cfg.EtcdConfig)
 	if err != nil {
