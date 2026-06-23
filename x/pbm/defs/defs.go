@@ -8,33 +8,7 @@ import (
 )
 
 const (
-	// DB is a name of the PBM database
 	DB = "admin"
-	// LogCollection is the name of the mongo collection that contains PBM logs
-	LogCollection = "pbmLog"
-	// ConfigCollection is the name of the mongo collection that contains PBM configs
-	ConfigCollection = "pbmConfig"
-	// LockCollection is the name of the mongo collection that is used
-	// by agents to coordinate mutually exclusive operations (e.g. backup/restore)
-	LockCollection = "pbmLock"
-	// LockOpCollection is the name of the mongo collection that is used
-	// by agents to coordinate operations that don't need to be
-	// mutually exclusive to other operation types (e.g. backup-delete)
-	LockOpCollection = "pbmLockOp"
-	// BcpCollection is a collection for backups metadata
-	BcpCollection = "pbmBackups"
-	// RestoresCollection is a collection for restores metadata
-	RestoresCollection = "pbmRestores"
-	// CmdStreamCollection is the name of the mongo collection that contains backup/restore commands stream
-	CmdStreamCollection = "pbmCmd"
-	// PITRChunksCollection contains index metadata of PITR chunks
-	PITRChunksCollection = "pbmPITRChunks"
-	// pbmPITR is a collection for PITR operational data
-	PITRCollection = "pbmPITR"
-	// PBMOpLogCollection contains log of acquired locks (hence run ops)
-	PBMOpLogCollection = "pbmOpLog"
-	// AgentsStatusCollection is an agents registry with its status/health checks
-	AgentsStatusCollection = "pbmAgents"
 )
 
 const (

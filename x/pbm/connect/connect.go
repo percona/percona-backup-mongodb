@@ -17,8 +17,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
-var ErrInvalidConnection = errors.New("invalid mongo connection")
-
 type MongoOption func(*options.ClientOptions) error
 
 func AppName(name string) MongoOption {
@@ -423,4 +421,28 @@ func getConfigsvrURI(ctx context.Context, cn *mongo.Client) (string, error) {
 		FindOne(ctx, bson.D{{"_id", "shardIdentity"}}).Decode(&csvr)
 
 	return csvr.URI, err
+}
+
+var ErrInvalidConnection = errors.New("invalid mongo connection")
+
+type Client interface {
+	Disconnect(ctx context.Context) error
+
+	MongoClient() *mongo.Client
+	MongoOptions() *options.ClientOptions
+
+	ConfigDatabase() *mongo.Database
+	AdminCommand(ctx context.Context, cmd bson.D, opts ...options.Lister[options.RunCmdOptions]) *mongo.SingleResult
+
+	LogCollection() *mongo.Collection
+	ConfigCollection() *mongo.Collection
+	LockCollection() *mongo.Collection
+	LockOpCollection() *mongo.Collection
+	BcpCollection() *mongo.Collection
+	RestoresCollection() *mongo.Collection
+	CmdStreamCollection() *mongo.Collection
+	PITRChunksCollection() *mongo.Collection
+	PITRCollection() *mongo.Collection
+	PBMOpLogCollection() *mongo.Collection
+	AgentsStatusCollection() *mongo.Collection
 }
