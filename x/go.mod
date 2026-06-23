@@ -3,14 +3,22 @@ module github.com/percona/percona-backup-mongodb/x
 go 1.25.5
 
 require (
+	github.com/aws/aws-sdk-go-v2 v1.42.0
+	github.com/golang/snappy v1.0.0
 	github.com/hashicorp/serf v0.10.2
+	github.com/klauspost/compress v1.17.9
+	github.com/klauspost/pgzip v1.2.6
+	github.com/pierrec/lz4 v2.6.1+incompatible
+	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	go.etcd.io/etcd/server/v3 v3.6.12
+	go.mongodb.org/mongo-driver/v2 v2.7.0
 )
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
+	github.com/aws/smithy-go v1.27.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -41,7 +49,6 @@ require (
 	github.com/hashicorp/memberlist v0.5.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/miekg/dns v1.1.56 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
@@ -59,7 +66,11 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
+	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/xdg-go/scram v1.2.0 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.etcd.io/etcd/api/v3 v3.6.12 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.6.12 // indirect
