@@ -33,20 +33,46 @@ _TBD_
 
 ## Architecture sketch
 
-<!-- High-level shape: packages, boundaries, who talks to whom. A short ASCII diagram or
-     a bullet tree is fine. Keep it current — out-of-date diagrams are worse than none. -->
+Same overall shape as legacy PBM — an agent runs alongside each `mongod` — but agents now come in **two roles**:
 
-_TBD_
+- **ctrl agent** — owns PBM's control-collection state (the leader-election / command-queue / status that legacy PBM kept inside MongoDB control collections). In pbm-x this state lives in an **etcd** database that the ctrl agent runs/manages.
+- **worker agent** — does **not** run etcd. Its core responsibility is executing the actual work: backup and restore.
+
+```
+        +-------------------+        control-collection state
+        |    ctrl agent     |  runs  (etcd)
+        +-------------------+           ^
+                                        | etcd client API
+                                        | (local or remote)
+        +-------------------+           |
+        |   worker agent    |  --etcd client--+   also does backup / restore
+        +-------------------+
+```
+
+**Coordination:** worker agents connect to the ctrl agent's **etcd as clients** to read/write control state — they speak the etcd client API directly, not a separate protocol. A worker may be co-located with the ctrl agent or remote, so etcd's client endpoint must be externally reachable (we bind `0.0.0.0`). The peer API is for etcd↔etcd traffic between ctrl agents.
+
+Open: how many ctrl agents run (single vs. quorum) and etcd deployment topology — see Open questions.
+
+### Code layout
+
+A single `pbmx` binary covers both the CLI and the agent (selected at runtime by `--ctrl-agent` / `--worker-agent`). Two layers, with a one-way dependency:
+
+```
+cmd/pbmx/   →   pbm/
+  CLI only        all runtime logic
+```
+
+- **`cmd/pbmx/`** — CLI wiring *only*: cobra command definitions, flags, env-var bindings, and config-file loading. It parses input and dispatches; it holds no operational logic. The root command's `RunE` reads the role flag and calls into `pbm/`.
+- **`pbm/`** (`github.com/percona/percona-backup-mongodb/x/pbm`) — all other logic. Today: `RunCtrlAgent` + embedded-etcd startup/graceful-shutdown (`etcd.go`). Worker-agent, backup/restore, and coordination logic land here too.
+
+Rule: dependency flows one way, `cmd/pbmx/` → `pbm/`. `pbm/` must not import `cmd/pbmx/`. Anything beyond CLI parsing/dispatch belongs in `pbm/`.
 
 ## What's intentionally different from legacy PBM
 
-<!-- The deltas that matter for code review. Examples:
-     - Coordination: doing X instead of control collections in Mongo
-     - Storage: dropping support for backend Z
-     - CLI shape: flat verbs vs. nested
--->
+<!-- The deltas that matter for code review. -->
 
-_TBD_
+- **Coordination / state store:** legacy PBM keeps control-collection state (locks, command queue, status) inside MongoDB itself. pbm-x moves that state into an **etcd** database, owned by the **ctrl agent**.
+- **Agent roles split in two:** legacy PBM runs one uniform agent per node. pbm-x splits responsibilities into **ctrl agents** (manage control state in etcd) and **worker agents** (run backup/restore, no etcd).
 
 ## Open questions / decisions to make
 
@@ -54,22 +80,16 @@ _TBD_
      When a question is settled, move the answer into "Design principles" or
      "Architecture sketch" and delete it from this list. -->
 
-- _TBD_
+- **etcd is currently plaintext + unauthenticated.** The client and peer APIs are served over `http` with no auth, and the client API is bound on `0.0.0.0` (remote workers legitimately need it — see Coordination). This cannot be closed by binding localhost; it's an **auth/TLS** task to tackle later (etcd RBAC and/or client/peer TLS), not a bind-address one.
+- How many ctrl agents run — single node vs. a 3/5-member quorum — and the etcd deployment topology that follows from it.
 
 ## Glossary
 
 <!-- Only terms that don't mean what they mean in legacy PBM, or that are new. -->
 
-_TBD_
-
-## References
-
-<!-- Jira tickets, design docs, Slack threads, prior art links. -->
-
-- Jira epic: _TBD_
-- Design doc: _TBD_
-
----
+- **ctrl agent** — agent role that owns and manages PBM's control-collection state, backed by an etcd database it runs.
+- **worker agent** — agent role that performs backup and restore. Does not run etcd.
+- **control-collection state** — in legacy PBM this lived in MongoDB collections; in pbm-x it lives in etcd (managed by the ctrl agent).
 
 ## Working preferences for this prototype
 - when generating golang code follow following guidelines:
@@ -82,7 +102,6 @@ _TBD_
 - git
     - never create git commits or pr requests automatically.
 - never modify anything out of x directory. If it's necessary ask for confirmation.
-How
 <!-- How you want me to behave specifically in x/. These override defaults.
      Examples to replace:
      - "Prototype phase: prefer concrete implementations over interfaces until a second use case appears."
