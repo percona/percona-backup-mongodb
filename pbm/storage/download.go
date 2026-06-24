@@ -324,14 +324,18 @@ func (pr *PartReader) retryChunk(buf *Arena, sess interface{}, start, end int64,
 		if err == nil {
 			return r, nil
 		}
+		if i == retries-1 {
+			break
+		}
 
 		pr.L.Warning("retryChunk got %v, try to reconnect in %v", err, time.Second*time.Duration(i))
 		time.Sleep(time.Second * time.Duration(i))
-		sess, err = pr.GetSess()
-		if err != nil {
-			pr.L.Warning("recreate session err: %v", err)
+		nextSess, sessErr := pr.GetSess()
+		if sessErr != nil {
+			pr.L.Warning("recreate session err: %v", sessErr)
 			continue
 		}
+		sess = nextSess
 		pr.L.Info("session recreated, resuming download")
 	}
 
