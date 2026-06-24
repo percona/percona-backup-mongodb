@@ -2289,12 +2289,12 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(&cfg.Storage, r.nodeInfo.Me, l)
+	r.confOpts = cfg.Restore
+
+	r.stg, err = util.StorageWithDownloaderFromConfig(&cfg.Storage, r.confOpts, r.nodeInfo.Me, l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
-
-	r.confOpts = cfg.Restore
 
 	r.mongod = "mongod" // run from $PATH by default
 	if r.confOpts.MongodLocation != "" {
