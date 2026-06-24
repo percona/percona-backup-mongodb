@@ -356,7 +356,8 @@ func (pr *PartReader) tryChunk(buf *Arena, sess interface{}, start, end int64) (
 			return r, nil
 		}
 
-		if errors.Is(err, &GetObjError{}) {
+		var getObjErr GetObjError
+		if errors.As(err, &getObjErr) {
 			return r, err
 		}
 
@@ -390,15 +391,6 @@ func (e GetObjError) Error() string {
 	return e.Err.Error()
 }
 
-func (e GetObjError) Unwap() error {
+func (e GetObjError) Unwrap() error {
 	return e.Err
-}
-
-func (GetObjError) Is(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	_, ok := err.(GetObjError) //nolint:errorlint
-	return ok
 }

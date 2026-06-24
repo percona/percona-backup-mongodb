@@ -34,3 +34,33 @@ func TestRetryChunkDoesNotSwallowLastDownloadError(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, r)
 }
+
+func TestTryChunkReturnsGetObjErrorWithoutRetry(t *testing.T) {
+	wantErr := stderrors.New("download failed")
+	var calls int
+
+	pr := &PartReader{
+		Fname: "file",
+		Fsize: 100,
+		L:     log.DiscardEvent,
+		GetChunk: func(string, *Arena, interface{}, int64, int64) (io.ReadCloser, error) {
+			calls++
+			return nil, GetObjError{Err: wantErr}
+		},
+	}
+
+	arena := NewArena(1024, 1024)
+
+	r, err := pr.tryChunk(arena, struct{}{}, 0, 9)
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, r)
+	require.Equal(t, 1, calls)
+}
+
+func TestGetObjErrorUnwrapsProviderError(t *testing.T) {
+	wantErr := stderrors.New("provider error")
+
+	err := GetObjError{Err: wantErr}
+
+	require.ErrorIs(t, err, wantErr)
+}
