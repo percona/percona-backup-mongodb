@@ -3,10 +3,15 @@ package status
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"sync"
 	"time"
+
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/topo"
 )
 
 // refreshInterval is how often an agent re-reads its local mongod and
@@ -62,7 +67,10 @@ type SubsysStatus struct {
 type Svc struct {
 	name string // this agent's serf node name
 	role Role
-	mURI string
+
+	// mc is a direct connection to this agent's local mongod.
+	// It's nil when the agent has no attached.
+	mc *mongo.Client
 
 	recv ReceiveChannel
 	pub  Publisher
@@ -77,12 +85,13 @@ type clusterMembers map[string]AgentInfo
 // ReceiveChannel carries StatusEvents from discovery
 type ReceiveChannel chan StatusEvent
 
-func New(name string, role Role, mongoURI string) *Svc {
+// New creates a status service.
+func New(name string, role Role, localMongo *mongo.Client) *Svc {
 	return &Svc{
 		name: name,
 		role: role,
-		mURI: mongoURI,
-		recv: make(ReceiveChannel, 64),
+		mc:   localMongo,
+		recv: make(ReceiveChannel, 64), //todo: improve
 		mems: map[string]AgentInfo{},
 	}
 }
@@ -255,9 +264,31 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	}
 }
 
-func (s *Svc) localMongoInfo(_ context.Context) (MongoInfo, error) {
-	//todo: implement this
-	return MongoInfo{}, nil
+// localMongoInfo reads this agent's own mongod and maps its node info into MongoInfo.
+// When the agent has no MongoDB attached, it is a no-op and returns the zero MongoInfo.
+func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
+	if s.mc == nil {
+		return MongoInfo{}, nil
+	}
+
+	// GetNodeInfoExt also reads the parsed command line, so IsSharded reflects the
+	// node's clusterRole even before hello gossips $configServerState.
+	ni, err := topo.GetNodeInfoExt(ctx, s.mc)
+	if err != nil {
+		return MongoInfo{}, fmt.Errorf("get local node info: %w", err)
+	}
+
+	return MongoInfo{
+		SetName:     ni.SetName,
+		Me:          ni.Me,
+		Sharded:     ni.IsSharded(),
+		ConfigSvr:   ni.IsConfigSrv(),
+		IsPrimary:   ni.IsPrimary,
+		Secondary:   ni.Secondary,
+		Hidden:      ni.Hidden,
+		Passive:     ni.Passive,
+		ArbiterOnly: ni.ArbiterOnly,
+	}, nil
 }
 
 // GetAllMembers returns a snapshot of every cached member, sorted by replica set

@@ -6,7 +6,7 @@ import (
 )
 
 func TestApplyCachesAndRemovesMembers(t *testing.T) {
-	s := New("self", RoleWorker, "")
+	s := New("self", RoleWorker, nil)
 
 	s.apply(StatusEvent{
 		Kind:    MemberUp,
@@ -63,7 +63,7 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 }
 
 func TestGetMembersForRSAndSorting(t *testing.T) {
-	s := New("self", RoleWorker, "")
+	s := New("self", RoleWorker, nil)
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs1-0", Alive: true,
 		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"})})
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs0-1", Alive: true,
@@ -94,7 +94,7 @@ type fakePublisher struct{ last map[string]string }
 func (f *fakePublisher) Publish(tags map[string]string) error { f.last = tags; return nil }
 
 func TestRefreshLocalCachesSelfAndPublishes(t *testing.T) {
-	s := New("self", RoleCtrl, "")
+	s := New("self", RoleCtrl, nil)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 

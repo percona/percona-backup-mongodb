@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
@@ -13,7 +14,13 @@ import (
 // brings up embedded etcd, and blocks until ctx is canceled or the server
 // reports a fatal error.
 func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
-	statusSvc := status.New(cfg.Name, status.RoleCtrl, cfg.MongoURI)
+	mc, err := connect.ConnectDirect(ctx, cfg.MongoURI)
+	if err != nil {
+		return fmt.Errorf("connect local mongod: %w", err)
+	}
+	defer connect.Disconnect(mc)
+
+	statusSvc := status.New(cfg.Name, status.RoleCtrl, mc)
 
 	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, statusSvc.DiscoSync())
 	if err != nil {

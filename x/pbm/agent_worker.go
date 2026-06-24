@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
 func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
-	svc := status.New(cfg.Name, status.RoleWorker, cfg.MongoURI)
+	mc, err := connect.ConnectDirect(ctx, cfg.MongoURI)
+	if err != nil {
+		return fmt.Errorf("connect local mongod: %w", err)
+	}
+	defer connect.Disconnect(mc)
+
+	svc := status.New(cfg.Name, status.RoleWorker, mc)
 
 	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, svc.DiscoSync())
 	if err != nil {

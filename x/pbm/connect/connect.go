@@ -2,6 +2,7 @@ package connect
 
 import (
 	"context"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -293,6 +294,17 @@ func (l *clientImpl) HasValidConnection(ctx context.Context) error {
 
 func (l *clientImpl) Disconnect(ctx context.Context) error {
 	return l.client.Disconnect(ctx)
+}
+
+// Disconnect tears down a raw mongo client. It is a no-op for a nil client, so it
+// is safe to defer unconditionally over an optional connection.
+func Disconnect(client *mongo.Client) {
+	if client == nil {
+		return
+	}
+	if err := client.Disconnect(context.Background()); err != nil {
+		log.Printf("disconnect mongo client: %v", err)
+	}
 }
 
 func (l *clientImpl) MongoClient() *mongo.Client {
