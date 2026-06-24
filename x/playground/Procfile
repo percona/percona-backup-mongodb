@@ -1,6 +1,4 @@
-# Local 6-node playground for goreman (github.com/mattn/goreman).
-#
-#   cd playground && goreman start   # compiles via `go run` and launches all 6 processes
+# Local 9-node playground for goreman (github.com/mattn/goreman).
 #
 # Run from inside this directory: `go run ../cmd/pbmx` resolves the binary in the
 # module, env sourcing is relative to here (./env/<name>.env), and data dirs land
@@ -8,6 +6,9 @@
 ctrl-0: set -a; . ./env/ctrl-0.env; set +a; exec go run ../cmd/pbmx --ctrl-agent --name ctrl-0
 ctrl-1: set -a; . ./env/ctrl-1.env; set +a; exec go run ../cmd/pbmx --ctrl-agent --name ctrl-1
 ctrl-2: set -a; . ./env/ctrl-2.env; set +a; exec go run ../cmd/pbmx --ctrl-agent --name ctrl-2
-worker-0: set -a; . ./env/worker-0.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-0
-worker-1: set -a; . ./env/worker-1.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-1
-worker-2: set -a; . ./env/worker-2.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-2
+worker-100: set -a; . ./env/worker-100.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-100
+worker-101: set -a; . ./env/worker-101.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-101
+worker-102: set -a; . ./env/worker-102.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-102
+worker-200: set -a; . ./env/worker-200.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-200
+worker-201: set -a; . ./env/worker-201.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-201
+worker-202: set -a; . ./env/worker-202.env; set +a; exec go run ../cmd/pbmx --worker-agent --name worker-202
