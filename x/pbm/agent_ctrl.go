@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/percona/percona-backup-mongodb/x/pbm/api"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
@@ -46,11 +47,16 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	defer etcdSrv.Close()
 	log.Printf("ctrl-agent %s started control collection db", cfg.Name)
 
+	apiSrv := api.Start(api.Config{Port: cfg.APISrvPort})
+	log.Printf("ctrl-agent %s started REST API on port %d", cfg.Name, cfg.APISrvPort)
+
 	select {
 	case <-ctx.Done():
 		log.Printf("agent: %s is shutdown", cfg.Name)
 		return nil
 	case err := <-etcdSrv.Err():
 		return fmt.Errorf("embedded etcd stopped: %w", err)
+	case err := <-apiSrv.Err():
+		return fmt.Errorf("api server stopped: %w", err)
 	}
 }

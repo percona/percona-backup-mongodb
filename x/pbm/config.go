@@ -5,7 +5,7 @@ type CtrlAgentConfig struct {
 	WorkerAgentConfig
 	EtcdConfig
 
-	HTTPPort int
+	APISrvPort int
 }
 
 type WorkerAgentConfig struct {

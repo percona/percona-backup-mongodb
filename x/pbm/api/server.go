@@ -1,0 +1,34 @@
+package api
+
+import (
+	"fmt"
+	"net/http"
+)
+
+type Config struct {
+	Port int
+}
+
+// Server is the ctrl-agent's REST API server.
+type Server struct {
+	errCh chan error
+}
+
+// Start serves the REST API in a background goroutine.
+func Start(cfg Config) *Server {
+	s := &Server{
+		errCh: make(chan error, 1),
+	}
+
+	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Port)
+	go func() {
+		s.errCh <- http.ListenAndServe(addr, newRouter())
+	}()
+
+	return s
+}
+
+// Err delivers a a bind failure or a runtime error.
+func (s *Server) Err() <-chan error {
+	return s.errCh
+}

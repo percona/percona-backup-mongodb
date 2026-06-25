@@ -31,7 +31,10 @@ const (
 	serfPortFlag = "serf-port"
 	serfJoinFlag = "serf-join"
 
+	apiSrvPortFlag = "api-srv-port"
+
 	defaultEtcdDataDir = "pbmx.etcd"
+	defaultAPISrvPort  = 9595
 )
 
 func main() {
@@ -98,6 +101,7 @@ func ctrlAgentConfig() *pbm.CtrlAgentConfig {
 			AdvertiseClientURL: viper.GetString(etcdAdvertiseClientURLFlag),
 			InitialCluster:     viper.GetString(etcdInitialClusterFlag),
 		},
+		APISrvPort: viper.GetInt(apiSrvPortFlag),
 	}
 }
 
@@ -148,6 +152,9 @@ func setRootFlags(rootCmd *cobra.Command) {
 		"serf gossip listen port, bound on 0.0.0.0 (default 7946)")
 	persistentString(rootCmd, serfJoinFlag, "",
 		"comma-separated serf seed addresses (host:port) to join; reaching any one is enough, empty starts a new cluster")
+
+	persistentInt(rootCmd, apiSrvPortFlag, defaultAPISrvPort,
+		"HTTP API listen port (ctrl-agent only)")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and
