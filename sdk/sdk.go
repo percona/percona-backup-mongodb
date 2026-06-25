@@ -12,6 +12,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -72,6 +73,14 @@ const (
 	CompressionTypeZstandard = compress.CompressionTypeZstandard
 )
 
+type EncryptionType = encrypt.EncryptionType
+
+const (
+	EncryptionTypeNone              = encrypt.EncryptionTypeNone
+	EncryptionTypeAES256GCM         = encrypt.EncryptionTypeAES256GCM
+	EncryptionTypeXChaCha20Poly1305 = encrypt.EncryptionTypeXChaCha20Poly1305
+)
+
 type (
 	Config          = config.Config
 	BackupMetadata  = backup.BackupMeta
@@ -83,18 +92,21 @@ type (
 type LogicalBackupOptions struct {
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
+	EncryptionType   EncryptionType
 	Namespaces       []string
 }
 
 type PhysicalBackupOptions struct {
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
+	EncryptionType   EncryptionType
 }
 
 type IncrementalBackupOptions struct {
 	NewBase          bool
 	CompressionType  CompressionType
 	CompressionLevel CompressionLevel
+	EncryptionType   EncryptionType
 }
 
 type GetBackupByNameOptions struct {

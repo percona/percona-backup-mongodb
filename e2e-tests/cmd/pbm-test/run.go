@@ -11,6 +11,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/e2e-tests/pkg/tests/sharded"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 )
 
 func run(t *sharded.Cluster, typ testTyp) {
@@ -71,6 +72,17 @@ func run(t *sharded.Cluster, typ testTyp) {
 		flushStore(t)
 	}
 
+	t.SetBallastData(1e5)
+
+	runTest("Encrypted Logical Backup & Restore AES-256-GCM",
+		func() { t.EncryptedBackupAndRestore("/etc/pbm/minio-encrypt-aes.yaml", encrypt.EncryptionTypeAES256GCM) })
+	runTest("Encrypted Logical Backup & Restore XChaCha20-Poly1305",
+		func() { t.EncryptedBackupAndRestore("/etc/pbm/minio-encrypt-xchacha.yaml", encrypt.EncryptionTypeXChaCha20Poly1305) })
+	runTest("Encrypted Restore With Wrong Passphrase Fails",
+		func() { t.EncryptedRestoreWrongPassphraseFails("/etc/pbm/minio-encrypt-aes.yaml", "/etc/pbm/minio-encrypt-aes-wrong.yaml") })
+
+	flushStore(t)
+	t.ApplyConfig(context.TODO(), storage)
 	t.SetBallastData(1e5)
 
 	runTest("Check the Cannot Run Delete During Backup",

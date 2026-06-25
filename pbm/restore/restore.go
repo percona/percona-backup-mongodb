@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -335,6 +336,7 @@ func applyOplog(
 	getTxn getcommittedTxnFn,
 	stat *phys.DistTxnStat,
 	mgoV *version.MongoVersion,
+	passphrase string,
 ) (partial []oplog.Txn, err error) {
 	log := log.LogEventFromContext(ctx)
 	log.Info("starting oplog replay")
@@ -381,9 +383,9 @@ func applyOplog(
 			// PBM versions) won’t be compatible - during the restore, PBM will treat such
 			// files as Snappy (judging by its suffix) but in fact, they are s2 files
 			// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
-			lts, err = replayChunk(chnk.FName, oplogRestore, stg, chnk.Compression)
+			lts, err = replayChunk(chnk.FName, oplogRestore, stg, chnk.Compression, chnk.Encryption, passphrase)
 			if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-				lts, err = replayChunk(chnk.FName, oplogRestore, stg, compress.CompressionTypeS2)
+				lts, err = replayChunk(chnk.FName, oplogRestore, stg, compress.CompressionTypeS2, chnk.Encryption, passphrase)
 			}
 			if err != nil {
 				return nil, errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
@@ -428,6 +430,8 @@ func replayChunk(
 	oplog *oplog.OplogRestore,
 	stg storage.Storage,
 	c compress.CompressionType,
+	enc encrypt.EncryptionType,
+	passphrase string,
 ) (bson.Timestamp, error) {
 	or, err := stg.SourceReader(file)
 	if err != nil {
@@ -436,7 +440,14 @@ func replayChunk(
 	}
 	defer or.Close()
 
-	oplogReader, err := compress.Decompress(or, c)
+	er, err := encrypt.Decrypt(or, enc, passphrase)
+	if err != nil {
+		lts := bson.Timestamp{}
+		return lts, errors.Wrapf(err, "decrypt object %s", file)
+	}
+	defer er.Close()
+
+	oplogReader, err := compress.Decompress(er, c)
 	if err != nil {
 		lts := bson.Timestamp{}
 		return lts, errors.Wrapf(err, "decompress object %s", file)

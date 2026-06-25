@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
@@ -201,3 +202,5 @@ const (
 )
 
 const DefaultCompression = compress.CompressionTypeS2
+
+const DefaultEncryption = encrypt.EncryptionTypeNone

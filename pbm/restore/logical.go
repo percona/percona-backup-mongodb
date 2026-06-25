@@ -24,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -840,6 +841,7 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 			RS:          r.nodeInfo.SetName,
 			FName:       rsMeta.OplogName,
 			Compression: bcp.Compression,
+			Encryption:  bcp.Encryption,
 			StartTS:     bcp.FirstWriteTS,
 			EndTS:       bcp.LastWriteTS,
 		}}
@@ -859,6 +861,7 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 		chunk.RS = rsMeta.Name
 		chunk.FName = rsMeta.OplogName + "/" + file.Name
 		chunk.Size = file.Size
+		chunk.Encryption = bcp.Encryption
 
 		chunk.StartTS, chunk.EndTS, chunk.Compression, err = backup.ParseChunkName(file.Name)
 		if err != nil {
@@ -1064,6 +1067,11 @@ func (r *Restore) RunSnapshot(
 
 	r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
 
+	passphrase, err := r.cfg.EncryptionPassphrase()
+	if err != nil {
+		return "", errors.Wrap(err, "resolve encryption passphrase")
+	}
+
 	rdr, err := snapshot.DownloadDump(
 		func(ns string) (io.ReadCloser, error) {
 			stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
@@ -1095,6 +1103,8 @@ func (r *Restore) RunSnapshot(
 			return rdr, nil
 		},
 		bcp.Compression,
+		bcp.Encryption,
+		passphrase,
 		util.MakeSelectedPred(nss),
 		r.numParallelColls)
 	if err != nil {
@@ -1149,7 +1159,18 @@ func (r *Restore) restoreLegacyArchive(
 	}
 	defer sr.Close()
 
-	rdr, err := compress.Decompress(sr, bcp.Compression)
+	passphrase, err := r.cfg.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
+
+	er, err := encrypt.Decrypt(sr, bcp.Encryption, passphrase)
+	if err != nil {
+		return errors.Wrapf(err, "decrypt object %s", dump)
+	}
+	defer er.Close()
+
+	rdr, err := compress.Decompress(er, bcp.Compression)
 	if err != nil {
 		return errors.Wrapf(err, "decompress object %s", dump)
 	}
@@ -1558,6 +1579,10 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 		return errors.Wrap(err, "define mongo version")
 	}
 	stat := phys.RestoreShardStat{}
+	passphrase, err := r.cfg.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
 	partial, err := applyOplog(ctx,
 		r.nodeConn,
 		ranges,
@@ -1567,7 +1592,8 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 		r.setcommittedTxn,
 		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+		passphrase)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}

@@ -36,6 +36,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
@@ -73,6 +74,7 @@ const (
 type files struct {
 	BcpName string
 	Cmpr    compress.CompressionType
+	Enc     encrypt.EncryptionType
 	Data    []backup.File
 
 	// dbpath to cut from destination if there is any (see PBM-1058)
@@ -130,6 +132,8 @@ type PhysRestore struct {
 	bufSize         int
 
 	numParallelFiles int
+
+	passphrase string
 }
 
 func NewPhysical(
@@ -1620,6 +1624,7 @@ type copyOp struct {
 	src   string
 	fMeta backup.File
 	cmpr  compress.CompressionType
+	enc   encrypt.EncryptionType
 }
 
 // planCopyFiles walks r.files in restore order (base -> target) and groups
@@ -1658,7 +1663,7 @@ func (r *PhysRestore) planCopyFiles(setName string) []copyFileJob {
 				continue
 			}
 
-			add(dst, &copyOp{src: src, fMeta: f, cmpr: set.Cmpr})
+			add(dst, &copyOp{src: src, fMeta: f, cmpr: set.Cmpr, enc: set.Enc})
 		}
 	}
 
@@ -1726,7 +1731,7 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 				if err := egCtx.Err(); err != nil {
 					return err
 				}
-				if err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf); err != nil {
+				if err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, op.enc, cpBuf); err != nil {
 					return err
 				}
 			}
@@ -1741,7 +1746,7 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 }
 
 // copyFile copies file from the storage into local FS.
-func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compress.CompressionType, cpbuf []byte) error {
+func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compress.CompressionType, enc encrypt.EncryptionType, cpbuf []byte) error {
 	r.log.Info("copy <%s> to <%s>", src, dst)
 	sr, err := r.bcpStg.SourceReader(src)
 	if err != nil {
@@ -1749,7 +1754,13 @@ func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compres
 	}
 	defer sr.Close()
 
-	data, err := compress.Decompress(sr, cType)
+	er, err := encrypt.Decrypt(sr, enc, r.passphrase)
+	if err != nil {
+		return errors.Wrapf(err, "decrypt object %s", src)
+	}
+	defer er.Close()
+
+	data, err := compress.Decompress(er, cType)
 	if err != nil {
 		return errors.Wrapf(err, "decompress object %s", src)
 	}
@@ -1969,7 +1980,8 @@ func (r *PhysRestore) replayPITROnStandalone(
 		r.setcommittedTxn,
 		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+		r.passphrase)
 	if err != nil {
 		return errors.Wrap(err, "replay oplog")
 	}
@@ -2407,6 +2419,10 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 	}
 
 	r.confOpts = cfg.Restore
+	r.passphrase, err = cfg.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
 
 	r.mongod = "mongod" // run from $PATH by default
 	if r.confOpts.MongodLocation != "" {
@@ -2696,6 +2712,7 @@ func (r *PhysRestore) setBcpFiles(ctx context.Context) error {
 		data := files{
 			BcpName: bcp.Name,
 			Cmpr:    bcp.Compression,
+			Enc:     bcp.Encryption,
 			Data:    []backup.File{},
 		}
 		// PBM-1058

@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -27,6 +28,7 @@ type OplogChunk struct {
 	RS          string                   `bson:"rs"`
 	FName       string                   `bson:"fname"`
 	Compression compress.CompressionType `bson:"compression"`
+	Encryption  encrypt.EncryptionType   `bson:"encryption,omitempty"`
 	StartTS     bson.Timestamp           `bson:"start_ts"`
 	EndTS       bson.Timestamp           `bson:"end_ts"`
 	Size        int64                    `bson:"size"`

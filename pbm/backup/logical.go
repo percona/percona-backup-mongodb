@@ -112,8 +112,12 @@ func (b *Backup) doLogical(
 				estimatedSize = 1 << 30
 			}
 
-			return storage.UploadWithOpts(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename,
-				int64(estimatedSize), nil, nil)
+			passphrase, err := b.config.EncryptionPassphrase()
+			if err != nil {
+				return 0, errors.Wrap(err, "resolve encryption passphrase")
+			}
+			return storage.UploadWithOpts(ctx, w, stg, bcp.Compression, bcp.CompressionLevel,
+				bcp.Encryption, passphrase, filename, int64(estimatedSize), nil, nil)
 		})
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck
@@ -178,6 +182,11 @@ func (b *Backup) doLogical(
 		}
 	}
 
+	passphrase, err := b.config.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
+
 	snapshotSize, err := snapshot.UploadDump(ctx,
 		func(newFile archive.NewWriter) error {
 			bcp, err := archive.NewBackup(ctx, archive.BackupOptions{
@@ -202,7 +211,9 @@ func (b *Backup) doLogical(
 			return stg.Save(filepath, r, storage.Size(sizeHints[ns]))
 		},
 		bcp.Compression,
-		bcp.CompressionLevel)
+		bcp.CompressionLevel,
+		bcp.Encryption,
+		passphrase)
 	if err != nil {
 		return errors.Wrap(err, "dump")
 	}

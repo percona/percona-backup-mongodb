@@ -7,6 +7,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
 
@@ -18,6 +19,8 @@ func UploadDump(
 	upload UploadFunc,
 	compression compress.CompressionType,
 	compressionLevel *int,
+	encryption encrypt.EncryptionType,
+	passphrase string,
 ) (int64, error) {
 	uploadSize := int64(0)
 
@@ -25,8 +28,10 @@ func UploadDump(
 		pr, pw := io.Pipe()
 
 		compression := compression
+		encryption := encryption
 		if ns == archive.MetaFileV2 {
 			compression = compress.CompressionTypeNone
+			encryption = encrypt.EncryptionTypeNone
 		}
 
 		done := make(chan error)
@@ -44,12 +49,17 @@ func UploadDump(
 			atomic.AddInt64(&uploadSize, rc.n)
 		}()
 
-		w, err := compress.Compress(pw, compression, compressionLevel)
+		encw, err := encrypt.Encrypt(pw, encryption, passphrase)
+		if err != nil {
+			return nil, errors.Wrapf(err, "create encryptor: %q", ns)
+		}
+		w, err := compress.Compress(encw, compression, compressionLevel)
 		dwc := io.WriteCloser(&delegatedWriteCloser{w, funcCloser(func() error {
 			err0 := w.Close()
-			err1 := pw.Close()
-			err2 := <-done
-			return errors.Join(err0, err1, err2)
+			err1 := encw.Close()
+			err2 := pw.Close()
+			err3 := <-done
+			return errors.Join(err0, err1, err2, err3)
 		})})
 		return dwc, errors.Wrapf(err, "create compressor: %q", ns)
 	}
@@ -63,6 +73,8 @@ type DownloadFunc func(filename string) (io.ReadCloser, error)
 func DownloadDump(
 	download DownloadFunc,
 	compression compress.CompressionType,
+	encryption encrypt.EncryptionType,
+	passphrase string,
 	match archive.NSFilterFn,
 	numParallelColls int,
 ) (io.ReadCloser, error) {
@@ -83,6 +95,10 @@ func DownloadDump(
 				return r, nil
 			}
 
+			r, err = encrypt.Decrypt(r, encryption, passphrase)
+			if err != nil {
+				return nil, errors.Wrapf(err, "create decryptor: %q", ns)
+			}
 			r, err = compress.Decompress(r, compression)
 			return r, errors.Wrapf(err, "create decompressor: %q", ns)
 		}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -20,6 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/azure"
@@ -81,6 +83,31 @@ type Config struct {
 	Restore *RestoreConf `bson:"restore,omitempty" json:"restore,omitempty" yaml:"restore,omitempty"`
 
 	Epoch bson.Timestamp `bson:"epoch" json:"-" yaml:"-"`
+}
+
+// EnvEncryptionPassphrase is the environment variable used to read the
+// encryption passphrase
+const EnvEncryptionPassphrase = "PBM_ENCRYPTION_PASSPHRASE"
+
+// redactedPassphrase to mask sensitive information in the logs
+const redactedPassphrase = "**REDACTED**"
+
+// EncryptionType returns the encryption algorithm
+func (c *Config) EncryptionType() encrypt.EncryptionType {
+	if c == nil || c.Backup == nil || c.Backup.Encryption == "" {
+		return defs.DefaultEncryption
+	}
+	return c.Backup.Encryption
+}
+
+// EncryptionPassphrase returns the passphrase used to derive the encryption
+// key, resolved from the environment, passphrase file or config, or an empty
+// string when encryption is not configured
+func (c *Config) EncryptionPassphrase() (string, error) {
+	if c == nil || c.Backup == nil {
+		return "", nil
+	}
+	return c.Backup.resolvePassphrase()
 }
 
 func Parse(r io.Reader) (*Config, error) {
@@ -517,14 +544,55 @@ func (cfg *RestoreConf) GetNumParallelFiles() int {
 
 //nolint:lll
 type BackupConf struct {
-	OplogSpanMin     float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
-	Priority         Priority                 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
-	Timeouts         *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
-	Compression      compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
-	CompressionLevel *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+	OplogSpanMin             float64                  `bson:"oplogSpanMin" json:"oplogSpanMin" yaml:"oplogSpanMin"`
+	Priority                 Priority                 `bson:"priority,omitempty" json:"priority,omitempty" yaml:"priority,omitempty"`
+	Timeouts                 *BackupTimeouts          `bson:"timeouts,omitempty" json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
+	Compression              compress.CompressionType `bson:"compression,omitempty" json:"compression,omitempty" yaml:"compression,omitempty"`
+	CompressionLevel         *int                     `bson:"compressionLevel,omitempty" json:"compressionLevel,omitempty" yaml:"compressionLevel,omitempty"`
+	Encryption               encrypt.EncryptionType   `bson:"encryption,omitempty" json:"encryption,omitempty" yaml:"encryption,omitempty"`
+	EncryptionPassphrase     string                   `bson:"encryptionPassphrase,omitempty" json:"encryptionPassphrase,omitempty" yaml:"encryptionPassphrase,omitempty"`
+	EncryptionPassphraseFile string                   `bson:"encryptionPassphraseFile,omitempty" json:"encryptionPassphraseFile,omitempty" yaml:"encryptionPassphraseFile,omitempty"`
 
 	NumParallelCollections int `bson:"numParallelCollections" json:"numParallelCollections,omitempty" yaml:"numParallelCollections,omitempty"`
 	NumParallelFiles       int `bson:"numParallelFiles" json:"numParallelFiles,omitempty" yaml:"numParallelFiles,omitempty"`
+}
+
+// redact to redact sensitive information of the backup config
+func (cfg BackupConf) redact() BackupConf {
+	r := BackupConf(cfg)
+	if r.EncryptionPassphrase != "" {
+		r.EncryptionPassphrase = redactedPassphrase
+	}
+	return r
+}
+
+// MarshalYAML masks the encryption passphrase
+// bson persistence is unaffected
+func (cfg BackupConf) MarshalYAML() (interface{}, error) {
+	return cfg.redact(), nil
+}
+
+// MarshalJSON masks the encryption passphrase
+// bson persistence is unaffected
+func (cfg BackupConf) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cfg.redact())
+}
+
+// resolvePassphrase returns the passphrase from, in priority order, the
+// PBM_ENCRYPTION_PASSPHRASE environment variable, the EncryptionPassphraseFile,
+// or the inline EncryptionPassphrase field
+func (cfg *BackupConf) resolvePassphrase() (string, error) {
+	if v := os.Getenv(EnvEncryptionPassphrase); v != "" {
+		return v, nil
+	}
+	if cfg.EncryptionPassphraseFile != "" {
+		b, err := os.ReadFile(cfg.EncryptionPassphraseFile)
+		if err != nil {
+			return "", errors.Wrap(err, "read passphrase file")
+		}
+		return strings.TrimRight(string(b), "\r\n"), nil
+	}
+	return cfg.EncryptionPassphrase, nil
 }
 
 func (cfg *BackupConf) Clone() *BackupConf {
@@ -617,6 +685,10 @@ func GetConfig(ctx context.Context, m connect.Client) (*Config, error) {
 		cfg.PITR.CompressionLevel = cfg.Backup.CompressionLevel
 	}
 
+	if cfg.Backup.Encryption == "" {
+		cfg.Backup.Encryption = defs.DefaultEncryption
+	}
+
 	return cfg, nil
 }
 
@@ -643,6 +715,18 @@ func SetConfig(ctx context.Context, m connect.Client, cfg *Config) error {
 	if cfg.Restore != nil {
 		if err := ValidateIndexCommitQuorum(cfg.Restore.IndexCommitQuorum); err != nil {
 			return err
+		}
+	}
+
+	if cfg.Backup != nil {
+		if t := string(cfg.Backup.Encryption); t != "" && !encrypt.IsValidEncryptionType(t) {
+			return errors.Errorf("unsupported encryption type: %q", t)
+		}
+		if cfg.Backup.Encryption != "" && cfg.Backup.Encryption != encrypt.EncryptionTypeNone &&
+			cfg.Backup.EncryptionPassphrase == "" && cfg.Backup.EncryptionPassphraseFile == "" &&
+			os.Getenv(EnvEncryptionPassphrase) == "" {
+			return errors.Errorf("encryption type %q requires a passphrase: set backup.encryptionPassphrase, "+
+				"backup.encryptionPassphraseFile, or the %s env var", cfg.Backup.Encryption, EnvEncryptionPassphrase)
 		}
 	}
 
@@ -803,6 +887,10 @@ func confSetPITR(ctx context.Context, m connect.Client, value bool) error {
 func GetConfigVar(ctx context.Context, m connect.Client, key string) (interface{}, error) {
 	if !validateConfigKey(key) {
 		return nil, errors.Errorf("invalid config key: %s", key)
+	}
+
+	if key == "backup.encryptionPassphrase" {
+		return redactedPassphrase, nil
 	}
 
 	bts, err := m.ConfigCollection().
