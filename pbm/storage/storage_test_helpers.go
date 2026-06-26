@@ -2,13 +2,15 @@ package storage
 
 import (
 	"bytes"
-	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"path"
 	"strings"
 	"testing"
+	"time"
 )
 
 func RunStorageBaseTests(t *testing.T, stg Storage, stgType Type) {
@@ -287,7 +289,25 @@ func RunStorageAPITests(t *testing.T, stg Storage) {
 	})
 }
 
+type SplitMergeMWTestConfig struct {
+	SkipLarge      bool
+	SkipExtraLarge bool
+}
+
+type splitMergeMWTestSize string
+
+const (
+	splitMergeMWTestLarge      splitMergeMWTestSize = "large"
+	splitMergeMWTestExtraLarge splitMergeMWTestSize = "extra-large"
+)
+
 func RunSplitMergeMWTests(t *testing.T, stg Storage) {
+	t.Helper()
+
+	RunSplitMergeMWTestsWithConfig(t, stg, SplitMergeMWTestConfig{})
+}
+
+func RunSplitMergeMWTestsWithConfig(t *testing.T, stg Storage, cfg SplitMergeMWTestConfig) {
 	t.Helper()
 
 	t.Run("Save with split-merge middleware", func(t *testing.T) {
@@ -297,6 +317,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 			fileSize  int64
 			file      string
 			wantParts int
+			size      splitMergeMWTestSize
 		}{
 			{
 				desc:      "basic use case for splitting files",
@@ -309,12 +330,14 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				partSize:  1 * 1024,
 				fileSize:  220*1024 + 555,
 				wantParts: 221,
+				size:      splitMergeMWTestLarge,
 			},
 			{
 				desc:      "splitting 1000s of files",
 				partSize:  1 * 512,
 				fileSize:  1100*1024 + 1,
 				wantParts: 2201,
+				size:      splitMergeMWTestExtraLarge,
 			},
 			{
 				desc:      "file of the same size as part",
@@ -362,6 +385,8 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
+				skipSplitMergeMWTest(t, cfg, tC.size)
+
 				mw := stg.(*SplitMergeMiddleware)
 				mw.maxObjSize = tC.partSize
 
@@ -417,6 +442,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 			partSize       int64
 			mergedFileSize int64
 			file           string
+			size           splitMergeMWTestSize
 		}{
 			{
 				desc:           "basic use case for merging parts",
@@ -427,11 +453,13 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				desc:           "merging 100s of parts",
 				partSize:       199,
 				mergedFileSize: 300*199 + 444,
+				size:           splitMergeMWTestLarge,
 			},
 			{
 				desc:           "merging 1000s of parts",
 				partSize:       57,
 				mergedFileSize: 57*1023 + 15,
+				size:           splitMergeMWTestExtraLarge,
 			},
 			{
 				desc:           "single part file smaller than part size",
@@ -467,6 +495,8 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
+				skipSplitMergeMWTest(t, cfg, tC.size)
+
 				mw := stg.(*SplitMergeMiddleware)
 				mw.maxObjSize = tC.partSize
 
@@ -602,6 +632,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 			partSize      int64
 			totalFileSize int64
 			file          string
+			size          splitMergeMWTestSize
 		}{
 			{
 				desc:          "basic use caser for FileStat",
@@ -612,11 +643,13 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				desc:          "stat for 100s of parts",
 				partSize:      456,
 				totalFileSize: 123*456 + 789,
+				size:          splitMergeMWTestLarge,
 			},
 			{
 				desc:          "stat for 1000s of parts",
 				partSize:      123,
 				totalFileSize: 4567*123 + 1,
+				size:          splitMergeMWTestExtraLarge,
 			},
 			{
 				desc:          "single part",
@@ -642,6 +675,8 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
+				skipSplitMergeMWTest(t, cfg, tC.size)
+
 				mw := stg.(*SplitMergeMiddleware)
 				mw.maxObjSize = tC.partSize
 
@@ -705,6 +740,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 			partSize      int64
 			totalFileSize int64
 			file          string
+			size          splitMergeMWTestSize
 		}{
 			{
 				desc:          "basic use caser for Delete",
@@ -715,11 +751,13 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				desc:          "stat for 100s of parts",
 				partSize:      456,
 				totalFileSize: 123*456 + 789,
+				size:          splitMergeMWTestLarge,
 			},
 			{
 				desc:          "stat for 1000s of parts",
 				partSize:      123,
 				totalFileSize: 4567*123 + 1,
+				size:          splitMergeMWTestExtraLarge,
 			},
 			{
 				desc:          "single part",
@@ -745,6 +783,8 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
+				skipSplitMergeMWTest(t, cfg, tC.size)
+
 				mw := stg.(*SplitMergeMiddleware)
 				mw.maxObjSize = tC.partSize
 
@@ -813,6 +853,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 			partSize      int64
 			totalFileSize int64
 			file          string
+			size          splitMergeMWTestSize
 		}{
 			{
 				desc:          "basic use caser for Copy",
@@ -823,6 +864,7 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 				desc:          "stat for 100s of parts",
 				partSize:      456,
 				totalFileSize: 123*456 + 789,
+				size:          splitMergeMWTestLarge,
 			},
 			{
 				desc:          "single part",
@@ -848,6 +890,8 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 		}
 		for _, tC := range testCases {
 			t.Run(tC.desc, func(t *testing.T) {
+				skipSplitMergeMWTest(t, cfg, tC.size)
+
 				mw := stg.(*SplitMergeMiddleware)
 				mw.maxObjSize = tC.partSize
 
@@ -920,6 +964,21 @@ func RunSplitMergeMWTests(t *testing.T, stg Storage) {
 	})
 }
 
+func skipSplitMergeMWTest(t *testing.T, cfg SplitMergeMWTestConfig, size splitMergeMWTestSize) {
+	t.Helper()
+
+	switch size {
+	case splitMergeMWTestLarge:
+		if cfg.SkipLarge {
+			t.Skip("skipping large split-merge test")
+		}
+	case splitMergeMWTestExtraLarge:
+		if cfg.SkipExtraLarge {
+			t.Skip("skipping extra-large split-merge test")
+		}
+	}
+}
+
 func CalcPartSizes(partSize, totalSize int64) []int64 {
 	padding := totalSize % partSize
 	partsCount := totalSize / partSize
@@ -936,7 +995,49 @@ func CalcPartSizes(partSize, totalSize int64) []int64 {
 }
 
 func randomSuffix() string {
-	randomBytes := make([]byte, 8)
-	_, _ = rand.Read(randomBytes)
-	return hex.EncodeToString(randomBytes)
+	var b [8]byte
+	binary.LittleEndian.PutUint64(b[:], rand.Uint64())
+	return hex.EncodeToString(b[:])
+}
+
+type Results struct {
+	Size          int64
+	BuffSize      int
+	Time          time.Duration
+	TransferSpeed float64
+}
+
+// RandomDataSrc is source for random test data.
+type RandomDataSrc struct {
+	size int64
+}
+
+func NewRandomDataSrc() *RandomDataSrc {
+	return &RandomDataSrc{}
+}
+
+func NewSizedRandomDataSrc(size int64) *RandomDataSrc {
+	return &RandomDataSrc{size: size}
+}
+
+func (r *RandomDataSrc) Read(p []byte) (int, error) {
+	n := len(p)
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		binary.LittleEndian.PutUint64(p[i:], rand.Uint64())
+	}
+	if i < n {
+		v := rand.Uint64()
+		for j := 0; i+j < n; j++ {
+			p[i+j] = byte(v >> (j * 8))
+		}
+	}
+	return n, nil
+}
+
+func (r *RandomDataSrc) WriteTo(w io.Writer) (int64, error) {
+	if r.size <= 0 {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return io.CopyN(w, struct{ io.Reader }{r}, r.size)
 }

@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -216,17 +217,37 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 			partSize,
 			storage.PrettySize(partSize))
 	}
+	// OCI SDK UploadStream mishandles empty streams: known empty readers lose
+	// encryption headers, and generic empty readers can fail multipart commit.
+	// opts.Size is only a hint, so inspect the actual reader before UploadStream.
+	empty, data, err := checkEmptyReader(data)
+	if err != nil {
+		return errors.Wrap(err, "check empty stream")
+	}
 
-	_, err := transfer.NewUploadManager().UploadStream(context.Background(), transfer.UploadStreamRequest{
+	if empty {
+		err := o.putEmptyObject(name)
+		return errors.Wrap(err, "upload stream")
+	}
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
+	if err != nil {
+		return errors.Wrap(err, "server-side encryption")
+	}
+
+	_, err = transfer.NewUploadManager().UploadStream(context.Background(), transfer.UploadStreamRequest{
 		UploadRequest: transfer.UploadRequest{
-			NamespaceName:         common.String(o.cfg.Namespace),
-			BucketName:            common.String(o.cfg.Bucket),
-			ObjectName:            common.String(o.key(name)),
-			PartSize:              common.Int64(partSize),
-			AllowMultipartUploads: common.Bool(true),
-			AllowParrallelUploads: common.Bool(true),
-			NumberOfGoroutines:    common.Int(o.cfg.UploadConcurrency),
-			ObjectStorageClient:   o.client,
+			NamespaceName:           common.String(o.cfg.Namespace),
+			BucketName:              common.String(o.cfg.Bucket),
+			ObjectName:              common.String(o.key(name)),
+			OpcSseKmsKeyId:          sse.kmsKeyID,
+			OpcSseCustomerAlgorithm: sse.customerAlgorithm,
+			OpcSseCustomerKey:       sse.customerKey,
+			OpcSseCustomerKeySha256: sse.customerKeySHA256,
+			PartSize:                common.Int64(partSize),
+			AllowMultipartUploads:   common.Bool(true),
+			AllowParrallelUploads:   common.Bool(true),
+			NumberOfGoroutines:      common.Int(o.cfg.UploadConcurrency),
+			ObjectStorageClient:     o.client,
 			// Override transfer manager's default, which retries any non-2xx response.
 			RequestMetadata: common.RequestMetadata{RetryPolicy: o.client.RetryPolicy()},
 		},
@@ -236,12 +257,62 @@ func (o *OCI) Save(name string, data io.Reader, options ...storage.Option) error
 	return errors.Wrap(err, "upload stream")
 }
 
+// checkEmptyReader checks whether r is empty by reading at most one byte.
+// If r is not empty, it returns a reader that replays the consumed byte before
+// continuing with r.
+func checkEmptyReader(r io.Reader) (bool, io.Reader, error) {
+	var b [1]byte
+	n, err := r.Read(b[:])
+	if n == 1 {
+		if err != nil && !errors.Is(err, io.EOF) {
+			return false, r, err
+		}
+		return false, io.MultiReader(bytes.NewReader(b[:]), r), nil
+	}
+	if errors.Is(err, io.EOF) {
+		return true, r, nil
+	}
+	if err != nil {
+		return false, r, err
+	}
+
+	return false, r, io.ErrNoProgress
+}
+
+func (o *OCI) putEmptyObject(name string) error {
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
+	if err != nil {
+		return errors.Wrap(err, "server-side encryption")
+	}
+
+	_, err = o.client.PutObject(context.Background(), objectstorage.PutObjectRequest{
+		NamespaceName:           common.String(o.cfg.Namespace),
+		BucketName:              common.String(o.cfg.Bucket),
+		ObjectName:              common.String(o.key(name)),
+		ContentLength:           common.Int64(0),
+		PutObjectBody:           http.NoBody,
+		OpcSseKmsKeyId:          sse.kmsKeyID,
+		OpcSseCustomerAlgorithm: sse.customerAlgorithm,
+		OpcSseCustomerKey:       sse.customerKey,
+		OpcSseCustomerKeySha256: sse.customerKeySHA256,
+		RequestMetadata:         common.RequestMetadata{RetryPolicy: o.client.RetryPolicy()},
+	})
+	return err
+}
+
 func (o *OCI) FileStat(name string) (storage.FileInfo, error) {
-	inf := storage.FileInfo{Name: name}
+	inf := storage.FileInfo{}
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
+	if err != nil {
+		return inf, errors.Wrap(err, "server-side encryption")
+	}
 	res, err := o.client.HeadObject(context.Background(), objectstorage.HeadObjectRequest{
-		NamespaceName: common.String(o.cfg.Namespace),
-		BucketName:    common.String(o.cfg.Bucket),
-		ObjectName:    common.String(o.key(name)),
+		NamespaceName:           common.String(o.cfg.Namespace),
+		BucketName:              common.String(o.cfg.Bucket),
+		ObjectName:              common.String(o.key(name)),
+		OpcSseCustomerAlgorithm: sse.customerAlgorithm,
+		OpcSseCustomerKey:       sse.customerKey,
+		OpcSseCustomerKeySha256: sse.customerKeySHA256,
 	})
 	if err != nil {
 		if isNotFound(err) {
@@ -250,6 +321,7 @@ func (o *OCI) FileStat(name string) (storage.FileInfo, error) {
 		return inf, errors.Wrap(err, "head object")
 	}
 
+	inf.Name = name
 	if res.ContentLength != nil {
 		inf.Size = *res.ContentLength
 	}
@@ -334,7 +406,11 @@ func (o *OCI) Delete(name string) error {
 func (o *OCI) Copy(src, dst string) error {
 	ctx := context.Background()
 
-	res, err := o.client.CopyObject(ctx, o.copyObjectRequest(src, dst))
+	req, err := o.copyObjectRequest(src, dst)
+	if err != nil {
+		return errors.Wrap(err, "server-side encryption")
+	}
+	res, err := o.client.CopyObject(ctx, req)
 	if err != nil {
 		if isNotFound(err) {
 			return storage.ErrNotExist
@@ -352,10 +428,22 @@ func (o *OCI) Copy(src, dst string) error {
 	return nil
 }
 
-func (o *OCI) copyObjectRequest(src, dst string) objectstorage.CopyObjectRequest {
+func (o *OCI) copyObjectRequest(src, dst string) (objectstorage.CopyObjectRequest, error) {
+	sse, err := sseHeadersFor(o.cfg.ServerSideEncryption)
+	if err != nil {
+		return objectstorage.CopyObjectRequest{}, err
+	}
+
 	return objectstorage.CopyObjectRequest{
-		NamespaceName: common.String(o.cfg.Namespace),
-		BucketName:    common.String(o.cfg.Bucket),
+		NamespaceName:                 common.String(o.cfg.Namespace),
+		BucketName:                    common.String(o.cfg.Bucket),
+		OpcSseKmsKeyId:                sse.kmsKeyID,
+		OpcSseCustomerAlgorithm:       sse.customerAlgorithm,
+		OpcSseCustomerKey:             sse.customerKey,
+		OpcSseCustomerKeySha256:       sse.customerKeySHA256,
+		OpcSourceSseCustomerAlgorithm: sse.customerAlgorithm,
+		OpcSourceSseCustomerKey:       sse.customerKey,
+		OpcSourceSseCustomerKeySha256: sse.customerKeySHA256,
 		CopyObjectDetails: objectstorage.CopyObjectDetails{
 			SourceObjectName:      common.String(o.key(src)),
 			DestinationRegion:     common.String(o.cfg.Region),
@@ -363,7 +451,7 @@ func (o *OCI) copyObjectRequest(src, dst string) objectstorage.CopyObjectRequest
 			DestinationBucket:     common.String(o.cfg.Bucket),
 			DestinationObjectName: common.String(o.key(dst)),
 		},
-	}
+	}, nil
 }
 
 func (o *OCI) waitCopyWorkRequest(ctx context.Context, id string) error {

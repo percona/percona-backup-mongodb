@@ -292,6 +292,10 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	backupCmd.Flags().Int32Var(
 		&backupOptions.numParallelColls, "num-parallel-collections", 0, "Number of parallel collections",
 	)
+	backupCmd.Flags().Int32Var(
+		&backupOptions.numParallelFiles, "num-parallel-files", 0,
+		"Number of files to upload in parallel (physical backup, filesystem storage only)",
+	)
 	backupCmd.Flags().StringVar(
 		&backupOptions.ns, "ns", "", `Namespaces to backup (e.g. "db.*", "db.collection"). If not set, backup all ("*.*")`,
 	)
@@ -827,6 +831,10 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 	restoreCmd.Flags().Int32Var(
 		&restoreOptions.numParallelColls, "num-parallel-collections", 0,
 		"Number of parallel collections",
+	)
+	restoreCmd.Flags().Int32Var(
+		&restoreOptions.numParallelFiles, "num-parallel-files", 0,
+		"Number of files to copy in parallel (physical restore, filesystem storage only)",
 	)
 	restoreCmd.Flags().Int32Var(
 		&restoreOptions.numInsertionWorkers, "num-insertion-workers-per-collection", 0,

@@ -142,7 +142,7 @@ func doTest(
 
 	r := &Results{}
 	ts := time.Now()
-	size, err := storage.Upload(context.Background(), src, stg, compression, level, fileName, -1)
+	size, err := storage.Upload(context.Background(), src, stg, compression, level, fileName)
 	r.Size = Byte(size)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload")

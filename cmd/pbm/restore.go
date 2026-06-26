@@ -57,6 +57,7 @@ type restoreOpts struct {
 	allowPartlyDone *bool
 
 	numParallelColls    int32
+	numParallelFiles    int32
 	numInsertionWorkers int32
 	indexCommitQuorum   string
 }
@@ -125,9 +126,13 @@ func runRestore(
 	node string,
 	outf outFormat,
 ) (fmt.Stringer, error) {
-	numParallelColls, err := parseCLINumParallelCollsOption(o.numParallelColls)
+	numParallelColls, err := parseCLINumParallelOption(o.numParallelColls)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
+	}
+	numParallelFiles, err := parseCLINumParallelOption(o.numParallelFiles)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-parallel-files option")
 	}
 	numInsertionWorkers, err := parseCLINumInsertionWorkersOption(o.numInsertionWorkers)
 	if err != nil {
@@ -189,6 +194,7 @@ func runRestore(
 		conn,
 		o,
 		numParallelColls,
+		numParallelFiles,
 		numInsertionWorkers,
 		indexCommitQuorum,
 		nss,
@@ -459,6 +465,7 @@ func doRestore(
 	conn connect.Client,
 	o *restoreOpts,
 	numParallelColls *int32,
+	numParallelFiles *int32,
 	numInsertionWorkers *int32,
 	indexCommitQuorum config.IndexCommitQuorum,
 	nss []string,
@@ -486,6 +493,7 @@ func doRestore(
 			Name:                name,
 			BackupName:          bcp,
 			NumParallelColls:    numParallelColls,
+			NumParallelFiles:    numParallelFiles,
 			NumInsertionWorkers: numInsertionWorkers,
 			IndexCommitQuorum:   indexCommitQuorum,
 			Namespaces:          nss,

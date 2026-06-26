@@ -75,6 +75,23 @@ override_dh_auto_install:
 	cp -f packaging/conf/pbm-agent.service $(TMP)/pbm-agent.service
 	cp -f packaging/conf/pbm-conf-reference.yml $(TMP)/pbm-conf-reference.yml
 	cp -f LICENSE $(TMP)/LICENSE
+	# CycloneDX 1.6 SBOM for the .deb. Scope = Go binaries in $(TMP); filename
+	# is self-identifying when extracted from /usr/share/doc/. Catalogers
+	# limited to go-module-binary-cataloger (tarball-equivalent scope); file
+	# catalogers disabled to keep package-level granularity.
+	syft scan "dir:$(TMP)" \
+		--override-default-catalogers go-module-binary-cataloger \
+		--select-catalogers "-file" \
+		--source-name "percona-backup-mongodb" \
+		--source-version "$(VERSION)" \
+		-o "cyclonedx-json@1.6=$(TMP)/percona-backup-mongodb-$(VERSION).cdx.json"
+	# Overwrite syft's auto-generated metadata.component (type=file, opaque
+	# bom-ref) with a proper application identity including a deb PURL.
+	jq --arg purl "pkg:deb/percona-backup-mongodb@$(VERSION)" --arg ver "$(VERSION)" '.metadata.component = {"bom-ref": $$purl, "type": "application", "name": "percona-backup-mongodb", "version": $$ver, "purl": $$purl}' \
+		$(TMP)/percona-backup-mongodb-$(VERSION).cdx.json > $(TMP)/sbom.tmp \
+		&& mv $(TMP)/sbom.tmp $(TMP)/percona-backup-mongodb-$(VERSION).cdx.json
+	test "$$(jq '.components | length' $(TMP)/percona-backup-mongodb-$(VERSION).cdx.json)" -ge 10 \
+		|| { echo "ERROR: DEB SBOM has too few components" >&2; exit 1; }
 	ls -la $(TMP)
 
 override_dh_systemd_start:

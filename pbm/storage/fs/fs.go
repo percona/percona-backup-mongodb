@@ -18,9 +18,12 @@ const (
 	tmpFileSuffix = ".tmp"
 )
 
+//nolint:lll
 type Config struct {
-	Path         string   `bson:"path" json:"path" yaml:"path"`
-	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+	Path            string   `bson:"path" json:"path" yaml:"path"`
+	MaxObjSizeGB    *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+	BackupBuffSize  int      `bson:"backupBuffSize,omitempty" json:"backupBuffSize,omitempty" yaml:"backupBuffSize,omitempty"`
+	RestoreBuffSize int      `bson:"restoreBuffSize,omitempty" json:"restoreBuffSize,omitempty" yaml:"restoreBuffSize,omitempty"`
 }
 
 func (cfg *Config) Clone() *Config {
@@ -81,6 +84,28 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 	return defaultMaxObjSizeGB
 }
 
+func (cfg *Config) GetBackupBuffSize() int {
+	if cfg.BackupBuffSize <= 0 {
+		return 0
+	}
+	return normalizeBuffSize(cfg.BackupBuffSize)
+}
+
+func (cfg *Config) GetRestoreBuffSize() int {
+	if cfg.RestoreBuffSize <= 0 {
+		return 0
+	}
+	return normalizeBuffSize(cfg.RestoreBuffSize)
+}
+
+func normalizeBuffSize(sz int) int {
+	// normalize buff size within range: 32KiB - 10MiB
+	buffSize := max(32*1024, sz)
+	buffSize = min(10*1024*1024, buffSize)
+
+	return buffSize
+}
+
 type FS struct {
 	root string
 }
@@ -93,7 +118,10 @@ func New(opts *Config) (storage.Storage, error) {
 				return nil, errors.Wrapf(err, "mkdir %s", opts.Path)
 			}
 
-			return &FS{opts.Path}, nil
+			fs := &FS{
+				root: opts.Path,
+			}
+			return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 		}
 
 		return nil, errors.Wrapf(err, "stat %s", opts.Path)
@@ -114,7 +142,9 @@ func New(opts *Config) (storage.Storage, error) {
 		return nil, errors.Errorf("%s is not directory", root)
 	}
 
-	fs := &FS{root}
+	fs := &FS{
+		root: root,
+	}
 	return storage.NewSplitMergeMW(fs, opts.GetMaxObjSizeGB()), nil
 }
 
@@ -123,7 +153,8 @@ func (*FS) Type() storage.Type {
 }
 
 //nolint:nonamedreturns
-func writeSync(finalpath string, data io.Reader) (err error) {
+func (fs *FS) writeSync(name string, data io.Reader, cpBuf []byte) (err error) {
+	finalpath := path.Join(fs.root, name)
 	filepath := finalpath + tmpFileSuffix
 
 	err = os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
@@ -154,10 +185,20 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 	if err != nil {
 		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
 	}
-
-	_, err = io.Copy(fw, data)
-	if err != nil {
-		return errors.Wrapf(err, "copy file <%s>", filepath)
+	if len(cpBuf) == 0 {
+		_, err = io.Copy(fw, data)
+		if err != nil {
+			return errors.Wrapf(err, "copy file <%s>", filepath)
+		}
+	} else {
+		_, err = io.CopyBuffer(
+			struct{ io.Writer }{fw},
+			struct{ io.Reader }{data},
+			cpBuf,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "copy file <%s>, using buffer size: %d", filepath, len(cpBuf))
+		}
 	}
 
 	err = fw.Sync()
@@ -179,8 +220,15 @@ func writeSync(finalpath string, data io.Reader) (err error) {
 	return nil
 }
 
-func (fs *FS) Save(name string, data io.Reader, _ ...storage.Option) error {
-	return writeSync(path.Join(fs.root, name), data)
+func (fs *FS) Save(name string, data io.Reader, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
+	cpBuf := opts.FSSaveBuf
+	return fs.writeSync(name, data, cpBuf)
 }
 
 func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
@@ -263,7 +311,7 @@ func (fs *FS) Copy(src, dst string) error {
 		return errors.Wrap(err, "open src")
 	}
 
-	return writeSync(path.Join(fs.root, dst), from)
+	return fs.writeSync(dst, from, nil)
 }
 
 func (fs *FS) DownloadStat() storage.DownloadStat {

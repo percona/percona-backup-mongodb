@@ -112,7 +112,8 @@ func (b *Backup) doLogical(
 				estimatedSize = 1 << 30
 			}
 
-			return storage.Upload(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename, int64(estimatedSize))
+			return storage.UploadWithOpts(ctx, w, stg, bcp.Compression, bcp.CompressionLevel, filename,
+				int64(estimatedSize), nil, nil)
 		})
 	// ensure slicer is stopped in any case (done, error or canceled)
 	defer stopOplogSlicer() //nolint:errcheck

@@ -27,6 +27,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 	"golang.org/x/mod/semver"
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v2"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -126,6 +127,9 @@ type PhysRestore struct {
 	rsMap           map[string]string
 	fallback        bool
 	allowPartlyDone bool
+	bufSize         int
+
+	numParallelFiles int
 }
 
 func NewPhysical(
@@ -136,6 +140,7 @@ func NewPhysical(
 	rsMap map[string]string,
 	fallback bool,
 	allowPartlyDone bool,
+	bufSize int,
 ) (*PhysRestore, error) {
 	opts, err := topo.GetMongodOpts(ctx, node, nil)
 	if err != nil {
@@ -203,6 +208,7 @@ func NewPhysical(
 		rsMap:           rsMap,
 		fallback:        fallback,
 		allowPartlyDone: allowPartlyDone,
+		bufSize:         bufSize,
 	}, nil
 }
 
@@ -1208,6 +1214,10 @@ func (r *PhysRestore) Snapshot(
 		return errors.Wrap(err, "init")
 	}
 
+	if cmd.NumParallelFiles != nil && *cmd.NumParallelFiles > 0 {
+		r.numParallelFiles = int(*cmd.NumParallelFiles)
+	}
+
 	if cmd.BackupName == "" && !cmd.External {
 		return errors.New("restore isn't external and no backup set")
 	}
@@ -1596,20 +1606,41 @@ func (r *PhysRestore) dumpMeta(meta *RestoreMeta, s defs.Status, msg string) err
 	return nil
 }
 
-func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
-	var stat *storage.DownloadStat
-	defer func() {
-		if r.bcpStg.Type() != storage.S3 || r.bcpStg.Type() != storage.GCS {
-			// currently Downloader is only supported for S3 and GCS
-			return
-		}
-		s := r.bcpStg.DownloadStat()
-		stat = &s
-		r.log.Debug("download stat: %s", s)
-	}()
+// copyFileJob is all copy operations targeting one destination file, in the
+// order they must be applied: base backup first and then increments.
+// The main purpose is ability to execute jobs in parallel.
+// ops is empty for a directory-only entry which ensures dst's directory exists.
+type copyFileJob struct {
+	dst string
+	ops []copyOp
+}
 
-	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
-	cpbuf := make([]byte, 32*1024)
+// copyOp is a single block/layer to write into a destination file.
+type copyOp struct {
+	src   string
+	fMeta backup.File
+	cmpr  compress.CompressionType
+}
+
+// planCopyFiles walks r.files in restore order (base -> target) and groups
+// every copy operation by its destination file. The grouping is what makes
+// parallel copying safe, across jobs the destinations differ so they don't race.
+func (r *PhysRestore) planCopyFiles(setName string) []copyFileJob {
+	var jobs []copyFileJob
+	idxByDst := make(map[string]int)
+
+	add := func(dst string, op *copyOp) {
+		idx, ok := idxByDst[dst]
+		if !ok {
+			idx = len(jobs)
+			idxByDst[dst] = idx
+			jobs = append(jobs, copyFileJob{dst: dst})
+		}
+		if op != nil {
+			jobs[idx].ops = append(jobs[idx].ops, *op)
+		}
+	}
+
 	for i := len(r.files) - 1; i >= 0; i-- {
 		set := r.files[i]
 		for _, f := range set.Data {
@@ -1621,56 +1652,142 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 			}
 			dst := filepath.Join(r.dbpath, fname)
 
-			err := os.MkdirAll(filepath.Dir(dst), os.ModeDir|0o700)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create path %s", filepath.Dir(dst))
-			}
 			// if this is a directory, only ensure it is created.
 			if set.BcpName == bcpDir {
-				r.log.Info("create dir <%s>", filepath.Dir(f.Name))
+				add(dst, nil)
 				continue
 			}
 
-			r.log.Info("copy <%s> to <%s>", src, dst)
-			sr, err := r.bcpStg.SourceReader(src)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create source reader for <%s>", src)
-			}
-			defer sr.Close()
-
-			data, err := compress.Decompress(sr, set.Cmpr)
-			if err != nil {
-				return stat, errors.Wrapf(err, "decompress object %s", src)
-			}
-			defer data.Close()
-
-			fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, f.Fmode)
-			if err != nil {
-				return stat, errors.Wrapf(err, "create/open destination file <%s>", dst)
-			}
-			defer fw.Close()
-
-			if f.Off != 0 {
-				_, err := fw.Seek(f.Off, io.SeekStart)
-				if err != nil {
-					return stat, errors.Wrapf(err, "set file offset <%s>|%d", dst, f.Off)
-				}
-			}
-
-			_, err = io.CopyBuffer(fw, data, cpbuf)
-			if err != nil {
-				return stat, errors.Wrapf(err, "copy file <%s>", dst)
-			}
-
-			if f.Size != 0 {
-				err = fw.Truncate(f.Size)
-				if err != nil {
-					return stat, errors.Wrapf(err, "truncate file <%s>|%d", dst, f.Size)
-				}
-			}
+			add(dst, &copyOp{src: src, fMeta: f, cmpr: set.Cmpr})
 		}
 	}
+
+	return jobs
+}
+
+func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
+	var stat *storage.DownloadStat
+	defer func() {
+		if r.bcpStg.Type() != storage.S3 &&
+			r.bcpStg.Type() != storage.GCS &&
+			r.bcpStg.Type() != storage.Minio &&
+			r.bcpStg.Type() != storage.OCI {
+			// download is not supported for the rest of providers
+			return
+		}
+		s := r.bcpStg.DownloadStat()
+		stat = &s
+		r.log.Debug("download stat: %s", s)
+	}()
+
+	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
+	jobs := r.planCopyFiles(setName)
+
+	numWorkers := r.GetNumParallelFiles()
+	if numWorkers > 1 {
+		r.log.Info("downloading data (%d files in parallel)", numWorkers)
+	}
+
+	bufLen := 32 * 1024 // original/default bufSize
+	if r.bufSize != 0 {
+		bufLen = r.bufSize
+	}
+	// each concurrent copy needs its own buffer
+	bufPool := make(chan []byte, numWorkers)
+	allBufs := make([]byte, numWorkers*bufLen)
+	for i := range numWorkers {
+		// preallocate buffer for each worker
+		bufPool <- allBufs[i*bufLen : (i+1)*bufLen : (i+1)*bufLen]
+	}
+
+	eg, egCtx := errgroup.WithContext(context.Background())
+	eg.SetLimit(min(numWorkers, len(jobs)))
+
+	for _, job := range jobs {
+		// stop processing once a copy has failed
+		if egCtx.Err() != nil {
+			break
+		}
+
+		eg.Go(func() error {
+			if err := os.MkdirAll(filepath.Dir(job.dst), os.ModeDir|0o700); err != nil {
+				return errors.Wrapf(err, "create path %s", filepath.Dir(job.dst))
+			}
+			// directory-only entry: nothing to copy.
+			if len(job.ops) == 0 {
+				r.log.Info("create dir <%s>", filepath.Dir(job.dst))
+				return nil
+			}
+
+			cpBuf := <-bufPool
+			defer func() { bufPool <- cpBuf }()
+
+			for _, op := range job.ops {
+				if err := egCtx.Err(); err != nil {
+					return err
+				}
+				if err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return stat, err
+	}
 	return stat, nil
+}
+
+// copyFile copies file from the storage into local FS.
+func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compress.CompressionType, cpbuf []byte) error {
+	r.log.Info("copy <%s> to <%s>", src, dst)
+	sr, err := r.bcpStg.SourceReader(src)
+	if err != nil {
+		return errors.Wrapf(err, "create source reader for <%s>", src)
+	}
+	defer sr.Close()
+
+	data, err := compress.Decompress(sr, cType)
+	if err != nil {
+		return errors.Wrapf(err, "decompress object %s", src)
+	}
+	defer data.Close()
+
+	fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, fMeta.Fmode)
+	if err != nil {
+		return errors.Wrapf(err, "create/open destination file <%s>", dst)
+	}
+	defer fw.Close()
+
+	if fMeta.Off != 0 {
+		_, err := fw.Seek(fMeta.Off, io.SeekStart)
+		if err != nil {
+			return errors.Wrapf(err, "set file offset <%s>|%d", dst, fMeta.Off)
+		}
+	}
+
+	if r.bufSize == 0 {
+		_, err = io.CopyBuffer(fw, data, cpbuf)
+	} else {
+		_, err = io.CopyBuffer(
+			struct{ io.Writer }{fw},
+			struct{ io.Reader }{data},
+			cpbuf,
+		)
+	}
+	if err != nil {
+		return errors.Wrapf(err, "copy file <%s>", dst)
+	}
+
+	if fMeta.Size != 0 {
+		err = fw.Truncate(fMeta.Size)
+		if err != nil {
+			return errors.Wrapf(err, "truncate file <%s>|%d", dst, fMeta.Size)
+		}
+	}
+	return nil
 }
 
 func (r *PhysRestore) getLasOpTime() (bson.Timestamp, error) {
@@ -3110,6 +3227,19 @@ func GetMongodConfig(mongodCfg string) (*topo.MongodOpts, error) {
 		return nil, errors.Wrap(err, "unable to unmarshal mongod config file")
 	}
 	return mOpts, nil
+}
+
+// GetNumParallelFiles is the number of files to copy concurrently during
+// physical restore. Defaults to 1 (sequential) when unset in the config.
+func (r *PhysRestore) GetNumParallelFiles() int {
+	if r.bcpStg.Type() != storage.Filesystem {
+		// there's no parallelism for cloud storage on this level
+		return 1
+	}
+	if r.numParallelFiles > 0 {
+		return r.numParallelFiles
+	}
+	return r.confOpts.GetNumParallelFiles()
 }
 
 // physRestoreFromExtDump creates PhysRestore object from dump on the storage.

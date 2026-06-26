@@ -20,6 +20,14 @@ var (
 	ErrUninitialized = errors.New("uninitialized")
 )
 
+const (
+	B int64 = 1 << (10 * iota)
+	KiB
+	MiB
+	GiB
+	TiB
+)
+
 // Type represents a type of the destination storage for backups
 type Type string
 
@@ -86,6 +94,8 @@ func ParseType(s string) Type {
 type Opts struct {
 	UseLogger bool
 	Size      int64
+	SaveBuf   []byte
+	FSSaveBuf []byte
 }
 
 // GetDefaultOpts creates default options.
@@ -116,6 +126,25 @@ func Size(size int64) Option {
 			return errors.New("invalid size option value")
 		}
 		o.Size = size
+		return nil
+	}
+}
+
+// SaveBuf is preallocated buffer for cp op within split-merge mw
+// Save op.
+// If it's nil, it's not used.
+func SaveBuf(buf []byte) Option {
+	return func(o *Opts) error {
+		o.SaveBuf = buf
+		return nil
+	}
+}
+
+// FSSaveBuf is preallocated buffer for cp op within FS Save op.
+// If it's nil, it's not used.
+func FSSaveBuf(buf []byte) Option {
+	return func(o *Opts) error {
+		o.FSSaveBuf = buf
 		return nil
 	}
 }
@@ -229,7 +258,7 @@ type Canceller interface {
 // ErrCancelled means backup was canceled
 var ErrCancelled = errors.New("backup canceled")
 
-// Upload writes data to dst from given src and returns an amount of written bytes
+// Upload writes data to dst from given src and returns an amount of written bytes.
 func Upload(
 	ctx context.Context,
 	src Source,
@@ -237,7 +266,22 @@ func Upload(
 	compression compress.CompressionType,
 	compressLevel *int,
 	fname string,
+) (int64, error) {
+	return UploadWithOpts(ctx, src, dst, compression, compressLevel, fname, -1, nil, nil)
+}
+
+// UploadWithOpts expands Upload with few options: size of stream,
+// preallocated save and FS save buffer.
+func UploadWithOpts(
+	ctx context.Context,
+	src Source,
+	dst Storage,
+	compression compress.CompressionType,
+	compressLevel *int,
+	fname string,
 	sizeb int64,
+	saveBuf []byte,
+	fsSaveBuf []byte,
 ) (int64, error) {
 	r, pw := io.Pipe()
 
@@ -256,7 +300,13 @@ func Upload(
 
 	saveDone := make(chan struct{})
 	go func() {
-		rwErr.write = dst.Save(fname, r, Size(sizeb))
+		rwErr.write = dst.Save(
+			fname,
+			r,
+			Size(sizeb),
+			SaveBuf(saveBuf),
+			FSSaveBuf(fsSaveBuf),
+		)
 		saveDone <- struct{}{}
 	}()
 
@@ -324,14 +374,6 @@ func ComputePartSize(fileSize, defaultSize, minSize, maxParts, userSize int64) i
 }
 
 func PrettySize(size int64) string {
-	const (
-		_          = iota
-		KB float64 = 1 << (10 * iota)
-		MB
-		GB
-		TB
-	)
-
 	if size < 0 {
 		return "unknown"
 	}
@@ -339,14 +381,14 @@ func PrettySize(size int64) string {
 	s := float64(size)
 
 	switch {
-	case s >= TB:
-		return fmt.Sprintf("%.2fTB", s/TB)
-	case s >= GB:
-		return fmt.Sprintf("%.2fGB", s/GB)
-	case s >= MB:
-		return fmt.Sprintf("%.2fMB", s/MB)
-	case s >= KB:
-		return fmt.Sprintf("%.2fKB", s/KB)
+	case size >= TiB:
+		return fmt.Sprintf("%.2fTB", s/float64(TiB))
+	case size >= GiB:
+		return fmt.Sprintf("%.2fGB", s/float64(GiB))
+	case size >= MiB:
+		return fmt.Sprintf("%.2fMB", s/float64(MiB))
+	case size >= KiB:
+		return fmt.Sprintf("%.2fKB", s/float64(KiB))
 	}
 	return fmt.Sprintf("%.2fB", s)
 }

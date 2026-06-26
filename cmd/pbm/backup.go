@@ -41,6 +41,7 @@ type backupOpts struct {
 	usersAndRoles    bool
 
 	numParallelColls int32
+	numParallelFiles int32
 }
 
 type backupOut struct {
@@ -98,9 +99,13 @@ func runBackup(
 	b *backupOpts,
 	outf outFormat,
 ) (fmt.Stringer, error) {
-	numParallelColls, err := parseCLINumParallelCollsOption(b.numParallelColls)
+	numParallelColls, err := parseCLINumParallelOption(b.numParallelColls)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --num-parallel-collections option")
+	}
+	numParallelFiles, err := parseCLINumParallelOption(b.numParallelFiles)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse --num-parallel-files option")
 	}
 	nss, err := parseCLINSOption(b.ns)
 	if err != nil {
@@ -153,6 +158,7 @@ func runBackup(
 			Compression:      compression,
 			CompressionLevel: level,
 			NumParallelColls: numParallelColls,
+			NumParallelFiles: numParallelFiles,
 			Filelist:         b.externList,
 			Profile:          b.profile.Value(),
 		},
@@ -784,7 +790,7 @@ func (e incompatibleMongodVersionError) Unwrap() error {
 	return errIncompatible
 }
 
-func parseCLINumParallelCollsOption(value int32) (*int32, error) {
+func parseCLINumParallelOption(value int32) (*int32, error) {
 	if value < 0 {
 		return nil, errors.New("value cannot be negative")
 	}
