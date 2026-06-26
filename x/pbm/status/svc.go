@@ -291,8 +291,7 @@ func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
 	}, nil
 }
 
-// GetAllMembers returns a snapshot of every cached member, sorted by replica set
-// then node name.
+// GetAllMembers returns all agents within PBM's cluster.
 func (s *Svc) GetAllMembers() []AgentInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -305,7 +304,7 @@ func (s *Svc) GetAllMembers() []AgentInfo {
 	return out
 }
 
-// GetMembersForRS returns the cached members belonging to the given replica set.
+// GetMembersForRS returns the agents belonging to the given replica set.
 func (s *Svc) GetMembersForRS(rsName string) []AgentInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -332,11 +331,9 @@ func (s *Svc) GetMember(node string) (*AgentInfo, error) {
 	return &member, nil
 }
 
+// sortMembers orders members by node name ascending.
 func sortMembers(m []AgentInfo) {
 	sort.Slice(m, func(i, j int) bool {
-		if m[i].MongoInfo.SetName != m[j].MongoInfo.SetName {
-			return m[i].MongoInfo.SetName < m[j].MongoInfo.SetName
-		}
 		return m[i].Name < m[j].Name
 	})
 }
