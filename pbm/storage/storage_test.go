@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 )
@@ -150,8 +151,8 @@ func BenchmarkStorageUpload(b *testing.B) {
 		fileName := fmt.Sprintf("%s/%s-%d", runDir, *fName, rand.Uint64())
 
 		ts := time.Now()
-		sz, err := storage.UploadWithOpts(context.Background(), src, stg, cType, nil, fileName,
-			-1, saveBuf, fsSaveBuf)
+		sz, err := storage.UploadWithOpts(context.Background(), src, stg, cType, nil,
+			encrypt.EncryptionTypeNone, "", fileName, -1, saveBuf, fsSaveBuf)
 		if err != nil {
 			b.Fatalf("storage upload: %v", err)
 		}

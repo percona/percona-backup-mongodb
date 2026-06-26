@@ -134,6 +134,7 @@ func (b *Backup) Init(
 		Namespaces:       bcp.Namespaces,
 		SelUsersAndRoles: bcp.UsersAndRoles,
 		Compression:      bcp.Compression,
+		Encryption:       bcp.Encryption,
 		Store: Storage{
 			Name:        b.config.Name,
 			IsProfile:   b.config.IsProfile,

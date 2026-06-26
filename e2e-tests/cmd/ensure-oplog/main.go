@@ -283,6 +283,11 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till bson.Timesta
 		compression = compress.CompressionType(cfg.PITR.Compression)
 		compressionLevel = cfg.PITR.CompressionLevel
 	}
+	encryption := cfg.EncryptionType()
+	passphrase, err := cfg.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
 
 	for _, t := range missedChunks {
 		logger.Printf("[%s] ensure missed chunk: %s - %s",
@@ -292,7 +297,8 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till bson.Timesta
 		o := oplog.NewOplogBackup(m)
 		o.SetTailingSpan(t.from, t.till)
 
-		n, err := storage.Upload(ctx, o, stg, compression, compressionLevel, filename)
+		n, err := storage.Upload(ctx, o, stg, compression, compressionLevel,
+			encryption, passphrase, filename)
 		if err != nil {
 			return errors.Wrapf(err, "failed to upload %s - %s chunk",
 				formatTimestamp(t.from), formatTimestamp(t.till))

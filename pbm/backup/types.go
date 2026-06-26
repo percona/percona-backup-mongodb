@@ -12,6 +12,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -42,6 +43,7 @@ type BackupMeta struct {
 	SelUsersAndRoles bool                     `bson:"sel_users_and_roles,omitempty" json:"sel_users_and_roles,omitempty"`
 	Replsets         []BackupReplset          `bson:"replsets" json:"replsets"`
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
+	Encryption       encrypt.EncryptionType   `bson:"encryption,omitempty" json:"encryption,omitempty"`
 	Store            Storage                  `bson:"store" json:"store"`
 	Size             int64                    `bson:"size" json:"size"`
 	SizeUncompressed int64                    `bson:"size_uncompressed" json:"size_uncompressed"`

@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
@@ -162,7 +163,7 @@ func (s *Slicer) Catchup(ctx context.Context) error {
 	}
 
 	if lastBackup.Type == defs.LogicalBackup {
-		err = s.copyReplsetOplog(ctx, rs)
+		err = s.copyReplsetOplog(ctx, rs, lastBackup.Encryption)
 		if err != nil {
 			s.l.Warning("copy oplog from %q backup: %v", lastBackup.Name, err)
 			if s.lastTS.IsZero() {
@@ -228,7 +229,11 @@ func (s *Slicer) OplogOnlyCatchup(ctx context.Context) error {
 	return nil
 }
 
-func (s *Slicer) copyReplsetOplog(ctx context.Context, rs *backup.BackupReplset) error {
+func (s *Slicer) copyReplsetOplog(
+	ctx context.Context,
+	rs *backup.BackupReplset,
+	encryption encrypt.EncryptionType,
+) error {
 	files, err := s.storage.List(rs.OplogName, "")
 	if err != nil {
 		return errors.Wrap(err, "list oplog files")
@@ -258,6 +263,7 @@ func (s *Slicer) copyReplsetOplog(ctx context.Context, rs *backup.BackupReplset)
 			RS:          s.rs,
 			FName:       n,
 			Compression: cmp,
+			Encryption:  encryption,
 			StartTS:     fw,
 			EndTS:       lw,
 			Size:        stat.Size,
@@ -481,8 +487,14 @@ func (s *Slicer) upload(
 ) error {
 	s.oplog.SetTailingSpan(from, to)
 	fname := oplog.FormatChunkFilepath(s.rs, from, to, compression)
+	encryption := s.cfg.EncryptionType()
+	passphrase, err := s.cfg.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
 	// if use parent ctx, upload will be canceled on the "done" signal
-	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level, fname)
+	size, err := storage.Upload(ctx, s.oplog, s.storage, compression, level,
+		encryption, passphrase, fname)
 	if err != nil {
 		// PITR chunks have no metadata to indicate any failed state and if something went
 		// wrong during the data read we may end up with an already created file. Although
@@ -500,6 +512,7 @@ func (s *Slicer) upload(
 		RS:          s.rs,
 		FName:       fname,
 		Compression: compression,
+		Encryption:  encryption,
 		StartTS:     from,
 		EndTS:       to,
 		Size:        size,

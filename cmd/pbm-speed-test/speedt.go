@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -142,7 +143,8 @@ func doTest(
 
 	r := &Results{}
 	ts := time.Now()
-	size, err := storage.Upload(context.Background(), src, stg, compression, level, fileName)
+	size, err := storage.Upload(context.Background(), src, stg, compression, level,
+		encrypt.EncryptionTypeNone, "", fileName)
 	r.Size = Byte(size)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload")

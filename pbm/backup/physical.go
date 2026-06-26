@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -433,7 +434,8 @@ func (b *Backup) handleExternal(
 	if bcp.Filelist {
 		// keep filelist on backup storage for listing files to copy
 		bcpStoragePath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, bcpStoragePath)
+		_, err = storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil,
+			encrypt.EncryptionTypeNone, "", bcpStoragePath)
 		if err != nil {
 			return errors.Wrapf(err, "save filelist to storage: %q", bcpStoragePath)
 		}
@@ -527,6 +529,11 @@ func (b *Backup) uploadPhysical(
 		l.Info("uploading data")
 	}
 
+	passphrase, err := b.config.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
+
 	dataFiles, err := uploadFiles(
 		ctx,
 		data,
@@ -538,6 +545,8 @@ func (b *Backup) uploadPhysical(
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
 		numWorkers,
+		bcp.Encryption,
+		passphrase,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
@@ -556,6 +565,8 @@ func (b *Backup) uploadPhysical(
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
 		numWorkers,
+		bcp.Encryption,
+		passphrase,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
@@ -578,7 +589,8 @@ func (b *Backup) uploadPhysical(
 	}
 
 	filelistPath := path.Join(bcp.Name, rsMeta.Name, FilelistName)
-	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil, filelistPath)
+	flSize, err := storage.Upload(ctx, filelist, stg, compress.CompressionTypeNone, nil,
+		encrypt.EncryptionTypeNone, "", filelistPath)
 	if err != nil {
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
@@ -734,6 +746,8 @@ func uploadFiles(
 	comprL *int,
 	bufSize int,
 	numWorkers int,
+	encrT encrypt.EncryptionType,
+	passphrase string,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -786,6 +800,8 @@ func uploadFiles(
 				bufs.cp,
 				bufs.save,
 				bufs.fsSave,
+				encrT,
+				passphrase,
 			)
 			if err != nil {
 				return errors.Wrapf(err, "upload file `%s`", s.file.Name)
@@ -814,6 +830,8 @@ func writeFile(
 	cpBuf []byte,
 	saveBuf []byte,
 	fsSaveBuf []byte,
+	encryption encrypt.EncryptionType,
+	passphrase string,
 ) (*File, error) {
 	fstat, err := os.Stat(file.Name)
 	if err != nil {
@@ -836,8 +854,8 @@ func writeFile(
 	if len(cpBuf) > 0 {
 		src = NewFileReader(*file, cpBuf)
 	}
-	_, err = storage.UploadWithOpts(ctx, src, stg, compression, compressLevel, dst,
-		sz, saveBuf, fsSaveBuf)
+	_, err = storage.UploadWithOpts(ctx, src, stg, compression, compressLevel,
+		encryption, passphrase, dst, sz, saveBuf, fsSaveBuf)
 	if err != nil {
 		return nil, errors.Wrap(err, "upload file")
 	}

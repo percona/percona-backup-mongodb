@@ -18,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -33,6 +34,7 @@ type backupOpts struct {
 	base             bool
 	compression      string
 	compressionLevel []int
+	encryption       string
 	profile          ProfileFlag
 	ns               string
 	wait             bool
@@ -147,6 +149,11 @@ func runBackup(
 		level = &b.compressionLevel[0]
 	}
 
+	encryption := cfg.EncryptionType()
+	if b.encryption != "" {
+		encryption = encrypt.EncryptionType(b.encryption)
+	}
+
 	err = sendCmd(ctx, conn, ctrl.Cmd{
 		Cmd: ctrl.CmdBackup,
 		Backup: &ctrl.BackupCmd{
@@ -157,6 +164,7 @@ func runBackup(
 			UsersAndRoles:    b.usersAndRoles,
 			Compression:      compression,
 			CompressionLevel: level,
+			Encryption:       encryption,
 			NumParallelColls: numParallelColls,
 			NumParallelFiles: numParallelFiles,
 			Filelist:         b.externList,

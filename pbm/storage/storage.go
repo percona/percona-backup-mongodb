@@ -9,6 +9,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 )
@@ -208,10 +209,11 @@ func HasReadAccess(ctx context.Context, stg Storage) error {
 	return nil
 }
 
-// rwError multierror for the read/compress/write-to-store operations set
+// rwError multierror for the read/compress/encrypt/write-to-store operations set
 type rwError struct {
 	read     error
 	compress error
+	encrypt  error
 	write    error
 }
 
@@ -222,6 +224,9 @@ func (rwe rwError) Error() string {
 	}
 	if rwe.compress != nil {
 		r += "compress data: " + rwe.compress.Error() + "."
+	}
+	if rwe.encrypt != nil {
+		r += "encrypt data: " + rwe.encrypt.Error() + "."
 	}
 	if rwe.write != nil {
 		r += "write data: " + rwe.write.Error() + "."
@@ -240,11 +245,14 @@ func (rwe rwError) Unwrap() error {
 	if rwe.compress != nil {
 		return rwe.compress
 	}
+	if rwe.encrypt != nil {
+		return rwe.encrypt
+	}
 	return nil
 }
 
 func (rwe rwError) nil() bool {
-	return rwe.read == nil && rwe.compress == nil && rwe.write == nil
+	return rwe.read == nil && rwe.compress == nil && rwe.encrypt == nil && rwe.write == nil
 }
 
 type Source interface {
@@ -265,9 +273,12 @@ func Upload(
 	dst Storage,
 	compression compress.CompressionType,
 	compressLevel *int,
+	encryption encrypt.EncryptionType,
+	passphrase string,
 	fname string,
 ) (int64, error) {
-	return UploadWithOpts(ctx, src, dst, compression, compressLevel, fname, -1, nil, nil)
+	return UploadWithOpts(ctx, src, dst, compression, compressLevel,
+		encryption, passphrase, fname, -1, nil, nil)
 }
 
 // UploadWithOpts expands Upload with few options: size of stream,
@@ -278,6 +289,8 @@ func UploadWithOpts(
 	dst Storage,
 	compression compress.CompressionType,
 	compressLevel *int,
+	encryption encrypt.EncryptionType,
+	passphrase string,
 	fname string,
 	sizeb int64,
 	saveBuf []byte,
@@ -285,7 +298,12 @@ func UploadWithOpts(
 ) (int64, error) {
 	r, pw := io.Pipe()
 
-	w, err := compress.Compress(pw, compression, compressLevel)
+	encw, err := encrypt.Encrypt(pw, encryption, passphrase)
+	if err != nil {
+		return 0, err
+	}
+
+	w, err := compress.Compress(encw, compression, compressLevel)
 	if err != nil {
 		return 0, err
 	}
@@ -295,6 +313,7 @@ func UploadWithOpts(
 	go func() {
 		n, rwErr.read = src.WriteTo(w)
 		rwErr.compress = w.Close()
+		rwErr.encrypt = encw.Close()
 		pw.Close()
 	}()
 

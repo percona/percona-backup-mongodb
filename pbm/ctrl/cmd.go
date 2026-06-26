@@ -10,6 +10,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
@@ -134,6 +135,7 @@ type BackupCmd struct {
 	Namespaces       []string                 `bson:"nss,omitempty"`
 	Compression      compress.CompressionType `bson:"compression"`
 	CompressionLevel *int                     `bson:"level,omitempty"`
+	Encryption       encrypt.EncryptionType   `bson:"encryption,omitempty"`
 	NumParallelColls *int32                   `bson:"numParallelColls,omitempty"`
 	NumParallelFiles *int32                   `bson:"numParallelFiles,omitempty"`
 	Filelist         bool                     `bson:"filelist,omitempty"`

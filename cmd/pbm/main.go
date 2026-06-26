@@ -16,6 +16,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -241,6 +242,12 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 		string(compress.CompressionTypeZstandard),
 	}
 
+	validEncryptions := []string{
+		string(encrypt.EncryptionTypeNone),
+		string(encrypt.EncryptionTypeAES256GCM),
+		string(encrypt.EncryptionTypeXChaCha20Poly1305),
+	}
+
 	validBackupTypes := []string{
 		string(defs.PhysicalBackup),
 		string(defs.LogicalBackup),
@@ -260,6 +267,10 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 				return nil, err
 			}
 
+			if err := app.validateEnum("encryption", backupOptions.encryption, validEncryptions); err != nil {
+				return nil, err
+			}
+
 			if err := app.validateEnum("type", backupOptions.typ, validBackupTypes); err != nil {
 				return nil, err
 			}
@@ -272,6 +283,10 @@ func (app *pbmApp) buildBackupCmd() *cobra.Command {
 	backupCmd.Flags().StringVar(
 		&backupOptions.compression, "compression", "",
 		"Compression type <none>/<gzip>/<snappy>/<lz4>/<s2>/<pgzip>/<zstd>",
+	)
+	backupCmd.Flags().StringVar(
+		&backupOptions.encryption, "encryption", "",
+		"Encryption type <none>/<aes-256-gcm>/<xchacha20-poly1305>",
 	)
 	backupCmd.Flags().StringVarP(
 		&backupOptions.typ, "type", "t", string(defs.LogicalBackup),

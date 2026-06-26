@@ -12,6 +12,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/encrypt"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -129,6 +130,16 @@ func (r *Restore) configsvrRestoreDatabases(
 	}
 	defer rdr.Close()
 
+	passphrase, err := r.cfg.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
+
+	rdr, err = encrypt.Decrypt(rdr, bcp.Encryption, passphrase)
+	if err != nil {
+		return err
+	}
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return err
@@ -214,6 +225,16 @@ func (r *Restore) configsvrRestoreCollections(
 	}
 	defer rdr.Close()
 
+	passphrase, err := r.cfg.EncryptionPassphrase()
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve encryption passphrase")
+	}
+
+	rdr, err = encrypt.Decrypt(rdr, bcp.Encryption, passphrase)
+	if err != nil {
+		return nil, err
+	}
+
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
 		return nil, err
@@ -279,6 +300,16 @@ func (r *Restore) configsvrRestoreChunks(
 		return err
 	}
 	defer rdr.Close()
+
+	passphrase, err := r.cfg.EncryptionPassphrase()
+	if err != nil {
+		return errors.Wrap(err, "resolve encryption passphrase")
+	}
+
+	rdr, err = encrypt.Decrypt(rdr, bcp.Encryption, passphrase)
+	if err != nil {
+		return err
+	}
 
 	rdr, err = compress.Decompress(rdr, bcp.Compression)
 	if err != nil {
