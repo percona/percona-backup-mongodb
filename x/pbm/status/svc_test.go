@@ -6,7 +6,7 @@ import (
 )
 
 func TestApplyCachesAndRemovesMembers(t *testing.T) {
-	s := New("self", RoleWorker, nil)
+	s := New("self", RoleWorker, nil, 0)
 
 	s.apply(StatusEvent{
 		Kind:    MemberUp,
@@ -14,7 +14,7 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 		Addr:    "10.0.0.1",
 		Port:    7777,
 		Alive:   true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", IsPrimary: true}, false),
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", IsPrimary: true}, false, 0),
 	})
 
 	m, err := s.GetMember("rs0-0")
@@ -35,7 +35,7 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 		Addr:    "10.0.0.1",
 		Port:    7777,
 		Alive:   true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", Secondary: true}, false),
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", Secondary: true}, false, 0),
 	})
 	m, _ = s.GetMember("rs0-0")
 	if m.MongoInfo.IsPrimary || !m.MongoInfo.Secondary {
@@ -63,13 +63,13 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 }
 
 func TestGetMembersForRSAndSorting(t *testing.T) {
-	s := New("self", RoleWorker, nil)
+	s := New("self", RoleWorker, nil, 0)
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs1-0", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"}, false)})
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"}, false, 0)})
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs0-1", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false)})
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false, 0)})
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs0-0", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false)})
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false, 0)})
 
 	rs0 := s.GetMembersForRS("rs0")
 	if len(rs0) != 2 {
@@ -99,7 +99,7 @@ type fakeLeadership bool
 func (f fakeLeadership) IsLeader() bool { return bool(f) }
 
 func TestRefreshLocalCachesSelfAndPublishes(t *testing.T) {
-	s := New("self", RoleCtrl, nil)
+	s := New("self", RoleCtrl, nil, 0)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 
@@ -119,7 +119,7 @@ func TestRefreshLocalCachesSelfAndPublishes(t *testing.T) {
 
 func TestLeadershipPropagates(t *testing.T) {
 	// A ctrl agent that holds leadership caches and advertises the leader bit.
-	s := New("self", RoleCtrl, nil)
+	s := New("self", RoleCtrl, nil, 0)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 	s.SetLeaderChecker(fakeLeadership(true))
@@ -135,16 +135,53 @@ func TestLeadershipPropagates(t *testing.T) {
 	}
 
 	// A peer decoding that broadcast sees the leader.
-	peer := New("peer", RoleWorker, nil)
+	peer := New("peer", RoleWorker, nil, 0)
 	peer.apply(StatusEvent{Kind: MemberUp, Name: "self", Alive: true, Payload: fp.last})
 	if m, _ := peer.GetMember("self"); !m.IsLeader {
 		t.Fatalf("peer should observe leader: %+v", m)
 	}
 }
 
+func TestSelfAdvertisesAPIPort(t *testing.T) {
+	// A ctrl agent advertises its constructor-injected API port.
+	s := New("self", RoleCtrl, nil, 9000)
+	fp := &fakePublisher{}
+	s.SetPublisher(fp)
+
+	s.refreshLocal(t.Context())
+
+	if self, _ := s.GetMember("self"); self.APIPort != 9000 {
+		t.Fatalf("self should cache API port: %+v", self)
+	}
+	if fp.last[tagAPIPort] != "9000" {
+		t.Fatalf("API port should be advertised, got tags %v", fp.last)
+	}
+}
+
+func TestLeaderLookupAndAPIPort(t *testing.T) {
+	s := New("self", RoleWorker, nil, 0)
+
+	// A ctrl leader advertises its API port; the bit round-trips through tags.
+	s.apply(StatusEvent{Kind: MemberUp, Name: "ctrl-0", Addr: "10.0.0.1", Alive: true,
+		Payload: encodeTags(RoleCtrl, MongoInfo{}, true, 9000)})
+
+	leader, ok := s.Leader()
+	if !ok {
+		t.Fatal("expected a known leader")
+	}
+	if leader.Name != "ctrl-0" || !leader.IsLeader || leader.APIPort != 9000 {
+		t.Fatalf("unexpected leader: %+v", leader)
+	}
+
+	// With no advertised leader, Leader reports none.
+	if _, ok := New("self", RoleWorker, nil, 0).Leader(); ok {
+		t.Fatal("expected no leader when none advertised")
+	}
+}
+
 func TestWorkerNeverLeader(t *testing.T) {
 	// Workers carry no probe; leaving leadership unset must keep them followers.
-	s := New("self", RoleWorker, nil)
+	s := New("self", RoleWorker, nil, 0)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 

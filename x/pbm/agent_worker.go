@@ -17,7 +17,7 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 	}
 	defer connect.Disconnect(mc)
 
-	svc := status.New(cfg.Name, status.RoleWorker, mc)
+	svc := status.NewForWorkerAgent(cfg.Name, mc)
 
 	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, svc.DiscoSync())
 	if err != nil {

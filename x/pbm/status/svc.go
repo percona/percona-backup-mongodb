@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,6 +35,7 @@ type AgentInfo struct {
 	Name      string
 	Addr      string
 	Port      uint16
+	APIPort   int
 	Role      Role
 	IsLeader  bool
 	Alive     bool
@@ -76,6 +78,10 @@ type Svc struct {
 	// leader reports whether this agent is the cluster leader
 	leader LeaderChecker
 
+	// apiPort is this agent's web API port, advertised to peers so a non-leader
+	// can return the leader's API endpoint. Zero for agents with no API (workers).
+	apiPort int
+
 	recv ReceiveChannel
 	pub  Publisher
 
@@ -95,14 +101,27 @@ type LeaderChecker interface {
 }
 
 // New creates a status service.
-func New(name string, role Role, localMongo *mongo.Client) *Svc {
+// apiPort is this agent's web API port, advertised to peers, pass 0 for agents
+// with no API (workers).
+func New(name string, role Role, localMongo *mongo.Client, apiPort int) *Svc {
 	return &Svc{
-		name: name,
-		role: role,
-		mc:   localMongo,
-		recv: make(ReceiveChannel, 64), //todo: improve
-		mems: map[string]AgentInfo{},
+		name:    name,
+		role:    role,
+		mc:      localMongo,
+		apiPort: apiPort,
+		recv:    make(ReceiveChannel, 64), //todo: improve
+		mems:    map[string]AgentInfo{},
 	}
+}
+
+// NewForCtrlAgent creates a status service for ctrl-agent.
+func NewForCtrlAgent(name string, localMongo *mongo.Client, apiPort int) *Svc {
+	return New(name, RoleCtrl, localMongo, apiPort)
+}
+
+// NewForWorkerAgent creates a status service for worker-agent.
+func NewForWorkerAgent(name string, localMongo *mongo.Client) *Svc {
+	return New(name, RoleWorker, localMongo, 0)
 }
 
 // DiscoSync exposes the receive channel as a send-only end for the discovery layer.
@@ -120,8 +139,8 @@ func (s *Svc) SetLeaderChecker(l LeaderChecker) {
 	s.leader = l
 }
 
-// isLeader reports whether this agent currently holds cluster leadership.
-func (s *Svc) isLeader() bool {
+// IsLeader reports whether this agent currently holds cluster leadership.
+func (s *Svc) IsLeader() bool {
 	// it can be nil in case of worker-agent
 	return s.leader != nil && s.leader.IsLeader()
 }
@@ -151,6 +170,7 @@ func (s *Svc) Run(ctx context.Context) {
 const (
 	tagRole      = "role"
 	tagLeader    = "leader"
+	tagAPIPort   = "apiport"
 	tagSet       = "set"
 	tagMe        = "me"
 	tagSharded   = "sharded"
@@ -165,10 +185,11 @@ const (
 // encodeTags renders role and MongoInfo as serf tags. Booleans are emitted only
 // when true and strings only when non-empty, keeping the tag map small (serf caps
 // the encoded set at 512 bytes) and the `serf members -tags` output readable.
-func encodeTags(role Role, mi MongoInfo, isLeader bool) map[string]string {
+func encodeTags(role Role, mi MongoInfo, isLeader bool, apiPort int) map[string]string {
 	t := make(map[string]string)
 	putStr(t, tagRole, string(role))
 	putBool(t, tagLeader, isLeader)
+	putInt(t, tagAPIPort, apiPort)
 	putStr(t, tagSet, mi.SetName)
 	putStr(t, tagMe, mi.Me)
 	putBool(t, tagSharded, mi.Sharded)
@@ -181,9 +202,11 @@ func encodeTags(role Role, mi MongoInfo, isLeader bool) map[string]string {
 	return t
 }
 
-// decodeTags is the inverse of encodeTags. A missing bool tag means false.
-func decodeTags(t map[string]string) (role Role, isLeader bool, mi MongoInfo) {
-	return Role(t[tagRole]), t[tagLeader] != "", MongoInfo{
+// decodeTags is the inverse of encodeTags. A missing bool tag means false and a
+// missing apiport means zero.
+func decodeTags(t map[string]string) (role Role, isLeader bool, apiPort int, mi MongoInfo) {
+	apiPort, _ = strconv.Atoi(t[tagAPIPort])
+	return Role(t[tagRole]), t[tagLeader] != "", apiPort, MongoInfo{
 		SetName:     t[tagSet],
 		Me:          t[tagMe],
 		Sharded:     t[tagSharded] != "",
@@ -205,6 +228,12 @@ func putStr(t map[string]string, k, v string) {
 func putBool(t map[string]string, k string, v bool) {
 	if v {
 		t[k] = "1"
+	}
+}
+
+func putInt(t map[string]string, k string, v int) {
+	if v > 0 {
+		t[k] = strconv.Itoa(v)
 	}
 }
 
@@ -232,11 +261,12 @@ func (s *Svc) apply(ev StatusEvent) {
 		return
 	}
 
-	role, isLeader, mi := decodeTags(ev.Payload)
+	role, isLeader, apiPort, mi := decodeTags(ev.Payload)
 	s.mems[ev.Name] = AgentInfo{
 		Name:        ev.Name,
 		Addr:        ev.Addr,
 		Port:        ev.Port,
+		APIPort:     apiPort,
 		Role:        role,
 		IsLeader:    isLeader,
 		Alive:       ev.Alive,
@@ -269,13 +299,14 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 		return
 	}
 
-	isLeader := s.isLeader()
+	isLeader := s.IsLeader()
 
 	s.mu.Lock()
 	// Read-modify-write to preserve Addr/Port set by our own serf join event.
 	self := s.mems[s.name]
 	self.Name = s.name
 	self.Role = s.role
+	self.APIPort = s.apiPort
 	self.IsLeader = isLeader
 	self.Alive = true
 	self.MongoInfo = mi
@@ -283,7 +314,7 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	s.mu.Unlock()
 
 	if s.pub != nil {
-		if err := s.pub.Publish(encodeTags(s.role, mi, isLeader)); err != nil {
+		if err := s.pub.Publish(encodeTags(s.role, mi, isLeader, s.apiPort)); err != nil {
 			log.Printf("status: publish local info: %v", err)
 		}
 	}
@@ -354,6 +385,20 @@ func (s *Svc) GetMember(node string) (*AgentInfo, error) {
 		return nil, ErrNotFound
 	}
 	return &member, nil
+}
+
+// Leader returns the cluster member currently advertising leadership,
+// if one is known.
+func (s *Svc) Leader() (AgentInfo, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, m := range s.mems {
+		if m.IsLeader {
+			return m, true
+		}
+	}
+	return AgentInfo{}, false
 }
 
 // sortMembers orders members by node name ascending.

@@ -16,7 +16,7 @@ func NewRouter(statusSvc *status.Svc) http.Handler {
 	newStatusHandler(statusSvc).registerRoutes(mux)
 	// newBackupHandler(backupSvc).registerRoutes(mux)
 
-	return mux
+	return leaderOnly(statusSvc, mux)
 }
 
 // statusHandler serves cluster status endpoints.

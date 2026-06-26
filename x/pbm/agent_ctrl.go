@@ -22,7 +22,7 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	}
 	defer connect.Disconnect(mc)
 
-	statusSvc := status.New(cfg.Name, status.RoleCtrl, mc)
+	statusSvc := status.NewForCtrlAgent(cfg.Name, mc, cfg.APISrvPort)
 
 	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, statusSvc.DiscoSync())
 	if err != nil {
