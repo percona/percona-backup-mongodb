@@ -47,7 +47,7 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	defer etcdSrv.Close()
 	log.Printf("ctrl-agent %s started control collection db", cfg.Name)
 
-	apiSrv := api.Start(api.Config{Port: cfg.APISrvPort})
+	apiSrv := api.Start(api.Config{Port: cfg.APISrvPort}, api.NewRouter(statusSvc))
 	log.Printf("ctrl-agent %s started REST API on port %d", cfg.Name, cfg.APISrvPort)
 
 	select {
