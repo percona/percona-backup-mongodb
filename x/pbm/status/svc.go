@@ -35,6 +35,7 @@ type AgentInfo struct {
 	Addr      string
 	Port      uint16
 	Role      Role
+	IsLeader  bool
 	Alive     bool
 	MongoInfo MongoInfo
 
@@ -72,6 +73,9 @@ type Svc struct {
 	// It's nil when the agent has no attached.
 	mc *mongo.Client
 
+	// leader reports whether this agent is the cluster leader
+	leader LeaderChecker
+
 	recv ReceiveChannel
 	pub  Publisher
 
@@ -84,6 +88,11 @@ type clusterMembers map[string]AgentInfo
 
 // ReceiveChannel carries StatusEvents from discovery
 type ReceiveChannel chan StatusEvent
+
+// LeaderChecker reports whether this agent currently holds cluster leadership.
+type LeaderChecker interface {
+	IsLeader() bool
+}
 
 // New creates a status service.
 func New(name string, role Role, localMongo *mongo.Client) *Svc {
@@ -101,10 +110,20 @@ func (s *Svc) DiscoSync() chan<- StatusEvent {
 	return s.recv
 }
 
-// SetPublisher wires the broadcast transport. Must be called before Run so the
-// first local refresh can publish.
+// SetPublisher wires the broadcast using disco.
 func (s *Svc) SetPublisher(p Publisher) {
 	s.pub = p
+}
+
+// SetLeaderChecker inject leader checker from etcd server.
+func (s *Svc) SetLeaderChecker(l LeaderChecker) {
+	s.leader = l
+}
+
+// isLeader reports whether this agent currently holds cluster leadership.
+func (s *Svc) isLeader() bool {
+	// it can be nil in case of worker-agent
+	return s.leader != nil && s.leader.IsLeader()
 }
 
 // Run drains membership events into the cache and periodically refreshes and
@@ -131,6 +150,7 @@ func (s *Svc) Run(ctx context.Context) {
 // recovered from the serf Member, so only role and MongoInfo travel as tags.
 const (
 	tagRole      = "role"
+	tagLeader    = "leader"
 	tagSet       = "set"
 	tagMe        = "me"
 	tagSharded   = "sharded"
@@ -145,9 +165,10 @@ const (
 // encodeTags renders role and MongoInfo as serf tags. Booleans are emitted only
 // when true and strings only when non-empty, keeping the tag map small (serf caps
 // the encoded set at 512 bytes) and the `serf members -tags` output readable.
-func encodeTags(role Role, mi MongoInfo) map[string]string {
+func encodeTags(role Role, mi MongoInfo, isLeader bool) map[string]string {
 	t := make(map[string]string)
 	putStr(t, tagRole, string(role))
+	putBool(t, tagLeader, isLeader)
 	putStr(t, tagSet, mi.SetName)
 	putStr(t, tagMe, mi.Me)
 	putBool(t, tagSharded, mi.Sharded)
@@ -161,8 +182,8 @@ func encodeTags(role Role, mi MongoInfo) map[string]string {
 }
 
 // decodeTags is the inverse of encodeTags. A missing bool tag means false.
-func decodeTags(t map[string]string) (role Role, mi MongoInfo) {
-	return Role(t[tagRole]), MongoInfo{
+func decodeTags(t map[string]string) (role Role, isLeader bool, mi MongoInfo) {
+	return Role(t[tagRole]), t[tagLeader] != "", MongoInfo{
 		SetName:     t[tagSet],
 		Me:          t[tagMe],
 		Sharded:     t[tagSharded] != "",
@@ -211,12 +232,13 @@ func (s *Svc) apply(ev StatusEvent) {
 		return
 	}
 
-	role, mi := decodeTags(ev.Payload)
+	role, isLeader, mi := decodeTags(ev.Payload)
 	s.mems[ev.Name] = AgentInfo{
 		Name:        ev.Name,
 		Addr:        ev.Addr,
 		Port:        ev.Port,
 		Role:        role,
+		IsLeader:    isLeader,
 		Alive:       ev.Alive,
 		MongoInfo:   mi,
 		AgentStatus: SubsysStatus{OK: true},
@@ -247,18 +269,21 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 		return
 	}
 
+	isLeader := s.isLeader()
+
 	s.mu.Lock()
 	// Read-modify-write to preserve Addr/Port set by our own serf join event.
 	self := s.mems[s.name]
 	self.Name = s.name
 	self.Role = s.role
+	self.IsLeader = isLeader
 	self.Alive = true
 	self.MongoInfo = mi
 	s.mems[s.name] = self
 	s.mu.Unlock()
 
 	if s.pub != nil {
-		if err := s.pub.Publish(encodeTags(s.role, mi)); err != nil {
+		if err := s.pub.Publish(encodeTags(s.role, mi, isLeader)); err != nil {
 			log.Printf("status: publish local info: %v", err)
 		}
 	}

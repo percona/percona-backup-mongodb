@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm"
+	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 )
 
 const (
@@ -93,7 +94,7 @@ func workerAgentConfig() *pbm.WorkerAgentConfig {
 func ctrlAgentConfig() *pbm.CtrlAgentConfig {
 	return &pbm.CtrlAgentConfig{
 		WorkerAgentConfig: *workerAgentConfig(),
-		EtcdConfig: pbm.EtcdConfig{
+		Config: etcd.Config{
 			DataDir:            viper.GetString(etcdDataDirFlag),
 			ListenPeerPort:     viper.GetInt(etcdListenPeerPortFlag),
 			ListenClientPort:   viper.GetInt(etcdListenClientPortFlag),

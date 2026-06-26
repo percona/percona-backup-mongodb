@@ -8,6 +8,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/api"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
@@ -34,10 +35,7 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	}()
 	log.Printf("ctrl-agent: %s added to PBM cluster", cfg.Name)
 
-	statusSvc.SetPublisher(disco)
-	go statusSvc.Run(ctx)
-
-	etcdSrv, err := startEmbeddedEtcd(ctx, cfg.Name, cfg.EtcdConfig)
+	etcdSrv, err := etcd.Start(ctx, cfg.Name, cfg.Config)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil
@@ -46,6 +44,11 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	}
 	defer etcdSrv.Close()
 	log.Printf("ctrl-agent %s started control collection db", cfg.Name)
+
+	// wire the status service before starting its loop
+	statusSvc.SetPublisher(disco)
+	statusSvc.SetLeaderChecker(etcdSrv)
+	go statusSvc.Run(ctx)
 
 	apiSrv := api.Start(api.Config{Port: cfg.APISrvPort}, api.NewRouter(statusSvc))
 	log.Printf("ctrl-agent %s started REST API on port %d", cfg.Name, cfg.APISrvPort)

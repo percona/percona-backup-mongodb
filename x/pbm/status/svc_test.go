@@ -14,7 +14,7 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 		Addr:    "10.0.0.1",
 		Port:    7777,
 		Alive:   true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", IsPrimary: true}),
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", IsPrimary: true}, false),
 	})
 
 	m, err := s.GetMember("rs0-0")
@@ -35,7 +35,7 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 		Addr:    "10.0.0.1",
 		Port:    7777,
 		Alive:   true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", Secondary: true}),
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0", Secondary: true}, false),
 	})
 	m, _ = s.GetMember("rs0-0")
 	if m.MongoInfo.IsPrimary || !m.MongoInfo.Secondary {
@@ -65,11 +65,11 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 func TestGetMembersForRSAndSorting(t *testing.T) {
 	s := New("self", RoleWorker, nil)
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs1-0", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"})})
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"}, false)})
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs0-1", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"})})
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false)})
 	s.apply(StatusEvent{Kind: MemberUp, Name: "rs0-0", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"})})
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false)})
 
 	rs0 := s.GetMembersForRS("rs0")
 	if len(rs0) != 2 {
@@ -93,6 +93,11 @@ type fakePublisher struct{ last map[string]string }
 
 func (f *fakePublisher) Publish(tags map[string]string) error { f.last = tags; return nil }
 
+// fakeLeadership is a static Leadership probe.
+type fakeLeadership bool
+
+func (f fakeLeadership) IsLeader() bool { return bool(f) }
+
 func TestRefreshLocalCachesSelfAndPublishes(t *testing.T) {
 	s := New("self", RoleCtrl, nil)
 	fp := &fakePublisher{}
@@ -109,5 +114,46 @@ func TestRefreshLocalCachesSelfAndPublishes(t *testing.T) {
 	}
 	if fp.last == nil {
 		t.Fatal("expected local info to be published")
+	}
+}
+
+func TestLeadershipPropagates(t *testing.T) {
+	// A ctrl agent that holds leadership caches and advertises the leader bit.
+	s := New("self", RoleCtrl, nil)
+	fp := &fakePublisher{}
+	s.SetPublisher(fp)
+	s.SetLeaderChecker(fakeLeadership(true))
+
+	s.refreshLocal(t.Context())
+
+	self, _ := s.GetMember("self")
+	if !self.IsLeader {
+		t.Fatalf("ctrl leader should cache IsLeader=true: %+v", self)
+	}
+	if fp.last[tagLeader] == "" {
+		t.Fatalf("leader bit should be advertised, got tags %v", fp.last)
+	}
+
+	// A peer decoding that broadcast sees the leader.
+	peer := New("peer", RoleWorker, nil)
+	peer.apply(StatusEvent{Kind: MemberUp, Name: "self", Alive: true, Payload: fp.last})
+	if m, _ := peer.GetMember("self"); !m.IsLeader {
+		t.Fatalf("peer should observe leader: %+v", m)
+	}
+}
+
+func TestWorkerNeverLeader(t *testing.T) {
+	// Workers carry no probe; leaving leadership unset must keep them followers.
+	s := New("self", RoleWorker, nil)
+	fp := &fakePublisher{}
+	s.SetPublisher(fp)
+
+	s.refreshLocal(t.Context())
+
+	if self, _ := s.GetMember("self"); self.IsLeader {
+		t.Fatalf("worker must never be leader: %+v", self)
+	}
+	if fp.last[tagLeader] != "" {
+		t.Fatalf("worker must not advertise leader bit, got tags %v", fp.last)
 	}
 }
