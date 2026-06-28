@@ -146,37 +146,56 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 		}
 	}
 
-	const align int64 = 256 << 10 // 256 KiB (both min size and alignment)
-
-	partSize := storage.ComputePartSize(
-		opts.Size,
-		defaultChunkSize,
-		align,
-		10_000,
-		int64(g.cfg.ChunkSize),
-	)
-
-	if rem := partSize % align; rem != 0 {
-		partSize += align - rem
-	}
-
-	if g.log != nil && opts.UseLogger {
-		g.log.Debug(`uploading %q [size hint: %v (%v); part size: %v (%v)]`,
-			name,
-			opts.Size, storage.PrettySize(opts.Size),
-			partSize, storage.PrettySize(partSize))
-	}
-
 	ctx := context.Background()
 	w := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).NewWriter(ctx)
-	w.ChunkSize = int(partSize)
-	w.ChunkRetryDeadline = g.cfg.Retryer.ChunkRetryDeadline
 	if g.cfg.parallelUploadEnabled() {
+		pu := g.cfg.ParallelUpload
+		if g.log != nil && opts.UseLogger {
+			partSize := "SDK default"
+			if pu.PartSize > 0 {
+				partSize = fmt.Sprintf("%v (%v)", pu.PartSize, storage.PrettySize(int64(pu.PartSize)))
+			}
+
+			concurrency := "SDK default"
+			if pu.MaxConcurrency > 0 {
+				concurrency = fmt.Sprintf("%d", pu.MaxConcurrency)
+			}
+
+			g.log.Debug(`uploading %q [size hint: %v (%v); parallel upload part size: %s; concurrency: %s]`,
+				name,
+				opts.Size, storage.PrettySize(opts.Size),
+				partSize, concurrency)
+		}
+
 		w.EnableParallelUpload = true
 		w.ParallelUploadConfig = storagegcs.ParallelUploadConfig{
-			PartSize:       g.cfg.ParallelUpload.PartSize,
-			MaxConcurrency: g.cfg.ParallelUpload.MaxConcurrency,
+			PartSize:       pu.PartSize,
+			MaxConcurrency: pu.MaxConcurrency,
 		}
+	} else {
+		const align int64 = 256 << 10 // 256 KiB (both min size and alignment)
+
+		partSize := storage.ComputePartSize(
+			opts.Size,
+			defaultChunkSize,
+			align,
+			10_000,
+			int64(g.cfg.ChunkSize),
+		)
+
+		if rem := partSize % align; rem != 0 {
+			partSize += align - rem
+		}
+
+		if g.log != nil && opts.UseLogger {
+			g.log.Debug(`uploading %q [size hint: %v (%v); part size: %v (%v)]`,
+				name,
+				opts.Size, storage.PrettySize(opts.Size),
+				partSize, storage.PrettySize(partSize))
+		}
+
+		w.ChunkSize = int(partSize)
+		w.ChunkRetryDeadline = g.cfg.Retryer.ChunkRetryDeadline
 	}
 	if g.log != nil && opts.UseLogger {
 		w.ProgressFunc = func(written int64) {
