@@ -91,6 +91,10 @@ func NewWithDownloader(
 	l log.LogEvent,
 	cc, bufSizeMb, spanSizeMb int,
 ) (storage.Storage, error) {
+	if err := opts.Cast(); err != nil {
+		return nil, errors.Wrap(err, "set defaults")
+	}
+
 	if l == nil {
 		l = log.DiscardEvent
 	}

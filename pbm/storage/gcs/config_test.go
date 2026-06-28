@@ -22,7 +22,8 @@ func TestCast(t *testing.T) {
 		t.Fatalf("got error during Cast: %v", err)
 	}
 	want := &Config{
-		ChunkSize: defaultChunkSize,
+		ClientType: ClientTypeJSON,
+		ChunkSize:  defaultChunkSize,
 		Retryer: &Retryer{
 			MaxAttempts:        defaultMaxAttempts,
 			BackoffInitial:     defaultBackoffInitial,
@@ -52,6 +53,11 @@ func TestCast(t *testing.T) {
 				cfg:  &Config{ParallelUpload: &ParallelUpload{MaxConcurrency: -1}},
 				err:  "parallelUpload.maxConcurrency cannot be negative",
 			},
+			{
+				name: "invalid client type",
+				cfg:  &Config{ClientType: ClientType("xml")},
+				err:  `invalid clientType "xml"`,
+			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				err := tt.cfg.Cast()
@@ -71,6 +77,7 @@ func TestConfig(t *testing.T) {
 			ClientEmail: "email@example.com",
 			PrivateKey:  "-----BEGIN PRIVATE KEY-----\nKey\n-----END PRIVATE KEY-----\n",
 		},
+		ClientType: ClientTypeGRPC,
 		ParallelUpload: &ParallelUpload{
 			Enabled:        true,
 			PartSize:       16 * 1024 * 1024,
@@ -116,6 +123,12 @@ func TestConfig(t *testing.T) {
 		clone.Credentials.ClientEmail = "updated@example.com"
 		if opts.Equal(clone) {
 			t.Error("expected not to be equal when updating credentials")
+		}
+
+		clone = opts.Clone()
+		clone.ClientType = ClientTypeJSON
+		if opts.Equal(clone) {
+			t.Error("expected not to be equal when updating client type")
 		}
 
 		clone = opts.Clone()

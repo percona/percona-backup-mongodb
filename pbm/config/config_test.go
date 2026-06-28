@@ -406,6 +406,7 @@ func TestConfig(t *testing.T) {
 						ClientEmail: "ce1",
 						PrivateKey:  "pk1",
 					},
+					ClientType:   gcs.ClientTypeJSON,
 					ChunkSize:    100,
 					MaxObjSizeGB: floatPtr(1.1),
 					Retryer: &gcs.Retryer{
@@ -510,6 +511,75 @@ func TestConfig(t *testing.T) {
 					wantCfg.Storage.GCS, gotCfg.Storage.GCS, cmp.Diff(*wantCfg.Storage.GCS, *gotCfg.Storage.GCS))
 			}
 		})
+	})
+
+	t.Run("gcs parallel upload config", func(t *testing.T) {
+		emptyCfg := &Config{
+			Storage: StorageConf{Type: storage.GCS, GCS: &gcs.Config{}},
+		}
+		err := SetConfig(ctx, connClient, emptyCfg)
+		if err != nil {
+			t.Fatalf("setup: initial SetConfig failed: %v", err)
+		}
+
+		testCases := []struct {
+			desc  string
+			param string
+			val   string
+		}{
+			{
+				desc:  "clientType",
+				param: "storage.gcs.clientType",
+				val:   string(gcs.ClientTypeGRPC),
+			},
+			{
+				desc:  "parallelUpload.enabled",
+				param: "storage.gcs.parallelUpload.enabled",
+				val:   "true",
+			},
+			{
+				desc:  "parallelUpload.partSize",
+				param: "storage.gcs.parallelUpload.partSize",
+				val:   "123",
+			},
+			{
+				desc:  "parallelUpload.maxConcurrency",
+				param: "storage.gcs.parallelUpload.maxConcurrency",
+				val:   "4",
+			},
+		}
+
+		for _, tt := range testCases {
+			t.Run(tt.desc, func(t *testing.T) {
+				err := SetConfigVar(ctx, connClient, tt.param, tt.val)
+				if err != nil {
+					t.Fatalf("SetConfigVar failed for %s with value %s: %v",
+						tt.param, tt.val, err)
+				}
+			})
+		}
+
+		gotCfg, err := GetConfig(ctx, connClient)
+		if err != nil {
+			t.Fatalf("GetConfig failed: %v", err)
+		}
+
+		gotGCS := gotCfg.Storage.GCS
+		if gotGCS.ClientType != gcs.ClientTypeGRPC {
+			t.Fatalf("clientType: got=%q, want=%q", gotGCS.ClientType, gcs.ClientTypeGRPC)
+		}
+		if gotGCS.ParallelUpload == nil {
+			t.Fatal("expected parallelUpload config")
+		}
+		if !gotGCS.ParallelUpload.Enabled {
+			t.Fatal("expected parallelUpload.enabled=true")
+		}
+		if gotGCS.ParallelUpload.PartSize != 123 {
+			t.Fatalf("parallelUpload.partSize: got=%d, want=123", gotGCS.ParallelUpload.PartSize)
+		}
+		if gotGCS.ParallelUpload.MaxConcurrency != 4 {
+			t.Fatalf("parallelUpload.maxConcurrency: got=%d, want=4", gotGCS.ParallelUpload.MaxConcurrency)
+		}
 	})
 
 	t.Run("restore config", func(t *testing.T) {

@@ -53,7 +53,7 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		if merr != nil {
 			return nil, errors.Wrap(merr, "marshal GCS credentials")
 		}
-		if cfg.parallelUploadEnabled() {
+		if cfg.ClientType == ClientTypeGRPC {
 			cli, err = storagegcs.NewGRPCClient(ctx, option.WithCredentialsJSON(creds))
 		} else {
 			cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
@@ -69,7 +69,7 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		if adcErr != nil {
 			return nil, fmt.Errorf("validate default credential type: %w", adcErr)
 		}
-		if cfg.parallelUploadEnabled() {
+		if cfg.ClientType == ClientTypeGRPC {
 			cli, err = storagegcs.NewGRPCClient(ctx)
 		} else {
 			cli, err = storagegcs.NewClient(ctx)

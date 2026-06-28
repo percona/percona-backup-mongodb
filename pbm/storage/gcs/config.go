@@ -9,10 +9,19 @@ import (
 )
 
 //nolint:lll
+type ClientType string
+
+const (
+	ClientTypeJSON ClientType = "json"
+	ClientTypeGRPC ClientType = "grpc"
+)
+
+//nolint:lll
 type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
 	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
+	ClientType  ClientType  `bson:"clientType,omitempty" json:"clientType,omitempty" yaml:"clientType,omitempty"`
 
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
@@ -26,10 +35,10 @@ type Config struct {
 
 // ParallelUpload configures the experimental Google Cloud Storage parallel upload feature.
 //
-// Parallel uploads are supported only by the Google SDK gRPC client. HMAC credentials
-// continue to use the MinIO client and are not affected by this setting.
+// Parallel uploads are supported only by the Google SDK gRPC client.
+// HMAC credentials continue to use the MinIO client and are not affected by this setting.
 type ParallelUpload struct {
-	// Enabled switches the Google SDK client to gRPC and enables Writer parallel uploads.
+	// Enabled enables Writer parallel uploads when clientType is grpc.
 	Enabled bool `bson:"enabled,omitempty" json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
 	// PartSize is the size of each temporary part in bytes.
@@ -114,6 +123,9 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.Prefix != other.Prefix {
 		return false
 	}
+	if cfg.ClientType != other.ClientType {
+		return false
+	}
 	if cfg.ChunkSize != other.ChunkSize {
 		return false
 	}
@@ -152,6 +164,13 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 func (cfg *Config) Cast() error {
 	if cfg == nil {
 		return errors.New("missing GCS configuration with GCS storage type")
+	}
+
+	if cfg.ClientType == "" {
+		cfg.ClientType = ClientTypeJSON
+	}
+	if cfg.ClientType != ClientTypeJSON && cfg.ClientType != ClientTypeGRPC {
+		return errors.Errorf("invalid clientType %q", cfg.ClientType)
 	}
 
 	if cfg.ChunkSize == 0 {
@@ -204,5 +223,5 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 }
 
 func (cfg *Config) parallelUploadEnabled() bool {
-	return cfg.ParallelUpload != nil && cfg.ParallelUpload.Enabled
+	return cfg.ClientType == ClientTypeGRPC && cfg.ParallelUpload != nil && cfg.ParallelUpload.Enabled
 }
