@@ -80,17 +80,18 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		return nil, errors.Wrap(err, "new GCS client")
 	}
 
-	bh := cli.Bucket(cfg.Bucket).
-		Retryer(
-			storagegcs.WithBackoff(gax.Backoff{
-				Initial:    cfg.Retryer.BackoffInitial,
-				Max:        cfg.Retryer.BackoffMax,
-				Multiplier: cfg.Retryer.BackoffMultiplier,
-			}),
-			storagegcs.WithMaxAttempts(cfg.Retryer.MaxAttempts),
-			storagegcs.WithPolicy(storagegcs.RetryAlways),
-			storagegcs.WithErrorFunc(shouldRetryExtended),
-		)
+	cli.SetRetry(
+		storagegcs.WithBackoff(gax.Backoff{
+			Initial:    cfg.Retryer.BackoffInitial,
+			Max:        cfg.Retryer.BackoffMax,
+			Multiplier: cfg.Retryer.BackoffMultiplier,
+		}),
+		storagegcs.WithMaxAttempts(cfg.Retryer.MaxAttempts),
+		storagegcs.WithPolicy(storagegcs.RetryAlways),
+		storagegcs.WithErrorFunc(shouldRetryExtended),
+	)
+
+	bh := cli.Bucket(cfg.Bucket)
 
 	return &googleClient{
 		bucketHandle: bh,
