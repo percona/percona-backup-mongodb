@@ -8,6 +8,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/api"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
@@ -24,12 +25,12 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 
 	statusSvc := status.NewForCtrlAgent(cfg.Name, mc, cfg.APISrvPort)
 
-	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, statusSvc.DiscoSync())
+	d, err := disco.Start(ctx, cfg.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
 	defer func() {
-		if err := disco.stop(); err != nil {
+		if err := d.Stop(); err != nil {
 			log.Printf("serf shutdown: %v", err)
 		}
 	}()
@@ -46,7 +47,7 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	log.Printf("ctrl-agent %s started control collection db", cfg.Name)
 
 	// wire the status service before starting its loop
-	statusSvc.SetPublisher(disco)
+	statusSvc.SetPublisher(d)
 	statusSvc.SetLeaderChecker(etcdSrv)
 	go statusSvc.Run(ctx)
 

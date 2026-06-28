@@ -1,4 +1,7 @@
-package pbm
+// Package disco provides serf-based cluster membership discovery. It runs a
+// serf node, forwards membership changes to the status service, and broadcasts
+// this agent's status tags to peers.
+package disco
 
 import (
 	"context"
@@ -15,23 +18,33 @@ import (
 
 const serfJoinInterval = 2 * time.Second
 
-// discovery runs serf node and its membership event loop.
-type discovery struct {
+// Config holds Serf discovery configuration shared by all agents.
+type Config struct {
+	SerfPort int
+	// SerfJoin lists seed addresses (host:port) to gossip with on startup.
+	// Reaching any one is enough; serf discovers the rest. Empty starts a new
+	// cluster.
+	SerfJoin []string
+}
+
+// Discovery runs serf node and its membership event loop.
+type Discovery struct {
 	serf *serf.Serf
 	sync chan<- status.StatusEvent
 	done chan struct{}
 }
 
-// startDiscovery creates the serf node, starts the membership event loop, and
-// joins the seed if one is configured. Membership changes are forwarded to sink
-// for the status service. The caller owns shutdown via stop().
-func startDiscovery(
+// Start creates the serf node, starts the membership event loop, and
+// joins the seed if one is configured. Membership changes are forwarded to sync
+// channel for the status service. The caller owns shutdown via Stop().
+func Start(
 	ctx context.Context,
 	name string,
-	cfg DiscoConfig,
+	cfg Config,
 	sync chan<- status.StatusEvent,
-) (*discovery, error) {
-	// buffered so a momentarily slow consumer can't block serf's dispatcher.
+) (*Discovery, error) {
+	// todo: improve
+	// buffered so a momentarily slow consumer can't block serf's dispatcher
 	eventCh := make(chan serf.Event, 64)
 
 	sc := serf.DefaultConfig()
@@ -48,7 +61,7 @@ func startDiscovery(
 		return nil, fmt.Errorf("create serf: %w", err)
 	}
 
-	d := &discovery{serf: s, sync: sync, done: make(chan struct{})}
+	d := &Discovery{serf: s, sync: sync, done: make(chan struct{})}
 	go d.eventLoop(ctx, eventCh)
 
 	if len(cfg.SerfJoin) > 0 {
@@ -60,7 +73,7 @@ func startDiscovery(
 
 // retryJoin keeps attempting to gossip with the seed peers until this node is
 // part of a multi-member cluster.
-func (d *discovery) retryJoin(ctx context.Context, peers []string) {
+func (d *Discovery) retryJoin(ctx context.Context, peers []string) {
 	t := time.NewTicker(serfJoinInterval)
 	defer t.Stop()
 
@@ -85,12 +98,12 @@ func (d *discovery) retryJoin(ctx context.Context, peers []string) {
 
 // Publish broadcasts the agent's status tags to the cluster as serf member tags.
 // It publishes all the tags, not just patch.
-func (d *discovery) Publish(tags map[string]string) error {
+func (d *Discovery) Publish(tags map[string]string) error {
 	return d.serf.SetTags(tags)
 }
 
 // eventLoop processes cluster membership forwarding each change to the status service.
-func (d *discovery) eventLoop(ctx context.Context, eventCh <-chan serf.Event) {
+func (d *Discovery) eventLoop(ctx context.Context, eventCh <-chan serf.Event) {
 	defer close(d.done)
 
 	shutdownCh := d.serf.ShutdownCh()
@@ -109,7 +122,7 @@ func (d *discovery) eventLoop(ctx context.Context, eventCh <-chan serf.Event) {
 	}
 }
 
-func (d *discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) {
+func (d *Discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) {
 	kind, alive, ok := classifyEvent(me.Type)
 	if !ok {
 		return // just ignore it for now, but improve it
@@ -156,9 +169,9 @@ func classifyEvent(t serf.EventType) (kind status.EventKind, alive, ok bool) {
 	}
 }
 
-// stop leaves the cluster gracefully so peers record a clean leave rather than a
+// Stop leaves the cluster gracefully so peers record a clean leave rather than a
 // failure, then tears the node down and waits for the event loop to exit.
-func (d *discovery) stop() error {
+func (d *Discovery) Stop() error {
 	leaveErr := d.serf.Leave()
 	shutErr := d.serf.Shutdown()
 	<-d.done

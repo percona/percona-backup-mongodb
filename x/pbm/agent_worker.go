@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
+	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
@@ -19,18 +20,18 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 
 	svc := status.NewForWorkerAgent(cfg.Name, mc)
 
-	disco, err := startDiscovery(ctx, cfg.Name, cfg.DiscoConfig, svc.DiscoSync())
+	d, err := disco.Start(ctx, cfg.Name, cfg.Config, svc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
 	defer func() {
-		if err := disco.stop(); err != nil {
+		if err := d.Stop(); err != nil {
 			log.Printf("serf shutdown: %v", err)
 		}
 	}()
 	log.Printf("agent: %s added to PBM cluster", cfg.Name)
 
-	svc.SetPublisher(disco)
+	svc.SetPublisher(d)
 	go svc.Run(ctx)
 
 	<-ctx.Done()

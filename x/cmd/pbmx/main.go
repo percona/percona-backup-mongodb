@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm"
+	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 )
 
@@ -82,7 +83,7 @@ func workerAgentConfig() *pbm.WorkerAgentConfig {
 	return &pbm.WorkerAgentConfig{
 		Name:     viper.GetString(nameFlag),
 		MongoURI: viper.GetString(mongoConnFlag),
-		DiscoConfig: pbm.DiscoConfig{
+		Config: disco.Config{
 			SerfPort: viper.GetInt(serfPortFlag),
 			SerfJoin: splitList(viper.GetString(serfJoinFlag)),
 		},
