@@ -135,8 +135,25 @@
 ## When undefined, backups are saved at the root of the bucket.
 #      prefix:
 
+## Google SDK client type. Supported values: json, grpc.
+## When undefined, json is used.
+#      clientType: json
+
 ## The size of data chunks in bytes to be uploaded to the storage bucket in a single request.
+## Applies to standard Google SDK uploads only. It is not used when parallelUpload is enabled.
 #      chunkSize: 10MB
+
+## Experimental Google SDK parallel upload configuration.
+## This is used only with clientType: grpc. It creates temporary GCS objects and composes
+## them into the final object. The credentials must be allowed to delete temporary objects
+## for cleanup. Failed or interrupted uploads can leave temporary objects behind, so a
+## bucket lifecycle cleanup rule is recommended.
+#      parallelUpload:
+#        enabled: false
+## Size of each temporary part in bytes. When undefined or 0, the Google SDK default is used.
+#        partSize: 16MB
+## Number of parallel upload workers. When undefined or 0, the Google SDK default is used.
+#        maxConcurrency: 4
 
 ## GCS access credentials. You can use either HMAC or Service Account keys.
 ## HMAC Example:
@@ -156,6 +173,7 @@
 #        backoffInitial: 1s
 #        backoffMax: 30s
 #        backoffMultiplier: 2
+## Applies to standard Google SDK uploads only. It is not used when parallelUpload is enabled.
 #        chunkRetryDeadline: 32s
 #
 ## The maximum object size that will be stored on the storage
