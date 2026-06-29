@@ -165,3 +165,16 @@ func (g *GCS) Delete(name string) error {
 func (g *GCS) Copy(src, dst string) error {
 	return g.client.copy(src, dst)
 }
+
+func (g *GCS) Close() error {
+	if g == nil || g.client == nil {
+		return nil
+	}
+
+	c, ok := g.client.(storage.Closable)
+	if !ok {
+		return nil
+	}
+
+	return c.Close()
+}

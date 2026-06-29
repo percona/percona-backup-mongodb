@@ -66,6 +66,26 @@ type Storage interface {
 	DownloadStat() DownloadStat
 }
 
+type Closable interface {
+	Close() error
+}
+
+func Close(stg Storage, l log.LogEvent) {
+	if stg == nil {
+		return
+	}
+
+	c, ok := stg.(Closable)
+	if !ok {
+		return
+	}
+
+	err := c.Close()
+	if err != nil && l != nil {
+		l.Warning("close %s storage: %v", stg.Type(), err)
+	}
+}
+
 // ParseType parses string and returns storage type
 func ParseType(s string) Type {
 	switch s {

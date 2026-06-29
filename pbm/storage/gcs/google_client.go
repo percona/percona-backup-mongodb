@@ -21,6 +21,7 @@ import (
 )
 
 type googleClient struct {
+	client       *storagegcs.Client
 	bucketHandle *storagegcs.BucketHandle
 	cfg          *Config
 	log          log.LogEvent
@@ -94,10 +95,19 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 	bh := cli.Bucket(cfg.Bucket)
 
 	return &googleClient{
+		client:       cli,
 		bucketHandle: bh,
 		cfg:          cfg,
 		log:          l,
 	}, nil
+}
+
+func (g googleClient) Close() error {
+	if g.client == nil {
+		return nil
+	}
+
+	return g.client.Close()
 }
 
 // validateDefaultCredentialType validates that credentials are of type "external_account" used for Workload Identity
