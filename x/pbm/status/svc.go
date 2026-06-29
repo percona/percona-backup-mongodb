@@ -314,6 +314,11 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	s.mems[s.name] = self
 	s.mu.Unlock()
 
+	//todo as part of PBM-1748:
+	//- change detection
+	//- introduce agent's meta doc, instead of broadcasting every property
+	//- improve error handling: db down, storage down, agent down
+
 	if s.pub != nil {
 		if err := s.pub.Publish(encodeTags(s.role, mi, isLeader, s.apiPort)); err != nil {
 			log.Printf("status: publish local info: %v", err)
