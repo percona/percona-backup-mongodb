@@ -14,7 +14,8 @@ for bin in goreman docker mongosh; do
 done
 
 if [[ "${SKIP_CLUSTER:-}" != "1" ]]; then
-	echo ">> bringing up sharded MongoDB cluster (this resets it)..."
+	echo ">> bringing up sharded MongoDB cluster ..."
+    # start your mongo cluster here
 	(cd ../docker/sharded && ./init.sh)
 fi
 

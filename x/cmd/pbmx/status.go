@@ -44,7 +44,7 @@ func formatAgents(w io.Writer, members []status.AgentInfo) error {
 		if err := table.Append([]string{
 			m.Name,
 			m.Addr,
-			strconv.Itoa(int(m.Port)),
+			strconv.Itoa(m.Port),
 			strconv.Itoa(m.APIPort),
 			string(m.Role),
 			strconv.FormatBool(m.IsLeader),

@@ -136,7 +136,7 @@ func (d *Discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) 
 			Kind:  kind,
 			Name:  m.Name,
 			Addr:  m.Addr.String(),
-			Port:  m.Port,
+			Port:  int(m.Port),
 			Alive: alive,
 		}
 		if alive {

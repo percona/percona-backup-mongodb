@@ -20,7 +20,7 @@ type StatusEvent struct {
 	Kind    EventKind
 	Name    string
 	Addr    string
-	Port    uint16
+	Port    int
 	Alive   bool
 	Payload map[string]string
 }

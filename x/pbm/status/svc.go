@@ -34,7 +34,7 @@ const (
 type AgentInfo struct {
 	Name      string
 	Addr      string
-	Port      uint16
+	Port      int
 	APIPort   int
 	Role      Role
 	IsLeader  bool
@@ -295,7 +295,7 @@ func (s *Svc) applySelf(ev StatusEvent) {
 func (s *Svc) refreshLocal(ctx context.Context) {
 	mi, err := s.localMongoInfo(ctx)
 	if err != nil {
-		log.Printf("status: read local mongo info: %v", err)
+		s.handleMongoErr(err)
 		return
 	}
 
@@ -310,6 +310,7 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	self.IsLeader = isLeader
 	self.Alive = true
 	self.MongoInfo = mi
+	self.AgentStatus = SubsysStatus{OK: true}
 	s.mems[s.name] = self
 	s.mu.Unlock()
 
@@ -345,6 +346,23 @@ func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
 		Passive:     ni.Passive,
 		ArbiterOnly: ni.ArbiterOnly,
 	}, nil
+}
+
+func (s *Svc) handleMongoErr(mongoErr error) {
+	log.Printf("status: read local mongo info: %v", mongoErr)
+
+	s.mu.Lock()
+	self := s.mems[s.name]
+	self.MongoInfo.IsPrimary = false
+	self.AgentStatus = SubsysStatus{Err: mongoErr.Error()}
+	s.mems[s.name] = self
+	s.mu.Unlock()
+
+	if s.pub != nil {
+		if err := s.pub.Publish(encodeTags(s.role, self.MongoInfo, false, s.apiPort)); err != nil {
+			log.Printf("status: publish local info: %v", err)
+		}
+	}
 }
 
 // GetAllMembers returns all agents within PBM's cluster.
