@@ -603,11 +603,12 @@ func getStorageStat(
 
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, rsMap)
 
-	stg, err := util.GetStorage(ctx, conn, inf.Me,
-		log.FromContext(ctx).NewEvent("", "", "", bson.Timestamp{}))
+	l := log.FromContext(ctx).NewEvent("", "", "", bson.Timestamp{})
+	stg, err := util.GetStorage(ctx, conn, inf.Me, l)
 	if err != nil {
 		return s, errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	now, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/blackhole"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -209,6 +210,7 @@ func testStorage(mURL string, compression compress.CompressionType, level *int, 
 	if err != nil {
 		stdlog.Fatalln("Error: get storage:", err)
 	}
+	defer storage.Close(stg, nil)
 	done := make(chan struct{})
 	go printw(done)
 	r, err := doTest(sess, stg, compression, level, sizeGb, collection)

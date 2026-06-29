@@ -86,6 +86,7 @@ func deleteBackupImpl(
 	}
 
 	l := log.LogEventFromContext(ctx)
+	defer storage.Close(stg, l)
 	l.Info("deleting backup %q %s", bcp.Name, util.LogProfileArg(bcp.Store.Name))
 	return DeleteBackupData(ctx, conn, stg, bcp.Name)
 }
@@ -112,6 +113,7 @@ func deleteIncremetalChainImpl(ctx context.Context, conn connect.Client, bcp *Ba
 	}
 
 	l := log.LogEventFromContext(ctx)
+	defer storage.Close(stg, l)
 	for i := len(all) - 1; i >= 0; i-- {
 		l.Info("deleting backup %q %s", all[i].Name, util.LogProfileArg(bcp.Store.Name))
 		err = DeleteBackupData(ctx, conn, stg, all[i].Name)

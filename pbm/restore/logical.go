@@ -752,11 +752,13 @@ func LookupBackupMeta(
 		return nil, errors.Wrap(err, "get backup metadata from db")
 	}
 
+	l := log.LogEventFromContext(ctx)
 	var stg storage.Storage
-	stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
+	stg, err = util.GetStorage(ctx, conn, node, l)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	bcp, err = GetMetaFromStore(stg, backupName)
 	if err != nil {

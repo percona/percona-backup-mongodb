@@ -91,6 +91,7 @@ func (a *Agent) handleAddConfigProfile(
 		err = errors.Wrap(err, "storage from config")
 		return
 	}
+	defer storage.Close(stg, l)
 
 	err = storage.HasReadAccess(ctx, stg)
 	if err != nil {

@@ -188,6 +188,7 @@ func runRestore(
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	m, err := doRestore(
 		ctx,
@@ -578,6 +579,7 @@ func runFinishRestore(o descrRestoreOpts, node string) (fmt.Stringer, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, nil)
 
 	path := fmt.Sprintf("%s/%s/cluster", defs.PhysRestoresDir, o.restore)
 	msg := outMsg{"Command sent. Check `pbm describe-restore ...` for the result."}
@@ -779,8 +781,9 @@ func describeRestore(
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
-		meta, err = restore.GetPhysRestoreMeta(o.restore, stg, log.New(nil, "cli", "").
-			NewEvent("", "", "", bson.Timestamp{}))
+		l := log.New(nil, "cli", "").NewEvent("", "", "", bson.Timestamp{})
+		defer storage.Close(stg, l)
+		meta, err = restore.GetPhysRestoreMeta(o.restore, stg, l)
 		if err != nil && meta == nil {
 			return nil, errors.Wrap(err, "get restore meta")
 		}
