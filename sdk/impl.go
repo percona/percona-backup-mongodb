@@ -242,12 +242,14 @@ func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata)
 }
 
 func (c *Client) getStorageForRead(ctx context.Context, bcp *backup.BackupMeta) (storage.Storage, error) {
-	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
+	l := log.LogEventFromContext(ctx)
+	stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, c.node, l)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
 	err = storage.HasReadAccess(ctx, stg)
 	if err != nil && !errors.Is(err, storage.ErrUninitialized) {
+		storage.Close(stg, l)
 		return nil, errors.Wrap(err, "check storage access")
 	}
 
