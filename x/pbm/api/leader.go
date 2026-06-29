@@ -8,13 +8,13 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
-// routingResponse tells a client which ctrl-agent currently leads, so it can
+// RoutingResponse tells a client which ctrl-agent currently leads, so it can
 // retry the request against the leader.
-type routingResponse struct {
-	Leader leaderRef `json:"leader"`
+type RoutingResponse struct {
+	Leader LeaderRef `json:"leader"`
 }
 
-type leaderRef struct {
+type LeaderRef struct {
 	Name    string `json:"name"`
 	Address string `json:"address"`
 }
@@ -43,8 +43,8 @@ func leaderOnly(svc leaderRouter, next http.Handler) http.Handler {
 			return
 		}
 
-		writeJSON(w, http.StatusMisdirectedRequest, routingResponse{
-			Leader: leaderRef{
+		writeJSON(w, http.StatusMisdirectedRequest, RoutingResponse{
+			Leader: LeaderRef{
 				Name:    leader.Name,
 				Address: net.JoinHostPort(leader.Addr, strconv.Itoa(leader.APIPort)),
 			},

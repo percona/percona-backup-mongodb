@@ -35,8 +35,11 @@ const (
 
 	apiSrvPortFlag = "api-srv-port"
 
-	defaultEtcdDataDir = "pbmx.etcd"
-	defaultAPISrvPort  = 9595
+	apiEndpointsFlag = "api-endpoints"
+
+	defaultAPISrvPort   = 9595
+	defaultEtcdDataDir  = "pbmx.etcd"
+	defaultAPIEndpoints = "localhost:9595"
 )
 
 func main() {
@@ -157,6 +160,9 @@ func setRootFlags(rootCmd *cobra.Command) {
 
 	persistentInt(rootCmd, apiSrvPortFlag, defaultAPISrvPort,
 		"HTTP API listen port (ctrl-agent only)")
+
+	persistentString(rootCmd, apiEndpointsFlag, defaultAPIEndpoints,
+		"comma-separated ctrl-agent API endpoints (host:port) for client commands; the leader is resolved automatically")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and

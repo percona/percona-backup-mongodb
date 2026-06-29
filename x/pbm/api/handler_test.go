@@ -49,7 +49,7 @@ func TestLeaderOnlyRoutesToLeader(t *testing.T) {
 	if rr.Code != http.StatusMisdirectedRequest {
 		t.Fatalf("non-leader should return 421, got %d", rr.Code)
 	}
-	var got routingResponse
+	var got RoutingResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
