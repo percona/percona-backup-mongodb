@@ -178,12 +178,16 @@ func (c *Client) getBackupHelper(
 func (c *Client) fillFilelistForBackup(ctx context.Context, bcp *BackupMetadata) error {
 	var err error
 	var stg storage.Storage
+	l := log.LogEventFromContext(ctx)
+	defer func() {
+		storage.Close(stg, l)
+	}()
 
 	eg, _ := errgroup.WithContext(ctx)
 	eg.SetLimit(runtime.NumCPU())
 
 	if version.HasFilelistFile(bcp.PBMVersion) {
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, c.node, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, c.node, l)
 		if err != nil {
 			return errors.Wrap(err, "get storage")
 		}
