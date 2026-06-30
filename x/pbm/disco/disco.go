@@ -54,7 +54,7 @@ func Start(
 	if cfg.SerfPort != 0 {
 		sc.MemberlistConfig.BindPort = cfg.SerfPort
 	}
-	sc.Logger = log.New(os.Stdout, "serf ", log.LstdFlags) //todo
+	sc.Logger = log.New(os.Stdout, "serf ", log.LstdFlags) // todo
 
 	s, err := serf.Create(sc)
 	if err != nil {
@@ -162,7 +162,7 @@ func classifyEvent(t serf.EventType) (kind status.EventKind, alive, ok bool) {
 	case serf.EventMemberFailed:
 		return status.MemberFailed, false, true
 	case serf.EventMemberLeave, serf.EventMemberReap:
-		//todo: improve this
+		// todo: improve this
 		return status.MemberGone, false, true
 	default:
 		return 0, false, false

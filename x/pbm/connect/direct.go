@@ -18,7 +18,9 @@ func ConnectDirect(ctx context.Context, uri string) (*mongo.Client, error) {
 		return nil, nil
 	}
 
-	client, err := MongoConnect(ctx, uri,
+	client, err := MongoConnect(
+		ctx,
+		uri,
 		AppName("pbmx-agent"),
 		Direct(true),
 		NoRS(),

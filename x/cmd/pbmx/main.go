@@ -131,11 +131,17 @@ func setRootFlags(rootCmd *cobra.Command) {
 	persistentString(rootCmd, nameFlag, "", "Unique agent name in the cluster (also the etcd member name)")
 
 	rootCmd.PersistentFlags().Bool(
-		ctrlAgentFlag, false, "Run as a control agent (manages agent's control collections and leads the cluster)")
+		ctrlAgentFlag,
+		false,
+		"Run as a control agent (manages agent's control collections and leads the cluster)",
+	)
 	_ = viper.BindPFlag(ctrlAgentFlag, rootCmd.PersistentFlags().Lookup(ctrlAgentFlag))
 
 	rootCmd.PersistentFlags().Bool(
-		workerAgentFlag, false, "Run as a worker agent (performs backup/restore)")
+		workerAgentFlag,
+		false,
+		"Run as a worker agent (performs backup/restore)",
+	)
 	_ = viper.BindPFlag(workerAgentFlag, rootCmd.PersistentFlags().Lookup(workerAgentFlag))
 
 	rootCmd.MarkFlagsMutuallyExclusive(ctrlAgentFlag, workerAgentFlag)
@@ -155,14 +161,24 @@ func setRootFlags(rootCmd *cobra.Command) {
 
 	persistentInt(rootCmd, serfPortFlag, 0,
 		"serf gossip listen port, bound on 0.0.0.0 (default 7946)")
-	persistentString(rootCmd, serfJoinFlag, "",
-		"comma-separated serf seed addresses (host:port) to join; reaching any one is enough, empty starts a new cluster")
+	persistentString(
+		rootCmd,
+		serfJoinFlag,
+		"",
+		"comma-separated serf seed addresses (host:port) to join; "+
+			"reaching any one is enough, empty starts a new cluster",
+	)
 
 	persistentInt(rootCmd, apiSrvPortFlag, defaultAPISrvPort,
 		"HTTP API listen port (ctrl-agent only)")
 
-	persistentString(rootCmd, apiEndpointsFlag, defaultAPIEndpoints,
-		"comma-separated ctrl-agent API endpoints (host:port) for client commands; the leader is resolved automatically")
+	persistentString(
+		rootCmd,
+		apiEndpointsFlag,
+		defaultAPIEndpoints,
+		"comma-separated ctrl-agent API endpoints (host:port) for client commands; "+
+			"the leader is resolved automatically",
+	)
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and

@@ -109,7 +109,7 @@ func New(name string, role Role, localMongo *mongo.Client, apiPort int) *Svc {
 		role:    role,
 		mc:      localMongo,
 		apiPort: apiPort,
-		recv:    make(ReceiveChannel, 64), //todo: improve
+		recv:    make(ReceiveChannel, 64), // todo: improve
 		mems:    map[string]AgentInfo{},
 	}
 }

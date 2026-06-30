@@ -64,12 +64,18 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 
 func TestGetMembersForRSAndSorting(t *testing.T) {
 	s := New("self", RoleWorker, nil, 0)
-	s.apply(StatusEvent{Kind: MemberUp, Name: "rs1-0", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"}, false, 0)})
-	s.apply(StatusEvent{Kind: MemberUp, Name: "rs0-1", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false, 0)})
-	s.apply(StatusEvent{Kind: MemberUp, Name: "rs0-0", Alive: true,
-		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false, 0)})
+	s.apply(StatusEvent{
+		Kind: MemberUp, Name: "rs1-0", Alive: true,
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"}, false, 0),
+	})
+	s.apply(StatusEvent{
+		Kind: MemberUp, Name: "rs0-1", Alive: true,
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false, 0),
+	})
+	s.apply(StatusEvent{
+		Kind: MemberUp, Name: "rs0-0", Alive: true,
+		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs0"}, false, 0),
+	})
 
 	rs0 := s.GetMembersForRS("rs0")
 	if len(rs0) != 2 {
@@ -162,8 +168,10 @@ func TestLeaderLookupAndAPIPort(t *testing.T) {
 	s := New("self", RoleWorker, nil, 0)
 
 	// A ctrl leader advertises its API port; the bit round-trips through tags.
-	s.apply(StatusEvent{Kind: MemberUp, Name: "ctrl-0", Addr: "10.0.0.1", Alive: true,
-		Payload: encodeTags(RoleCtrl, MongoInfo{}, true, 9000)})
+	s.apply(StatusEvent{
+		Kind: MemberUp, Name: "ctrl-0", Addr: "10.0.0.1", Alive: true,
+		Payload: encodeTags(RoleCtrl, MongoInfo{}, true, 9000),
+	})
 
 	leader, ok := s.Leader()
 	if !ok {
