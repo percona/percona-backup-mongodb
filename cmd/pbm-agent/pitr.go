@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/prio"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
+	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
@@ -366,6 +367,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 		err = s.Catchup(ctx)
 	}
 	if err != nil {
+		storage.Close(stg, l)
 		if err := lck.Release(); err != nil {
 			l.Error("release lock: %v", err)
 		}
@@ -375,6 +377,7 @@ func (a *Agent) pitr(ctx context.Context) error {
 
 	go func() {
 		stopSlicingCtx, stopSlicing := context.WithCancel(ctx)
+		defer storage.Close(stg, l)
 		defer stopSlicing()
 		stopC := make(chan struct{})
 
