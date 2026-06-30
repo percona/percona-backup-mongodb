@@ -134,6 +134,12 @@ func (r *Restore) Close() {
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
+
+	storage.Close(r.bcpStg, r.log)
+	r.bcpStg = nil
+
+	storage.Close(r.oplogStg, r.log)
+	r.oplogStg = nil
 }
 
 func (r *Restore) exit(ctx context.Context, err error) {
