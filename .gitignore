@@ -11,4 +11,3 @@ e2e-tests/docker/pbm.conf.yaml
 e2e-tests/docker/conf/aws.yaml
 e2e-tests/docker/conf/gcs.yaml
 e2e-tests/docker/conf/azure.yaml
-vendor
