@@ -21,6 +21,7 @@ func runPhysical(t *sharded.Cluster, typ testTyp) {
 		{"AWS_MinIO", "/etc/pbm/aws_minio.yaml"},
 		{"Azure", "/etc/pbm/azure.yaml"},
 		{"OSS", "/etc/pbm/oss.yaml"},
+		{"OCI", "/etc/pbm/oci.yaml"},
 		{"FS", "/etc/pbm/fs.yaml"},
 	}
 
