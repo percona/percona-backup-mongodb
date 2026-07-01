@@ -109,6 +109,12 @@ func (g googleClient) Close() error {
 		return nil
 	}
 
+	if g.cfg.parallelUploadEnabled() {
+		// Google SDK parallel upload starts temporary object cleanup asynchronously
+		// after Writer.Close returns. Give it a short window before closing the client.
+		time.Sleep(2 * time.Second)
+	}
+
 	return g.client.Close()
 }
 
