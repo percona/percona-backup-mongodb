@@ -265,6 +265,10 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 		}
 	}
 
+	if r.stopHB != nil {
+		close(r.stopHB)
+	}
+
 	r.log.Debug("wait for cluster status")
 	cStatus, err := r.waitClusterStatus()
 	if err != nil {
@@ -284,9 +288,6 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 
 		if r.stopCleanupHB != nil {
 			close(r.stopCleanupHB)
-		}
-		if r.stopHB != nil {
-			close(r.stopHB)
 		}
 		r.closeStoragesAfterHeartbeats()
 	}()
