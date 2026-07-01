@@ -35,6 +35,32 @@ func TestCast(t *testing.T) {
 	if !c.Equal(want) {
 		t.Fatalf("wrong config after Cast, diff=%s", cmp.Diff(*c, *want))
 	}
+
+	t.Run("parallel upload validation", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			cfg  *Config
+			err  string
+		}{
+			{
+				name: "negative part size",
+				cfg:  &Config{ParallelUpload: &ParallelUpload{PartSize: -1}},
+				err:  "parallelUpload.partSize cannot be negative",
+			},
+			{
+				name: "negative max concurrency",
+				cfg:  &Config{ParallelUpload: &ParallelUpload{MaxConcurrency: -1}},
+				err:  "parallelUpload.maxConcurrency cannot be negative",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				err := tt.cfg.Cast()
+				if err == nil || !strings.Contains(err.Error(), tt.err) {
+					t.Fatalf("expected %q, got %v", tt.err, err)
+				}
+			})
+		}
+	})
 }
 
 func TestConfig(t *testing.T) {
@@ -44,6 +70,11 @@ func TestConfig(t *testing.T) {
 		Credentials: Credentials{
 			ClientEmail: "email@example.com",
 			PrivateKey:  "-----BEGIN PRIVATE KEY-----\nKey\n-----END PRIVATE KEY-----\n",
+		},
+		ParallelUpload: &ParallelUpload{
+			Enabled:        true,
+			PartSize:       16 * 1024 * 1024,
+			MaxConcurrency: 4,
 		},
 	}
 
@@ -57,10 +88,17 @@ func TestConfig(t *testing.T) {
 			t.Error("expected clone to be equal")
 		}
 
+		opts.ParallelUpload.MaxConcurrency = 8
+		if opts.Equal(clone) {
+			t.Error("expected clone to be unchanged when updating original")
+		}
+		opts.ParallelUpload.MaxConcurrency = 4
+
 		opts.Bucket = "updatedName"
 		if opts.Equal(clone) {
 			t.Error("expected clone to be unchanged when updating original")
 		}
+		opts.Bucket = clone.Bucket
 	})
 
 	t.Run("Equal fails", func(t *testing.T) {
@@ -78,6 +116,12 @@ func TestConfig(t *testing.T) {
 		clone.Credentials.ClientEmail = "updated@example.com"
 		if opts.Equal(clone) {
 			t.Error("expected not to be equal when updating credentials")
+		}
+
+		clone = opts.Clone()
+		clone.ParallelUpload.Enabled = false
+		if opts.Equal(clone) {
+			t.Error("expected not to be equal when updating parallel upload")
 		}
 	})
 

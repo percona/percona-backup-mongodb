@@ -19,7 +19,26 @@ type Config struct {
 	ChunkSize    int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
 	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
+	ParallelUpload *ParallelUpload `bson:"parallelUpload,omitempty" json:"parallelUpload,omitempty" yaml:"parallelUpload,omitempty"`
+
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
+}
+
+// ParallelUpload configures the experimental Google Cloud Storage parallel upload feature.
+//
+// Parallel uploads are supported only by the Google SDK gRPC client. HMAC credentials
+// continue to use the MinIO client and are not affected by this setting.
+type ParallelUpload struct {
+	// Enabled switches the Google SDK client to gRPC and enables Writer parallel uploads.
+	Enabled bool `bson:"enabled,omitempty" json:"enabled,omitempty" yaml:"enabled,omitempty"`
+
+	// PartSize is the size of each temporary part in bytes.
+	// If unset, PBM uses the computed ChunkSize for the uploaded object.
+	PartSize int `bson:"partSize,omitempty" json:"partSize,omitempty" yaml:"partSize,omitempty"`
+
+	// MaxConcurrency is the number of goroutines used to upload parts in parallel.
+	// If unset, the Google SDK chooses a value based on the number of CPUs.
+	MaxConcurrency int `bson:"maxConcurrency,omitempty" json:"maxConcurrency,omitempty" yaml:"maxConcurrency,omitempty"`
 }
 
 //nolint:lll
@@ -72,6 +91,10 @@ func (cfg *Config) Clone() *Config {
 		v := *cfg.MaxObjSizeGB
 		rv.MaxObjSizeGB = &v
 	}
+	if cfg.ParallelUpload != nil {
+		v := *cfg.ParallelUpload
+		rv.ParallelUpload = &v
+	}
 	if cfg.Retryer != nil {
 		v := *cfg.Retryer
 		rv.Retryer = &v
@@ -95,6 +118,9 @@ func (cfg *Config) Equal(other *Config) bool {
 		return false
 	}
 	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
+		return false
+	}
+	if !reflect.DeepEqual(cfg.ParallelUpload, other.ParallelUpload) {
 		return false
 	}
 	if !reflect.DeepEqual(cfg.Credentials, other.Credentials) {
@@ -132,6 +158,15 @@ func (cfg *Config) Cast() error {
 		cfg.ChunkSize = defaultChunkSize
 	}
 
+	if cfg.ParallelUpload != nil {
+		if cfg.ParallelUpload.PartSize < 0 {
+			return errors.New("parallelUpload.partSize cannot be negative")
+		}
+		if cfg.ParallelUpload.MaxConcurrency < 0 {
+			return errors.New("parallelUpload.maxConcurrency cannot be negative")
+		}
+	}
+
 	if cfg.Retryer == nil {
 		cfg.Retryer = &Retryer{
 			MaxAttempts:        defaultMaxAttempts,
@@ -166,4 +201,8 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
+}
+
+func (cfg *Config) parallelUploadEnabled() bool {
+	return cfg.ParallelUpload != nil && cfg.ParallelUpload.Enabled
 }
