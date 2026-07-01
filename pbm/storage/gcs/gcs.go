@@ -14,8 +14,9 @@ import (
 const (
 	gcsEndpointURL = "storage.googleapis.com"
 
-	defaultChunkSize    = 10 * 1024 * 1024 // 10MiB
-	defaultMaxObjSizeGB = 5018             // 4.9 TB
+	defaultChunkSize               = 10 * 1024 * 1024 // 10MiB
+	defaultParallelUploadChunkSize = 16 * 1024 * 1024 // 16MiB, matches Google SDK PCU default
+	defaultMaxObjSizeGB            = 5018             // 4.9 TB
 
 	defaultMaxAttempts        = 5
 	defaultBackoffInitial     = time.Second
@@ -91,6 +92,10 @@ func NewWithDownloader(
 	l log.LogEvent,
 	cc, bufSizeMb, spanSizeMb int,
 ) (storage.Storage, error) {
+	if err := opts.Cast(); err != nil {
+		return nil, errors.Wrap(err, "set defaults")
+	}
+
 	if l == nil {
 		l = log.DiscardEvent
 	}
@@ -160,4 +165,17 @@ func (g *GCS) Delete(name string) error {
 
 func (g *GCS) Copy(src, dst string) error {
 	return g.client.copy(src, dst)
+}
+
+func (g *GCS) Close() error {
+	if g == nil || g.client == nil {
+		return nil
+	}
+
+	c, ok := g.client.(storage.Closable)
+	if !ok {
+		return nil
+	}
+
+	return c.Close()
 }

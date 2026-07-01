@@ -98,6 +98,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			l.Error("get storage: %v", err)
 			return
 		}
+		defer storage.Close(stg, l)
 		l.Info("deleting backups older than %v %s", t, util.LogProfileArg(d.Profile))
 		err = backup.DeleteBackupBefore(ctx, a.leadConn, stg, d.Profile, bcpType, t)
 		if err != nil {
@@ -271,6 +272,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error("get storage: " + err.Error())
 		return
 	}
+	defer storage.Close(stg, l)
 
 	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan, d.Profile)
 	if err != nil {
@@ -308,6 +310,7 @@ func (a *Agent) deletePITRImpl(ctx context.Context, ts bson.Timestamp) error {
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	eg := &errgroup.Group{}
 	eg.SetLimit(runtime.NumCPU())

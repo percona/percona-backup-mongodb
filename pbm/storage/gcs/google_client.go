@@ -21,6 +21,7 @@ import (
 )
 
 type googleClient struct {
+	client       *storagegcs.Client
 	bucketHandle *storagegcs.BucketHandle
 	cfg          *Config
 	log          log.LogEvent
@@ -53,7 +54,13 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		if merr != nil {
 			return nil, errors.Wrap(merr, "marshal GCS credentials")
 		}
-		cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+		if cfg.ClientType == ClientTypeGRPC {
+			cli, err = storagegcs.NewGRPCClient(ctx,
+				option.WithCredentialsJSON(creds),
+				storagegcs.WithDisabledClientMetrics())
+		} else {
+			cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
+		}
 	} else {
 		// No explicit credentials — validate ADC resolves to allowed type (Workload Identity)
 		// We only check the credentials type, the scoped used hear doesn't really matter
@@ -65,30 +72,50 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 		if adcErr != nil {
 			return nil, fmt.Errorf("validate default credential type: %w", adcErr)
 		}
-		cli, err = storagegcs.NewClient(ctx)
+		if cfg.ClientType == ClientTypeGRPC {
+			cli, err = storagegcs.NewGRPCClient(ctx, storagegcs.WithDisabledClientMetrics())
+		} else {
+			cli, err = storagegcs.NewClient(ctx)
+		}
 	}
 
 	if err != nil {
 		return nil, errors.Wrap(err, "new GCS client")
 	}
 
-	bh := cli.Bucket(cfg.Bucket).
-		Retryer(
-			storagegcs.WithBackoff(gax.Backoff{
-				Initial:    cfg.Retryer.BackoffInitial,
-				Max:        cfg.Retryer.BackoffMax,
-				Multiplier: cfg.Retryer.BackoffMultiplier,
-			}),
-			storagegcs.WithMaxAttempts(cfg.Retryer.MaxAttempts),
-			storagegcs.WithPolicy(storagegcs.RetryAlways),
-			storagegcs.WithErrorFunc(shouldRetryExtended),
-		)
+	cli.SetRetry(
+		storagegcs.WithBackoff(gax.Backoff{
+			Initial:    cfg.Retryer.BackoffInitial,
+			Max:        cfg.Retryer.BackoffMax,
+			Multiplier: cfg.Retryer.BackoffMultiplier,
+		}),
+		storagegcs.WithMaxAttempts(cfg.Retryer.MaxAttempts),
+		storagegcs.WithPolicy(storagegcs.RetryAlways),
+		storagegcs.WithErrorFunc(shouldRetryExtended),
+	)
+
+	bh := cli.Bucket(cfg.Bucket)
 
 	return &googleClient{
+		client:       cli,
 		bucketHandle: bh,
 		cfg:          cfg,
 		log:          l,
 	}, nil
+}
+
+func (g googleClient) Close() error {
+	if g.client == nil {
+		return nil
+	}
+
+	if g.cfg.parallelUploadEnabled() {
+		// Google SDK parallel upload starts temporary object cleanup asynchronously
+		// after Writer.Close returns. Give it a short window before closing the client.
+		time.Sleep(2 * time.Second)
+	}
+
+	return g.client.Close()
 }
 
 // validateDefaultCredentialType validates that credentials are of type "external_account" used for Workload Identity
@@ -137,31 +164,47 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 		}
 	}
 
-	const align int64 = 256 << 10 // 256 KiB (both min size and alignment)
-
-	partSize := storage.ComputePartSize(
-		opts.Size,
-		defaultChunkSize,
-		align,
-		10_000,
-		int64(g.cfg.ChunkSize),
-	)
-
-	if rem := partSize % align; rem != 0 {
-		partSize += align - rem
-	}
-
-	if g.log != nil && opts.UseLogger {
-		g.log.Debug(`uploading %q [size hint: %v (%v); part size: %v (%v)]`,
-			name,
-			opts.Size, storage.PrettySize(opts.Size),
-			partSize, storage.PrettySize(partSize))
-	}
-
 	ctx := context.Background()
 	w := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).NewWriter(ctx)
-	w.ChunkSize = int(partSize)
-	w.ChunkRetryDeadline = g.cfg.Retryer.ChunkRetryDeadline
+	if g.cfg.parallelUploadEnabled() {
+		if g.log != nil && opts.UseLogger {
+			g.log.Debug(`uploading %q [size hint: %v (%v); parallel upload part size: %v (%v); concurrency: %d]`,
+				name,
+				opts.Size, storage.PrettySize(opts.Size),
+				g.cfg.ChunkSize, storage.PrettySize(int64(g.cfg.ChunkSize)),
+				g.cfg.ParallelUploadConcurrency)
+		}
+
+		w.EnableParallelUpload = true
+		w.ParallelUploadConfig = storagegcs.ParallelUploadConfig{
+			PartSize:       g.cfg.ChunkSize,
+			MaxConcurrency: g.cfg.ParallelUploadConcurrency,
+		}
+	} else {
+		const align int64 = 256 << 10 // 256 KiB (both min size and alignment)
+
+		partSize := storage.ComputePartSize(
+			opts.Size,
+			defaultChunkSize,
+			align,
+			10_000,
+			int64(g.cfg.ChunkSize),
+		)
+
+		if rem := partSize % align; rem != 0 {
+			partSize += align - rem
+		}
+
+		if g.log != nil && opts.UseLogger {
+			g.log.Debug(`uploading %q [size hint: %v (%v); part size: %v (%v)]`,
+				name,
+				opts.Size, storage.PrettySize(opts.Size),
+				partSize, storage.PrettySize(partSize))
+		}
+
+		w.ChunkSize = int(partSize)
+		w.ChunkRetryDeadline = g.cfg.Retryer.ChunkRetryDeadline
+	}
 	if g.log != nil && opts.UseLogger {
 		w.ProgressFunc = func(written int64) {
 			if opts.Size > 0 {

@@ -9,15 +9,25 @@ import (
 )
 
 //nolint:lll
+type ClientType string
+
+const (
+	ClientTypeJSON ClientType = "json"
+	ClientTypeGRPC ClientType = "grpc"
+)
+
+//nolint:lll
 type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
 	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
+	ClientType  ClientType  `bson:"clientType,omitempty" json:"clientType,omitempty" yaml:"clientType,omitempty"`
 
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
-	ChunkSize    int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
-	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+	ChunkSize                 int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	ParallelUploadConcurrency int      `bson:"parallelUploadConcurrency,omitempty" json:"parallelUploadConcurrency,omitempty" yaml:"parallelUploadConcurrency,omitempty"`
+	MaxObjSizeGB              *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
@@ -91,7 +101,13 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.Prefix != other.Prefix {
 		return false
 	}
+	if cfg.ClientType != other.ClientType {
+		return false
+	}
 	if cfg.ChunkSize != other.ChunkSize {
+		return false
+	}
+	if cfg.ParallelUploadConcurrency != other.ParallelUploadConcurrency {
 		return false
 	}
 	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
@@ -128,7 +144,17 @@ func (cfg *Config) Cast() error {
 		return errors.New("missing GCS configuration with GCS storage type")
 	}
 
-	if cfg.ChunkSize == 0 {
+	if cfg.ClientType == "" {
+		cfg.ClientType = ClientTypeJSON
+	}
+	if cfg.ClientType != ClientTypeJSON && cfg.ClientType != ClientTypeGRPC {
+		return errors.Errorf("invalid clientType %q", cfg.ClientType)
+	}
+
+	if cfg.ChunkSize == 0 && cfg.parallelUploadEnabled() {
+		cfg.ChunkSize = defaultParallelUploadChunkSize
+	}
+	if cfg.ChunkSize == 0 && !cfg.parallelUploadEnabled() {
 		cfg.ChunkSize = defaultChunkSize
 	}
 
@@ -166,4 +192,8 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
+}
+
+func (cfg *Config) parallelUploadEnabled() bool {
+	return cfg.ClientType == ClientTypeGRPC && cfg.ParallelUploadConcurrency > 1
 }

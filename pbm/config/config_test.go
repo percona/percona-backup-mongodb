@@ -406,8 +406,10 @@ func TestConfig(t *testing.T) {
 						ClientEmail: "ce1",
 						PrivateKey:  "pk1",
 					},
-					ChunkSize:    100,
-					MaxObjSizeGB: floatPtr(1.1),
+					ClientType:                gcs.ClientTypeJSON,
+					ChunkSize:                 100,
+					ParallelUploadConcurrency: 4,
+					MaxObjSizeGB:              floatPtr(1.1),
 					Retryer: &gcs.Retryer{
 						BackoffInitial:     11 * time.Minute,
 						BackoffMax:         111 * time.Minute,
@@ -448,6 +450,11 @@ func TestConfig(t *testing.T) {
 				desc:  "chunkSize",
 				param: "storage.gcs.chunkSize",
 				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.ChunkSize),
+			},
+			{
+				desc:  "parallelUploadConcurrency",
+				param: "storage.gcs.parallelUploadConcurrency",
+				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.ParallelUploadConcurrency),
 			},
 			{
 				desc:  "maxObjSizeGB",
@@ -510,6 +517,56 @@ func TestConfig(t *testing.T) {
 					wantCfg.Storage.GCS, gotCfg.Storage.GCS, cmp.Diff(*wantCfg.Storage.GCS, *gotCfg.Storage.GCS))
 			}
 		})
+	})
+
+	t.Run("gcs parallel upload config", func(t *testing.T) {
+		emptyCfg := &Config{
+			Storage: StorageConf{Type: storage.GCS, GCS: &gcs.Config{}},
+		}
+		err := SetConfig(ctx, connClient, emptyCfg)
+		if err != nil {
+			t.Fatalf("setup: initial SetConfig failed: %v", err)
+		}
+
+		testCases := []struct {
+			desc  string
+			param string
+			val   string
+		}{
+			{
+				desc:  "clientType",
+				param: "storage.gcs.clientType",
+				val:   string(gcs.ClientTypeGRPC),
+			},
+			{
+				desc:  "parallelUploadConcurrency",
+				param: "storage.gcs.parallelUploadConcurrency",
+				val:   "4",
+			},
+		}
+
+		for _, tt := range testCases {
+			t.Run(tt.desc, func(t *testing.T) {
+				err := SetConfigVar(ctx, connClient, tt.param, tt.val)
+				if err != nil {
+					t.Fatalf("SetConfigVar failed for %s with value %s: %v",
+						tt.param, tt.val, err)
+				}
+			})
+		}
+
+		gotCfg, err := GetConfig(ctx, connClient)
+		if err != nil {
+			t.Fatalf("GetConfig failed: %v", err)
+		}
+
+		gotGCS := gotCfg.Storage.GCS
+		if gotGCS.ClientType != gcs.ClientTypeGRPC {
+			t.Fatalf("clientType: got=%q, want=%q", gotGCS.ClientType, gcs.ClientTypeGRPC)
+		}
+		if gotGCS.ParallelUploadConcurrency != 4 {
+			t.Fatalf("parallelUploadConcurrency: got=%d, want=4", gotGCS.ParallelUploadConcurrency)
+		}
 	})
 
 	t.Run("restore config", func(t *testing.T) {

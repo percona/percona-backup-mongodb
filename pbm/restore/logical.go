@@ -87,6 +87,22 @@ type oplogRange struct {
 	storage storage.Storage
 }
 
+type storageReadCloser struct {
+	r   io.ReadCloser
+	stg storage.Storage
+	l   log.LogEvent
+}
+
+func (rc storageReadCloser) Read(p []byte) (int, error) {
+	return rc.r.Read(p)
+}
+
+func (rc storageReadCloser) Close() error {
+	err := rc.r.Close()
+	storage.Close(rc.stg, rc.l)
+	return err
+}
+
 // configDatabasesDoc represents document in config.databases collection
 type configDatabasesDoc struct {
 	ID      string `bson:"_id"`
@@ -134,6 +150,12 @@ func (r *Restore) Close() {
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
+
+	storage.Close(r.bcpStg, r.log)
+	r.bcpStg = nil
+
+	storage.Close(r.oplogStg, r.log)
+	r.oplogStg = nil
 }
 
 func (r *Restore) exit(ctx context.Context, err error) {
@@ -752,11 +774,13 @@ func LookupBackupMeta(
 		return nil, errors.Wrap(err, "get backup metadata from db")
 	}
 
+	l := log.LogEventFromContext(ctx)
 	var stg storage.Storage
-	stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
+	stg, err = util.GetStorage(ctx, conn, node, l)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	bcp, err = GetMetaFromStore(stg, backupName)
 	if err != nil {
@@ -1075,11 +1099,14 @@ func (r *Restore) RunSnapshot(
 			// we have to use mapping passed by --replset-mapping option
 			rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.brief.SetName), ns))
 			if err != nil {
+				storage.Close(stg, r.log)
 				return nil, err
 			}
 
 			if ns == archive.MetaFile {
 				data, err := io.ReadAll(rdr)
+				_ = rdr.Close()
+				storage.Close(stg, r.log)
 				if err != nil {
 					return nil, err
 				}
@@ -1089,10 +1116,10 @@ func (r *Restore) RunSnapshot(
 					return nil, errors.Wrap(err, "load indexes")
 				}
 
-				rdr = io.NopCloser(bytes.NewReader(data))
+				return io.NopCloser(bytes.NewReader(data)), nil
 			}
 
-			return rdr, nil
+			return storageReadCloser{r: rdr, stg: stg, l: r.log}, nil
 		},
 		bcp.Compression,
 		util.MakeSelectedPred(nss),

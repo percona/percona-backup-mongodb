@@ -198,6 +198,7 @@ func (b *Backup) doLogical(
 			if err != nil {
 				return errors.Wrap(err, "get storage")
 			}
+			defer storage.Close(stg, l)
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, storage.Size(sizeHints[ns]))
 		},

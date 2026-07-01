@@ -220,6 +220,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
+	defer storage.Close(stg, l)
 
 	bcpm, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcp.Name)
 	if err != nil {

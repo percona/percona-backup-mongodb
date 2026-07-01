@@ -92,15 +92,16 @@ type PhysRestore struct {
 	startTS int64
 	secOpts *topo.MongodOptsSec
 
-	name      string
-	opid      string
-	nodeInfo  *topo.NodeInfo
-	stg       storage.Storage
-	bcpStg    storage.Storage
-	bcp       *backup.BackupMeta
-	files     []files
-	bcpSizeRS int64 // total uncompressed size of the backup for RS (including all increments)
-	restoreTS bson.Timestamp
+	name       string
+	opid       string
+	nodeInfo   *topo.NodeInfo
+	stg        storage.Storage
+	bcpStg     storage.Storage
+	bcp        *backup.BackupMeta
+	files      []files
+	bcpSizeRS  int64 // total uncompressed size of the backup for RS (including all increments)
+	restoreTS  bson.Timestamp
+	newStorage func() (storage.Storage, error)
 
 	confOpts *config.RestoreConf
 
@@ -212,6 +213,14 @@ func NewPhysical(
 	}, nil
 }
 
+func (r *PhysRestore) closeStorages() {
+	storage.Close(r.bcpStg, r.log)
+	r.bcpStg = nil
+
+	storage.Close(r.stg, r.log)
+	r.stg = nil
+}
+
 // peeks a random free port in a range [minPort, maxPort]
 func peekTmpPort(current int) (int, error) {
 	const (
@@ -278,6 +287,7 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 		if r.stopCleanupHB != nil {
 			close(r.stopCleanupHB)
 		}
+		r.closeStorages()
 	}()
 
 	// resolve and exec cleanup
@@ -1197,6 +1207,7 @@ func (r *PhysRestore) Snapshot(
 	defer func() {
 		if cmd.Exit && err == nil {
 			// nothing to cleanup in case of successful ext restore with exit
+			r.closeStorages()
 			return
 		}
 		if err != nil && !errors.Is(err, ErrNoDataForShard) {
@@ -2402,7 +2413,12 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(&cfg.Storage, r.nodeInfo.Me, l)
+	storageConf := cfg.Storage
+	r.newStorage = func() (storage.Storage, error) {
+		return util.StorageFromConfig(&storageConf, r.nodeInfo.Me, l)
+	}
+
+	r.stg, err = r.newStorage()
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -2456,7 +2472,13 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 
 // startHB starts heartbeats in separate go routine.
 func (r *PhysRestore) startHB(l log.LogEvent) {
-	err := r.hb()
+	stg, err := r.newStorage()
+	if err != nil {
+		l.Error("get heartbeat storage: %v", err)
+		return
+	}
+
+	err = r.hb(stg)
 	if err != nil {
 		l.Error("send init heartbeat: %v", err)
 	}
@@ -2466,6 +2488,7 @@ func (r *PhysRestore) startHB(l log.LogEvent) {
 		tk := time.NewTicker(time.Second * hbFrameSec)
 		defer func() {
 			tk.Stop()
+			storage.Close(stg, l)
 			r.stopHB = nil
 			l.Debug("heartbeats stopped")
 		}()
@@ -2473,7 +2496,7 @@ func (r *PhysRestore) startHB(l log.LogEvent) {
 		for {
 			select {
 			case <-tk.C:
-				err := r.hb()
+				err := r.hb(stg)
 				if err != nil {
 					l.Warning("send heartbeat: %v", err)
 				}
@@ -2484,20 +2507,20 @@ func (r *PhysRestore) startHB(l log.LogEvent) {
 	}()
 }
 
-func (r *PhysRestore) hb() error {
+func (r *PhysRestore) hb(stg storage.Storage) error {
 	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
 
-	err := storage.RetryableWrite(r.stg, r.syncPathNode+"."+syncHbSuffix, now)
+	err := storage.RetryableWrite(stg, r.syncPathNode+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write node hb")
 	}
 
-	err = storage.RetryableWrite(r.stg, r.syncPathRS+"."+syncHbSuffix, now)
+	err = storage.RetryableWrite(stg, r.syncPathRS+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write rs hb")
 	}
 
-	err = storage.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbSuffix, now)
+	err = storage.RetryableWrite(stg, r.syncPathCluster+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write cluster hb")
 	}
@@ -2505,10 +2528,10 @@ func (r *PhysRestore) hb() error {
 	return nil
 }
 
-func (r *PhysRestore) hbCleanup() error {
+func (r *PhysRestore) hbCleanup(stg storage.Storage) error {
 	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
 
-	err := storage.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbCleanupSuffix, now)
+	err := storage.RetryableWrite(stg, r.syncPathCluster+"."+syncHbCleanupSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write cleanup hb")
 	}
@@ -2519,7 +2542,13 @@ func (r *PhysRestore) hbCleanup() error {
 // startCleanupHb generates cleanup hb for the purpose of detecting physical restore
 // cleanup activity.
 func (r *PhysRestore) startCleanupHb() {
-	err := r.hbCleanup()
+	stg, err := r.newStorage()
+	if err != nil {
+		r.log.Warning("get cleanup heartbeat storage: %v", err)
+		return
+	}
+
+	err = r.hbCleanup(stg)
 	if err != nil {
 		r.log.Warning("send init cleanup heartbeat: %v", err)
 	}
@@ -2529,6 +2558,7 @@ func (r *PhysRestore) startCleanupHb() {
 		tk := time.NewTicker(hbCleanupFrame)
 		defer func() {
 			tk.Stop()
+			storage.Close(stg, r.log)
 			r.stopCleanupHB = nil
 			r.log.Debug("cleanup heartbeats stopped")
 		}()
@@ -2536,7 +2566,7 @@ func (r *PhysRestore) startCleanupHb() {
 		for {
 			select {
 			case <-tk.C:
-				err := r.hbCleanup()
+				err := r.hbCleanup(stg)
 				if err != nil {
 					r.log.Warning("send cleanup heartbeat: %v", err)
 				}
@@ -3170,6 +3200,8 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 		return errors.Wrap(err, "creating restore object from storage dump")
 	}
 
+	defer r.closeStorages()
+
 	r.startHB(l)
 	defer func() {
 		if r.stopHB != nil {
@@ -3254,6 +3286,12 @@ func physRestoreFromExtDump(
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get storage")
 	}
+	closeStorage := true
+	defer func() {
+		if closeStorage {
+			storage.Close(stg, l)
+		}
+	}()
 
 	extDumpF := fmt.Sprintf("%s/%s/rs.%s/node.%s.%s",
 		defs.PhysRestoresDir, cmd.RestoreName, cmd.RS, cmd.Node, extDumpSuffix)
@@ -3272,6 +3310,9 @@ func physRestoreFromExtDump(
 	physRestore := PhysRestore{
 		stg: stg,
 		log: l,
+		newStorage: func() (storage.Storage, error) {
+			return GetRestoreMetaStg(cmd.CfgPath, cmd.Node)
+		},
 
 		dbpath:             extDump.DBpath,
 		tmpPort:            extDump.TmpPort,
@@ -3308,6 +3349,7 @@ func physRestoreFromExtDump(
 		physRestore.secOpts = mongodCfg.Security
 	}
 
+	closeStorage = false
 	return &physRestore, restoreMeta, nil
 }
 
