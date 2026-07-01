@@ -406,9 +406,10 @@ func TestConfig(t *testing.T) {
 						ClientEmail: "ce1",
 						PrivateKey:  "pk1",
 					},
-					ClientType:   gcs.ClientTypeJSON,
-					ChunkSize:    100,
-					MaxObjSizeGB: floatPtr(1.1),
+					ClientType:                gcs.ClientTypeJSON,
+					ChunkSize:                 100,
+					ParallelUploadConcurrency: 4,
+					MaxObjSizeGB:              floatPtr(1.1),
 					Retryer: &gcs.Retryer{
 						BackoffInitial:     11 * time.Minute,
 						BackoffMax:         111 * time.Minute,
@@ -449,6 +450,11 @@ func TestConfig(t *testing.T) {
 				desc:  "chunkSize",
 				param: "storage.gcs.chunkSize",
 				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.ChunkSize),
+			},
+			{
+				desc:  "parallelUploadConcurrency",
+				param: "storage.gcs.parallelUploadConcurrency",
+				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.ParallelUploadConcurrency),
 			},
 			{
 				desc:  "maxObjSizeGB",
@@ -533,18 +539,8 @@ func TestConfig(t *testing.T) {
 				val:   string(gcs.ClientTypeGRPC),
 			},
 			{
-				desc:  "parallelUpload.enabled",
-				param: "storage.gcs.parallelUpload.enabled",
-				val:   "true",
-			},
-			{
-				desc:  "parallelUpload.partSize",
-				param: "storage.gcs.parallelUpload.partSize",
-				val:   "123",
-			},
-			{
-				desc:  "parallelUpload.maxConcurrency",
-				param: "storage.gcs.parallelUpload.maxConcurrency",
+				desc:  "parallelUploadConcurrency",
+				param: "storage.gcs.parallelUploadConcurrency",
 				val:   "4",
 			},
 		}
@@ -568,17 +564,8 @@ func TestConfig(t *testing.T) {
 		if gotGCS.ClientType != gcs.ClientTypeGRPC {
 			t.Fatalf("clientType: got=%q, want=%q", gotGCS.ClientType, gcs.ClientTypeGRPC)
 		}
-		if gotGCS.ParallelUpload == nil {
-			t.Fatal("expected parallelUpload config")
-		}
-		if !gotGCS.ParallelUpload.Enabled {
-			t.Fatal("expected parallelUpload.enabled=true")
-		}
-		if gotGCS.ParallelUpload.PartSize != 123 {
-			t.Fatalf("parallelUpload.partSize: got=%d, want=123", gotGCS.ParallelUpload.PartSize)
-		}
-		if gotGCS.ParallelUpload.MaxConcurrency != 4 {
-			t.Fatalf("parallelUpload.maxConcurrency: got=%d, want=4", gotGCS.ParallelUpload.MaxConcurrency)
+		if gotGCS.ParallelUploadConcurrency != 4 {
+			t.Fatalf("parallelUploadConcurrency: got=%d, want=4", gotGCS.ParallelUploadConcurrency)
 		}
 	})
 

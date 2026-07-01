@@ -140,20 +140,16 @@
 #      clientType: json
 
 ## The size of data chunks in bytes to be uploaded to the storage bucket in a single request.
-## Applies to standard Google SDK uploads only. It is not used when parallelUpload is enabled.
+## For parallel uploads, it is used as the temporary part size. When undefined,
+## PBM uses 10MB for standard uploads and 16MB for parallel uploads.
 #      chunkSize: 10MB
 
-## Experimental Google SDK parallel upload configuration.
-## This is used only with clientType: grpc. It creates temporary GCS objects and composes
-## them into the final object. The credentials must be allowed to delete temporary objects
-## for cleanup. Failed or interrupted uploads can leave temporary objects behind, so a
-## bucket lifecycle cleanup rule is recommended.
-#      parallelUpload:
-#        enabled: false
-## Size of each temporary part in bytes. When undefined or 0, the Google SDK default is used.
-#        partSize: 16MB
-## Number of parallel upload workers. When undefined or 0, the Google SDK default is used.
-#        maxConcurrency: 4
+## Experimental Google SDK parallel upload concurrency. Parallel upload is used only
+## with clientType: grpc and parallelUploadConcurrency greater than 1. It creates
+## temporary GCS objects and composes them into the final object. The credentials must
+## be allowed to delete temporary objects for cleanup. Failed or interrupted uploads can
+## leave temporary objects behind, so a bucket lifecycle cleanup rule is recommended.
+#      parallelUploadConcurrency: 4
 
 ## GCS access credentials. You can use either HMAC or Service Account keys.
 ## HMAC Example:
@@ -173,7 +169,7 @@
 #        backoffInitial: 1s
 #        backoffMax: 30s
 #        backoffMultiplier: 2
-## Applies to standard Google SDK uploads only. It is not used when parallelUpload is enabled.
+## Applies to standard Google SDK uploads only. It is not used for parallel uploads.
 #        chunkRetryDeadline: 32s
 #
 ## The maximum object size that will be stored on the storage

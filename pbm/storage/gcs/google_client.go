@@ -55,7 +55,9 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 			return nil, errors.Wrap(merr, "marshal GCS credentials")
 		}
 		if cfg.ClientType == ClientTypeGRPC {
-			cli, err = storagegcs.NewGRPCClient(ctx, option.WithCredentialsJSON(creds))
+			cli, err = storagegcs.NewGRPCClient(ctx,
+				option.WithCredentialsJSON(creds),
+				storagegcs.WithDisabledClientMetrics())
 		} else {
 			cli, err = storagegcs.NewClient(ctx, option.WithCredentialsJSON(creds))
 		}
@@ -71,7 +73,7 @@ func newGoogleClient(cfg *Config, l log.LogEvent) (*googleClient, error) {
 			return nil, fmt.Errorf("validate default credential type: %w", adcErr)
 		}
 		if cfg.ClientType == ClientTypeGRPC {
-			cli, err = storagegcs.NewGRPCClient(ctx)
+			cli, err = storagegcs.NewGRPCClient(ctx, storagegcs.WithDisabledClientMetrics())
 		} else {
 			cli, err = storagegcs.NewClient(ctx)
 		}
@@ -159,28 +161,18 @@ func (g googleClient) save(name string, data io.Reader, options ...storage.Optio
 	ctx := context.Background()
 	w := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name)).NewWriter(ctx)
 	if g.cfg.parallelUploadEnabled() {
-		pu := g.cfg.ParallelUpload
 		if g.log != nil && opts.UseLogger {
-			partSize := "SDK default"
-			if pu.PartSize > 0 {
-				partSize = fmt.Sprintf("%v (%v)", pu.PartSize, storage.PrettySize(int64(pu.PartSize)))
-			}
-
-			concurrency := "SDK default"
-			if pu.MaxConcurrency > 0 {
-				concurrency = fmt.Sprintf("%d", pu.MaxConcurrency)
-			}
-
-			g.log.Debug(`uploading %q [size hint: %v (%v); parallel upload part size: %s; concurrency: %s]`,
+			g.log.Debug(`uploading %q [size hint: %v (%v); parallel upload part size: %v (%v); concurrency: %d]`,
 				name,
 				opts.Size, storage.PrettySize(opts.Size),
-				partSize, concurrency)
+				g.cfg.ChunkSize, storage.PrettySize(int64(g.cfg.ChunkSize)),
+				g.cfg.ParallelUploadConcurrency)
 		}
 
 		w.EnableParallelUpload = true
 		w.ParallelUploadConfig = storagegcs.ParallelUploadConfig{
-			PartSize:       pu.PartSize,
-			MaxConcurrency: pu.MaxConcurrency,
+			PartSize:       g.cfg.ChunkSize,
+			MaxConcurrency: g.cfg.ParallelUploadConcurrency,
 		}
 	} else {
 		const align int64 = 256 << 10 // 256 KiB (both min size and alignment)

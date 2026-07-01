@@ -14,8 +14,9 @@ import (
 const (
 	gcsEndpointURL = "storage.googleapis.com"
 
-	defaultChunkSize    = 10 * 1024 * 1024 // 10MiB
-	defaultMaxObjSizeGB = 5018             // 4.9 TB
+	defaultChunkSize               = 10 * 1024 * 1024 // 10MiB
+	defaultParallelUploadChunkSize = 16 * 1024 * 1024 // 16MiB, matches Google SDK PCU default
+	defaultMaxObjSizeGB            = 5018             // 4.9 TB
 
 	defaultMaxAttempts        = 5
 	defaultBackoffInitial     = time.Second
