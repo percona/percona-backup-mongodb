@@ -22,6 +22,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -328,7 +329,6 @@ func (b *Backup) doPhysical(
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
-
 	if inf.IsLeader() {
 		err := b.reconcileStatus(ctx,
 			bcp.Name, opid.String(), defs.StatusRunning, util.Ref(b.timeouts.StartingStatus()))
@@ -382,7 +382,14 @@ func (b *Backup) doPhysical(
 		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, stg, l)
 	}
 
-	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
+	reporter := progress.NewReporter(ctx, l, time.Minute,
+		plannedUploadSize(data, b.typ == defs.IncrementalBackup)+plannedUploadSize(jrnls, false), 0,
+		func(ctx context.Context, p progress.Progress) error {
+			return SetRSProgress(ctx, b.leadConn, bcp.Name, rsMeta.Name, p)
+		})
+	defer reporter.Close("backup transfer finished")
+
+	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l, reporter)
 }
 
 func (b *Backup) handleExternal(
@@ -519,6 +526,7 @@ func (b *Backup) uploadPhysical(
 	dbpath string,
 	stg storage.Storage,
 	l log.LogEvent,
+	reporter *progress.Reporter,
 ) error {
 	numWorkers := b.getNumParallelFiles()
 	if numWorkers > 1 {
@@ -538,6 +546,7 @@ func (b *Backup) uploadPhysical(
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
 		numWorkers,
+		reporter,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
@@ -556,6 +565,7 @@ func (b *Backup) uploadPhysical(
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
 		numWorkers,
+		reporter,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
@@ -583,6 +593,12 @@ func (b *Backup) uploadPhysical(
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
 	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
+	if reporter != nil {
+		reporter.AddBytes(flSize)
+		if err := reporter.Flush(); err != nil {
+			l.Warning("update progress: %v", err)
+		}
+	}
 
 	totalSize := size + flSize
 	totalUncompressed := sizeUncompressed + flSize
@@ -609,6 +625,27 @@ func (b *Backup) uploadPhysical(
 	}
 
 	return nil
+}
+
+func plannedUploadSize(files []File, incr bool) int64 {
+	var size int64
+	for _, item := range planUploads(files, incr) {
+		if !item.upload {
+			continue
+		}
+		size += sourceFileSize(item.file)
+	}
+	return size
+}
+
+func sourceFileSize(f File) int64 {
+	if f.Len > 0 {
+		if f.Off+f.Len > f.Size {
+			return f.Size - f.Off
+		}
+		return f.Len
+	}
+	return f.Size
 }
 
 const storagebson = "storage.bson"
@@ -734,6 +771,7 @@ func uploadFiles(
 	comprL *int,
 	bufSize int,
 	numWorkers int,
+	reporter *progress.Reporter,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -793,6 +831,9 @@ func uploadFiles(
 			fw.Name = fname
 
 			results[i] = *fw
+			if reporter != nil {
+				reporter.AddBytes(fw.StgSize)
+			}
 			return nil
 		})
 	}

@@ -7,33 +7,36 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 )
 
 type RestoreMeta struct {
-	Status           defs.Status       `bson:"status" json:"status"`
-	Error            string            `bson:"error,omitempty" json:"error,omitempty"`
-	Name             string            `bson:"name" json:"name"`
-	OPID             string            `bson:"opid" json:"opid"`
-	Backup           string            `bson:"backup" json:"backup"`
-	BcpChain         []string          `bson:"bcp_chain" json:"bcp_chain"` // for incremental
-	Namespaces       []string          `bson:"nss,omitempty" json:"nss,omitempty"`
-	StartPITR        int64             `bson:"start_pitr" json:"start_pitr"`
-	PITR             int64             `bson:"pitr" json:"pitr"`
-	Replsets         []RestoreReplset  `bson:"replsets" json:"replsets"`
-	Hb               bson.Timestamp    `bson:"hb" json:"hb"`
-	StartTS          int64             `bson:"start_ts" json:"start_ts"`
-	LastTransitionTS int64             `bson:"last_transition_ts" json:"last_transition_ts"`
-	Conditions       Conditions        `bson:"conditions" json:"conditions"`
-	Type             defs.BackupType   `bson:"type" json:"type"`
-	Leader           string            `bson:"l,omitempty" json:"l,omitempty"`
-	Stat             *phys.RestoreStat `bson:"stat,omitempty" json:"stat,omitempty"`
+	Status           defs.Status        `bson:"status" json:"status"`
+	Progress         *progress.Progress `bson:"progress,omitempty" json:"progress,omitempty"`
+	Error            string             `bson:"error,omitempty" json:"error,omitempty"`
+	Name             string             `bson:"name" json:"name"`
+	OPID             string             `bson:"opid" json:"opid"`
+	Backup           string             `bson:"backup" json:"backup"`
+	BcpChain         []string           `bson:"bcp_chain" json:"bcp_chain"` // for incremental
+	Namespaces       []string           `bson:"nss,omitempty" json:"nss,omitempty"`
+	StartPITR        int64              `bson:"start_pitr" json:"start_pitr"`
+	PITR             int64              `bson:"pitr" json:"pitr"`
+	Replsets         []RestoreReplset   `bson:"replsets" json:"replsets"`
+	Hb               bson.Timestamp     `bson:"hb" json:"hb"`
+	StartTS          int64              `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64              `bson:"last_transition_ts" json:"last_transition_ts"`
+	Conditions       Conditions         `bson:"conditions" json:"conditions"`
+	Type             defs.BackupType    `bson:"type" json:"type"`
+	Leader           string             `bson:"l,omitempty" json:"l,omitempty"`
+	Stat             *phys.RestoreStat  `bson:"stat,omitempty" json:"stat,omitempty"`
 }
 
 type RestoreReplset struct {
 	Name             string                `bson:"name" json:"name"`
 	StartTS          int64                 `bson:"start_ts" json:"start_ts"`
 	Status           defs.Status           `bson:"status" json:"status"`
+	Progress         *progress.Progress    `bson:"progress,omitempty" json:"progress,omitempty"`
 	CommittedTxn     []phys.RestoreTxn     `bson:"committed_txn" json:"committed_txn"`
 	CommittedTxnSet  bool                  `bson:"txn_set" json:"txn_set"`
 	PartialTxn       []db.Oplog            `bson:"partial_txn" json:"partial_txn"`

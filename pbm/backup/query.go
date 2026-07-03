@@ -11,6 +11,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
@@ -97,7 +98,7 @@ func ChangeBackupStateWithUnixTime(
 	unix int64,
 	msg string,
 ) error {
-	return changeBackupState(ctx, conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+	return changeBackupState(ctx, conn, bson.D{{"name", bcpName}}, unix, s, msg)
 }
 
 func changeBackupState(
@@ -108,15 +109,20 @@ func changeBackupState(
 	s defs.Status,
 	msg string,
 ) error {
+	update := bson.D{
+		{"$set", bson.M{"status": s}},
+		{"$set", bson.M{"last_transition_ts": ts}},
+		{"$set", bson.M{"error": msg}},
+		{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+	}
+	if !s.IsRunning() {
+		update = append(update, bson.E{"$unset", bson.M{"progress": ""}})
+	}
+
 	_, err := conn.BcpCollection().UpdateOne(
 		ctx,
 		clause,
-		bson.D{
-			{"$set", bson.M{"status": s}},
-			{"$set", bson.M{"last_transition_ts": ts}},
-			{"$set", bson.M{"error": msg}},
-			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
-		},
+		update,
 	)
 
 	return err
@@ -204,17 +210,38 @@ func AddRSMeta(ctx context.Context, conn connect.Client, bcpName string, rs Back
 
 func ChangeRSState(conn connect.Client, bcpName, rsName string, s defs.Status, msg string) error {
 	ts := time.Now().UTC().Unix()
+	update := bson.D{
+		{"$set", bson.M{"replsets.$.status": s}},
+		{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
+		{"$set", bson.M{"replsets.$.error": msg}},
+		{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+	}
+	if !s.IsRunning() {
+		update = append(update, bson.E{"$unset", bson.M{"replsets.$.progress": ""}})
+	}
+
 	_, err := conn.BcpCollection().UpdateOne(
 		context.Background(),
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
-		bson.D{
-			{"$set", bson.M{"replsets.$.status": s}},
-			{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
-			{"$set", bson.M{"replsets.$.error": msg}},
-			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
-		},
+		update,
 	)
 
+	return err
+}
+
+func SetBackupProgress(ctx context.Context, conn connect.Client, bcpName string, p progress.Progress) error {
+	_, err := conn.BcpCollection().UpdateOne(ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{{"$set", bson.M{"progress": p}}},
+	)
+	return err
+}
+
+func SetRSProgress(ctx context.Context, conn connect.Client, bcpName, rsName string, p progress.Progress) error {
+	_, err := conn.BcpCollection().UpdateOne(ctx,
+		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.progress": p}}},
+	)
 	return err
 }
 

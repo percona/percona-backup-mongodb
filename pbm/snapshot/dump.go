@@ -11,6 +11,7 @@ import (
 )
 
 type UploadFunc func(ns, ext string, r io.Reader) error
+type ProgressFunc func(ns string, bytes int64)
 
 func UploadDump(
 	ctx context.Context,
@@ -18,6 +19,17 @@ func UploadDump(
 	upload UploadFunc,
 	compression compress.CompressionType,
 	compressionLevel *int,
+) (int64, error) {
+	return UploadDumpWithProgress(ctx, dump, upload, compression, compressionLevel, nil)
+}
+
+func UploadDumpWithProgress(
+	ctx context.Context,
+	dump func(archive.NewWriter) error,
+	upload UploadFunc,
+	compression compress.CompressionType,
+	compressionLevel *int,
+	progress ProgressFunc,
 ) (int64, error) {
 	uploadSize := int64(0)
 
@@ -42,6 +54,9 @@ func UploadDump(
 			}
 
 			atomic.AddInt64(&uploadSize, rc.n)
+			if progress != nil {
+				progress(ns, rc.n)
+			}
 		}()
 
 		w, err := compress.Compress(pw, compression, compressionLevel)
@@ -66,6 +81,16 @@ func DownloadDump(
 	match archive.NSFilterFn,
 	numParallelColls int,
 ) (io.ReadCloser, error) {
+	return DownloadDumpWithProgress(download, compression, match, numParallelColls, nil)
+}
+
+func DownloadDumpWithProgress(
+	download DownloadFunc,
+	compression compress.CompressionType,
+	match archive.NSFilterFn,
+	numParallelColls int,
+	progress ProgressFunc,
+) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 
 	go func() {
@@ -77,6 +102,9 @@ func DownloadDump(
 			r, err := download(ns)
 			if err != nil {
 				return nil, errors.Wrapf(err, "download: %q", ns)
+			}
+			if progress != nil {
+				r = &readCounterCloser{ReadCloser: r, ns: ns, progress: progress}
 			}
 
 			if ns == archive.MetaFile {
@@ -92,6 +120,25 @@ func DownloadDump(
 	}()
 
 	return pr, nil
+}
+
+type readCounterCloser struct {
+	io.ReadCloser
+	ns       string
+	n        int64
+	progress ProgressFunc
+}
+
+func (c *readCounterCloser) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+func (c *readCounterCloser) Close() error {
+	err := c.ReadCloser.Close()
+	c.progress(c.ns, c.n)
+	return err
 }
 
 type readCounter struct {

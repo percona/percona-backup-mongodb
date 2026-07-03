@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -64,6 +65,11 @@ func (b *Backup) doLogical(
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
+	reporter := progress.NewReporter(ctx, l, time.Minute, 0, int64(len(nssSize)),
+		func(ctx context.Context, p progress.Progress) error {
+			return SetRSProgress(ctx, b.leadConn, bcp.Name, rsMeta.Name, p)
+		})
+	defer reporter.Close("backup transfer finished")
 
 	if inf.IsLeader() {
 		err := b.reconcileStatus(ctx,
@@ -178,7 +184,7 @@ func (b *Backup) doLogical(
 		}
 	}
 
-	snapshotSize, err := snapshot.UploadDump(ctx,
+	snapshotSize, err := snapshot.UploadDumpWithProgress(ctx,
 		func(newFile archive.NewWriter) error {
 			bcp, err := archive.NewBackup(ctx, archive.BackupOptions{
 				Client:        b.nodeConn,
@@ -202,9 +208,18 @@ func (b *Backup) doLogical(
 			return stg.Save(filepath, r, storage.Size(sizeHints[ns]))
 		},
 		bcp.Compression,
-		bcp.CompressionLevel)
+		bcp.CompressionLevel,
+		func(ns string, bytes int64) {
+			reporter.AddBytes(bytes)
+			if ns != archive.MetaFileV2 {
+				reporter.AddItems(1)
+			}
+		})
 	if err != nil {
 		return errors.Wrap(err, "dump")
+	}
+	if err := reporter.Flush(); err != nil {
+		l.Warning("update progress: %v", err)
 	}
 
 	err = archive.GenerateV1FromV2(ctx, stg, bcp.Name, rsMeta.Name)

@@ -17,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -185,6 +186,16 @@ func (b *Backup) Init(
 //
 //nolint:nonamedreturns
 func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
+	opStarted := time.Now()
+	defer func() {
+		elapsed := progress.FormatDuration(time.Since(opStarted))
+		if err != nil {
+			l.Info("backup failed after %s: %v", elapsed, err)
+			return
+		}
+		l.Info("backup completed after %s", elapsed)
+	}()
+
 	inf, err := topo.GetNodeInfoExt(ctx, b.nodeConn)
 	if err != nil {
 		return errors.Wrap(err, "get cluster info")
@@ -384,6 +395,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		// PBM-1114: update file metadata with the same values as in database
 		unix := time.Now().Unix()
 		bcpm.Status = defs.StatusDone
+		bcpm.Progress = nil
 		bcpm.LastTransitionTS = unix
 		bcpm.Conditions = append(bcpm.Conditions, Condition{
 			Timestamp: unix,
