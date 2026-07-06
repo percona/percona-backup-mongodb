@@ -1089,9 +1089,10 @@ func (r *Restore) RunSnapshot(
 	}
 
 	mapRS := util.MakeReverseRSMapFunc(r.rsMap)
+	restoreTotalBytes := logicalRestoreTotalBytes(bcp, mapRS(r.brief.SetName))
 
 	r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
-	reporter := progress.NewReporter(ctx, r.log, time.Minute, 0, 0,
+	reporter := progress.NewReporter(ctx, r.log, time.Minute, restoreTotalBytes, 0,
 		func(ctx context.Context, p progress.Progress) error {
 			return SetRestoreRSProgress(ctx, r.leadConn, r.name, r.nodeInfo.SetName, p)
 		})
@@ -1176,6 +1177,17 @@ func (r *Restore) RunSnapshot(
 	}
 
 	return sysSessionsUUID, nil
+}
+
+func logicalRestoreTotalBytes(bcp *backup.BackupMeta, rsName string) int64 {
+	for i := range bcp.Replsets {
+		rs := &bcp.Replsets[i]
+		if rs.Name == rsName && rs.Size > 0 {
+			return rs.Size
+		}
+	}
+
+	return bcp.Size
 }
 
 func (r *Restore) restoreLegacyArchive(
