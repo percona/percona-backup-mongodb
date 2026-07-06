@@ -1692,10 +1692,7 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 
 	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	jobs := r.planCopyFiles(setName)
-	reporter := progresspkg.NewReporter(context.Background(), r.log, time.Minute, plannedDownloadSize(jobs), 0,
-		func(ctx context.Context, p progresspkg.Progress) error {
-			return SetRestoreRSProgress(ctx, r.leadConn, r.name, r.nodeInfo.SetName, p)
-		})
+	reporter := progresspkg.NewReporter(context.Background(), r.log, time.Minute, plannedDownloadSize(jobs), 0, nil)
 	defer reporter.Close("restore transfer finished")
 
 	numWorkers := r.GetNumParallelFiles()
