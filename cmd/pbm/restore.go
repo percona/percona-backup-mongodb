@@ -21,6 +21,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -728,6 +729,8 @@ type describeRestoreResult struct {
 	StartTS            *int64           `json:"start_ts,omitempty" yaml:"-"`
 	StartTime          *string          `json:"start,omitempty" yaml:"start,omitempty"`
 	FinishTime         *string          `json:"finish,omitempty" yaml:"finish,omitempty"`
+	Duration           int64            `json:"duration,omitempty" yaml:"-"`
+	DurationH          string           `json:"duration_h,omitempty" yaml:"duration,omitempty"`
 	PITR               *int64           `json:"ts_to_restore,omitempty" yaml:"-"`
 	PITRTime           *string          `json:"time_to_restore,omitempty" yaml:"time_to_restore,omitempty"`
 	LastTransitionTS   int64            `json:"last_transition_ts" yaml:"-"`
@@ -804,7 +807,9 @@ func describeRestore(
 	res.LastTransitionTS = meta.LastTransitionTS
 	res.LastTransitionTime = time.Unix(res.LastTransitionTS, 0).UTC().Format(time.RFC3339)
 	res.StartTime = util.Ref(time.Unix(meta.StartTS, 0).UTC().Format(time.RFC3339))
-	if meta.Status == defs.StatusDone {
+	res.Duration = operationDurationSeconds(meta.Status, meta.StartTS, meta.LastTransitionTS)
+	res.DurationH = progress.FormatDuration(time.Duration(res.Duration) * time.Second)
+	if isTerminalStatus(meta.Status) {
 		res.FinishTime = util.Ref(time.Unix(meta.LastTransitionTS, 0).UTC().Format(time.RFC3339))
 	}
 	if meta.Status == defs.StatusError {

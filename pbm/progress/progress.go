@@ -21,6 +21,8 @@ type Progress struct {
 	TotalBytes int64 `bson:"total_bytes,omitempty" json:"total_bytes,omitempty"`
 	DoneItems  int64 `bson:"done_items,omitempty" json:"done_items,omitempty"`
 	TotalItems int64 `bson:"total_items,omitempty" json:"total_items,omitempty"`
+	// ThroughputBytesPerSecond is the last known completed transfer rate.
+	ThroughputBytesPerSecond int64 `bson:"throughput_bps,omitempty" json:"throughput_bps,omitempty"`
 }
 
 func New(totalBytes, totalItems int64) Progress {
@@ -40,11 +42,20 @@ func (p Progress) Percent() (float64, bool) {
 }
 
 func (p Progress) ThroughputMBps(now int64) float64 {
-	if p.DoneBytes <= 0 || p.StartedAt <= 0 || now <= p.StartedAt {
-		return 0
+	_ = now
+	if p.ThroughputBytesPerSecond > 0 {
+		return float64(p.ThroughputBytesPerSecond) / float64(mb)
 	}
 
-	return float64(p.DoneBytes) / float64(mb) / float64(now-p.StartedAt)
+	return 0
+}
+
+func (p Progress) ETA() (time.Duration, bool) {
+	if p.TotalBytes <= 0 || p.DoneBytes <= 0 || p.DoneBytes >= p.TotalBytes || p.ThroughputBytesPerSecond <= 0 {
+		return 0, false
+	}
+
+	return time.Duration((p.TotalBytes-p.DoneBytes)/p.ThroughputBytesPerSecond) * time.Second, true
 }
 
 func (p Progress) Elapsed(now int64) time.Duration {
@@ -71,6 +82,9 @@ func (p Progress) StringAt(now int64) string {
 	}
 	if mbps := p.ThroughputMBps(now); mbps > 0 {
 		parts = append(parts, fmt.Sprintf("throughput=%.2fMB/s", mbps))
+	}
+	if eta, ok := p.ETA(); ok {
+		parts = append(parts, "eta="+FormatDuration(eta))
 	}
 
 	return strings.Join(parts, ", ")
@@ -122,6 +136,9 @@ type Reporter struct {
 	doneB     atomic.Int64
 	totalI    atomic.Int64
 	doneI     atomic.Int64
+	lastTick  atomic.Int64
+	lastBytes atomic.Int64
+	lastBPS   atomic.Int64
 	stop      chan struct{}
 }
 
@@ -136,6 +153,7 @@ func NewReporter(
 	r := &Reporter{ctx: ctx, log: log, update: update, startedAt: time.Now().Unix(), stop: make(chan struct{})}
 	r.totalB.Store(totalBytes)
 	r.totalI.Store(totalItems)
+	r.lastTick.Store(r.startedAt)
 	_ = r.Flush()
 
 	go func() {
@@ -148,7 +166,7 @@ func NewReporter(
 			case <-r.stop:
 				return
 			case <-tk.C:
-				p := r.Snapshot()
+				p := r.TickSnapshot()
 				if err := r.FlushProgress(p); err != nil && log != nil {
 					log.Warning("update progress: %v", err)
 				}
@@ -179,13 +197,30 @@ func (r *Reporter) SetTotalItems(n int64) { r.totalI.Store(n) }
 
 func (r *Reporter) Snapshot() Progress {
 	return Progress{
-		StartedAt:  r.startedAt,
-		UpdatedAt:  time.Now().Unix(),
-		DoneBytes:  r.doneB.Load(),
-		TotalBytes: r.totalB.Load(),
-		DoneItems:  r.doneI.Load(),
-		TotalItems: r.totalI.Load(),
+		StartedAt:                r.startedAt,
+		UpdatedAt:                time.Now().Unix(),
+		DoneBytes:                r.doneB.Load(),
+		TotalBytes:               r.totalB.Load(),
+		DoneItems:                r.doneI.Load(),
+		TotalItems:               r.totalI.Load(),
+		ThroughputBytesPerSecond: r.lastBPS.Load(),
 	}
+}
+
+func (r *Reporter) TickSnapshot() Progress {
+	now := time.Now().Unix()
+	done := r.doneB.Load()
+	lastTick := r.lastTick.Load()
+	lastBytes := r.lastBytes.Load()
+	if deltaSeconds := now - lastTick; deltaSeconds > 0 && done > lastBytes {
+		r.lastBPS.Store((done - lastBytes) / deltaSeconds)
+		r.lastTick.Store(now)
+		r.lastBytes.Store(done)
+	}
+
+	p := r.Snapshot()
+	p.UpdatedAt = now
+	return p
 }
 
 func (r *Reporter) Flush() error {

@@ -20,6 +20,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -388,6 +389,11 @@ type bcpDesc struct {
 	StorageType        storage.Type    `json:"storage_type,omitempty" yaml:"storage_type,omitempty"`
 	OPID               string          `json:"opid" yaml:"opid"`
 	Type               defs.BackupType `json:"type" yaml:"type"`
+	StartTS            int64           `json:"start_ts" yaml:"-"`
+	StartTime          string          `json:"start" yaml:"start"`
+	FinishTime         *string         `json:"finish,omitempty" yaml:"finish,omitempty"`
+	Duration           int64           `json:"duration" yaml:"-"`
+	DurationH          string          `json:"duration_h" yaml:"duration"`
 	LastWriteTS        int64           `json:"last_write_ts" yaml:"-"`
 	LastTransitionTS   int64           `json:"last_transition_ts" yaml:"-"`
 	LastWriteTime      string          `json:"last_write_time" yaml:"last_write_time"`
@@ -484,6 +490,8 @@ func describeBackup(
 		StorageType:        bcp.Store.Type,
 		OPID:               bcp.OPID,
 		Type:               bcp.Type,
+		StartTS:            bcp.StartTS,
+		StartTime:          time.Unix(bcp.StartTS, 0).UTC().Format(time.RFC3339),
 		Namespaces:         bcp.Namespaces,
 		SelUserAndRoles:    bcp.SelUsersAndRoles,
 		MongoVersion:       bcp.MongoVersion,
@@ -498,6 +506,11 @@ func describeBackup(
 		HSize:              byteCountIEC(bcp.Size),
 		SizeUncompressed:   bcp.SizeUncompressed,
 		HSizeUncompressed:  byteCountIEC(bcp.SizeUncompressed),
+	}
+	rv.Duration = operationDurationSeconds(bcp.Status, bcp.StartTS, bcp.LastTransitionTS)
+	rv.DurationH = progress.FormatDuration(time.Duration(rv.Duration) * time.Second)
+	if isTerminalStatus(bcp.Status) {
+		rv.FinishTime = util.Ref(time.Unix(bcp.LastTransitionTS, 0).UTC().Format(time.RFC3339))
 	}
 	if bcp.SizeUncompressed > 0 {
 		rv.HSizeUncompressed = byteCountIEC(bcp.SizeUncompressed)

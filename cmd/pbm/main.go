@@ -1225,6 +1225,24 @@ func fmtTS(ts int64) string {
 	return strings.TrimSuffix(t, "Z")
 }
 
+func isTerminalStatus(status defs.Status) bool {
+	return !status.IsRunning() || status == defs.StatusPartlyDone
+}
+
+func operationDurationSeconds(status defs.Status, start, transition int64) int64 {
+	if start <= 0 {
+		return 0
+	}
+	end := transition
+	if !isTerminalStatus(status) {
+		end = time.Now().Unix()
+	}
+	if end < start {
+		return 0
+	}
+	return end - start
+}
+
 type outMsg struct {
 	Msg string `json:"msg"`
 }
