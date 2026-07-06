@@ -185,8 +185,19 @@ func NewReporter(
 }
 
 func (r *Reporter) AddBytes(n int64) {
-	if n > 0 {
-		r.doneB.Add(n)
+	if n == 0 {
+		return
+	}
+
+	for {
+		old := r.doneB.Load()
+		next := old + n
+		if next < 0 {
+			next = 0
+		}
+		if r.doneB.CompareAndSwap(old, next) {
+			return
+		}
 	}
 }
 
