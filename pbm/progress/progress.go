@@ -3,6 +3,7 @@ package progress
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -10,7 +11,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
 
-const mb = 1024 * 1024
+const (
+	mb                            = 1024 * 1024
+	DefaultProgressThresholdBytes = 16 << 20
+)
 
 // Progress captures an operation progress snapshot. Byte counters represent
 // bytes transferred to/from backup storage.
@@ -240,4 +244,51 @@ func (r *Reporter) Close(final string) {
 	if r.log != nil {
 		r.log.Info("%s after %s", final, FormatDuration(p.Elapsed(time.Now().Unix())))
 	}
+}
+
+type CountingReadCloser struct {
+	io.ReadCloser
+	reporter  *Reporter
+	threshold int64
+	pending   int64
+}
+
+func NewCountingReadCloser(r io.ReadCloser, reporter *Reporter, threshold int64) io.ReadCloser {
+	if reporter == nil {
+		return r
+	}
+	if threshold <= 0 {
+		threshold = DefaultProgressThresholdBytes
+	}
+	return &CountingReadCloser{ReadCloser: r, reporter: reporter, threshold: threshold}
+}
+
+func (r *CountingReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	r.add(int64(n))
+	return n, err
+}
+
+func (r *CountingReadCloser) Close() error {
+	err := r.ReadCloser.Close()
+	r.flush()
+	return err
+}
+
+func (r *CountingReadCloser) add(n int64) {
+	if n <= 0 {
+		return
+	}
+	r.pending += n
+	if r.pending >= r.threshold {
+		r.flush()
+	}
+}
+
+func (r *CountingReadCloser) flush() {
+	if r.pending <= 0 {
+		return
+	}
+	r.reporter.AddBytes(r.pending)
+	r.pending = 0
 }

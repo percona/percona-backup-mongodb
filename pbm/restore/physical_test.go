@@ -644,7 +644,7 @@ func BenchmarkCopyGenFilesFromFSStorage(b *testing.B) {
 		dst := filepath.Join(dstDir, fmt.Sprintf("%s-%d", filepath.Base(f.Name()), rand.Uint64()))
 
 		ts := time.Now()
-		_, err := r.copyFile(filepath.Base(f.Name()), dst, backup.File{Fmode: 0o600, Size: size}, cType, cpbuf)
+		_, err := r.copyFile(filepath.Base(f.Name()), dst, backup.File{Fmode: 0o600, Size: size}, cType, cpbuf, nil)
 		if err != nil {
 			b.Fatalf("copyFile: %v", err)
 		}
@@ -715,7 +715,7 @@ func BenchmarkCopyFileFromFSStorage(b *testing.B) {
 		dst := filepath.Join(*localPath, fmt.Sprintf("%s-%d", filepath.Base(*storageFile), rand.Uint64()))
 
 		ts := time.Now()
-		_, err := r.copyFile(*storageFile, dst, backup.File{Fmode: 0o600, Size: fSize}, cType, cpbuf)
+		_, err := r.copyFile(*storageFile, dst, backup.File{Fmode: 0o600, Size: fSize}, cType, cpbuf, nil)
 		if err != nil {
 			b.Fatalf("copyFile: %v", err)
 		}

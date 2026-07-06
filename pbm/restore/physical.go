@@ -1741,11 +1741,10 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 				if err := egCtx.Err(); err != nil {
 					return err
 				}
-				n, err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf)
+				_, err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf, reporter)
 				if err != nil {
 					return err
 				}
-				reporter.AddBytes(n)
 			}
 			return nil
 		})
@@ -1777,7 +1776,14 @@ func plannedDownloadSize(jobs []copyFileJob) int64 {
 }
 
 // copyFile copies file from the storage into local FS.
-func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compress.CompressionType, cpbuf []byte) (int64, error) {
+func (r *PhysRestore) copyFile(
+	src,
+	dst string,
+	fMeta backup.File,
+	cType compress.CompressionType,
+	cpbuf []byte,
+	reporter *progresspkg.Reporter,
+) (int64, error) {
 	r.log.Info("copy <%s> to <%s>", src, dst)
 	stat, err := r.bcpStg.FileStat(src)
 	if err != nil {
@@ -1788,6 +1794,7 @@ func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compres
 	if err != nil {
 		return 0, errors.Wrapf(err, "create source reader for <%s>", src)
 	}
+	sr = progresspkg.NewCountingReadCloser(sr, reporter, progresspkg.DefaultProgressThresholdBytes)
 	defer sr.Close()
 
 	data, err := compress.Decompress(sr, cType)
