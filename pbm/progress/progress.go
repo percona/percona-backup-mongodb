@@ -253,6 +253,7 @@ func (r *Reporter) Close(final string) {
 	close(r.stop)
 	p := r.Snapshot()
 	if r.log != nil {
+		r.log.Info("progress: %s", p.StringAt(time.Now().Unix()))
 		r.log.Info("%s after %s", final, FormatDuration(p.Elapsed(time.Now().Unix())))
 	}
 }
