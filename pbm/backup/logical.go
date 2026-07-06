@@ -48,6 +48,7 @@ func (b *Backup) doLogical(
 	}
 
 	sizeHints := make(map[string]int64, len(nssSize))
+	totalSizeHint := int64(0)
 	for ns, cs := range nssSize {
 		if bcp.Compression == compress.CompressionTypeNone {
 			// Uncompressed dump: the output size matches the logical BSON size.
@@ -56,6 +57,7 @@ func (b *Backup) doLogical(
 			// Compressed: WiredTiger on-disk size approximates compressed output.
 			sizeHints[ns] = cs.StorageSize
 		}
+		totalSizeHint += sizeHints[ns]
 	}
 
 	rsMeta.Status = defs.StatusRunning
@@ -65,7 +67,7 @@ func (b *Backup) doLogical(
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
-	reporter := progress.NewReporter(ctx, l, time.Minute, 0, int64(len(nssSize)),
+	reporter := progress.NewReporter(ctx, l, time.Minute, totalSizeHint, int64(len(nssSize)),
 		func(ctx context.Context, p progress.Progress) error {
 			return SetRSProgress(ctx, b.leadConn, bcp.Name, rsMeta.Name, p)
 		})

@@ -32,10 +32,10 @@ func New(totalBytes, totalItems int64) Progress {
 
 func (p Progress) Percent() (float64, bool) {
 	switch {
-	case p.TotalBytes > 0:
-		return percent(p.DoneBytes, p.TotalBytes), true
 	case p.TotalItems > 0:
 		return percent(p.DoneItems, p.TotalItems), true
+	case p.TotalBytes > 0:
+		return percent(p.DoneBytes, p.TotalBytes), true
 	default:
 		return 0, false
 	}
