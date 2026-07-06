@@ -211,9 +211,9 @@ func (b *Backup) doLogical(
 		},
 		bcp.Compression,
 		bcp.CompressionLevel,
-		func(ns string, bytes int64) {
+		func(ns string, bytes int64, done bool) {
 			reporter.AddBytes(bytes)
-			if ns != archive.MetaFileV2 {
+			if done && ns != archive.MetaFileV2 {
 				reporter.AddItems(1)
 			}
 		})

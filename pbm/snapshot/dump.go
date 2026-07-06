@@ -11,7 +11,9 @@ import (
 )
 
 type UploadFunc func(ns, ext string, r io.Reader) error
-type ProgressFunc func(ns string, bytes int64)
+type ProgressFunc func(ns string, bytes int64, done bool)
+
+const progressThresholdBytes = 16 << 20
 
 func UploadDump(
 	ctx context.Context,
@@ -45,7 +47,7 @@ func UploadDumpWithProgress(
 		go func() {
 			defer close(done)
 
-			rc := &readCounter{r: pr}
+			rc := &readCounter{r: pr, ns: ns, progress: progress}
 			err := upload(ns, compression.Suffix(), rc)
 			if err != nil {
 				err = errors.Wrapf(err, "upload: %q", ns)
@@ -53,10 +55,8 @@ func UploadDumpWithProgress(
 				done <- err
 			}
 
+			rc.finish()
 			atomic.AddInt64(&uploadSize, rc.n)
-			if progress != nil {
-				progress(ns, rc.n)
-			}
 		}()
 
 		w, err := compress.Compress(pw, compression, compressionLevel)
@@ -126,30 +126,72 @@ type readCounterCloser struct {
 	io.ReadCloser
 	ns       string
 	n        int64
+	pending  int64
 	progress ProgressFunc
 }
 
 func (c *readCounterCloser) Read(p []byte) (int, error) {
 	n, err := c.ReadCloser.Read(p)
-	c.n += int64(n)
+	c.add(int64(n))
 	return n, err
 }
 
 func (c *readCounterCloser) Close() error {
 	err := c.ReadCloser.Close()
-	c.progress(c.ns, c.n)
+	c.finish()
 	return err
 }
 
+func (c *readCounterCloser) add(n int64) {
+	if n <= 0 {
+		return
+	}
+	c.n += n
+	c.pending += n
+	if c.progress != nil && c.pending >= progressThresholdBytes {
+		c.progress(c.ns, c.pending, false)
+		c.pending = 0
+	}
+}
+
+func (c *readCounterCloser) finish() {
+	if c.progress != nil {
+		c.progress(c.ns, c.pending, true)
+	}
+	c.pending = 0
+}
+
 type readCounter struct {
-	r io.Reader
-	n int64
+	r        io.Reader
+	n        int64
+	ns       string
+	pending  int64
+	progress ProgressFunc
 }
 
 func (c *readCounter) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
-	c.n += int64(n)
+	c.add(int64(n))
 	return n, err
+}
+
+func (c *readCounter) add(n int64) {
+	if n <= 0 {
+		return
+	}
+	c.n += n
+	c.pending += n
+	if c.progress != nil && c.pending >= progressThresholdBytes {
+		c.progress(c.ns, c.pending, false)
+		c.pending = 0
+	}
+}
+
+func (c *readCounter) finish() {
+	if c.progress != nil {
+		c.progress(c.ns, c.pending, true)
+	}
+	c.pending = 0
 }
 
 type funcCloser func() error

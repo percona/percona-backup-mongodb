@@ -1131,9 +1131,9 @@ func (r *Restore) RunSnapshot(
 		bcp.Compression,
 		util.MakeSelectedPred(nss),
 		r.numParallelColls,
-		func(ns string, bytes int64) {
+		func(ns string, bytes int64, done bool) {
 			reporter.AddBytes(bytes)
-			if ns != archive.MetaFile {
+			if done && ns != archive.MetaFile {
 				reporter.AddItems(1)
 			}
 		})
