@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -328,7 +331,6 @@ func (b *Backup) doPhysical(
 	if err != nil {
 		return errors.Wrap(err, "add shard's metadata")
 	}
-
 	if inf.IsLeader() {
 		err := b.reconcileStatus(ctx,
 			bcp.Name, opid.String(), defs.StatusRunning, util.Ref(b.timeouts.StartingStatus()))
@@ -382,7 +384,15 @@ func (b *Backup) doPhysical(
 		return b.handleExternal(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, opid, inf, stg, l)
 	}
 
-	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l)
+	totalSourceSize := plannedUploadSize(data, b.typ == defs.IncrementalBackup) + plannedUploadSize(jrnls, false)
+	reporter := progress.NewReporter(ctx, l, time.Minute, totalSourceSize, 0,
+		func(ctx context.Context, p progress.Progress) error {
+			return SetRSProgress(ctx, b.leadConn, bcp.Name, rsMeta.Name, p)
+		})
+	progressTracker := newPhysicalUploadProgress(reporter, totalSourceSize)
+	defer reporter.Close("backup transfer finished")
+
+	return b.uploadPhysical(ctx, bcp, rsMeta, data, jrnls, bcur.Meta.DBpath, stg, l, reporter, progressTracker)
 }
 
 func (b *Backup) handleExternal(
@@ -519,6 +529,8 @@ func (b *Backup) uploadPhysical(
 	dbpath string,
 	stg storage.Storage,
 	l log.LogEvent,
+	reporter *progress.Reporter,
+	progressTracker *physicalUploadProgress,
 ) error {
 	numWorkers := b.getNumParallelFiles()
 	if numWorkers > 1 {
@@ -538,6 +550,7 @@ func (b *Backup) uploadPhysical(
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
 		numWorkers,
+		progressTracker,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
@@ -556,6 +569,7 @@ func (b *Backup) uploadPhysical(
 		bcp.CompressionLevel,
 		b.getBackupBufSize(),
 		numWorkers,
+		progressTracker,
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
@@ -583,6 +597,12 @@ func (b *Backup) uploadPhysical(
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
 	l.Info("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
+	if reporter != nil {
+		reporter.AddBytes(flSize)
+		if err := reporter.Flush(); err != nil {
+			l.Warning("update progress: %v", err)
+		}
+	}
 
 	totalSize := size + flSize
 	totalUncompressed := sizeUncompressed + flSize
@@ -609,6 +629,27 @@ func (b *Backup) uploadPhysical(
 	}
 
 	return nil
+}
+
+func plannedUploadSize(files []File, incr bool) int64 {
+	var size int64
+	for _, item := range planUploads(files, incr) {
+		if !item.upload {
+			continue
+		}
+		size += sourceFileSize(item.file)
+	}
+	return size
+}
+
+func sourceFileSize(f File) int64 {
+	if f.Len > 0 {
+		if f.Off+f.Len > f.Size {
+			return f.Size - f.Off
+		}
+		return f.Len
+	}
+	return f.Size
 }
 
 const storagebson = "storage.bson"
@@ -734,6 +775,7 @@ func uploadFiles(
 	comprL *int,
 	bufSize int,
 	numWorkers int,
+	progressTracker *physicalUploadProgress,
 ) ([]File, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -786,6 +828,7 @@ func uploadFiles(
 				bufs.cp,
 				bufs.save,
 				bufs.fsSave,
+				progressTracker,
 			)
 			if err != nil {
 				return errors.Wrapf(err, "upload file `%s`", s.file.Name)
@@ -814,6 +857,7 @@ func writeFile(
 	cpBuf []byte,
 	saveBuf []byte,
 	fsSaveBuf []byte,
+	progressTracker *physicalUploadProgress,
 ) (*File, error) {
 	fstat, err := os.Stat(file.Name)
 	if err != nil {
@@ -836,6 +880,11 @@ func writeFile(
 	if len(cpBuf) > 0 {
 		src = NewFileReader(*file, cpBuf)
 	}
+	var progressState *physicalFileProgress
+	if progressTracker != nil {
+		progressState = progressTracker.newFile(sz)
+		src = &physicalProgressSource{src: src, tracker: progressTracker, state: progressState}
+	}
 	_, err = storage.UploadWithOpts(ctx, src, stg, compression, compressLevel, dst,
 		sz, saveBuf, fsSaveBuf)
 	if err != nil {
@@ -845,6 +894,9 @@ func writeFile(
 	finf, err := stg.FileStat(dst)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get storage file stat %s", dst)
+	}
+	if progressTracker != nil {
+		progressTracker.completeFile(progressState, sz, finf.Size)
 	}
 
 	return &File{
@@ -856,4 +908,117 @@ func writeFile(
 		Off:                 file.Off,
 		Len:                 file.Len,
 	}, nil
+}
+
+type physicalUploadProgress struct {
+	reporter    *progress.Reporter
+	totalSource int64
+
+	mu              sync.Mutex
+	completedSource int64
+	completedStg    int64
+}
+
+type physicalFileProgress struct {
+	estimatedStg int64
+}
+
+func newPhysicalUploadProgress(reporter *progress.Reporter, totalSource int64) *physicalUploadProgress {
+	if reporter == nil || totalSource <= 0 {
+		return nil
+	}
+	return &physicalUploadProgress{reporter: reporter, totalSource: totalSource}
+}
+
+func (p *physicalUploadProgress) newFile(_ int64) *physicalFileProgress {
+	return &physicalFileProgress{}
+}
+
+func (p *physicalUploadProgress) addSource(f *physicalFileProgress, n int64) {
+	if p == nil || f == nil || n <= 0 {
+		return
+	}
+
+	p.mu.Lock()
+	estimated := int64(float64(n) * p.ratioLocked())
+	f.estimatedStg += estimated
+	p.mu.Unlock()
+
+	p.reporter.AddBytes(estimated)
+}
+
+func (p *physicalUploadProgress) completeFile(f *physicalFileProgress, sourceSize, stgSize int64) {
+	if p == nil || f == nil {
+		return
+	}
+
+	p.mu.Lock()
+	correction := stgSize - f.estimatedStg
+	p.completedSource += sourceSize
+	p.completedStg += stgSize
+	totalStg := int64(float64(p.totalSource) * p.ratioLocked())
+	if totalStg < p.completedStg {
+		totalStg = p.completedStg
+	}
+	p.mu.Unlock()
+
+	p.reporter.AddBytes(correction)
+	p.reporter.SetTotalBytes(totalStg)
+}
+
+func (p *physicalUploadProgress) ratioLocked() float64 {
+	if p.completedSource <= 0 {
+		return 1
+	}
+	return float64(p.completedStg) / float64(p.completedSource)
+}
+
+type physicalProgressSource struct {
+	src     storage.Source
+	tracker *physicalUploadProgress
+	state   *physicalFileProgress
+}
+
+func (s *physicalProgressSource) WriteTo(w io.Writer) (int64, error) {
+	cw := &physicalProgressWriter{
+		w:         w,
+		tracker:   s.tracker,
+		state:     s.state,
+		threshold: progress.DefaultProgressThresholdBytes,
+	}
+	n, err := s.src.WriteTo(cw)
+	cw.flush()
+	return n, err
+}
+
+type physicalProgressWriter struct {
+	w         io.Writer
+	tracker   *physicalUploadProgress
+	state     *physicalFileProgress
+	threshold int64
+	pending   int64
+}
+
+func (w *physicalProgressWriter) Write(p []byte) (int, error) {
+	n, err := w.w.Write(p)
+	w.add(int64(n))
+	return n, err
+}
+
+func (w *physicalProgressWriter) add(n int64) {
+	if n <= 0 {
+		return
+	}
+	w.pending += n
+	if w.pending >= w.threshold {
+		w.flush()
+	}
+}
+
+func (w *physicalProgressWriter) flush() {
+	if w.pending <= 0 {
+		return
+	}
+	w.tracker.addSource(w.state, w.pending)
+	w.pending = 0
 }

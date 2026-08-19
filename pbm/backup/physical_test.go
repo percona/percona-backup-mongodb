@@ -294,7 +294,7 @@ func BenchmarkCopyGenFilesToFSStorage(b *testing.B) {
 
 		ts := time.Now()
 		f, err := writeFile(context.Background(), &File{Name: tmpFile.Name()},
-			dst, stg, cType, cLevel, cpBuf, saveBuf, fsSaveBuf)
+			dst, stg, cType, cLevel, cpBuf, saveBuf, fsSaveBuf, nil)
 		if err != nil {
 			b.Fatalf("writeFile: %v", err)
 		}
@@ -358,7 +358,7 @@ func BenchmarkCopyFileToFSStorage(b *testing.B) {
 
 		ts := time.Now()
 		f, err := writeFile(context.Background(), &File{Name: *localFile},
-			dst, stg, cType, cLevel, cpBuf, saveBuf, fsSaveBuf)
+			dst, stg, cType, cLevel, cpBuf, saveBuf, fsSaveBuf, nil)
 		if err != nil {
 			b.Fatalf("writeFile: %v", err)
 		}

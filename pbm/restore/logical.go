@@ -28,6 +28,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -272,7 +273,16 @@ func (r *Restore) Snapshot(
 ) (err error) {
 	l := log.LogEventFromContext(ctx)
 
-	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
+	opStarted := time.Now()
+	defer func() {
+		elapsed := progress.FormatDuration(time.Since(opStarted))
+		if err != nil {
+			l.Info("restore failed after %s: %v", elapsed, err)
+		} else {
+			l.Info("restore completed after %s", elapsed)
+		}
+		r.exit(log.Copy(context.Background(), ctx), err)
+	}()
 
 	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
@@ -416,7 +426,16 @@ func (r *Restore) PITR(
 ) (err error) {
 	l := log.LogEventFromContext(ctx)
 
-	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
+	opStarted := time.Now()
+	defer func() {
+		elapsed := progress.FormatDuration(time.Since(opStarted))
+		if err != nil {
+			l.Info("restore failed after %s: %v", elapsed, err)
+		} else {
+			l.Info("restore completed after %s", elapsed)
+		}
+		r.exit(log.Copy(context.Background(), ctx), err)
+	}()
 
 	err = r.init(ctx, cmd.Name, opid, l)
 	if err != nil {
@@ -582,7 +601,16 @@ func (r *Restore) PITR(
 
 //nolint:nonamedreturns
 func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctrl.OPID, l log.LogEvent) (err error) {
-	defer func() { r.exit(log.Copy(context.Background(), ctx), err) }()
+	opStarted := time.Now()
+	defer func() {
+		elapsed := progress.FormatDuration(time.Since(opStarted))
+		if err != nil {
+			l.Info("restore failed after %s: %v", elapsed, err)
+		} else {
+			l.Info("restore completed after %s", elapsed)
+		}
+		r.exit(log.Copy(context.Background(), ctx), err)
+	}()
 
 	if err = r.init(ctx, cmd.Name, opid, l); err != nil {
 		return errors.Wrap(err, "init")
@@ -1085,10 +1113,16 @@ func (r *Restore) RunSnapshot(
 	}
 
 	mapRS := util.MakeReverseRSMapFunc(r.rsMap)
+	restoreTotalBytes := logicalRestoreTotalBytes(bcp, mapRS(r.brief.SetName))
 
 	r.log.Debug("restoring up to %d collections in parallel", r.numParallelColls)
+	reporter := progress.NewReporter(ctx, r.log, time.Minute, restoreTotalBytes, 0,
+		func(ctx context.Context, p progress.Progress) error {
+			return SetRestoreRSProgress(ctx, r.leadConn, r.name, r.nodeInfo.SetName, p)
+		})
+	defer reporter.Close("restore transfer finished")
 
-	rdr, err := snapshot.DownloadDump(
+	rdr, err := snapshot.DownloadDumpWithProgress(
 		func(ns string) (io.ReadCloser, error) {
 			stg, err := util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
 			if err != nil {
@@ -1111,10 +1145,11 @@ func (r *Restore) RunSnapshot(
 					return nil, err
 				}
 
-				err = r.loadIndexesFrom(bytes.NewReader(data), cloneNS)
+				items, err := r.loadIndexesFrom(bytes.NewReader(data), cloneNS, util.MakeSelectedPred(nss))
 				if err != nil {
 					return nil, errors.Wrap(err, "load indexes")
 				}
+				reporter.SetTotalItems(int64(items))
 
 				return io.NopCloser(bytes.NewReader(data)), nil
 			}
@@ -1123,7 +1158,13 @@ func (r *Restore) RunSnapshot(
 		},
 		bcp.Compression,
 		util.MakeSelectedPred(nss),
-		r.numParallelColls)
+		r.numParallelColls,
+		func(ns string, bytes int64, done bool) {
+			reporter.AddBytes(bytes)
+			if done && ns != archive.MetaFile {
+				reporter.AddItems(1)
+			}
+		})
 	if err != nil {
 		return "", err
 	}
@@ -1163,6 +1204,17 @@ func (r *Restore) RunSnapshot(
 	}
 
 	return sysSessionsUUID, nil
+}
+
+func logicalRestoreTotalBytes(bcp *backup.BackupMeta, rsName string) int64 {
+	for i := range bcp.Replsets {
+		rs := &bcp.Replsets[i]
+		if rs.Name == rsName && rs.Size > 0 {
+			return rs.Size
+		}
+	}
+
+	return bcp.Size
 }
 
 func (r *Restore) restoreLegacyArchive(
@@ -1265,20 +1317,25 @@ func (r *Restore) restoreUsersAndRoles(ctx context.Context, nss []string) error 
 	return nil
 }
 
-func (r *Restore) loadIndexesFrom(rdr io.Reader, cloneNS snapshot.CloneNS) error {
+func (r *Restore) loadIndexesFrom(rdr io.Reader, cloneNS snapshot.CloneNS, selected archive.NSFilterFn) (int, error) {
 	meta, err := archive.ReadMetadata(rdr)
 	if err != nil {
-		return errors.Wrap(err, "read metadata")
+		return 0, errors.Wrap(err, "read metadata")
 	}
 
 	fromDB, fromColl := cloneNS.SplitFromNS()
 	toDB, toColl := cloneNS.SplitToNS()
 
+	items := 0
 	for _, ns := range meta.Namespaces {
+		if selected(archive.NSify(ns.Database, ns.Collection)) {
+			items++
+		}
+
 		var md mongorestore.Metadata
 		err := bson.UnmarshalExtJSON([]byte(ns.Metadata), true, &md)
 		if err != nil {
-			return errors.Wrapf(err, "unmarshal %s.%s metadata",
+			return 0, errors.Wrapf(err, "unmarshal %s.%s metadata",
 				ns.Database, ns.Collection)
 		}
 
@@ -1310,7 +1367,7 @@ func (r *Restore) loadIndexesFrom(rdr io.Reader, cloneNS snapshot.CloneNS) error
 		}
 	}
 
-	return nil
+	return items, nil
 }
 
 func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {

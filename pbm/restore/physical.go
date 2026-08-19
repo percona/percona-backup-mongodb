@@ -38,6 +38,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	progresspkg "github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -1189,6 +1190,7 @@ func (r *PhysRestore) Snapshot(
 	pauseHB func(),
 ) (err error) {
 	l.Debug("port: %d", r.tmpPort)
+	opStarted := time.Now()
 
 	meta := &RestoreMeta{
 		Type:     defs.PhysicalBackup,
@@ -1205,6 +1207,13 @@ func (r *PhysRestore) Snapshot(
 
 	var progress nodeStatus
 	defer func() {
+		elapsed := progresspkg.FormatDuration(time.Since(opStarted))
+		if err != nil {
+			l.Info("restore failed after %s: %v", elapsed, err)
+		} else {
+			l.Info("restore completed after %s", elapsed)
+		}
+
 		if cmd.Exit && err == nil {
 			// nothing to cleanup in case of successful ext restore with exit
 			r.closeStorages()
@@ -1694,6 +1703,8 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 
 	setName := util.MakeReverseRSMapFunc(r.rsMap)(r.nodeInfo.SetName)
 	jobs := r.planCopyFiles(setName)
+	reporter := progresspkg.NewReporter(context.Background(), r.log, time.Minute, plannedDownloadSize(jobs), 0, nil)
+	defer reporter.Close("restore transfer finished")
 
 	numWorkers := r.GetNumParallelFiles()
 	if numWorkers > 1 {
@@ -1738,7 +1749,8 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 				if err := egCtx.Err(); err != nil {
 					return err
 				}
-				if err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf); err != nil {
+				_, err := r.copyFile(op.src, job.dst, op.fMeta, op.cmpr, cpBuf, reporter)
+				if err != nil {
 					return err
 				}
 			}
@@ -1749,34 +1761,66 @@ func (r *PhysRestore) copyFiles() (*storage.DownloadStat, error) {
 	if err := eg.Wait(); err != nil {
 		return stat, err
 	}
+	if err := reporter.Flush(); err != nil {
+		r.log.Warning("update progress: %v", err)
+	}
 	return stat, nil
 }
 
+func plannedDownloadSize(jobs []copyFileJob) int64 {
+	var size int64
+	for _, job := range jobs {
+		for _, op := range job.ops {
+			if op.fMeta.StgSize > 0 {
+				size += op.fMeta.StgSize
+			} else if op.fMeta.Len > 0 {
+				size += op.fMeta.Len
+			} else {
+				size += op.fMeta.Size
+			}
+		}
+	}
+	return size
+}
+
 // copyFile copies file from the storage into local FS.
-func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compress.CompressionType, cpbuf []byte) error {
+func (r *PhysRestore) copyFile(
+	src,
+	dst string,
+	fMeta backup.File,
+	cType compress.CompressionType,
+	cpbuf []byte,
+	reporter *progresspkg.Reporter,
+) (int64, error) {
 	r.log.Info("copy <%s> to <%s>", src, dst)
+	stat, err := r.bcpStg.FileStat(src)
+	if err != nil {
+		return 0, errors.Wrapf(err, "stat source <%s>", src)
+	}
+
 	sr, err := r.bcpStg.SourceReader(src)
 	if err != nil {
-		return errors.Wrapf(err, "create source reader for <%s>", src)
+		return 0, errors.Wrapf(err, "create source reader for <%s>", src)
 	}
+	sr = progresspkg.NewCountingReadCloser(sr, reporter, progresspkg.DefaultProgressThresholdBytes)
 	defer sr.Close()
 
 	data, err := compress.Decompress(sr, cType)
 	if err != nil {
-		return errors.Wrapf(err, "decompress object %s", src)
+		return 0, errors.Wrapf(err, "decompress object %s", src)
 	}
 	defer data.Close()
 
 	fw, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, fMeta.Fmode)
 	if err != nil {
-		return errors.Wrapf(err, "create/open destination file <%s>", dst)
+		return 0, errors.Wrapf(err, "create/open destination file <%s>", dst)
 	}
 	defer fw.Close()
 
 	if fMeta.Off != 0 {
 		_, err := fw.Seek(fMeta.Off, io.SeekStart)
 		if err != nil {
-			return errors.Wrapf(err, "set file offset <%s>|%d", dst, fMeta.Off)
+			return 0, errors.Wrapf(err, "set file offset <%s>|%d", dst, fMeta.Off)
 		}
 	}
 
@@ -1790,16 +1834,16 @@ func (r *PhysRestore) copyFile(src, dst string, fMeta backup.File, cType compres
 		)
 	}
 	if err != nil {
-		return errors.Wrapf(err, "copy file <%s>", dst)
+		return 0, errors.Wrapf(err, "copy file <%s>", dst)
 	}
 
 	if fMeta.Size != 0 {
 		err = fw.Truncate(fMeta.Size)
 		if err != nil {
-			return errors.Wrapf(err, "truncate file <%s>|%d", dst, fMeta.Size)
+			return 0, errors.Wrapf(err, "truncate file <%s>|%d", dst, fMeta.Size)
 		}
 	}
-	return nil
+	return stat.Size, nil
 }
 
 func (r *PhysRestore) getLasOpTime() (bson.Timestamp, error) {

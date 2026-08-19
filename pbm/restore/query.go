@@ -14,6 +14,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
@@ -49,15 +50,20 @@ func ChangeRestoreState(ctx context.Context, m connect.Client, name string, s de
 
 func changeRestoreState(ctx context.Context, m connect.Client, clause bson.D, s defs.Status, msg string) error {
 	ts := time.Now().UTC().Unix()
+	update := bson.D{
+		{"$set", bson.M{"status": s}},
+		{"$set", bson.M{"last_transition_ts": ts}},
+		{"$set", bson.M{"error": msg}},
+		{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+	}
+	if !s.IsRunning() {
+		update = append(update, bson.E{"$unset", bson.M{"progress": ""}})
+	}
+
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		clause,
-		bson.D{
-			{"$set", bson.M{"status": s}},
-			{"$set", bson.M{"last_transition_ts": ts}},
-			{"$set", bson.M{"error": msg}},
-			{"$push", bson.M{"conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
-		},
+		update,
 	)
 
 	return err
@@ -72,17 +78,38 @@ func ChangeRestoreRSState(
 	msg string,
 ) error {
 	ts := time.Now().UTC().Unix()
+	update := bson.D{
+		{"$set", bson.M{"replsets.$.status": s}},
+		{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
+		{"$set", bson.M{"replsets.$.error": msg}},
+		{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
+	}
+	if !s.IsRunning() {
+		update = append(update, bson.E{"$unset", bson.M{"replsets.$.progress": ""}})
+	}
+
 	_, err := m.RestoresCollection().UpdateOne(
 		ctx,
 		bson.D{{"name", name}, {"replsets.name", rsName}},
-		bson.D{
-			{"$set", bson.M{"replsets.$.status": s}},
-			{"$set", bson.M{"replsets.$.last_transition_ts": ts}},
-			{"$set", bson.M{"replsets.$.error": msg}},
-			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
-		},
+		update,
 	)
 
+	return err
+}
+
+func SetRestoreProgress(ctx context.Context, m connect.Client, name string, p progress.Progress) error {
+	_, err := m.RestoresCollection().UpdateOne(ctx,
+		bson.D{{"name", name}},
+		bson.D{{"$set", bson.M{"progress": p}}},
+	)
+	return err
+}
+
+func SetRestoreRSProgress(ctx context.Context, m connect.Client, name, rsName string, p progress.Progress) error {
+	_, err := m.RestoresCollection().UpdateOne(ctx,
+		bson.D{{"name", name}, {"replsets.name", rsName}},
+		bson.D{{"$set", bson.M{"replsets.$.progress": p}}},
+	)
 	return err
 }
 

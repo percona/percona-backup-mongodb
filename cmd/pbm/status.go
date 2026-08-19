@@ -19,6 +19,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
+	"github.com/percona/percona-backup-mongodb/pbm/progress"
+	"github.com/percona/percona-backup-mongodb/pbm/restore"
 	"github.com/percona/percona-backup-mongodb/pbm/slicer"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -372,11 +374,13 @@ LOOP:
 }
 
 type currOp struct {
-	Type    ctrl.Command `json:"type,omitempty"`
-	OPID    string       `json:"opID,omitempty"`
-	Name    string       `json:"name,omitempty"`
-	StartTS int64        `json:"startTS,omitempty"`
-	Status  string       `json:"status,omitempty"`
+	Type     ctrl.Command       `json:"type,omitempty"`
+	OPID     string             `json:"opID,omitempty"`
+	Name     string             `json:"name,omitempty"`
+	StartTS  int64              `json:"startTS,omitempty"`
+	Duration int64              `json:"duration,omitempty"`
+	Status   string             `json:"status,omitempty"`
+	Progress *progress.Progress `json:"progress,omitempty"`
 }
 
 func (c currOp) String() string {
@@ -388,10 +392,14 @@ func (c currOp) String() string {
 	default:
 		return fmt.Sprintf("%s [op id: %s]", c.Type, c.OPID)
 	case ctrl.CmdBackup, ctrl.CmdRestore:
-		return fmt.Sprintf("%s \"%s\", started at %s. Status: %s. [op id: %s]",
+		s := fmt.Sprintf("%s \"%s\", started at %s. Status: %s. Duration: %s. [op id: %s]",
 			c.Type, c.Name, time.Unix((c.StartTS), 0).UTC().Format("2006-01-02T15:04:05Z"),
-			c.Status, c.OPID,
+			c.Status, progress.FormatDuration(time.Duration(c.Duration)*time.Second), c.OPID,
 		)
+		if c.Progress != nil {
+			s += ". Progress: " + c.Progress.StringAt(time.Now().Unix())
+		}
+		return s
 	}
 }
 
@@ -418,6 +426,8 @@ func getCurrOps(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 
 		r.Name = bcp.Name
 		r.StartTS = bcp.StartTS
+		r.Duration = durationSeconds(bcp.StartTS, 0)
+		r.Progress = backupProgress(bcp)
 
 		switch bcp.Status {
 		case defs.StatusRunning:
@@ -435,6 +445,8 @@ func getCurrOps(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 
 		r.Name = rst.Backup
 		r.StartTS = rst.StartTS
+		r.Duration = durationSeconds(rst.StartTS, 0)
+		r.Progress = restoreProgress(rst)
 
 		switch rst.Status {
 		case defs.StatusRunning:
@@ -447,6 +459,73 @@ func getCurrOps(ctx context.Context, pbm *sdk.Client) (fmt.Stringer, error) {
 	}
 
 	return r, nil
+}
+
+func backupProgress(bcp *backup.BackupMeta) *progress.Progress {
+	p := combineProgress(bcp.Progress, func(yield func(*progress.Progress)) {
+		for i := range bcp.Replsets {
+			yield(bcp.Replsets[i].Progress)
+		}
+	})
+	return p
+}
+
+func restoreProgress(rst *restore.RestoreMeta) *progress.Progress {
+	p := combineProgress(rst.Progress, func(yield func(*progress.Progress)) {
+		for i := range rst.Replsets {
+			yield(rst.Replsets[i].Progress)
+		}
+	})
+	return p
+}
+
+func combineProgress(fallback *progress.Progress, each func(func(*progress.Progress))) *progress.Progress {
+	var rv *progress.Progress
+	each(func(p *progress.Progress) {
+		if p == nil {
+			return
+		}
+		if rv == nil {
+			cp := *p
+			rv = &cp
+			return
+		}
+		if p.StartedAt > 0 && (rv.StartedAt == 0 || p.StartedAt < rv.StartedAt) {
+			rv.StartedAt = p.StartedAt
+		}
+		if p.UpdatedAt > rv.UpdatedAt {
+			rv.UpdatedAt = p.UpdatedAt
+		}
+		rv.DoneBytes += p.DoneBytes
+		rv.TotalBytes += p.TotalBytes
+		rv.DoneItems += p.DoneItems
+		rv.TotalItems += p.TotalItems
+	})
+	if rv != nil {
+		return rv
+	}
+	return fallback
+}
+
+func durationSeconds(start, end int64) int64 {
+	if start <= 0 {
+		return 0
+	}
+	if end <= 0 {
+		end = time.Now().Unix()
+	}
+	if end < start {
+		return 0
+	}
+	return end - start
+}
+
+func backupDuration(bcp backup.BackupMeta, now int64) int64 {
+	end := bcp.LastTransitionTS
+	if bcp.Status.IsRunning() {
+		end = now
+	}
+	return durationSeconds(bcp.StartTS, end)
 }
 
 type storageStat struct {
@@ -482,9 +561,9 @@ func (s storageStat) String() string {
 		return a.RestoreTS > b.RestoreTS
 	})
 
-	ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %s\n",
-		"NAME", "SIZE", "TYPE", "PROFILE", "SEL", "BASE", "RESTORE TIME", "STATUS")
-	ret += fmt.Sprintf("  %s\n", strings.Repeat("-", 24+10+12+20+5+4+19+6+(7*2)))
+	ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %-10s  %s\n",
+		"NAME", "SIZE", "TYPE", "PROFILE", "SEL", "BASE", "RESTORE TIME", "DURATION", "STATUS")
+	ret += fmt.Sprintf("  %s\n", strings.Repeat("-", 24+10+12+20+5+4+19+10+6+(8*2)))
 
 	for i := range s.Snapshot {
 		ss := &s.Snapshot[i]
@@ -523,7 +602,7 @@ func (s storageStat) String() string {
 			status = strings.TrimRight(status[:maxStatusLen-3], " ") + "..."
 		}
 
-		ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %s\n",
+		ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %-10s  %s\n",
 			ss.Name,
 			storage.PrettySize(ss.Size),
 			bcpType,
@@ -531,6 +610,7 @@ func (s storageStat) String() string {
 			selective,
 			base,
 			fmtTS(ss.RestoreTS),
+			progress.FormatDuration(time.Duration(ss.Duration)*time.Second),
 			status)
 	}
 
@@ -616,6 +696,7 @@ func getStorageStat(
 			SrcBackup:  bcp.SrcBackup,
 			Profile:    bcp.Store.Name,
 			StoreName:  bcp.Store.Name,
+			Duration:   backupDuration(bcp, int64(now.T)),
 		}
 		if err := bcp.Error(); err != nil {
 			snpsht.Err = err

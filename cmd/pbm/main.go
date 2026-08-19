@@ -1202,6 +1202,7 @@ type snapshotStat struct {
 	Err         error            `json:"-"`
 	ErrString   string           `json:"error,omitempty"`
 	RestoreTS   int64            `json:"restoreTo"`
+	Duration    int64            `json:"duration,omitempty"`
 	PBMVersion  string           `json:"pbmVersion"`
 	Type        defs.BackupType  `json:"type"`
 	SrcBackup   string           `json:"src"`
@@ -1222,6 +1223,24 @@ func (pr pitrRange) String() string {
 func fmtTS(ts int64) string {
 	t := time.Unix(ts, 0).UTC().Format(time.RFC3339)
 	return strings.TrimSuffix(t, "Z")
+}
+
+func isTerminalStatus(status defs.Status) bool {
+	return !status.IsRunning() || status == defs.StatusPartlyDone
+}
+
+func operationDurationSeconds(status defs.Status, start, transition int64) int64 {
+	if start <= 0 {
+		return 0
+	}
+	end := transition
+	if !isTerminalStatus(status) {
+		end = time.Now().Unix()
+	}
+	if end < start {
+		return 0
+	}
+	return end - start
 }
 
 type outMsg struct {
