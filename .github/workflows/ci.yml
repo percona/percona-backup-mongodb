@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        psmdb: ["7.0", "8.0"]
+        psmdb: ["7.0", "8.0", "8.3"]
         shard: [0, 1, 2, 3, 4, 5, 6]
     env:
       PBM_BRANCH: ${{ github.event.inputs.pbm_branch || github.ref_name }}
