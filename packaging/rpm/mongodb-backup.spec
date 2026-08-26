@@ -1,10 +1,5 @@
 %undefine _missing_build_ids_terminate_build
 %global debug_package %{nil}
-%{!?with_systemd:%global systemd 0}
-%{?el7:          %global systemd 1}
-%{?el8:          %global systemd 1}
-%{?el9:          %global systemd 1}
-%{?amzn2023:     %global systemd 1}
 
 
 Name:  percona-backup-mongodb
@@ -19,19 +14,10 @@ Source0: percona-backup-mongodb-%{version}.tar.gz
 
 BuildRequires: golang make git
 BuildRequires: krb5-devel
+BuildRequires: systemd-rpm-macros
 Requires(pre): /usr/sbin/useradd, /usr/bin/getent
 Requires(postun): /usr/sbin/userdel
-%if 0%{?systemd}
-BuildRequires:  systemd
-BuildRequires:  pkgconfig(systemd)
-Requires(post):   systemd
-Requires(preun):  systemd
-Requires(postun): systemd
-%else
-Requires(post):   /sbin/chkconfig
-Requires(preun):  /sbin/chkconfig
-Requires(preun):  /sbin/service
-%endif
+%{?systemd_requires}
 
 %description
 Percona Backup for MongoDB is a distributed, low-impact solution for achieving consistent backups of MongoDB Sharded Clusters and Replica Sets.
@@ -87,13 +73,8 @@ install -m 0755 -d $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-storage.conf $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-storage.conf
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.env $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig/pbm-agent
 install -D -m 0640 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-conf-reference.yml $RPM_BUILD_ROOT/%{_sysconfdir}/pbm-conf-reference.yml
-%if 0%{?systemd}
-  install -m 0755 -d $RPM_BUILD_ROOT/%{_unitdir}
-  install -m 0644 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.service $RPM_BUILD_ROOT/%{_unitdir}/pbm-agent.service
-%else
-  install -m 0755 -d $RPM_BUILD_ROOT/etc/rc.d/init.d
-  install -m 0750 github.com/percona/percona-backup-mongodb/packaging/rpm/pbm-agent.init $RPM_BUILD_ROOT/etc/rc.d/init.d/pbm-agent
-%endif
+install -m 0755 -d $RPM_BUILD_ROOT/%{_unitdir}
+install -m 0644 github.com/percona/percona-backup-mongodb/packaging/conf/pbm-agent.service $RPM_BUILD_ROOT/%{_unitdir}/pbm-agent.service
 
 # CycloneDX 1.6 SBOM for the .rpm. Scope = Go binaries in %{_bindir}; filename
 # is self-identifying when extracted from /usr/share/doc/. Catalogers limited
@@ -133,16 +114,10 @@ fi
 
 
 %post -n percona-backup-mongodb
-%if 0%{?systemd}
-  %systemd_post pbm-agent.service
-  if [ $1 == 1 ]; then
-      /usr/bin/systemctl enable pbm-agent >/dev/null 2>&1 || :
-  fi
-%else
-  if [ $1 == 1 ]; then
-      /sbin/chkconfig --add pbm-agent
-  fi
-%endif
+%systemd_post pbm-agent.service
+if [ $1 == 1 ]; then
+    /usr/bin/systemctl enable pbm-agent >/dev/null 2>&1 || :
+fi
 
 cat << EOF
 ** Join Percona Squad! **
@@ -155,18 +130,14 @@ Interested? Fill in the form at https://squad.percona.com/mongodb
 EOF
 
 
+%preun -n percona-backup-mongodb
+%systemd_preun pbm-agent.service
+
+
 %postun -n percona-backup-mongodb
+%systemd_postun_with_restart pbm-agent.service
 case "$1" in
-   0) # This is a yum remove.
-      %if 0%{?systemd}
-          %systemd_postun_with_restart pbm-agent.service
-      %endif
-   ;;
    1) # This is a yum upgrade.
-      %if 0%{?systemd}
-      %else
-          /sbin/service pbm-agent condrestart >/dev/null 2>&1 || :
-      %endif
       if [ ! /usr/bin/id pbm &>/dev/null ]; then
           /usr/sbin/userdel pbm
       fi
@@ -193,14 +164,15 @@ esac
 %config(noreplace) %attr(0640,root,root) /%{_sysconfdir}/sysconfig/pbm-agent
 %config(noreplace) %attr(0640,mongod,mongod) /%{_sysconfdir}/pbm-storage.conf
 %{_sysconfdir}/pbm-conf-reference.yml
-%if 0%{?systemd}
 %{_unitdir}/pbm-agent.service
-%else
-/etc/rc.d/init.d/pbm-agent
-%endif
 
 
 %changelog
+* Wed Aug 26 2026 Oleksandr Miroshnychenko <alex.miroshnychenko@percona.com>
+- PBM-1806 always install the systemd unit, drop SysV init support
+- stop and disable pbm-agent on package removal
+- restart pbm-agent on package upgrade
+
 * Tue Jan 10 2023 Oleksandr Miroshnychenko <alex.miroshnychenko@percona.com>
 - PBM-1018 add pbm-agent-entrypoint binary
 
