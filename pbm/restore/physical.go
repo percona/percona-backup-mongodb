@@ -1086,9 +1086,9 @@ func (n nodeStatus) isFailed() bool {
 // and reset buffer when logs size hist the limit.
 type logBuff struct {
 	buf   *bytes.Buffer
+	stg   storage.Storage
 	path  string
 	cnt   int
-	write func(name string, data io.Reader) error
 	limit int64
 	mx    sync.Mutex
 }
@@ -1109,7 +1109,7 @@ func (l *logBuff) Write(p []byte) (int, error) {
 
 func (l *logBuff) flush() error {
 	fname := fmt.Sprintf("%s.%d.log", l.path, l.cnt)
-	err := l.write(fname, l.buf)
+	err := l.stg.Save(fname, l.buf, storage.UseLogger(false))
 	if err != nil {
 		return errors.Wrapf(err, "write logs buffer to %s", fname)
 	}
@@ -1121,32 +1121,43 @@ func (l *logBuff) flush() error {
 
 func (l *logBuff) Flush() error {
 	l.mx.Lock()
-	defer l.mx.Unlock()
+	err := l.flush()
+	stg := l.stg
+	l.mx.Unlock()
 
-	return l.flush()
+	storage.Close(stg, nil)
+	return err
 }
 
 // enableLogBuff enables log buffer with start ordinal number: 0.
-func (r *PhysRestore) enableLogBuff(logger log.Logger) {
-	r.enableLogBuffWithOrdinal(logger, 0)
+func (r *PhysRestore) enableLogBuff(logger log.Logger) error {
+	return r.enableLogBuffWithOrdinal(logger, 0)
 }
 
 // enableLogBufferWithOrdinal enables log buffer property for the logger instance.
 // With log buffer, PBM dumps it to the storage once the buffer is full.
 // Ordinal is log number suffix that's added after the buffer is full.
-func (r *PhysRestore) enableLogBuffWithOrdinal(logger log.Logger, ordinal int) {
+func (r *PhysRestore) enableLogBuffWithOrdinal(logger log.Logger, ordinal int) error {
+	if r.newStorage == nil {
+		return errors.New("new storage is not configured")
+	}
+
+	stg, err := r.newStorage()
+	if err != nil {
+		return errors.Wrap(err, "get log storage")
+	}
+
 	r.logBuff = &logBuff{
 		buf:   &bytes.Buffer{},
+		stg:   stg,
 		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
 		cnt:   ordinal,
-		write: func(name string, data io.Reader) error {
-			// Logger should be disabled due to: PBM-1531
-			return r.stg.Save(name, data, storage.UseLogger(false))
-		},
 	}
 	logger.SefBuffer(r.logBuff)
 	logger.PauseMgo()
+
+	return nil
 }
 
 // Snapshot restores data from the physical snapshot.
@@ -1279,7 +1290,9 @@ func (r *PhysRestore) Snapshot(
 	l.Debug("%s", defs.StatusStarting)
 
 	logger := log.FromContext(ctx)
-	r.enableLogBuff(logger)
+	if err = r.enableLogBuff(logger); err != nil {
+		return errors.Wrap(err, "enable log buffer")
+	}
 
 	_, err = r.toState(defs.StatusRunning)
 	if err != nil {
@@ -3338,7 +3351,9 @@ func physRestoreFromExtDump(
 	restoreMeta := extDump.RestoreMeta
 
 	logger := l.GetLogger()
-	physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal+1)
+	if err := physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal+1); err != nil {
+		return nil, nil, errors.Wrap(err, "enable log buffer")
+	}
 
 	// set security opts
 	if cmd.DBCfgPath != "" {
