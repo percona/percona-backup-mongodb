@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
+	"github.com/mongodb/mongo-tools/common/idx"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -1985,12 +1986,13 @@ func (r *PhysRestore) replayPITROnStandalone(
 		end:    &to,
 		unsafe: true,
 	}
+	indexCatalog := idx.NewIndexCatalog()
 	partial, err := applyOplog(ctx,
 		nodeConn,
 		oplogRanges,
 		&oplogOption,
 		r.nodeInfo,
-		nil,
+		indexCatalog,
 		r.setcommittedTxn,
 		r.getcommittedTxn,
 		&stat.Txn,
@@ -2014,7 +2016,57 @@ func (r *PhysRestore) replayPITROnStandalone(
 		}
 	}
 
+	err = r.restoreIndexes(ctx, nodeConn, indexCatalog)
+	if err != nil {
+		return errors.Wrap(err, "restore index")
+	}
+
 	return r.shutdown(nodeConn)
+}
+
+func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client, idxc *idx.IndexCatalog) error {
+	r.log.Debug("building indexes up")
+	for _, ns := range idxc.Namespaces() {
+		indexes := idxc.GetIndexes(ns.DB, ns.Collection)
+		for i, index := range indexes {
+			if len(index.Key) == 1 && index.Key[0].Key == "_id" {
+				// The _id index is already created with the collection
+				indexes = append(indexes[:i], indexes[i+1:]...)
+				break
+			}
+		}
+
+		if len(indexes) == 0 {
+			continue
+		}
+
+		var indexNames []string
+		for _, index := range indexes {
+			index.Options["ns"] = ns.DB + "." + ns.Collection
+			indexNames = append(indexNames, index.Options["name"].(string))
+			// remove the index version, forcing an update
+			delete(index.Options, "v")
+		}
+
+		rawCommand := createPhysicalIndexesCommand(ns.Collection, indexes)
+
+		r.log.Info("restoring indexes for %s.%s: %s",
+			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
+		err := nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+		if err != nil {
+			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
+		}
+	}
+
+	return nil
+}
+
+func createPhysicalIndexesCommand(collection string, indexes []*idx.IndexDocument) bson.D {
+	return bson.D{
+		{"createIndexes", collection},
+		{"indexes", indexes},
+		{"ignoreUnknownIndexOptions", true},
+	}
 }
 
 func (r *PhysRestore) resetRS() error {
