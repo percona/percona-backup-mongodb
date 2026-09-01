@@ -432,3 +432,19 @@ func replayChunk(
 	lts, err := oplog.Apply(oplogReader)
 	return lts, errors.Wrap(err, "apply oplog for chunk")
 }
+
+// createIndexesCommand builds createIndexes command for the specified collection.
+// When commitQuorum is nil, the commitQuorum field is omitted from the command and
+// that's mandatory for standalone mongod instance.
+func createIndexesCommand(collection string, indexes []*idx.IndexDocument, commitQuorum any) bson.D {
+	cmd := bson.D{
+		{"createIndexes", collection},
+		{"indexes", indexes},
+		{"ignoreUnknownIndexOptions", true},
+	}
+	if commitQuorum != nil {
+		cmd = append(cmd, bson.E{"commitQuorum", commitQuorum})
+	}
+
+	return cmd
+}

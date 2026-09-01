@@ -2048,7 +2048,7 @@ func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client
 			delete(index.Options, "v")
 		}
 
-		rawCommand := createPhysicalIndexesCommand(ns.Collection, indexes)
+		rawCommand := createIndexesCommand(ns.Collection, indexes, nil)
 
 		r.log.Info("restoring indexes for %s.%s: %s",
 			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
@@ -2059,14 +2059,6 @@ func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client
 	}
 
 	return nil
-}
-
-func createPhysicalIndexesCommand(collection string, indexes []*idx.IndexDocument) bson.D {
-	return bson.D{
-		{"createIndexes", collection},
-		{"indexes", indexes},
-		{"ignoreUnknownIndexOptions", true},
-	}
 }
 
 func (r *PhysRestore) resetRS() error {
