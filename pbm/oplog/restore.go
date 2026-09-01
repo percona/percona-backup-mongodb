@@ -151,6 +151,7 @@ type mDBCl interface {
 type OplogRestore struct {
 	mdb               mDBCl
 	ver               *db.Version
+	backupType        defs.BackupType
 	needIdxWorkaround bool
 	startTS           bson.Timestamp
 	endTS             bson.Timestamp
@@ -190,6 +191,7 @@ func NewOplogRestore(
 	m *mongo.Client,
 	ic *idx.IndexCatalog,
 	sv *version.MongoVersion,
+	backupType defs.BackupType,
 	nodeInfo *topo.NodeInfo,
 	log log.LogEvent,
 ) (*OplogRestore, error) {
@@ -215,6 +217,7 @@ func NewOplogRestore(
 	return &OplogRestore{
 		mdb:               newMDB(m),
 		ver:               ver,
+		backupType:        backupType,
 		preserveUUID:      true,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      ic,
@@ -1172,7 +1175,12 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 			_ = o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
-			return nil
+			if o.backupType == defs.LogicalBackup {
+				// for logical backup index still doesn't exist
+				return nil
+			}
+			// for physical backup index will be dropped
+
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {
 				bsonutil.RemoveKey("noPadding", &op.Object)

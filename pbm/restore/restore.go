@@ -334,11 +334,19 @@ func applyOplog(
 	getTxn getcommittedTxnFn,
 	stat *phys.DistTxnStat,
 	mgoV *version.MongoVersion,
+	backupType defs.BackupType,
 ) (partial []oplog.Txn, err error) {
 	log := log.LogEventFromContext(ctx)
 	log.Info("starting oplog replay")
 
-	oplogRestore, err := oplog.NewOplogRestore(node, ic, mgoV, info, log)
+	oplogRestore, err := oplog.NewOplogRestore(
+		node,
+		ic,
+		mgoV,
+		backupType,
+		info,
+		log,
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}

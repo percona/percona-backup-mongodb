@@ -1585,7 +1585,9 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 		r.setcommittedTxn,
 		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+		defs.LogicalBackup,
+	)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}

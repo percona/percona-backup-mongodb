@@ -1996,7 +1996,9 @@ func (r *PhysRestore) replayPITROnStandalone(
 		r.setcommittedTxn,
 		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+		defs.PhysicalBackup,
+	)
 	if err != nil {
 		return errors.Wrap(err, "replay oplog")
 	}
@@ -2025,7 +2027,7 @@ func (r *PhysRestore) replayPITROnStandalone(
 }
 
 func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client, idxc *idx.IndexCatalog) error {
-	r.log.Debug("building indexes up")
+	r.log.Debug("building indexes created during PITR")
 	for _, ns := range idxc.Namespaces() {
 		indexes := idxc.GetIndexes(ns.DB, ns.Collection)
 		for i, index := range indexes {
