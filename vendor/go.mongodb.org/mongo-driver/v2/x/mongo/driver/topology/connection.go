@@ -65,6 +65,16 @@ func wrapConnectionError(connErr ConnectionError) error {
 	if errors.As(connErr.Wrapped, &unknownCAErr) {
 		return connErr
 	}
+	// tls.RecordHeaderError is a non-I/O TLS error per the CMAP spec: the peer
+	// sent bytes that don't form a valid TLS record. This cannot indicate
+	// server overload.
+	//
+	// TODO(GODRIVER-3956): Make the TLS record header error check and test work
+	// on Windows.
+	var tlsRecordHeaderErr tls.RecordHeaderError
+	if errors.As(connErr.Wrapped, &tlsRecordHeaderErr) {
+		return connErr
+	}
 	return driver.Error{
 		Labels:  []string{driver.ErrSystemOverloadedError, driver.ErrRetryableError, driver.NetworkError},
 		Wrapped: connErr,
@@ -810,6 +820,9 @@ func (c *Connection) ServerConnectionID() *int64 {
 func (c *Connection) Stale() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if c.connection == nil {
+		return true
+	}
 	return c.connection.pool.stale(c.connection)
 }
 
@@ -835,19 +848,28 @@ func (c *Connection) LocalAddress() address.Address {
 
 // PinToCursor updates this connection to reflect that it is pinned to a cursor.
 func (c *Connection) PinToCursor() error {
-	return c.pin("cursor", c.connection.pool.pinConnectionToCursor, c.connection.pool.unpinConnectionFromCursor)
+	return c.pin("cursor",
+		func() { c.connection.pool.pinConnectionToCursor() },
+		func() { c.connection.pool.unpinConnectionFromCursor() })
 }
 
 // PinToTransaction updates this connection to reflect that it is pinned to a transaction.
 func (c *Connection) PinToTransaction() error {
-	return c.pin("transaction", c.connection.pool.pinConnectionToTransaction, c.connection.pool.unpinConnectionFromTransaction)
+	return c.pin("transaction",
+		func() { c.connection.pool.pinConnectionToTransaction() },
+		func() { c.connection.pool.unpinConnectionFromTransaction() })
 }
 
 func (c *Connection) pin(reason string, updatePoolFn, cleanupPoolFn func()) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	if c.connection == nil {
 		return fmt.Errorf("attempted to pin a connection for a %s, but the connection has already been returned to the pool", reason)
+	}
+
+	if c.connection.pool == nil {
+		return fmt.Errorf("attempted to pin a connection for a %s, but the connection is not associated with a pool", reason)
 	}
 
 	// Only use the provided callbacks for the first reference to avoid double-counting pinned connection statistics
