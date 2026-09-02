@@ -39,6 +39,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -1960,7 +1961,7 @@ func (r *PhysRestore) replayPITROnStandalone(
 	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
-	ctx := context.Background()
+	ctx := log.SetLogEventToContext(context.Background(), r.log)
 	flags := []string{
 		"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
@@ -1986,22 +1987,18 @@ func (r *PhysRestore) replayPITROnStandalone(
 		end:    &to,
 		unsafe: true,
 	}
-	indexCatalog := idx.NewIndexCatalog()
-	partial, err := applyOplog(ctx,
+	partial, err := r.replayOplogWithIndexes(
+		ctx,
 		nodeConn,
 		oplogRanges,
 		&oplogOption,
-		r.nodeInfo,
-		indexCatalog,
-		r.setcommittedTxn,
-		r.getcommittedTxn,
 		&stat.Txn,
 		&mgoV,
-		defs.PhysicalBackup,
 	)
 	if err != nil {
-		return errors.Wrap(err, "replay oplog")
+		return err
 	}
+
 	if len(partial) > 0 {
 		tops := []db.Oplog{}
 		for _, t := range partial {
@@ -2018,14 +2015,46 @@ func (r *PhysRestore) replayPITROnStandalone(
 		}
 	}
 
-	err = r.restoreIndexes(ctx, nodeConn, indexCatalog)
-	if err != nil {
-		return errors.Wrap(err, "restore index")
-	}
-
 	return r.shutdown(nodeConn)
 }
 
+// replayOplogWithIndexes replays oplog ranges and builds the indexes after.
+func (r *PhysRestore) replayOplogWithIndexes(
+	ctx context.Context,
+	nodeConn *mongo.Client,
+	oplogRanges []oplogRange,
+	oplogOption *applyOplogOption,
+	stat *phys.DistTxnStat,
+	mgoV *version.MongoVersion,
+) ([]oplog.Txn, error) {
+	indexCatalog := idx.NewIndexCatalog()
+	partial, err := applyOplog(
+		ctx,
+		nodeConn,
+		oplogRanges,
+		oplogOption,
+		r.nodeInfo,
+		indexCatalog,
+		r.setcommittedTxn,
+		r.getcommittedTxn,
+		stat,
+		mgoV,
+		defs.PhysicalBackup,
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "replay oplog")
+	}
+
+	err = r.restoreIndexes(ctx, nodeConn, indexCatalog)
+	if err != nil {
+		return nil, errors.Wrap(err, "restore index")
+	}
+
+	return partial, nil
+}
+
+// restoreIndexes builds all the indexes collected in the index catalog
+// during the oplog replay of the physical PITR.
 func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client, idxc *idx.IndexCatalog) error {
 	r.log.Debug("building indexes created during PITR")
 	for _, ns := range idxc.Namespaces() {
