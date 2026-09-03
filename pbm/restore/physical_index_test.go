@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -119,6 +120,70 @@ func TestReplayOplogWithIndexes(t *testing.T) {
 		)
 
 		assertIndexNames(t, coll, idIndexName, "preA_1", "fieldA_1", "fieldC_-1")
+	})
+
+	t.Run("existing TTL index is modified within oplog", func(t *testing.T) {
+		// the TTL index is a part of the data files restored from the backup,
+		// so it's not in the index catalog and collMod is applied on the node
+		coll := setupCollection(
+			t,
+			"phys_idx_pre_collmod",
+			"c1",
+			mongo.IndexModel{
+				Keys:    bson.D{{"createdAt", 1}},
+				Options: options.Index().SetName("ttl_1").SetExpireAfterSeconds(100),
+			},
+		)
+
+		replayIndexOplog(
+			t,
+			collModOp(t, coll, ts(110), "ttl_1", bson.D{
+				{"expireAfterSeconds", 200},
+				{"hidden", true},
+			}),
+		)
+
+		assertIndexNames(t, coll, idIndexName, "ttl_1")
+		assertIndexProperties(t, coll, "ttl_1", bson.M{"expireAfterSeconds": 200, "hidden": true})
+	})
+
+	t.Run("existing index is hidden within oplog", func(t *testing.T) {
+		// collMod is not limited to the TTL indexes
+		coll := setupCollection(
+			t,
+			"phys_idx_pre_collmod_hidden",
+			"c1",
+			mongo.IndexModel{
+				Keys:    bson.D{{"fieldX", -1}},
+				Options: options.Index().SetName("fieldX_-1"),
+			},
+		)
+
+		replayIndexOplog(
+			t,
+			collModOp(t, coll, ts(110), "fieldX_-1", bson.D{{"hidden", true}}),
+		)
+
+		assertIndexNames(t, coll, idIndexName, "fieldX_-1")
+		assertIndexProperties(t, coll, "fieldX_-1", bson.M{"hidden": true})
+	})
+
+	t.Run("index created within oplog is modified within oplog", func(t *testing.T) {
+		coll := setupCollection(t, "phys_idx_created_collmod", "c1")
+
+		// the index is in the catalog, so collMod is applied on the catalog
+		// and the index is built with the modified option
+		replayIndexOplog(
+			t,
+			createTTLIndexesOp(t, coll, ts(110), "ttl_1", 100),
+			collModOp(t, coll, ts(120), "ttl_1", bson.D{
+				{"expireAfterSeconds", 200},
+				{"hidden", true},
+			}),
+		)
+
+		assertIndexNames(t, coll, idIndexName, "ttl_1")
+		assertIndexProperties(t, coll, "ttl_1", bson.M{"expireAfterSeconds": 200, "hidden": true})
 	})
 }
 
@@ -248,6 +313,41 @@ func assertIndexNames(t *testing.T, coll *mongo.Collection, want ...string) {
 	}
 }
 
+// assertIndexProperties checks options of the collection's index.
+func assertIndexProperties(t *testing.T, coll *mongo.Collection, idxName string, want bson.M) {
+	t.Helper()
+
+	ctx := t.Context()
+	cur, err := coll.Indexes().List(ctx)
+	if err != nil {
+		t.Fatalf("list indexes: %v", err)
+	}
+
+	var specs []bson.M
+	if err := cur.All(ctx, &specs); err != nil {
+		t.Fatalf("decode indexes: %v", err)
+	}
+
+	for _, spec := range specs {
+		if spec["name"] != idxName {
+			continue
+		}
+		for opt, wantVal := range want {
+			gotVal, ok := spec[opt]
+			if !ok {
+				t.Errorf("index %s has no %q option", idxName, opt)
+				continue
+			}
+			if fmt.Sprint(gotVal) != fmt.Sprint(wantVal) {
+				t.Errorf("wrong %q for index %s: want=%v, got=%v", opt, idxName, wantVal, gotVal)
+			}
+		}
+		return
+	}
+
+	t.Fatalf("index %s not found", idxName)
+}
+
 func createIndexesOp(
 	t *testing.T,
 	coll *mongo.Collection,
@@ -276,6 +376,41 @@ func dropIndexesOp(
 	return cmdOp(t, coll, ts, bson.D{
 		{"dropIndexes", coll.Name()},
 		{"index", idxName},
+	})
+}
+
+// createTTLIndexesOp creates "createIndexes" op for a TTL index on "createdAt".
+func createTTLIndexesOp(
+	t *testing.T,
+	coll *mongo.Collection,
+	ts bson.Timestamp,
+	idxName string,
+	expireAfterSeconds int32,
+) db.Oplog {
+	t.Helper()
+
+	return cmdOp(t, coll, ts, bson.D{
+		{"createIndexes", coll.Name()},
+		{"v", 2},
+		{"key", bson.D{{"createdAt", 1}}},
+		{"name", idxName},
+		{"expireAfterSeconds", expireAfterSeconds},
+	})
+}
+
+// collModOp creates "collMod" op which applies mod on the index options.
+func collModOp(
+	t *testing.T,
+	coll *mongo.Collection,
+	ts bson.Timestamp,
+	idxName string,
+	mod bson.D,
+) db.Oplog {
+	t.Helper()
+
+	return cmdOp(t, coll, ts, bson.D{
+		{"collMod", coll.Name()},
+		{"index", append(bson.D{{"name", idxName}}, mod...)},
 	})
 }
 

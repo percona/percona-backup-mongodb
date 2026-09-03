@@ -1187,18 +1187,28 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				bsonutil.RemoveKey("usePowerOf2Sizes", &op.Object)
 			}
 
-			indexModValue, found := bsonutil.RemoveKey("index", &op.Object)
-			if !found {
+			indexModValue, err := bsonutil.FindValueByKey("index", &op.Object)
+			if err != nil {
 				break
 			}
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
-			err := o.indexCatalog.CollMod(dbName, collName, indexModValue)
-			if err != nil {
+			if err := o.indexCatalog.CollMod(dbName, collName, indexModValue); err != nil {
+				if o.backupType == defs.PhysicalBackup &&
+					strings.Contains(err.Error(), "cannot find index in indexCatalog for collMod") {
+					// For physical backup, missing index means that it already exists on the node.
+					// The command keeps its index modifier, so it's applied on the node.
+					break
+				}
+
 				return err
 			}
+
+			// The index modification is done on the index catalog,
+			// so it's stripped from the command.
+			bsonutil.RemoveKey("index", &op.Object)
 			// Don't apply the collMod if the only modification was for an index.
 			if len(op.Object) == 1 {
 				return nil
