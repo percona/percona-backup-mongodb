@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/lifecycle"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/sdk"
@@ -74,7 +75,7 @@ func deleteBackup(
 		return &outMsg{""}, nil
 	}
 
-	return waitForDelete(ctx, conn, pbm, cid)
+	return waitForDelete(ctx, conn, pbm, cid, os.Stdout)
 }
 
 func deleteBackupByName(ctx context.Context, pbm *sdk.Client, d *deleteBcpOpts) (sdk.CommandID, error) {
@@ -249,7 +250,7 @@ func deletePITR(
 		defer cancel()
 	}
 
-	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	rv, err := waitForDelete(ctx, conn, pbm, cid, os.Stdout)
 	if errors.Is(err, context.DeadlineExceeded) {
 		err = errWaitTimeout
 	}
@@ -258,6 +259,7 @@ func deletePITR(
 
 type cleanupOptions struct {
 	olderThan string
+	lifecycle bool
 	yes       bool
 	wait      bool
 	waitTime  time.Duration
@@ -265,7 +267,40 @@ type cleanupOptions struct {
 	profile   ProfileFlag
 }
 
-func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cleanupOptions) (fmt.Stringer, error) {
+func doCleanup(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	d *cleanupOptions,
+	out outFormat,
+) (fmt.Stringer, error) {
+	if err := validateCleanupMode(d.olderThan, d.lifecycle); err != nil {
+		return nil, err
+	}
+	if d.lifecycle {
+		return doLifecycleCleanup(ctx, conn, pbm, d, out)
+	}
+
+	return doCleanupOlderThan(ctx, conn, pbm, d)
+}
+
+func validateCleanupMode(olderThan string, lifecycle bool) error {
+	if olderThan == "" && !lifecycle {
+		return errors.New("either --older-than or --lifecycle should be set")
+	}
+	if olderThan != "" && lifecycle {
+		return errors.New("cannot use --older-than and --lifecycle at the same command")
+	}
+
+	return nil
+}
+
+func doCleanupOlderThan(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	d *cleanupOptions,
+) (fmt.Stringer, error) {
 	ts, err := parseOlderThan(d.olderThan)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse --older-than")
@@ -322,9 +357,104 @@ func doCleanup(ctx context.Context, conn connect.Client, pbm *sdk.Client, d *cle
 		defer cancel()
 	}
 
-	rv, err := waitForDelete(ctx, conn, pbm, cid)
+	rv, err := waitForDelete(ctx, conn, pbm, cid, os.Stdout)
 	if errors.Is(err, context.DeadlineExceeded) {
 		err = errWaitTimeout
+	}
+	return rv, err
+}
+
+func doLifecycleCleanup(
+	ctx context.Context,
+	conn connect.Client,
+	pbm *sdk.Client,
+	d *cleanupOptions,
+	out outFormat,
+) (fmt.Stringer, error) {
+	if err := d.profile.Validate(ctx, conn); err != nil {
+		return nil, err
+	}
+	if !d.dryRun {
+		if err := checkForAnotherOperation(ctx, pbm); err != nil {
+			return nil, err
+		}
+	}
+
+	lifecycleAt := bson.Timestamp{T: uint32(time.Now().Unix())}
+	evaluationTime := time.Unix(int64(lifecycleAt.T), 0).UTC()
+	report, err := lifecycle.BuildReport(
+		ctx, conn, d.profile.Value(), evaluationTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	result := lifecycleResult{Report: report}
+	if d.dryRun || !report.ConfigUsed.Enabled {
+		return result, nil
+	}
+	if out == outText {
+		fmt.Println(report.String())
+	}
+	if report.Aborted {
+		result.Msg = "Lifecycle cleanup aborted."
+		return result, nil
+	}
+	if len(report.BackupsPurged) == 0 {
+		result.Msg = "No backups to purge."
+		return result, nil
+	}
+
+	if !d.yes {
+		promptOut := os.Stdout
+		if out != outText {
+			promptOut = os.Stderr
+			fmt.Fprintln(promptOut, report.String())
+		}
+		if err := askConfirmationTo(
+			promptOut,
+			"Are you sure you want to permanently delete the purged backups?",
+		); err != nil {
+			if !errors.Is(err, errUserCanceled) {
+				return nil, err
+			}
+			result.Msg = err.Error()
+			return result, nil
+		}
+	}
+
+	cid, err := pbm.RunLifecycleCleanup(ctx, lifecycleAt, d.profile.Value())
+	if err != nil {
+		return nil, errors.Wrap(err, "send command")
+	}
+	if !d.wait {
+		result.Msg = "Processing by agents. Please check status later"
+		return result, nil
+	}
+
+	if d.waitTime > time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.waitTime)
+		defer cancel()
+	}
+
+	progressOut := os.Stdout
+	if out != outText {
+		progressOut = os.Stderr
+	}
+	rv, err := waitForDelete(ctx, conn, pbm, cid, progressOut)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errWaitTimeout
+	}
+	if err == nil && out != outText {
+		result.Msg = "Lifecycle cleanup completed."
+		switch rv := rv.(type) {
+		case outMsg:
+			result.Msg = rv.Msg
+		case *outMsg:
+			result.Msg = rv.Msg
+		}
+		return result, nil
 	}
 	return rv, err
 }
@@ -430,17 +560,20 @@ func waitForDelete(
 	conn connect.Client,
 	pbm *sdk.Client,
 	cid sdk.CommandID,
+	progressOut io.Writer,
 ) (fmt.Stringer, error) {
 	commandCtx, stopProgress := context.WithCancel(ctx)
 	defer stopProgress()
 
 	go func() {
-		fmt.Print("Waiting for delete to be done ")
+		fmt.Fprint(progressOut, "Waiting for delete to be done ")
 
-		for tick := time.NewTicker(time.Second); ; {
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		for {
 			select {
 			case <-tick.C:
-				fmt.Print(".")
+				fmt.Fprint(progressOut, ".")
 			case <-commandCtx.Done():
 				return
 			}
@@ -482,6 +615,6 @@ func waitForDelete(
 	}
 
 	stopProgress()
-	fmt.Println("[done]")
+	fmt.Fprintln(progressOut, "[done]")
 	return runList(ctx, conn, pbm, &listOpts{})
 }

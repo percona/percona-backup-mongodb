@@ -66,6 +66,26 @@ type Storage interface {
 	DownloadStat() DownloadStat
 }
 
+type Closable interface {
+	Close() error
+}
+
+func Close(stg Storage, l log.LogEvent) {
+	if stg == nil {
+		return
+	}
+
+	c, ok := stg.(Closable)
+	if !ok {
+		return
+	}
+
+	err := c.Close()
+	if err != nil && l != nil {
+		l.Warning("close %s storage: %v", stg.Type(), err)
+	}
+}
+
 // ParseType parses string and returns storage type
 func ParseType(s string) Type {
 	switch s {
@@ -338,7 +358,6 @@ func UploadWithOpts(
 //
 // It's intended for backends that support multipart or resumable uploads:
 //   - AWS S3 (multipart upload with part count limits)
-//   - GCS XML API (via MinIO, with HMAC credentials)
 //   - GCS JSON API (resumable upload, used for Writer.ChunkSize tuning)
 //
 // Behavior:
@@ -349,7 +368,7 @@ func UploadWithOpts(
 //   - The chunk size is scaled by a 1.5x safety factor to ensure a margin.
 //
 // This function ensures that uploads stay within service limits.
-// For example, AWS S3 and GCS XML APIs have a hard cap of 10,000 parts, so:
+// For example, AWS S3 APIs have a hard cap of 10,000 parts, so:
 //   - With a 10 MiB part size, the max supported file size is ~97.6 GiB.
 //   - Larger files must use larger part sizes to stay under the limit.
 //

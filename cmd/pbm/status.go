@@ -482,9 +482,9 @@ func (s storageStat) String() string {
 		return a.RestoreTS > b.RestoreTS
 	})
 
-	ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %s\n",
-		"NAME", "SIZE", "TYPE", "PROFILE", "SEL", "BASE", "RESTORE TIME", "STATUS")
-	ret += fmt.Sprintf("  %s\n", strings.Repeat("-", 24+10+12+20+5+4+19+6+(7*2)))
+	ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %-10s  %s\n",
+		"NAME", "SIZE", "TYPE", "PROFILE", "SEL", "BASE", "RESTORE TIME", "DURATION", "STATUS")
+	ret += fmt.Sprintf("  %s\n", strings.Repeat("-", 24+10+12+20+5+4+19+10+6+(8*2)))
 
 	for i := range s.Snapshot {
 		ss := &s.Snapshot[i]
@@ -523,7 +523,12 @@ func (s storageStat) String() string {
 			status = strings.TrimRight(status[:maxStatusLen-3], " ") + "..."
 		}
 
-		ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %s\n",
+		duration := "-"
+		if ss.Duration != "" {
+			duration = ss.Duration
+		}
+
+		ret += fmt.Sprintf("  %-24s  %-10s  %-12s  %-20s  %-5s  %-4s  %-19s  %-10s  %s\n",
 			ss.Name,
 			storage.PrettySize(ss.Size),
 			bcpType,
@@ -531,6 +536,7 @@ func (s storageStat) String() string {
 			selective,
 			base,
 			fmtTS(ss.RestoreTS),
+			duration,
 			status)
 	}
 
@@ -583,10 +589,6 @@ func getStorageStat(
 	}
 	bcps = filterByProfile(bcps, profile)
 
-	inf, err := topo.GetNodeInfoExt(ctx, conn.MongoClient())
-	if err != nil {
-		return s, errors.Wrap(err, "define cluster state")
-	}
 	ver, err := version.GetMongoVersion(ctx, conn.MongoClient())
 	if err != nil {
 		return nil, errors.Wrap(err, "get mongo version")
@@ -603,12 +605,6 @@ func getStorageStat(
 
 	bcpsMatchCluster(bcps, ver.VersionString, fcv, shards, rsMap)
 
-	stg, err := util.GetStorage(ctx, conn, inf.Me,
-		log.FromContext(ctx).NewEvent("", "", "", bson.Timestamp{}))
-	if err != nil {
-		return s, errors.Wrap(err, "get storage")
-	}
-
 	now, err := topo.GetClusterTime(ctx, conn)
 	if err != nil {
 		return nil, errors.Wrap(err, "get cluster time")
@@ -618,8 +614,10 @@ func getStorageStat(
 		snpsht := snapshotStat{
 			Name:       bcp.Name,
 			Namespaces: bcp.Namespaces,
+			Size:       bcp.Size,
 			Status:     bcp.Status,
 			RestoreTS:  bcp.LastTransitionTS,
+			Duration:   bcpDuration(&bcp),
 			PBMVersion: bcp.PBMVersion,
 			Type:       bcp.Type,
 			SrcBackup:  bcp.SrcBackup,
@@ -650,15 +648,6 @@ func getStorageStat(
 				snpsht.Status = defs.StatusError
 				snpsht.PrintStatus = defs.StatusError.PrintStatus()
 			}
-		}
-
-		bcp := bcp
-		snpsht.Size, err = getBackupSize(&bcp, stg)
-		if err != nil {
-			snpsht.Err = err
-			snpsht.ErrString = err.Error()
-			snpsht.Status = defs.StatusError
-			snpsht.PrintStatus = defs.StatusError.PrintStatus()
 		}
 
 		s.Snapshot = append(s.Snapshot, snpsht)
@@ -764,77 +753,4 @@ func isValidBaseSnapshot(bcp *backup.BackupMeta) bool {
 	}
 
 	return false
-}
-
-func getBackupSize(bcp *backup.BackupMeta, stg storage.Storage) (int64, error) {
-	if bcp.Size > 0 {
-		return bcp.Size, nil
-	}
-
-	var s int64
-	var err error
-	switch bcp.Status {
-	case defs.StatusDone, defs.StatusCancelled, defs.StatusError:
-		s, err = getLegacySnapshotSize(bcp, stg)
-		if errors.Is(err, errMissedFile) && bcp.Status != defs.StatusDone {
-			// canceled/failed backup can be incomplete. ignore
-			err = nil
-		}
-	}
-
-	return s, err
-}
-
-func getLegacySnapshotSize(bcp *backup.BackupMeta, stg storage.Storage) (int64, error) {
-	switch bcp.Type {
-	case defs.LogicalBackup:
-		return getLegacyLogicalSize(bcp, stg)
-	case defs.PhysicalBackup, defs.IncrementalBackup:
-		return getLegacyPhysSize(bcp.Replsets)
-	case defs.ExternalBackup:
-		return 0, nil
-	default:
-		return 0, errors.Errorf("unknown backup type %s", bcp.Type)
-	}
-}
-
-func getLegacyPhysSize(rsets []backup.BackupReplset) (int64, error) {
-	var s int64
-	for _, rs := range rsets {
-		for _, f := range rs.Files {
-			s += f.StgSize
-		}
-	}
-
-	return s, nil
-}
-
-var errMissedFile = errors.New("missed file")
-
-func getLegacyLogicalSize(bcp *backup.BackupMeta, stg storage.Storage) (int64, error) {
-	var s int64
-	var err error
-	for _, rs := range bcp.Replsets {
-		ds, er := stg.FileStat(rs.DumpName)
-		if er != nil {
-			if bcp.Status == defs.StatusDone || !errors.Is(er, storage.ErrNotExist) {
-				return s, errors.Wrapf(er, "get file %s", rs.DumpName)
-			}
-
-			err = errMissedFile
-		}
-
-		op, er := stg.FileStat(rs.OplogName)
-		if er != nil {
-			if bcp.Status == defs.StatusDone || !errors.Is(er, storage.ErrNotExist) {
-				return s, errors.Wrapf(er, "get file %s", rs.OplogName)
-			}
-
-			err = errMissedFile
-		}
-
-		s += ds.Size + op.Size
-	}
-
-	return s, err
 }

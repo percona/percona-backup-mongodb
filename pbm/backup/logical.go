@@ -27,6 +27,8 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
+const namespaceStatsConcurrency = 50
+
 func (b *Backup) doLogical(
 	ctx context.Context,
 	bcp *ctrl.BackupCmd,
@@ -41,10 +43,12 @@ func (b *Backup) doLogical(
 			return errors.Wrap(err, "check for timeseries")
 		}
 	}
+	sizesStarted := time.Now()
 	nssSize, err := getNamespacesSize(ctx, b.nodeConn, bcp.Namespaces)
 	if err != nil {
 		return errors.Wrap(err, "get namespaces size")
 	}
+	l.Info("got sizes of %d namespaces in %s", len(nssSize), time.Since(sizesStarted).Round(time.Millisecond))
 
 	sizeHints := make(map[string]int64, len(nssSize))
 	for ns, cs := range nssSize {
@@ -198,6 +202,7 @@ func (b *Backup) doLogical(
 			if err != nil {
 				return errors.Wrap(err, "get storage")
 			}
+			defer storage.Close(stg, l)
 			filepath := path.Join(bcp.Name, rsMeta.Name, ns+ext)
 			return stg.Save(filepath, r, storage.Size(sizeHints[ns]))
 		},
@@ -432,6 +437,11 @@ type collSize struct {
 }
 
 func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[string]collSize, error) {
+	type namespace struct {
+		db   string
+		coll string
+	}
+
 	rv := make(map[string]collSize)
 
 	dbs, err := m.ListDatabaseNames(ctx, bson.D{})
@@ -445,21 +455,21 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 	isSelected := util.MakeSelectedPred(nss)
 
 	mu := sync.Mutex{}
-	eg, ctx := errgroup.WithContext(ctx)
+	dbEg, dbCtx := errgroup.WithContext(ctx)
+	dbEg.SetLimit(namespaceStatsConcurrency)
 
+	var collections []namespace
 	for _, db := range dbs {
 		db := db
 
-		eg.Go(func() error {
-			res, err := m.Database(db).ListCollectionSpecifications(ctx, bson.D{})
+		dbEg.Go(func() error {
+			res, err := m.Database(db).ListCollectionSpecifications(dbCtx, bson.D{})
 			if err != nil {
 				return errors.Wrapf(err, "list collections for %q", db)
 			}
 			if len(res) == 0 {
 				return nil
 			}
-
-			eg, ctx := errgroup.WithContext(ctx)
 
 			for _, coll := range res {
 				if coll.Type == "view" || strings.HasPrefix(coll.Name, "system.buckets.") {
@@ -471,32 +481,48 @@ func getNamespacesSize(ctx context.Context, m *mongo.Client, nss []string) (map[
 					continue
 				}
 
-				eg.Go(func() error {
-					res := m.Database(db).RunCommand(ctx, bson.D{{"collStats", coll.Name}})
-					if err := res.Err(); err != nil {
-						return errors.Wrapf(err, "collStats %q", ns)
-					}
-
-					var doc collSize
-
-					if err := res.Decode(&doc); err != nil {
-						return errors.Wrapf(err, "decode %q", ns)
-					}
-
-					mu.Lock()
-					rv[ns] = doc
-					mu.Unlock()
-
-					return nil
-				})
+				mu.Lock()
+				collections = append(collections, namespace{db: db, coll: coll.Name})
+				mu.Unlock()
 			}
 
-			return eg.Wait()
+			return nil
 		})
 	}
 
-	err = eg.Wait()
-	return rv, err
+	dbErr := dbEg.Wait()
+	if dbErr != nil {
+		return rv, dbErr
+	}
+
+	rv = make(map[string]collSize, len(collections))
+	colEg, colCtx := errgroup.WithContext(ctx)
+	colEg.SetLimit(namespaceStatsConcurrency)
+
+	for _, ns := range collections {
+		name := ns.db + "." + ns.coll
+
+		colEg.Go(func() error {
+			res := m.Database(ns.db).RunCommand(colCtx, bson.D{{"collStats", ns.coll}})
+			if err := res.Err(); err != nil {
+				return errors.Wrapf(err, "collStats %q", name)
+			}
+
+			var doc collSize
+
+			if err := res.Decode(&doc); err != nil {
+				return errors.Wrapf(err, "decode %q", name)
+			}
+
+			mu.Lock()
+			rv[name] = doc
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	return rv, colEg.Wait()
 }
 
 // getOplogBytesPerSecond returns the average number of bytes written to the

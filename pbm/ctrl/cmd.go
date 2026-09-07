@@ -115,9 +115,10 @@ func (c Cmd) String() string {
 }
 
 type ProfileCmd struct {
-	Name      string             `bson:"name"`
-	IsProfile bool               `bson:"profile"`
-	Storage   config.StorageConf `bson:"storage"`
+	Name      string                `bson:"name"`
+	IsProfile bool                  `bson:"profile"`
+	Storage   config.StorageConf    `bson:"storage"`
+	Lifecycle *config.LifecycleConf `bson:"lifecycle,omitempty"`
 }
 
 type ResyncCmd struct {
@@ -219,8 +220,10 @@ type DeletePITRCmd struct {
 }
 
 type CleanupCmd struct {
-	OlderThan bson.Timestamp `bson:"olderThan"`
-	Profile   string         `bson:"profile"`
+	OlderThan   bson.Timestamp `bson:"olderThan"`
+	Profile     string         `bson:"profile"`
+	Lifecycle   bool           `bson:"lifecycle,omitempty"`
+	LifecycleAt bson.Timestamp `bson:"lifecycleAt,omitempty"`
 }
 
 func (d DeleteBackupCmd) String() string {

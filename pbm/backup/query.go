@@ -85,8 +85,13 @@ func ChangeBackupStateOPID(conn connect.Client, opid string, s defs.Status, msg 
 }
 
 func ChangeBackupState(conn connect.Client, bcpName string, s defs.Status, msg string) error {
-	return changeBackupState(context.TODO(),
-		conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+	return changeBackupState(
+		context.TODO(),
+		conn, bson.D{{"name", bcpName}},
+		time.Now().UTC().Unix(),
+		s,
+		msg,
+	)
 }
 
 func ChangeBackupStateWithUnixTime(
@@ -94,10 +99,17 @@ func ChangeBackupStateWithUnixTime(
 	conn connect.Client,
 	bcpName string,
 	s defs.Status,
-	unix int64,
+	ts int64,
 	msg string,
 ) error {
-	return changeBackupState(ctx, conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+	return changeBackupState(
+		ctx,
+		conn,
+		bson.D{{"name", bcpName}},
+		ts,
+		s,
+		msg,
+	)
 }
 
 func changeBackupState(
@@ -161,6 +173,30 @@ func SetSrcBackup(ctx context.Context, conn connect.Client, bcpName, srcName str
 	)
 
 	return err
+}
+
+// SetFinishTime sets the time when the backup has ended.
+func SetFinishTime(ctx context.Context, conn connect.Client, bcpName string, sec int64) error {
+	_, err := conn.BcpCollection().UpdateOne(
+		ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"finish_time": sec}},
+		},
+	)
+
+	return err
+}
+
+// GetFinishTime returns the time when the backup has ended.
+// Zero means it hasn't ended yet, or the meta couldn't be read.
+func GetFinishTime(ctx context.Context, conn connect.Client, bcpName string) int64 {
+	meta, err := getBackupMeta(ctx, conn, bson.D{{"name", bcpName}})
+	if err != nil {
+		return 0
+	}
+
+	return meta.FinishTime
 }
 
 func SetFirstWrite(ctx context.Context, conn connect.Client, bcpName string, first bson.Timestamp) error {

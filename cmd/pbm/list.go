@@ -213,9 +213,9 @@ func (bl backupListOut) String() string {
 		return bl.Snapshots[i].RestoreTS < bl.Snapshots[j].RestoreTS
 	})
 
-	s += fmt.Sprintf("  %-24s  %-12s  %-20s  %-10s  %-6s  %s\n",
-		"NAME", "TYPE", "PROFILE", "SELECTIVE", "BASE", "RESTORE TIME")
-	s += fmt.Sprintf("  %s\n", strings.Repeat("-", 24+12+20+10+6+19+(5*2)))
+	s += fmt.Sprintf("  %-24s  %-12s  %-20s  %-10s  %-6s  %-19s  %s\n",
+		"NAME", "TYPE", "PROFILE", "SELECTIVE", "BASE", "RESTORE TIME", "DURATION")
+	s += fmt.Sprintf("  %s\n", strings.Repeat("-", 24+12+20+10+6+19+8+(6*2)))
 
 	for i := range bl.Snapshots {
 		b := &bl.Snapshots[i]
@@ -232,13 +232,19 @@ func (bl backupListOut) String() string {
 			base = "yes"
 		}
 
-		s += fmt.Sprintf("  %-24s  %-12s  %-20s  %-10s  %-6s  %s\n",
+		duration := "-"
+		if b.Duration != "" {
+			duration = b.Duration
+		}
+
+		s += fmt.Sprintf("  %-24s  %-12s  %-20s  %-10s  %-6s  %-19s  %s\n",
 			b.Name,
 			bcpType,
 			profile,
 			selective,
 			base,
-			fmtTS(int64(b.RestoreTS)))
+			fmtTS(int64(b.RestoreTS)),
+			duration)
 	}
 
 	// if not set, skip PITR information
@@ -363,6 +369,7 @@ func getSnapshotList(
 			Status:      b.Status,
 			PrintStatus: b.Status.PrintStatus(),
 			RestoreTS:   int64(b.LastWriteTS.T),
+			Duration:    bcpDuration(&b),
 			PBMVersion:  b.PBMVersion,
 			Type:        b.Type,
 			SrcBackup:   b.SrcBackup,

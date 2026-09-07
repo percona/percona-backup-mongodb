@@ -17,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/lifecycle"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -70,6 +71,21 @@ type pbmApp struct {
 	conn    connect.Client
 	pbm     *sdk.Client
 	node    string
+}
+
+type lifecycleResult struct {
+	Report *lifecycle.Report `json:"report"`
+	Msg    string            `json:"msg"`
+}
+
+func (r lifecycleResult) String() string {
+	if r.Msg != "" {
+		return r.Msg
+	}
+	if r.Report != nil {
+		return r.Report.String()
+	}
+	return ""
 }
 
 func main() {
@@ -351,13 +367,16 @@ func (app *pbmApp) buildCleanupCmd() *cobra.Command {
 		Use:   "cleanup",
 		Short: "Delete Backups and PITR chunks",
 		RunE: app.wrapRunE(func(cmd *cobra.Command, args []string) (fmt.Stringer, error) {
-			return doCleanup(app.ctx, app.conn, app.pbm, &cleanupOpts)
+			return doCleanup(app.ctx, app.conn, app.pbm, &cleanupOpts, app.pbmOutF)
 		}),
 	}
 
 	cleanupCmd.Flags().StringVar(
 		&cleanupOpts.olderThan, "older-than", "",
 		fmt.Sprintf("Delete backups older than date/time in format %s or %s", datetimeFormat, dateFormat),
+	)
+	cleanupCmd.Flags().BoolVar(
+		&cleanupOpts.lifecycle, "lifecycle", false, "Delete backups according to the lifecycle policy",
 	)
 	cleanupCmd.Flags().BoolVarP(
 		&cleanupOpts.yes, "yes", "y", false, "Don't ask for confirmation",
@@ -1202,6 +1221,7 @@ type snapshotStat struct {
 	Err         error            `json:"-"`
 	ErrString   string           `json:"error,omitempty"`
 	RestoreTS   int64            `json:"restoreTo"`
+	Duration    string           `json:"duration,omitempty"`
 	PBMVersion  string           `json:"pbmVersion"`
 	Type        defs.BackupType  `json:"type"`
 	SrcBackup   string           `json:"src"`

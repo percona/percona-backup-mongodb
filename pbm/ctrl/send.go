@@ -70,11 +70,29 @@ func SendCleanup(
 	return sendCommand(ctx, m, cmd)
 }
 
+func SendLifecycleCleanup(
+	ctx context.Context,
+	m connect.Client,
+	lifecycleAt bson.Timestamp,
+	profile string,
+) (OPID, error) {
+	cmd := Cmd{
+		Cmd: CmdCleanup,
+		Cleanup: &CleanupCmd{
+			Profile:     profile,
+			Lifecycle:   true,
+			LifecycleAt: lifecycleAt,
+		},
+	}
+	return sendCommand(ctx, m, cmd)
+}
+
 func SendAddConfigProfile(
 	ctx context.Context,
 	m connect.Client,
 	name string,
 	storage config.StorageConf,
+	lifecycle *config.LifecycleConf,
 ) (OPID, error) {
 	cmd := Cmd{
 		Cmd: CmdAddConfigProfile,
@@ -82,6 +100,7 @@ func SendAddConfigProfile(
 			Name:      name,
 			IsProfile: true,
 			Storage:   storage,
+			Lifecycle: lifecycle,
 		},
 	}
 	return sendCommand(ctx, m, cmd)

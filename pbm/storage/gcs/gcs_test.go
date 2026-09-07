@@ -81,6 +81,7 @@ func TestGCS(t *testing.T) {
 
 	opts := &Config{
 		Bucket:    bucketName,
+		Prefix:    "pbm",
 		ChunkSize: chunkSize,
 		Credentials: Credentials{
 			ClientEmail: "email@example.com",

@@ -146,7 +146,7 @@ install_golang() {
     elif [ x"$ARCH" = "xaarch64" ]; then
         GO_ARCH="arm64"
     fi
-    GO_VERSION="1.25.11"
+    GO_VERSION="1.25.14"
     GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
     GO_URL="https://downloads.percona.com/downloads/packaging/go/${GO_TAR}"
     DL_PATH="/tmp/${GO_TAR}"
@@ -202,7 +202,7 @@ install_deps() {
             INSTALL_LIST="git wget jq"
         fi
         yum -y install ${INSTALL_LIST}
-        yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel
+        yum -y install rpm-build make rpmlint rpmdevtools golang krb5-devel systemd-rpm-macros
         install_golang
     else
         until apt-get update; do

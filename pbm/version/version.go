@@ -221,6 +221,18 @@ func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error)
 
 type FeatureSupport MongoVersion
 
+type mongoRelease struct {
+	major int
+	minor int
+}
+
+// The order determines how releases are listed in warnings.
+var supportedMongoVersions = []mongoRelease{
+	{major: 7, minor: 0},
+	{major: 8, minor: 0},
+	{major: 8, minor: 3},
+}
+
 func (f FeatureSupport) PBMSupport() error {
 	v := MongoVersion(f)
 
@@ -229,26 +241,31 @@ func (f FeatureSupport) PBMSupport() error {
 		return errors.New("cannot determine MongoDB major/minor version: incomplete versionArray")
 	}
 
-	// Supported MongoDB major versions for PBM
-	supportedMajors := []int{7, 8}
+	minSupportedMajor := supportedMongoVersions[0].major
+	majorSupported := false
+	for _, supported := range supportedMongoVersions {
+		if supported.major < minSupportedMajor {
+			minSupportedMajor = supported.major
+		}
 
-	// Happy path: supported major within range and minor is 0
-	if (v.Version[0] >= supportedMajors[0] &&
-		v.Version[0] <= supportedMajors[len(supportedMajors)-1]) &&
-		v.Version[1] == 0 {
-		return nil
+		if v.Version[0] == supported.major {
+			majorSupported = true
+			if v.Version[1] == supported.minor {
+				return nil
+			}
+		}
 	}
 
 	// Render a friendly message with the supported versions and the current one
-	supported := make([]string, 0, len(supportedMajors))
-	for _, m := range supportedMajors {
-		supported = append(supported, fmt.Sprintf("v%d.0", m))
+	supported := make([]string, 0, len(supportedMongoVersions))
+	for _, release := range supportedMongoVersions {
+		supported = append(supported, fmt.Sprintf("v%d.%d", release.major, release.minor))
 	}
 
 	current := fmt.Sprintf("v%d.%d", v.Version[0], v.Version[1])
 
 	// If MongoDB is older than the minimum supported, suggest upgrading MongoDB
-	if v.Version[0] < supportedMajors[0] {
+	if v.Version[0] < minSupportedMajor {
 		return errors.Errorf(
 			"This PBM works with MongoDB and PSMDB %s and you are running %s. "+
 				"Please upgrade your MongoDB to a supported version.",
@@ -257,9 +274,9 @@ func (f FeatureSupport) PBMSupport() error {
 	}
 
 	// If MongoDB major is supported but uses an unsupported minor version
-	if v.Version[0] <= supportedMajors[len(supportedMajors)-1] && v.Version[1] != 0 {
-		return errors.Errorf("This PBM works with MongoDB and PSMDB %s and you are running %s."+
-			"PBM does not support minor versions of MongoDB.",
+	if majorSupported {
+		return errors.Errorf("This PBM works with MongoDB and PSMDB %s and you are running %s. "+
+			"PBM does not support this minor version of MongoDB.",
 			strings.Join(supported, ", "), current)
 	}
 

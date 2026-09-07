@@ -56,6 +56,10 @@ func Compose(w io.Writer, newReader NewReader, nsFilter NSFilterFn, concurrency 
 	if err != nil {
 		return errors.Wrap(err, "metadata")
 	}
+	sourceVersion, err := db.StrToVersion(meta.Header.ServerVersion)
+	if err != nil {
+		return errors.Wrap(err, "parse source server version")
+	}
 
 	if concurrency > 0 {
 		// mongorestore uses this field as a number of
@@ -78,7 +82,8 @@ func Compose(w io.Writer, newReader NewReader, nsFilter NSFilterFn, concurrency 
 
 	err = writeAllNamespaces(w, newReader,
 		int(meta.Header.ConcurrentCollections),
-		meta.Namespaces)
+		meta.Namespaces,
+		sourceVersion)
 	return errors.Wrap(err, "write namespaces")
 }
 
@@ -93,7 +98,13 @@ func writePrelude(w io.Writer, m *archiveMeta) error {
 	return errors.Wrap(err, "write")
 }
 
-func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namespace) error {
+func writeAllNamespaces(
+	w io.Writer,
+	newReader NewReader,
+	lim int,
+	nss []*Namespace,
+	sourceVersion db.Version,
+) error {
 	mu := sync.Mutex{}
 	eg := errgroup.Group{}
 	eg.SetLimit(lim)
@@ -106,7 +117,7 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 				mu.Lock()
 				defer mu.Unlock()
 
-				return errors.Wrap(closeChunk(w, ns), "close empty chunk")
+				return errors.Wrap(closeChunk(w, ns, sourceVersion), "close empty chunk")
 			}
 
 			nss := NSify(ns.Database, ns.Collection)
@@ -120,7 +131,7 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 				mu.Lock()
 				defer mu.Unlock()
 
-				return errors.Wrap(writeChunk(w, ns, b), "write chunk")
+				return errors.Wrap(writeChunk(w, ns, b, sourceVersion), "write chunk")
 			})
 			if err != nil {
 				return errors.Wrap(err, "split")
@@ -129,7 +140,7 @@ func writeAllNamespaces(w io.Writer, newReader NewReader, lim int, nss []*Namesp
 			mu.Lock()
 			defer mu.Unlock()
 
-			return errors.Wrap(closeChunk(w, ns), "close chunk")
+			return errors.Wrap(closeChunk(w, ns, sourceVersion), "close chunk")
 		})
 	}
 
@@ -193,13 +204,18 @@ func ReadBSONBuffer(r io.Reader, buf []byte) ([]byte, error) {
 	return buf[:size], nil
 }
 
-func writeChunk(w io.Writer, ns *Namespace, data []byte) error {
+func archiveDataCollection(ns *Namespace, sourceVersion db.Version) string {
+	if ns.Type == "timeseries" && !sourceVersion.SupportsRawData() {
+		return "system.buckets." + ns.Collection
+	}
+
+	return ns.Collection
+}
+
+func writeChunk(w io.Writer, ns *Namespace, data []byte, sourceVersion db.Version) error {
 	nsHeader := archive.NamespaceHeader{
 		Database:   ns.Database,
-		Collection: ns.Collection,
-	}
-	if ns.Type == "timeseries" {
-		nsHeader.Collection = "system.buckets." + nsHeader.Collection
+		Collection: archiveDataCollection(ns, sourceVersion),
 	}
 
 	header, err := bson.Marshal(nsHeader)
@@ -219,15 +235,12 @@ func writeChunk(w io.Writer, ns *Namespace, data []byte) error {
 	return errors.Wrap(err, "terminator")
 }
 
-func closeChunk(w io.Writer, ns *Namespace) error {
+func closeChunk(w io.Writer, ns *Namespace, sourceVersion db.Version) error {
 	nsHeader := archive.NamespaceHeader{
 		Database:   ns.Database,
-		Collection: ns.Collection,
+		Collection: archiveDataCollection(ns, sourceVersion),
 		EOF:        true,
 		CRC:        uint64(ns.CRC), //nolint:gosec
-	}
-	if ns.Type == "timeseries" {
-		nsHeader.Collection = "system.buckets." + nsHeader.Collection
 	}
 
 	header, err := bson.Marshal(nsHeader)

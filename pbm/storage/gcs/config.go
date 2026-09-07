@@ -9,31 +9,37 @@ import (
 )
 
 //nolint:lll
+type ClientType string
+
+const (
+	ClientTypeJSON ClientType = "json"
+	ClientTypeGRPC ClientType = "grpc"
+)
+
+//nolint:lll
 type Config struct {
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix" json:"prefix" yaml:"prefix"`
 	Credentials Credentials `bson:"credentials" json:"-" yaml:"credentials"`
+	ClientType  ClientType  `bson:"clientType,omitempty" json:"clientType,omitempty" yaml:"clientType,omitempty"`
 
 	// The maximum number of bytes that the Writer will attempt to send in a single request.
 	// https://pkg.go.dev/cloud.google.com/go/storage#Writer
-	ChunkSize    int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
-	MaxObjSizeGB *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
+	ChunkSize                 int      `bson:"chunkSize,omitempty" json:"chunkSize,omitempty" yaml:"chunkSize,omitempty"`
+	ParallelUploadConcurrency int      `bson:"parallelUploadConcurrency,omitempty" json:"parallelUploadConcurrency,omitempty" yaml:"parallelUploadConcurrency,omitempty"`
+	MaxObjSizeGB              *float64 `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 
 	Retryer *Retryer `bson:"retryer,omitempty" json:"retryer,omitempty" yaml:"retryer,omitempty"`
 }
 
 //nolint:lll
 type Credentials struct {
-	// Workload Identity Federation (allows missing JSON/HMAC credentials)
+	// Workload Identity Federation (allows missing service account credentials)
 	WorkloadIdentity bool `bson:"workloadIdentity,omitempty" json:"workloadIdentity,omitempty" yaml:"workloadIdentity,omitempty"`
 
-	// JSON credentials (service account)
+	// Service account credentials.
 	ClientEmail storage.MaskedString `bson:"clientEmail" json:"clientEmail,omitempty" yaml:"clientEmail,omitempty"`
 	PrivateKey  storage.MaskedString `bson:"privateKey" json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
-
-	// HMAC credentials for XML API (S3 compatibility)
-	HMACAccessKey storage.MaskedString `bson:"hmacAccessKey" json:"hmacAccessKey,omitempty" yaml:"hmacAccessKey,omitempty"`
-	HMACSecret    storage.MaskedString `bson:"hmacSecret" json:"hmacSecret,omitempty" yaml:"hmacSecret,omitempty"`
 }
 
 //nolint:lll
@@ -91,7 +97,13 @@ func (cfg *Config) Equal(other *Config) bool {
 	if cfg.Prefix != other.Prefix {
 		return false
 	}
+	if cfg.ClientType != other.ClientType {
+		return false
+	}
 	if cfg.ChunkSize != other.ChunkSize {
+		return false
+	}
+	if cfg.ParallelUploadConcurrency != other.ParallelUploadConcurrency {
 		return false
 	}
 	if !reflect.DeepEqual(cfg.MaxObjSizeGB, other.MaxObjSizeGB) {
@@ -128,7 +140,17 @@ func (cfg *Config) Cast() error {
 		return errors.New("missing GCS configuration with GCS storage type")
 	}
 
-	if cfg.ChunkSize == 0 {
+	if cfg.ClientType == "" {
+		cfg.ClientType = ClientTypeJSON
+	}
+	if cfg.ClientType != ClientTypeJSON && cfg.ClientType != ClientTypeGRPC {
+		return errors.Errorf("invalid clientType %q", cfg.ClientType)
+	}
+
+	if cfg.ChunkSize == 0 && cfg.parallelUploadEnabled() {
+		cfg.ChunkSize = defaultParallelUploadChunkSize
+	}
+	if cfg.ChunkSize == 0 && !cfg.parallelUploadEnabled() {
 		cfg.ChunkSize = defaultChunkSize
 	}
 
@@ -166,4 +188,8 @@ func (cfg *Config) GetMaxObjSizeGB() float64 {
 		return *cfg.MaxObjSizeGB
 	}
 	return defaultMaxObjSizeGB
+}
+
+func (cfg *Config) parallelUploadEnabled() bool {
+	return cfg.ClientType == ClientTypeGRPC && cfg.ParallelUploadConcurrency > 1
 }

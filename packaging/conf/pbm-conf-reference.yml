@@ -135,19 +135,32 @@
 ## When undefined, backups are saved at the root of the bucket.
 #      prefix:
 
+## Google SDK client type. Supported values: json, grpc.
+## When undefined, json is used.
+#      clientType: json
+
 ## The size of data chunks in bytes to be uploaded to the storage bucket in a single request.
+## For parallel uploads, it is used as the temporary part size. When undefined,
+## PBM uses 10MB for standard uploads and 16MB for parallel uploads.
 #      chunkSize: 10MB
 
-## GCS access credentials. You can use either HMAC or Service Account keys.
-## HMAC Example:
-#     credentials:
-#       hmacAccessKey: GOOG1E7GHK2...
-#       hmacSecret: U7PCRkLy...
+## Experimental Google SDK parallel upload concurrency. Parallel upload is used only
+## with clientType: grpc and parallelUploadConcurrency greater than 1. It creates
+## temporary GCS objects and composes them into the final object. The credentials must
+## be allowed to delete temporary objects for cleanup. Failed or interrupted uploads can
+## leave temporary objects behind, so a bucket lifecycle cleanup rule is recommended.
+#      parallelUploadConcurrency: 4
 
+## GCS access credentials. You can use Service Account keys or Workload Identity.
 ## Service Account Example:
 #     credentials:
 #       clientEmail: account@dev-sandbox.iam.gserviceaccount.com
 #       privateKey: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg...kqh3vNY2NQ=\n-----END PRIVATE KEY-----\n"
+#
+
+## Workload Identity Example:
+#     credentials:
+#       workloadIdentity: true
 #
 
 ## Retry upload configuration options.
@@ -156,6 +169,7 @@
 #        backoffInitial: 1s
 #        backoffMax: 30s
 #        backoffMultiplier: 2
+## Applies to standard Google SDK uploads only. It is not used for parallel uploads.
 #        chunkRetryDeadline: 32s
 #
 ## The maximum object size that will be stored on the storage
@@ -285,6 +299,39 @@
 ## Set the number of parallel collections to process during a logical backup.
 ## Default value is half of the number of CPU cores.
 #  numParallelCollections:
+
+
+#=========================Lifecycle Configuration===========================
+
+## Configure GFS backup retention. Apply it with `pbm cleanup --lifecycle`.
+#lifecycle:
+#  enabled: false
+
+## Supported strategies are rolling (default) and calendar.
+#  strategy: rolling
+
+## Abort cleanup if fewer than this many successful restore points would remain.
+## Set to 0 to disable the safeguard.
+#  minKeep: 1
+
+## Allow lifecycle cleanup to purge failed and cancelled managed backups.
+#  purgeFailed: false
+
+## Keep every backup in the recent N-day window.
+#  dailyRetention: 0
+
+## Keep one backup per type in each of N weekly and monthly buckets, including
+## the current bucket. Rolling uses fixed 7-day and 30-day buckets.
+#  weeklyRetention: 0
+#  monthlyRetention: 0
+
+## Calendar targets. weeklyDay uses 0=Sunday through 6=Saturday. monthlyDay
+## uses 1 through 31; shorter months use their last day as the target.
+#  weeklyDay: 0
+#  monthlyDay: 1
+
+## Logical, physical, incremental, and external backups are managed in separate
+## lanes. Selective logical backups are excluded from lifecycle cleanup.
 
 
 #==========================Restore Configuration===========================

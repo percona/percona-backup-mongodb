@@ -87,60 +87,8 @@ func TestMinio(t *testing.T) {
 	})
 }
 
-// TestUploadGCS shows how it's possible to upload corrupted file
-// without getting any error from the minio library.
-//
-// To simulate network interruption use:
-// tc qdisc add dev eth0 root netem loss 100%
-//
-// To revert it to normal use:
-// tc qdisc del dev eth0 root netem
-func TestUploadGCS(t *testing.T) {
-	t.Skip("for manual invocation, it will be deleted after GCS HMAC is deprecated")
-
-	ep := "storage.googleapis.com"
-	bucket := "gcs-bucket"
-	prefix := "test-prefix"
-	accessKeyID := "key-id"
-	secretAccessKey := "secret-key"
-
-	fname := time.Now().Format("2006-01-02T15:04:05")
-
-	mc, err := minio.New(ep, &minio.Options{
-		Creds:  credentials.NewStaticV2(accessKeyID, secretAccessKey, ""),
-		Secure: true,
-	})
-	if err != nil {
-		t.Fatalf("minio client creation for GCS: %v", err)
-	}
-	t.Log("minio client created")
-
-	t.Logf("uploading file: %s", fname)
-
-	infR := NewInfiniteCustomReader()
-	r := io.LimitReader(infR, targetSizeBytes)
-
-	putOpts := minio.PutObjectOptions{
-		PartSize:   uint64(defaultPartSize),
-		NumThreads: uint(max(runtime.NumCPU()/2, 1)),
-	}
-	info, err := mc.PutObject(
-		context.Background(),
-		bucket,
-		path.Join(prefix, fname),
-		r,
-		-1,
-		putOpts,
-	)
-	if err != nil {
-		t.Fatalf("put object: %v", err)
-	}
-
-	t.Logf("upload info: %#v", info)
-}
-
 func TestUploadAWSSigV2(t *testing.T) {
-	t.Skip("for manual invocation, it will be deleted after GCS HMAC is deprecated")
+	t.Skip("for manual invocation")
 
 	ep := "s3.amazonaws.com"
 	region := "eu-central-1"
@@ -186,7 +134,7 @@ func TestUploadAWSSigV2(t *testing.T) {
 }
 
 func TestUploadAWSSigV4(t *testing.T) {
-	t.Skip("for manual invocation, it will be deleted after GCS HMAC is deprecated")
+	t.Skip("for manual invocation")
 
 	ep := "s3.amazonaws.com"
 	region := "eu-central-1"

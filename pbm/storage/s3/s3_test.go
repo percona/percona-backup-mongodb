@@ -95,13 +95,6 @@ func TestS3(t *testing.T) {
 		storage.RunStorageAPITests(t, stg)
 		storage.RunSplitMergeMWTests(t, stg)
 	})
-
-	t.Run("default SDKLogLevel for invalid value", func(t *testing.T) {
-		logLvl := SDKLogLevel("invalid", nil)
-		if logLvl != 0 {
-			t.Fatalf("expected SDKLogLevel to be 0, got %v", 0)
-		}
-	})
 }
 
 func TestConfig(t *testing.T) {
@@ -182,6 +175,17 @@ func TestConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("Cast rejects unsupported debug log levels", func(t *testing.T) {
+		for _, levels := range []string{"LogDebug", "RequestEventMessage", "Unknown"} {
+			t.Run(levels, func(t *testing.T) {
+				err := (&Config{DebugLogLevels: levels}).Cast()
+				if err == nil {
+					t.Fatal("expected error")
+				}
+			})
+		}
+	})
+
 	t.Run("GetMaxObjSizeGB", func(t *testing.T) {
 		tests := []struct {
 			name string
@@ -248,29 +252,84 @@ func TestToClientLogMode(t *testing.T) {
 			expected: aws.LogSigning,
 		},
 		{
+			name:     "Single flag: Retries",
+			input:    "Retries",
+			expected: aws.LogRetries,
+		},
+		{
+			name:     "Single flag: Request",
+			input:    "Request",
+			expected: aws.LogRequest,
+		},
+		{
+			name:     "Single flag: RequestWithBody",
+			input:    "RequestWithBody",
+			expected: aws.LogRequestWithBody,
+		},
+		{
+			name:     "Single flag: Response",
+			input:    "Response",
+			expected: aws.LogResponse,
+		},
+		{
+			name:     "Single flag: ResponseWithBody",
+			input:    "ResponseWithBody",
+			expected: aws.LogResponseWithBody,
+		},
+		{
+			name:     "Single flag: DeprecatedUsage",
+			input:    "DeprecatedUsage",
+			expected: aws.LogDeprecatedUsage,
+		},
+		{
+			name:     "Unsupported RequestEventMessage",
+			input:    "RequestEventMessage",
+			expected: 0,
+		},
+		{
+			name:     "Unsupported ResponseEventMessage",
+			input:    "ResponseEventMessage",
+			expected: 0,
+		},
+		{
 			name:     "Multiple flags with commas",
 			input:    "Retries, Request, Response",
 			expected: aws.LogRetries | aws.LogRequest | aws.LogResponse,
 		},
 		{
-			name:     "Deprecated LogDebug",
+			name:     "Unsupported LogDebug",
 			input:    "LogDebug",
-			expected: aws.LogRequest | aws.LogResponse,
+			expected: 0,
 		},
 		{
-			name:     "Deprecated HTTPBody",
+			name:     "Unsupported HTTPBody",
 			input:    "HTTPBody",
-			expected: aws.LogRequestWithBody | aws.LogResponseWithBody,
+			expected: 0,
+		},
+		{
+			name:     "Unsupported RequestRetries",
+			input:    "RequestRetries",
+			expected: 0,
+		},
+		{
+			name:     "Unsupported RequestErrors",
+			input:    "RequestErrors",
+			expected: 0,
+		},
+		{
+			name:     "Unsupported EventStreamBody",
+			input:    "EventStreamBody",
+			expected: 0,
 		},
 		{
 			name:     "Flags with extra spaces",
 			input:    "  Signing  ,   RequestEventMessage,ResponseEventMessage ",
-			expected: aws.LogSigning | aws.LogRequestEventMessage | aws.LogResponseEventMessage,
+			expected: aws.LogSigning,
 		},
 		{
-			name:     "Multiple deprecated flags combined",
+			name:     "Multiple unsupported flags combined",
 			input:    "LogDebug, HTTPBody, RequestRetries, RequestErrors, EventStreamBody",
-			expected: aws.LogRequest | aws.LogResponse | aws.LogRequestWithBody | aws.LogResponseWithBody | aws.LogRetries,
+			expected: 0,
 		},
 	}
 
@@ -279,6 +338,51 @@ func TestToClientLogMode(t *testing.T) {
 			actual := toClientLogMode(tt.input)
 			if actual != tt.expected {
 				t.Errorf("toClientLogMode(%q) = %v, expected %v", tt.input, actual, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidateDebugLogLevels(t *testing.T) {
+	tests := []struct {
+		name    string
+		levels  string
+		wantErr bool
+	}{
+		{
+			name:   "empty",
+			levels: "",
+		},
+		{
+			name:   "supported",
+			levels: "Signing,Retries,Request,RequestWithBody,Response,ResponseWithBody,DeprecatedUsage",
+		},
+		{
+			name:   "spaces and empty items",
+			levels: " Signing, , Retries,",
+		},
+		{
+			name:    "legacy value",
+			levels:  "LogDebug",
+			wantErr: true,
+		},
+		{
+			name:    "event value",
+			levels:  "RequestEventMessage",
+			wantErr: true,
+		},
+		{
+			name:    "unknown value after supported value",
+			levels:  "Request,Unknown",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateDebugLogLevels(tt.levels)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateDebugLogLevels(%q) error = %v, wantErr %v", tt.levels, err, tt.wantErr)
 			}
 		})
 	}
