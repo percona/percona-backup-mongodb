@@ -1369,15 +1369,6 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 	return nil
 }
 
-func createIndexesCommand(collection string, indexes []*idx.IndexDocument, commitQuorum any) bson.D {
-	return bson.D{
-		{"createIndexes", collection},
-		{"indexes", indexes},
-		{"ignoreUnknownIndexOptions", true},
-		{"commitQuorum", commitQuorum},
-	}
-}
-
 func shouldRetryWithDefaultIndexCommitQuorum(err error, commitQuorum any) bool {
 	if err == nil {
 		return false
@@ -1594,7 +1585,9 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 		r.setcommittedTxn,
 		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+		defs.LogicalBackup,
+	)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}

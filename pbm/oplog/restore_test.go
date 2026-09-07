@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -39,6 +41,7 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 
 type mdbTestClient struct {
 	applyOpsInv []map[string]string
+	appliedOps  []db.Oplog
 }
 
 func newMDBTestClient() *mdbTestClient {
@@ -71,6 +74,7 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 		invParams["o2"] = "1"
 	}
 	d.applyOpsInv = append(d.applyOpsInv, invParams)
+	d.appliedOps = append(d.appliedOps, oe)
 
 	return nil
 }
@@ -1205,6 +1209,121 @@ func createConfigChunksEntry(uuid string) *db.Oplog {
 			{"_id", id},
 			{"uuid", bson.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
 			{"shard", "rsX"},
+		},
+	}
+}
+
+func TestHandleNonTxnOp(t *testing.T) {
+	t.Run("collMod cmd", func(t *testing.T) {
+		const (
+			tDB      = "mydb"
+			tColl    = "c1"
+			tIdxName = "ttl_1"
+		)
+
+		t.Run("physical: index missing in catalog is applied on the node", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.PhysicalBackup
+
+			err := oRestore.handleNonTxnOp(collModTTLOplog(tDB, tColl, tIdxName, 200))
+			if err != nil {
+				t.Fatalf("collMod should be applied on the node, got err=%v", err)
+			}
+
+			if len(mdb.appliedOps) != 1 {
+				t.Fatalf("wrong number of applied ops: want=1, got=%d", len(mdb.appliedOps))
+			}
+			// the applied command has to keep its index modifier
+			idxMod, err := bsonutil.FindValueByKey("index", &mdb.appliedOps[0].Object)
+			if err != nil {
+				t.Fatalf("applied collMod has no index modifier: %v", mdb.appliedOps[0].Object)
+			}
+			idxModDoc, ok := idxMod.(bson.D)
+			if !ok {
+				t.Fatalf("index modifier is not a document: %v", idxMod)
+			}
+			name, err := bsonutil.FindStringValueByKey("name", &idxModDoc)
+			if err != nil || name != tIdxName {
+				t.Errorf("wrong index within applied collMod: want=%s, got=%v (err=%v)", tIdxName, name, err)
+			}
+		})
+
+		t.Run("logical: index missing in catalog returns error", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.LogicalBackup
+
+			err := oRestore.handleNonTxnOp(collModTTLOplog(tDB, tColl, tIdxName, 200))
+			if err == nil {
+				t.Fatal("expected error for the index missing in the catalog")
+			}
+
+			if len(mdb.appliedOps) != 0 {
+				t.Errorf("collMod should not be applied on the node, got=%d ops", len(mdb.appliedOps))
+			}
+		})
+
+		t.Run("physical: index in catalog is not applied on the node", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.PhysicalBackup
+			oRestore.indexCatalog.AddIndex(tDB, tColl, &idx.IndexDocument{
+				Key:     bson.D{{"createdAt", 1}},
+				Options: bson.M{"name": tIdxName, "expireAfterSeconds": 100},
+			})
+
+			err := oRestore.handleNonTxnOp(collModTTLOplog(tDB, tColl, tIdxName, 200))
+			if err != nil {
+				t.Fatalf("got err=%v", err)
+			}
+
+			if len(mdb.appliedOps) != 0 {
+				t.Errorf("collMod should be done on the catalog only, got=%d applied ops", len(mdb.appliedOps))
+			}
+			modified := oRestore.indexCatalog.GetIndex(tDB, tColl, tIdxName)
+			if modified == nil {
+				t.Fatal("index is gone from the catalog")
+			}
+			if modified.Options["expireAfterSeconds"] != 200 {
+				t.Errorf("catalog index is not modified: want=200, got=%v", modified.Options["expireAfterSeconds"])
+			}
+		})
+
+		t.Run("physical: unrelated catalog error is reported", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.PhysicalBackup
+
+			op := collModTTLOplog(tDB, tColl, tIdxName, 200)
+			op.Object = bson.D{
+				{"collMod", tColl},
+				{"index", bson.D{{"expireAfterSeconds", 200}}},
+			}
+
+			if err := oRestore.handleNonTxnOp(op); err == nil {
+				t.Fatal("expected error for the index modifier without name and keyPattern")
+			}
+			if len(mdb.appliedOps) != 0 {
+				t.Errorf("collMod should not be applied on the node, got=%d ops", len(mdb.appliedOps))
+			}
+		})
+	})
+}
+
+// collModTTLOplog creates collMod oplog entry which changes TTL of the index.
+func collModTTLOplog(dbName, collName, idxName string, expireAfterSeconds int) db.Oplog {
+	return db.Oplog{
+		Timestamp: bson.Timestamp{T: 100, I: 1},
+		Version:   2,
+		Operation: "c",
+		Namespace: dbName + ".$cmd",
+		Object: bson.D{
+			{"collMod", collName},
+			{"index", bson.D{
+				{"name", idxName},
+				{"expireAfterSeconds", expireAfterSeconds},
+			}},
 		},
 	}
 }
