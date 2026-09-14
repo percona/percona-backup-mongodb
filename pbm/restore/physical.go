@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/mongodb/mongo-tools/common/idx"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -38,6 +37,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
@@ -2027,7 +2027,7 @@ func (r *PhysRestore) replayOplogWithIndexes(
 	stat *phys.DistTxnStat,
 	mgoV *version.MongoVersion,
 ) ([]oplog.Txn, error) {
-	indexCatalog := idx.NewIndexCatalog()
+	indexCatalog := idx.NewCatalog(mgoV)
 	partial, err := applyOplog(
 		ctx,
 		nodeConn,
@@ -2055,37 +2055,23 @@ func (r *PhysRestore) replayOplogWithIndexes(
 
 // restoreIndexes builds all the indexes collected in the index catalog
 // during the oplog replay of the physical PITR.
-func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client, idxc *idx.IndexCatalog) error {
+func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client, idxc *idx.Catalog) error {
 	r.log.Debug("building indexes created during PITR")
 	for _, ns := range idxc.Namespaces() {
-		indexes := idxc.GetIndexes(ns.DB, ns.Collection)
-		for i, index := range indexes {
-			if len(index.Key) == 1 && index.Key[0].Key == "_id" {
-				// The _id index is already created with the collection
-				indexes = append(indexes[:i], indexes[i+1:]...)
-				break
+		for _, group := range idxc.BuildGroups(ns.DB, ns.Collection) {
+			var indexNames []string
+			for _, index := range group.Indexes {
+				indexNames = append(indexNames, index.Options["name"].(string))
 			}
-		}
 
-		if len(indexes) == 0 {
-			continue
-		}
+			rawCommand := createIndexesCommand(group, nil)
 
-		var indexNames []string
-		for _, index := range indexes {
-			index.Options["ns"] = ns.DB + "." + ns.Collection
-			indexNames = append(indexNames, index.Options["name"].(string))
-			// remove the index version, forcing an update
-			delete(index.Options, "v")
-		}
-
-		rawCommand := createIndexesCommand(ns.Collection, indexes, nil)
-
-		r.log.Info("restoring indexes for %s.%s: %s",
-			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
-		err := nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
-		if err != nil {
-			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
+			r.log.Info("restoring indexes for %s.%s: %s",
+				ns.DB, group.Collection, strings.Join(indexNames, ", "))
+			err := nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			if err != nil {
+				return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, group.Collection)
+			}
 		}
 	}
 

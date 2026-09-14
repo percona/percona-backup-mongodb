@@ -205,6 +205,12 @@ func (v MongoVersion) IsConfigShardSupported() bool {
 	return v.Version[0] >= 8
 }
 
+// SupportsRawData reports whether MongoDB supports the rawData command option (8.3+).
+func (v MongoVersion) SupportsRawData() bool {
+	major := v.Major()
+	return major > 8 || major == 8 && len(v.Version) > 1 && v.Version[1] >= 3
+}
+
 func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error) {
 	res := m.Database("admin").RunCommand(ctx, bson.D{{"buildInfo", 1}})
 	if err := res.Err(); err != nil {

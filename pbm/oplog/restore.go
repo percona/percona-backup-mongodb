@@ -33,6 +33,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	pbmidx "github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -155,7 +156,7 @@ type OplogRestore struct {
 	needIdxWorkaround bool
 	startTS           bson.Timestamp
 	endTS             bson.Timestamp
-	indexCatalog      *idx.IndexCatalog
+	indexCatalog      *pbmidx.Catalog
 	excludeNS         *ns.Matcher
 	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
@@ -189,7 +190,7 @@ const saveLastDistTxns = 100
 // NewOplogRestore creates an object for an oplog applying
 func NewOplogRestore(
 	m *mongo.Client,
-	ic *idx.IndexCatalog,
+	ic *pbmidx.Catalog,
 	sv *version.MongoVersion,
 	backupType defs.BackupType,
 	nodeInfo *topo.NodeInfo,
@@ -211,7 +212,7 @@ func NewOplogRestore(
 		}
 	}
 	if ic == nil {
-		ic = idx.NewIndexCatalog()
+		ic = pbmidx.NewCatalog(sv)
 	}
 	ver := &db.Version{v[0], v[1], v[2]}
 	return &OplogRestore{
@@ -1115,7 +1116,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndexes(dbName, collName, indexes)
+			o.indexCatalog.AddOplogIndexes(dbName, collName, indexes)
 			return nil
 
 		case "createIndexes":
@@ -1131,7 +1132,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndex(dbName, collName, index)
+			o.indexCatalog.AddOplogIndex(dbName, collName, index)
 			return nil
 
 		case "dropDatabase":
