@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/dumprestore"
 	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -1092,6 +1093,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	o.cloneEntry(&op)
 
 	dbName, collName, _ := strings.Cut(op.Namespace, ".")
+	var rename bool
+	var renameFrom, renameTo options.Namespace
 	if op.Operation == "c" {
 		if len(op.Object) == 0 {
 			return errors.Errorf("empty object value for op: %v", op)
@@ -1103,6 +1106,13 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		}
 
 		switch cmdName {
+		case "renameCollection":
+			from := op.Object[0].Value.(string)
+			to := op.Object[1].Value.(string)
+			renameFrom.DB, renameFrom.Collection, _ = strings.Cut(from, ".")
+			renameTo.DB, renameTo.Collection, _ = strings.Cut(to, ".")
+			rename = true
+
 		case "commitIndexBuild":
 			// commitIndexBuild was introduced in 4.4, one "commitIndexBuild" command can contain several
 			// indexes, we need to convert the command to "createIndexes" command for each single index and apply
@@ -1264,6 +1274,10 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 
 		opb, errm := json.Marshal(op)
 		return errors.Wrapf(err, "op: %s | merr %v", opb, errm)
+	}
+
+	if rename {
+		o.indexCatalog.RenameCollection(renameFrom.DB, renameFrom.Collection, renameTo.DB, renameTo.Collection)
 	}
 
 	return nil

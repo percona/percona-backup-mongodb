@@ -44,6 +44,7 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 type mdbTestClient struct {
 	applyOpsInv []map[string]string
 	appliedOps  []db.Oplog
+	applyErr    error
 }
 
 func newMDBTestClient() *mdbTestClient {
@@ -78,7 +79,7 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 	d.applyOpsInv = append(d.applyOpsInv, invParams)
 	d.appliedOps = append(d.appliedOps, oe)
 
-	return nil
+	return d.applyErr
 }
 
 func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
