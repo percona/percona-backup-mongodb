@@ -130,6 +130,27 @@ func (c *Catalog) DropCollection(database, collection string) {
 	delete(c.bucketSpecs, ns)
 }
 
+// RenameCollection replaces destination state after a successful MongoDB rename.
+// An untracked source has no pending indexes, so it clears destination state too.
+// Each rename must be processed once; replay deduplication is a separate concern.
+func (c *Catalog) RenameCollection(fromDB, fromCollection, toDB, toCollection string) {
+	from := logicalNamespace(fromDB, fromCollection)
+	to := logicalNamespace(toDB, toCollection)
+	if from == to {
+		return
+	}
+
+	// GetIndexes materializes index collation before the source entry is removed.
+	indexes := c.catalog.GetIndexes(from.DB, from.Collection)
+	bucketSpecs := c.bucketSpecs[from]
+	c.DropCollection(from.DB, from.Collection)
+	c.DropCollection(to.DB, to.Collection)
+	c.catalog.AddIndexes(to.DB, to.Collection, indexes)
+	if len(bucketSpecs) != 0 {
+		c.bucketSpecs[to] = bucketSpecs
+	}
+}
+
 // DeleteIndexes removes matching indexes. Key-pattern selectors must match the stored keys.
 func (c *Catalog) DeleteIndexes(database, collection string, command bson.D) error {
 	ns := logicalNamespace(database, collection)
