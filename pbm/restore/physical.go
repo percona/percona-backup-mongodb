@@ -2458,6 +2458,9 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 }
 
 func (r *PhysRestore) startMongo(opts ...string) error {
+	// PBM-1779: disable TTL Monitor during restore (all mongod restarts)
+	opts = append(opts, []string{"--setParameter", "ttlMonitorEnabled=false"}...)
+
 	if r.tmpConf != nil {
 		opts = append(opts, []string{"-f", r.tmpConf.Name()}...)
 	}
