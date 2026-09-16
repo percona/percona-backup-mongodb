@@ -27,7 +27,7 @@ import (
 func TestS3(t *testing.T) {
 	ctx := context.Background()
 
-	minioContainer, err := minio.Run(ctx, "minio/minio:RELEASE.2024-08-17T01-24-54Z")
+	minioContainer, err := minio.Run(ctx, "pgsty/silo:RELEASE.2026-09-03T13-18-01Z")
 	defer func() {
 		if err := testcontainers.TerminateContainer(minioContainer); err != nil {
 			t.Fatalf("failed to terminate container: %s", err)
