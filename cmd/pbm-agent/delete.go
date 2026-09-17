@@ -12,6 +12,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/lifecycle"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -98,6 +99,7 @@ func (a *Agent) Delete(ctx context.Context, d *ctrl.DeleteBackupCmd, opid ctrl.O
 			l.Error("get storage: %v", err)
 			return
 		}
+		defer storage.Close(stg, l)
 		l.Info("deleting backups older than %v %s", t, util.LogProfileArg(d.Profile))
 		err = backup.DeleteBackupBefore(ctx, a.leadConn, stg, d.Profile, bcpType, t)
 		if err != nil {
@@ -205,6 +207,19 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error("missed command")
 		return
 	}
+	if d.Lifecycle {
+		if d.LifecycleAt.IsZero() {
+			l.Error("malformed lifecycle cleanup command: lifecycleAt is required")
+			return
+		}
+		if !d.OlderThan.IsZero() {
+			l.Error("malformed lifecycle cleanup command: olderThan must not be set")
+			return
+		}
+	} else if !d.LifecycleAt.IsZero() {
+		l.Error("malformed cutoff cleanup command: lifecycleAt must not be set")
+		return
+	}
 
 	ctx = log.SetLogEventToContext(ctx, l)
 
@@ -242,10 +257,25 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		}
 	}()
 
+	if d.Lifecycle {
+		a.cleanupLifecycle(ctx, d, nodeInfo.Me, l)
+		return
+	}
+
+	a.cleanupOlderThan(ctx, d, opid, ep, l)
+}
+
+func (a *Agent) cleanupOlderThan(
+	ctx context.Context,
+	d *ctrl.CleanupCmd,
+	opid ctrl.OPID,
+	ep config.Epoch,
+	l log.LogEvent,
+) {
 	t := time.Unix(int64(d.OlderThan.T), 0).UTC()
 	obj := t.Format("2006-01-02T15:04:05Z")
 
-	l = logger.NewEvent(string(ctrl.CmdCleanup), obj, opid.String(), ep.TS())
+	l = l.GetLogger().NewEvent(string(ctrl.CmdCleanup), obj, opid.String(), ep.TS())
 	ctx = log.SetLogEventToContext(ctx, l)
 
 	ct, err := topo.GetClusterTime(ctx, a.leadConn)
@@ -271,6 +301,7 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 		l.Error("get storage: " + err.Error())
 		return
 	}
+	defer storage.Close(stg, l)
 
 	cr, err := backup.MakeCleanupInfo(ctx, a.leadConn, d.OlderThan, d.Profile)
 	if err != nil {
@@ -292,6 +323,41 @@ func (a *Agent) Cleanup(ctx context.Context, d *ctrl.CleanupCmd, opid ctrl.OPID,
 	}
 }
 
+func (a *Agent) cleanupLifecycle(
+	ctx context.Context,
+	d *ctrl.CleanupCmd,
+	node string,
+	l log.LogEvent,
+) {
+	lifecycleAt := time.Unix(int64(d.LifecycleAt.T), 0).UTC()
+	report, err := lifecycle.BuildReport(ctx, a.leadConn, d.Profile, lifecycleAt)
+	if err != nil {
+		l.Error("evaluate lifecycle: %v", err)
+		return
+	}
+	if !report.ConfigUsed.Enabled {
+		l.Info("lifecycle is disabled %s", util.LogProfileArg(d.Profile))
+		return
+	}
+	if report.Aborted {
+		l.Warning("lifecycle cleanup aborted: %s %s", report.AbortReason, util.LogProfileArg(d.Profile))
+		return
+	}
+	if len(report.DeleteTargets) == 0 {
+		l.Info("no backups to purge %s", util.LogProfileArg(d.Profile))
+		return
+	}
+
+	l.Info("deleting backups according to lifecycle policy evaluated at %v %s",
+		lifecycleAt, util.LogProfileArg(d.Profile))
+	for i := len(report.DeleteTargets) - 1; i >= 0; i-- {
+		name := report.DeleteTargets[i]
+		if err := backup.DeleteBackup(ctx, a.leadConn, name, node); err != nil {
+			l.Error("delete backup %q: %v", name, err)
+		}
+	}
+}
+
 func (a *Agent) deletePITRImpl(ctx context.Context, ts bson.Timestamp) error {
 	l := log.LogEventFromContext(ctx)
 
@@ -308,6 +374,7 @@ func (a *Agent) deletePITRImpl(ctx context.Context, ts bson.Timestamp) error {
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	eg := &errgroup.Group{}
 	eg.SetLimit(runtime.NumCPU())

@@ -460,6 +460,7 @@ func (a *Agent) storStatus(
 	if err != nil {
 		return topo.SubsysStatus{Err: fmt.Sprintf("unable to get storage: %v", err)}
 	}
+	defer storage.Close(stg, log)
 
 	ok, err := storage.IsInitialized(ctx, stg)
 	if err != nil {

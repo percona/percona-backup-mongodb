@@ -2,9 +2,13 @@ package gcs
 
 import (
 	"container/heap"
+	"context"
 	"io"
 	"net/http"
+	"path"
+	"time"
 
+	storagegcs "cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
@@ -40,12 +44,36 @@ func (g *GCS) newPartReader(fname string, fsize int64, chunkSize int) *storage.P
 		Buf:       make([]byte, 32*1024),
 		L:         g.log,
 		GetChunk: func(fname string, arena *storage.Arena, cli interface{}, start, end int64) (io.ReadCloser, error) {
-			return cli.(gcsClient).getPartialObject(fname, arena, start, end-start+1)
+			return cli.(*GCS).getPartialObject(fname, arena, start, end-start+1)
 		},
 		GetSess: func() (interface{}, error) {
-			return g.client, nil // re-use the already-initialized client
+			return g, nil
 		},
 	}
+}
+
+func (g *GCS) getPartialObject(name string, buf *storage.Arena, start, length int64) (io.ReadCloser, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
+	defer cancel()
+
+	obj := g.bucketHandle.Object(path.Join(g.cfg.Prefix, name))
+	reader, err := obj.NewRangeReader(ctx, start, length)
+	if err != nil {
+		if errors.Is(err, storagegcs.ErrObjectNotExist) || isRangeNotSatisfiable(err) {
+			return nil, io.EOF
+		}
+
+		return nil, storage.GetObjError{Err: err}
+	}
+
+	ch := buf.GetSpan()
+	_, err = io.CopyBuffer(ch, reader, buf.CpBuf)
+	if err != nil {
+		ch.Close()
+		return nil, errors.Wrap(err, "copy")
+	}
+	reader.Close()
+	return ch, nil
 }
 
 func (g *GCS) sourceReader(fname string, arenas []*storage.Arena, cc, downloadChuckSize int) (io.ReadCloser, error) {
