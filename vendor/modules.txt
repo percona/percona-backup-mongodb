@@ -502,7 +502,7 @@ github.com/inconshreveable/mousetrap
 # github.com/jessevdk/go-flags v1.6.1
 ## explicit; go 1.20
 github.com/jessevdk/go-flags
-# github.com/klauspost/compress v1.18.7
+# github.com/klauspost/compress v1.19.2
 ## explicit; go 1.24
 github.com/klauspost/compress
 github.com/klauspost/compress/flate
@@ -795,8 +795,8 @@ github.com/yusufpapurcu/wmi
 # github.com/zeebo/xxh3 v1.1.0
 ## explicit; go 1.22
 github.com/zeebo/xxh3
-# go.mongodb.org/mongo-driver/v2 v2.8.2
-## explicit; go 1.19
+# go.mongodb.org/mongo-driver/v2 v2.9.1
+## explicit; go 1.25.0
 go.mongodb.org/mongo-driver/v2/bson
 go.mongodb.org/mongo-driver/v2/event
 go.mongodb.org/mongo-driver/v2/internal/aws
@@ -808,11 +808,13 @@ go.mongodb.org/mongo-driver/v2/internal/bsoncoreutil
 go.mongodb.org/mongo-driver/v2/internal/bsonutil
 go.mongodb.org/mongo-driver/v2/internal/codecutil
 go.mongodb.org/mongo-driver/v2/internal/credproviders
+go.mongodb.org/mongo-driver/v2/internal/credutil
 go.mongodb.org/mongo-driver/v2/internal/csfle
 go.mongodb.org/mongo-driver/v2/internal/csot
 go.mongodb.org/mongo-driver/v2/internal/decimal128
 go.mongodb.org/mongo-driver/v2/internal/driverutil
 go.mongodb.org/mongo-driver/v2/internal/handshake
+go.mongodb.org/mongo-driver/v2/internal/handshake/operation
 go.mongodb.org/mongo-driver/v2/internal/httputil
 go.mongodb.org/mongo-driver/v2/internal/logger
 go.mongodb.org/mongo-driver/v2/internal/mongoutil
@@ -842,7 +844,6 @@ go.mongodb.org/mongo-driver/v2/x/mongo/driver/mnet
 go.mongodb.org/mongo-driver/v2/x/mongo/driver/mongocrypt
 go.mongodb.org/mongo-driver/v2/x/mongo/driver/mongocrypt/options
 go.mongodb.org/mongo-driver/v2/x/mongo/driver/ocsp
-go.mongodb.org/mongo-driver/v2/x/mongo/driver/operation
 go.mongodb.org/mongo-driver/v2/x/mongo/driver/session
 go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology
 go.mongodb.org/mongo-driver/v2/x/mongo/driver/wiremessage
