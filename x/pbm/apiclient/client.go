@@ -46,9 +46,10 @@ func (c *Client) put(ctx context.Context, path string, body []byte) error {
 	return c.do(ctx, http.MethodPut, path, body, nil)
 }
 
-// post issues POST path with no body, expecting an empty 204 response.
-func (c *Client) post(ctx context.Context, path string) error {
-	return c.do(ctx, http.MethodPost, path, nil, nil)
+// post issues POST path with no body. A response body is decoded into out when
+// out is non-nil; otherwise an empty 204 is expected.
+func (c *Client) post(ctx context.Context, path string, out any) error {
+	return c.do(ctx, http.MethodPost, path, nil, out)
 }
 
 // do issues the request against each endpoint in turn, following at most one
@@ -98,7 +99,7 @@ func (c *Client) doFrom(
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
-	case http.StatusOK:
+	case http.StatusOK, http.StatusAccepted:
 		if out != nil {
 			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 				return fmt.Errorf("decode response: %w", err)
