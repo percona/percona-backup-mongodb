@@ -6,7 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/golang/snappy v1.0.0
 	github.com/hashicorp/serf v0.10.2
-	github.com/klauspost/compress v1.18.7
+	github.com/klauspost/compress v1.19.2
 	github.com/klauspost/pgzip v1.2.6
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/pierrec/lz4 v2.6.1+incompatible
@@ -16,7 +16,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/etcd v0.42.0
 	go.etcd.io/etcd/client/v3 v3.6.12
 	go.etcd.io/etcd/server/v3 v3.6.12
-	go.mongodb.org/mongo-driver/v2 v2.8.2
+	go.mongodb.org/mongo-driver/v2 v2.9.1
 	golang.org/x/mod v0.40.0
 	gopkg.in/yaml.v2 v2.4.0
 )
