@@ -417,11 +417,11 @@ services:
       - "MINIO_SECRET_KEY=minio1234"
     command: server /backups
   createbucket:
-    image: minio/mc:RELEASE.2024-08-17T11-33-50Z
+    image: pgsty/silo:RELEASE.2026-09-03T13-18-01Z
     depends_on:
       - minio
     entrypoint: >
-      /bin/sh -c " sleep 5; /usr/bin/mc config host add myminio http://minio:9000 minio1234 minio1234; /usr/bin/mc mb myminio/bcp; exit 0; "
+      /bin/sh -c "sleep 5; /usr/bin/mc alias set myminio http://minio:9000 minio1234 minio1234 || { sleep 5; /usr/bin/mc alias set myminio http://minio:9000 minio1234 minio1234; }; /usr/bin/mc mb --ignore-existing myminio/bcp"
 volumes:
   backups: null
   data-cfg01: null
