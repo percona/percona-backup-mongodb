@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/dumprestore"
 	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -33,6 +34,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	pbmidx "github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -155,7 +157,7 @@ type OplogRestore struct {
 	needIdxWorkaround bool
 	startTS           bson.Timestamp
 	endTS             bson.Timestamp
-	indexCatalog      *idx.IndexCatalog
+	indexCatalog      *pbmidx.Catalog
 	excludeNS         *ns.Matcher
 	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
@@ -189,7 +191,7 @@ const saveLastDistTxns = 100
 // NewOplogRestore creates an object for an oplog applying
 func NewOplogRestore(
 	m *mongo.Client,
-	ic *idx.IndexCatalog,
+	ic *pbmidx.Catalog,
 	sv *version.MongoVersion,
 	backupType defs.BackupType,
 	nodeInfo *topo.NodeInfo,
@@ -211,7 +213,7 @@ func NewOplogRestore(
 		}
 	}
 	if ic == nil {
-		ic = idx.NewIndexCatalog()
+		ic = pbmidx.NewCatalog(sv)
 	}
 	ver := &db.Version{v[0], v[1], v[2]}
 	return &OplogRestore{
@@ -1091,6 +1093,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	o.cloneEntry(&op)
 
 	dbName, collName, _ := strings.Cut(op.Namespace, ".")
+	var rename bool
+	var renameFrom, renameTo options.Namespace
 	if op.Operation == "c" {
 		if len(op.Object) == 0 {
 			return errors.Errorf("empty object value for op: %v", op)
@@ -1102,6 +1106,13 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		}
 
 		switch cmdName {
+		case "renameCollection":
+			from := op.Object[0].Value.(string)
+			to := op.Object[1].Value.(string)
+			renameFrom.DB, renameFrom.Collection, _ = strings.Cut(from, ".")
+			renameTo.DB, renameTo.Collection, _ = strings.Cut(to, ".")
+			rename = true
+
 		case "commitIndexBuild":
 			// commitIndexBuild was introduced in 4.4, one "commitIndexBuild" command can contain several
 			// indexes, we need to convert the command to "createIndexes" command for each single index and apply
@@ -1115,7 +1126,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndexes(dbName, collName, indexes)
+			o.indexCatalog.AddOplogIndexes(dbName, collName, indexes)
 			return nil
 
 		case "createIndexes":
@@ -1131,7 +1142,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndex(dbName, collName, index)
+			o.indexCatalog.AddOplogIndex(dbName, collName, index)
 			return nil
 
 		case "dropDatabase":
@@ -1263,6 +1274,10 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 
 		opb, errm := json.Marshal(op)
 		return errors.Wrapf(err, "op: %s | merr %v", opb, errm)
+	}
+
+	if rename {
+		o.indexCatalog.RenameCollection(renameFrom.DB, renameFrom.Collection, renameTo.DB, renameTo.Collection)
 	}
 
 	return nil

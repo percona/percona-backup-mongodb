@@ -19,9 +19,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	pbmidx "github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
@@ -33,7 +35,7 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 		excludeNS:    matcher,
 		noUUIDns:     noUUID,
 		preserveUUID: true,
-		indexCatalog: idx.NewIndexCatalog(),
+		indexCatalog: pbmidx.NewCatalog(&version.MongoVersion{Version: []int{7, 0, 0}}),
 		nodeInfo:     &topo.NodeInfo{},
 		log:          log.DiscardEvent,
 	}
@@ -42,6 +44,7 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 type mdbTestClient struct {
 	applyOpsInv []map[string]string
 	appliedOps  []db.Oplog
+	applyErr    error
 }
 
 func newMDBTestClient() *mdbTestClient {
@@ -76,7 +79,7 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 	d.applyOpsInv = append(d.applyOpsInv, invParams)
 	d.appliedOps = append(d.appliedOps, oe)
 
-	return nil
+	return d.applyErr
 }
 
 func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {

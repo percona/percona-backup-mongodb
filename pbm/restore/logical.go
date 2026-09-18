@@ -12,7 +12,6 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -25,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -76,7 +76,7 @@ type Restore struct {
 	log  log.LogEvent
 	opid string
 
-	indexCatalog *idx.IndexCatalog
+	indexCatalog *idx.Catalog
 
 	db mDBCl
 }
@@ -140,7 +140,7 @@ func New(
 		numParallelColls:          numParallelColls,
 		numInsertionWorkersPerCol: numInsertionWorkersPerCol,
 		indexCommitQuorum:         indexCommitQuorum,
-		indexCatalog:              idx.NewIndexCatalog(),
+		indexCatalog:              idx.NewCatalog(&brief.Version),
 	}
 }
 
@@ -1323,46 +1323,37 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 			continue
 		}
 
-		indexes := r.indexCatalog.GetIndexes(ns.DB, ns.Collection)
-		for i, index := range indexes {
-			if len(index.Key) == 1 && index.Key[0].Key == "_id" {
-				// The _id index is already created with the collection
-				indexes = append(indexes[:i], indexes[i+1:]...)
-				break
-			}
-		}
-
-		if len(indexes) == 0 {
+		groups := r.indexCatalog.BuildGroups(ns.DB, ns.Collection)
+		if len(groups) == 0 {
 			r.log.Debug("no indexes for %s.%s", ns.DB, ns.Collection)
 			continue
 		}
 
-		var indexNames []string
-		for _, index := range indexes {
-			index.Options["ns"] = ns.DB + "." + ns.Collection
-			indexNames = append(indexNames, index.Options["name"].(string))
-			// remove the index version, forcing an update
-			delete(index.Options, "v")
-		}
+		for _, group := range groups {
+			var indexNames []string
+			for _, index := range group.Indexes {
+				indexNames = append(indexNames, index.Options["name"].(string))
+			}
 
-		commitQuorum := r.indexCommitQuorum.CommandValue()
-		rawCommand := createIndexesCommand(ns.Collection, indexes, commitQuorum)
+			commitQuorum := r.indexCommitQuorum.CommandValue()
+			rawCommand := createIndexesCommand(group, commitQuorum)
 
-		r.log.Info("restoring indexes for %s.%s: %s",
-			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
-		err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
-		if shouldRetryWithDefaultIndexCommitQuorum(err, commitQuorum) {
-			commitQuorum = config.DefaultRestoreIndexCommitQuorum.CommandValue()
-			r.log.Debug("createIndexes for %s.%s failed with MongoDB error: %v", ns.DB, ns.Collection, err)
-			r.log.Warning(
-				"index commit quorum cannot be satisfied for %s.%s, retrying with %s",
-				ns.DB, ns.Collection, commitQuorum,
-			)
-			rawCommand = createIndexesCommand(ns.Collection, indexes, commitQuorum)
-			err = r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
-		}
-		if err != nil {
-			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
+			r.log.Info("restoring indexes for %s.%s: %s",
+				ns.DB, group.Collection, strings.Join(indexNames, ", "))
+			err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			if shouldRetryWithDefaultIndexCommitQuorum(err, commitQuorum) {
+				commitQuorum = config.DefaultRestoreIndexCommitQuorum.CommandValue()
+				r.log.Debug("createIndexes for %s.%s failed with MongoDB error: %v", ns.DB, group.Collection, err)
+				r.log.Warning(
+					"index commit quorum cannot be satisfied for %s.%s, retrying with %s",
+					ns.DB, group.Collection, commitQuorum,
+				)
+				rawCommand = createIndexesCommand(group, commitQuorum)
+				err = r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			}
+			if err != nil {
+				return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, group.Collection)
+			}
 		}
 	}
 
