@@ -13,6 +13,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
+	"github.com/percona/percona-backup-mongodb/x/pbm/task"
 )
 
 // RunCtrlAgent starts the control agent: it joins the PBM discovery cluster,
@@ -51,6 +52,14 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	backupRepo := backup.New(etcdSrv.Client())
 	storageResyncer := backup.NewStorageResyncer(backupRepo)
 	configSvc := config.New(etcdSrv.Client(), storageResyncer)
+	physSvc := backup.NewPhysSvc(task.NewComposer(etcdSrv.Client()))
+
+	inbox := task.NewInbox(etcdSrv.Client(), cfg.Name, physSvc)
+	go func() {
+		if err := inbox.Run(ctx); err != nil {
+			log.Printf("ctrl-agent: task inbox: %v", err)
+		}
+	}()
 
 	// wire the status service before starting its loop
 	statusSvc.SetPublisher(d)
@@ -59,7 +68,7 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 
 	apiSrv := api.Start(
 		api.Config{Port: cfg.APISrvPort},
-		api.NewRouter(statusSvc, configSvc, backupRepo),
+		api.NewRouter(statusSvc, configSvc, backupRepo, physSvc),
 	)
 	log.Printf("ctrl-agent %s started REST API on port %d", cfg.Name, cfg.APISrvPort)
 
