@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
+	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
+	"github.com/percona/percona-backup-mongodb/x/pbm/task"
 )
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
@@ -33,6 +36,20 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 
 	svc.SetPublisher(d)
 	go svc.Run(ctx)
+
+	ccDB, err := etcd.NewClient(cfg.EtcdEndpoints)
+	if err != nil {
+		return fmt.Errorf("connect control state: %w", err)
+	}
+	defer ccDB.Close()
+
+	physSvc := backup.NewPhysSvc(task.NewComposer(ccDB))
+	inbox := task.NewInbox(ccDB, cfg.Name, physSvc)
+	go func() {
+		if err := inbox.Run(ctx); err != nil {
+			log.Printf("agent: task inbox: %v", err)
+		}
+	}()
 
 	<-ctx.Done()
 
