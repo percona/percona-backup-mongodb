@@ -3,6 +3,8 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"math/rand/v2"
+	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
@@ -15,6 +17,17 @@ var (
 	ErrNotFound      = errors.New("backup not found")
 	ErrAlreadyExists = errors.New("backup already exists")
 	ErrNoName        = errors.New("backup name is empty")
+	ErrConflict      = errors.New("backup meta conflict")
+	ErrNoRSName      = errors.New("replset name is empty")
+)
+
+const (
+	// maxModifyAttempts bounds the read-modify-write loop
+	maxModifyAttempts = 10
+	// modifyBackoff is the delay before the first retry of a lost race
+	modifyBackoff = 5 * time.Millisecond
+	// modifyMaxBackoff caps the delay between attempts
+	modifyMaxBackoff = 200 * time.Millisecond
 )
 
 // Repo is the backup repository.
@@ -102,31 +115,25 @@ func (r *Repo) Insert(ctx context.Context, meta *BackupMeta) error {
 	return nil
 }
 
-// Update replaces the backup metadata document identified by meta.Name.
-// It returns ErrNotFound if no such backup exists.
-func (r *Repo) Update(ctx context.Context, meta *BackupMeta) error {
-	if meta.Name == "" {
-		return ErrNoName
+// UpdateRSMeta adds or replaces the section of rs.Name in the backup metadata.
+func (r *Repo) UpdateRSMeta(ctx context.Context, name string, rs BackupReplset) error {
+	if rs.Name == "" {
+		return ErrNoRSName
 	}
 
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return errors.Wrap(err, "marshal backup")
-	}
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		for i := range meta.Replsets {
+			if meta.Replsets[i].Name == rs.Name {
+				meta.Replsets[i] = rs
+				return nil
+			}
+		}
+		meta.Replsets = append(meta.Replsets, rs)
 
-	k := key(meta.Name)
-	resp, err := r.ccDB.Txn(ctx).
-		If(clientv3.Compare(clientv3.Version(k), ">", 0)).
-		Then(clientv3.OpPut(k, string(data))).
-		Commit()
-	if err != nil {
-		return errors.Wrap(err, "put backup")
-	}
-	if !resp.Succeeded {
-		return ErrNotFound
-	}
+		return nil
+	})
 
-	return nil
+	return err
 }
 
 // Delete removes the backup metadata document.
@@ -156,6 +163,70 @@ func (r *Repo) DeleteAll(ctx context.Context) (int64, error) {
 	}
 
 	return resp.Deleted, nil
+}
+
+// modify applies fn to the backup metadata stored under name and writes the
+// result back.
+// Retrying the read-modify-write when a concurrent writer wins the race.
+func (r *Repo) modify(
+	ctx context.Context,
+	name string,
+	fn func(*BackupMeta) error,
+) (*BackupMeta, error) {
+	if name == "" {
+		return nil, ErrNoName
+	}
+
+	k := key(name)
+	for attempt := range maxModifyAttempts {
+		if attempt > 0 {
+			backoff(attempt)
+		}
+
+		resp, err := r.ccDB.Get(ctx, k)
+		if err != nil {
+			return nil, errors.Wrap(err, "get backup meta")
+		}
+		if len(resp.Kvs) == 0 {
+			return nil, ErrNotFound
+		}
+
+		meta := &BackupMeta{}
+		if err := json.Unmarshal(resp.Kvs[0].Value, meta); err != nil {
+			return nil, errors.Wrap(err, "unmarshal backup meta")
+		}
+
+		if err := fn(meta); err != nil {
+			return nil, err
+		}
+
+		data, err := json.Marshal(meta)
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal backup")
+		}
+
+		// document must still be at the revision it was read at
+		txnResp, err := r.ccDB.Txn(ctx).
+			If(clientv3.Compare(clientv3.ModRevision(k), "=", resp.Kvs[0].ModRevision)).
+			Then(clientv3.OpPut(k, string(data))).
+			Commit()
+		if err != nil {
+			return nil, errors.Wrap(err, "put backup meta")
+		}
+		if txnResp.Succeeded {
+			return meta, nil
+		}
+	}
+
+	return nil, ErrConflict
+}
+
+// backoff waits before retrying a lost race between rendomly 5-200ms.
+func backoff(attempt int) {
+	shift := min(attempt-1, 16)
+	d := min(modifyBackoff<<shift, modifyMaxBackoff)
+
+	time.Sleep(rand.N(d))
 }
 
 // key resolves the backup name to its etcd key.
