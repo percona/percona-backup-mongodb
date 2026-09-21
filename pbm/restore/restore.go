@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/mongodb/mongo-tools/common/idx"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -329,7 +329,7 @@ func applyOplog(
 	ranges []oplogRange,
 	options *applyOplogOption,
 	info *topo.NodeInfo,
-	ic *idx.IndexCatalog,
+	ic *idx.Catalog,
 	setTxn setcommittedTxnFn,
 	getTxn getcommittedTxnFn,
 	stat *phys.DistTxnStat,
@@ -441,14 +441,17 @@ func replayChunk(
 	return lts, errors.Wrap(err, "apply oplog for chunk")
 }
 
-// createIndexesCommand builds createIndexes command for the specified collection.
+// createIndexesCommand builds createIndexes command for the specified group.
 // When commitQuorum is nil, the commitQuorum field is omitted from the command and
 // that's mandatory for standalone mongod instance.
-func createIndexesCommand(collection string, indexes []*idx.IndexDocument, commitQuorum any) bson.D {
+func createIndexesCommand(group idx.BuildGroup, commitQuorum any) bson.D {
 	cmd := bson.D{
-		{"createIndexes", collection},
-		{"indexes", indexes},
+		{"createIndexes", group.Collection},
+		{"indexes", group.Indexes},
 		{"ignoreUnknownIndexOptions", true},
+	}
+	if group.RawData {
+		cmd = append(cmd, bson.E{"rawData", true})
 	}
 	if commitQuorum != nil {
 		cmd = append(cmd, bson.E{"commitQuorum", commitQuorum})
