@@ -66,7 +66,11 @@ func (d *mDB) ensureCollExists(dbName string) error {
 // applyOps is a wrapper for the applyOps database command, we pass in
 // a session to avoid opening a new connection for a few inserts at a time.
 func (d *mDB) applyOps(entries []interface{}) error {
-	singleRes := d.m.Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
+	// Intermediate replay states may not satisfy the collection's current validator.
+	singleRes := d.m.Database("admin").RunCommand(context.TODO(), bson.D{
+		{"applyOps", entries},
+		{"bypassDocumentValidation", true},
+	})
 	if err := singleRes.Err(); err != nil {
 		return errors.Wrap(err, "applyOps")
 	}
