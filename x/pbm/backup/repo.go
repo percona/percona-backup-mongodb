@@ -116,19 +116,21 @@ func (r *Repo) Insert(ctx context.Context, meta *BackupMeta) error {
 }
 
 // UpdateRSMeta adds or replaces the section of rs.Name in the backup metadata.
-func (r *Repo) UpdateRSMeta(ctx context.Context, name string, rs BackupReplset) error {
-	if rs.Name == "" {
+// It returns ErrNoRSName when rs is nil or carries no name, as such a section
+// could never be addressed again.
+func (r *Repo) UpdateRSMeta(ctx context.Context, name string, rs *BackupReplset) error {
+	if rs == nil || rs.Name == "" {
 		return ErrNoRSName
 	}
 
 	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
 		for i := range meta.Replsets {
 			if meta.Replsets[i].Name == rs.Name {
-				meta.Replsets[i] = rs
+				meta.Replsets[i] = *rs
 				return nil
 			}
 		}
-		meta.Replsets = append(meta.Replsets, rs)
+		meta.Replsets = append(meta.Replsets, *rs)
 
 		return nil
 	})

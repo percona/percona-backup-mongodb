@@ -274,7 +274,7 @@ func TestUpdateRSMeta(t *testing.T) {
 			t.Fatalf("Insert: %v", err)
 		}
 
-		rs := BackupReplset{Name: "rs0", Node: "rs0-1", Status: defs.StatusRunning}
+		rs := &BackupReplset{Name: "rs0", Node: "rs0-1", Status: defs.StatusRunning}
 		if err := repo.UpdateRSMeta(ctx, "bcp", rs); err != nil {
 			t.Fatalf("UpdateRSMeta: %v", err)
 		}
@@ -301,12 +301,12 @@ func TestUpdateRSMeta(t *testing.T) {
 			t.Fatalf("Insert: %v", err)
 		}
 
-		first := BackupReplset{Name: "rs0", Status: defs.StatusRunning}
+		first := &BackupReplset{Name: "rs0", Status: defs.StatusRunning}
 		if err := repo.UpdateRSMeta(ctx, "bcp", first); err != nil {
 			t.Fatalf("first UpdateRSMeta: %v", err)
 		}
 
-		second := BackupReplset{Name: "rs0", Status: defs.StatusDone, Size: 42}
+		second := &BackupReplset{Name: "rs0", Status: defs.StatusDone, Size: 42}
 		if err := repo.UpdateRSMeta(ctx, "bcp", second); err != nil {
 			t.Fatalf("second UpdateRSMeta: %v", err)
 		}
@@ -337,14 +337,14 @@ func TestUpdateRSMeta(t *testing.T) {
 
 		// Two agents each write their own section.
 		for _, name := range []string{"rs0", "rs1"} {
-			rs := BackupReplset{Name: name, Node: name + "-1", Status: defs.StatusRunning}
+			rs := &BackupReplset{Name: name, Node: name + "-1", Status: defs.StatusRunning}
 			if err := repo.UpdateRSMeta(ctx, "bcp", rs); err != nil {
 				t.Fatalf("UpdateRSMeta %s: %v", name, err)
 			}
 		}
 
 		// rs0 moves on; rs1 must not be touched.
-		if err := repo.UpdateRSMeta(ctx, "bcp", BackupReplset{
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
 			Name:   "rs0",
 			Node:   "rs0-1",
 			Status: defs.StatusDone,
@@ -396,7 +396,7 @@ func TestUpdateRSMeta(t *testing.T) {
 			if !concurrent {
 				concurrent = true
 				concurrentWrite(t, cli, "bcp", func(*BackupMeta) {})
-				if err := repo.UpdateRSMeta(ctx, "bcp", BackupReplset{Name: "rs1"}); err != nil {
+				if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{Name: "rs1"}); err != nil {
 					t.Fatalf("concurrent UpdateRSMeta: %v", err)
 				}
 			}
@@ -419,7 +419,7 @@ func TestUpdateRSMeta(t *testing.T) {
 	t.Run("missing backup returns ErrNotFound", func(t *testing.T) {
 		repo := newTestRepo(t)
 
-		err := repo.UpdateRSMeta(ctx, "ghost", BackupReplset{Name: "rs0"})
+		err := repo.UpdateRSMeta(ctx, "ghost", &BackupReplset{Name: "rs0"})
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("UpdateRSMeta missing: got %v, want ErrNotFound", err)
 		}
@@ -428,9 +428,22 @@ func TestUpdateRSMeta(t *testing.T) {
 	t.Run("empty backup name returns ErrNoName", func(t *testing.T) {
 		repo := newTestRepo(t)
 
-		err := repo.UpdateRSMeta(ctx, "", BackupReplset{Name: "rs0"})
+		err := repo.UpdateRSMeta(ctx, "", &BackupReplset{Name: "rs0"})
 		if !errors.Is(err, ErrNoName) {
 			t.Fatalf("UpdateRSMeta empty backup name: got %v, want ErrNoName", err)
+		}
+	})
+
+	t.Run("nil replset returns ErrNoRSName", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		err := repo.UpdateRSMeta(ctx, "bcp", nil)
+		if !errors.Is(err, ErrNoRSName) {
+			t.Fatalf("UpdateRSMeta nil replset: got %v, want ErrNoRSName", err)
 		}
 	})
 
@@ -441,7 +454,7 @@ func TestUpdateRSMeta(t *testing.T) {
 			t.Fatalf("Insert: %v", err)
 		}
 
-		err := repo.UpdateRSMeta(ctx, "bcp", BackupReplset{})
+		err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{})
 		if !errors.Is(err, ErrNoRSName) {
 			t.Fatalf("UpdateRSMeta empty replset name: got %v, want ErrNoRSName", err)
 		}
