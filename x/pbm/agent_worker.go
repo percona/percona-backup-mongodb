@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/x/pbm/config"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
@@ -15,15 +16,21 @@ import (
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
 func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
-	mc, err := connect.ConnectDirect(ctx, cfg.MongoURI)
+	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
 	if err != nil {
 		return fmt.Errorf("connect local mongod: %w", err)
 	}
-	defer connect.Disconnect(mc)
+	defer connect.Disconnect(nodeConn)
 
-	svc := status.NewForWorkerAgent(cfg.Name, mc)
+	leadConn, err := connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
+	if err != nil {
+		return fmt.Errorf("connect cluster leader: %w", err)
+	}
+	defer leadConn.Disconnect(ctx)
 
-	d, err := disco.Start(ctx, cfg.Name, cfg.Config, svc.DiscoSync())
+	statusSvc := status.NewForWorkerAgent(cfg.Name, nodeConn)
+
+	d, err := disco.Start(ctx, cfg.Name, cfg.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
@@ -34,8 +41,8 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 	}()
 	log.Printf("agent: %s added to PBM cluster", cfg.Name)
 
-	svc.SetPublisher(d)
-	go svc.Run(ctx)
+	statusSvc.SetPublisher(d)
+	go statusSvc.Run(ctx)
 
 	ccDB, err := etcd.NewClient(cfg.EtcdEndpoints)
 	if err != nil {
@@ -43,9 +50,21 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 	}
 	defer ccDB.Close()
 
-	physSvc := backup.NewPhysSvc(task.NewComposer(ccDB))
+	backupRepo := backup.New(ccDB)
+	configSvc := config.New(ccDB, backup.NewStorageResyncer(backupRepo))
+	physSvc := backup.NewPhysSvc(
+		ccDB,
+		backupRepo,
+		nodeConn,
+		leadConn,
+		statusSvc,
+		configSvc,
+		cfg.Name,
+		task.NewComposer(ccDB),
+	)
 	inbox := task.NewInbox(ccDB, cfg.Name, physSvc)
 	go func() {
+		log.Printf("run inbox for agent: %s", cfg.Name)
 		if err := inbox.Run(ctx); err != nil {
 			log.Printf("agent: task inbox: %v", err)
 		}

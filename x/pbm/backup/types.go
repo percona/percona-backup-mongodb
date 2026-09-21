@@ -19,7 +19,6 @@ import (
 // BackupMeta is a backup's metadata
 type BackupMeta struct {
 	Type defs.BackupType `bson:"type" json:"type"`
-	OPID string          `bson:"opid" json:"opid"`
 	Name string          `bson:"name" json:"name"`
 
 	// SrcBackup is the source for the incremental backups. The souce might be
@@ -44,21 +43,21 @@ type BackupMeta struct {
 	Compression      compress.CompressionType `bson:"compression" json:"compression"`
 	// todo: fix how we handle profiles / multi-storages
 	// Store            Storage                  `bson:"store" json:"store"`
-	Size             int64                `bson:"size" json:"size"`
-	SizeUncompressed int64                `bson:"size_uncompressed" json:"size_uncompressed"`
-	MongoVersion     string               `bson:"mongodb_version" json:"mongodb_version"`
-	FCV              string               `bson:"fcv" json:"fcv"`
-	StartTS          int64                `bson:"start_ts" json:"start_ts"`
-	LastTransitionTS int64                `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     bson.Timestamp       `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      bson.Timestamp       `bson:"last_write_ts" json:"last_write_ts"`
-	Hb               bson.Timestamp       `bson:"hb" json:"hb"`
-	Status           defs.Status          `bson:"status" json:"status"`
-	Conditions       []Condition          `bson:"conditions" json:"conditions"`
-	Nomination       []BackupRsNomination `bson:"n" json:"n"`
-	Err              string               `bson:"error,omitempty" json:"error,omitempty"`
-	PBMVersion       string               `bson:"pbm_version" json:"pbm_version"`
-	BalancerStatus   topo.BalancerMode    `bson:"balancer" json:"balancer"`
+	Size             int64             `bson:"size" json:"size"`
+	SizeUncompressed int64             `bson:"size_uncompressed" json:"size_uncompressed"`
+	MongoVersion     string            `bson:"mongodb_version" json:"mongodb_version"`
+	FCV              string            `bson:"fcv" json:"fcv"`
+	StartTS          int64             `bson:"start_ts" json:"start_ts"`
+	LastTransitionTS int64             `bson:"last_transition_ts" json:"last_transition_ts"`
+	FirstWriteTS     bson.Timestamp    `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      bson.Timestamp    `bson:"last_write_ts" json:"last_write_ts"`
+	Status           defs.Status       `bson:"status" json:"status"`
+	Conditions       []Condition       `bson:"conditions" json:"conditions"`
+	Err              string            `bson:"error,omitempty" json:"error,omitempty"`
+	PBMVersion       string            `bson:"pbm_version" json:"pbm_version"`
+	BalancerStatus   topo.BalancerMode `bson:"balancer" json:"balancer"`
+	StartTime        int64             `bson:"start_time" json:"start_time"`
+	FinishTime       int64             `bson:"finish_time" json:"finish_time"`
 	runtimeError     error
 }
 
@@ -87,14 +86,6 @@ func (b *BackupMeta) RS(name string) *BackupReplset {
 		}
 	}
 	return nil
-}
-
-// BackupRsNomination is used to choose (nominate and elect) nodes for the backup
-// within a replica set
-type BackupRsNomination struct {
-	RS    string   `bson:"rs" json:"rs"`
-	Nodes []string `bson:"n" json:"n"`
-	Ack   string   `bson:"ack" json:"ack"`
 }
 
 type BackupReplset struct {
