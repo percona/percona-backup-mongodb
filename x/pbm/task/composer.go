@@ -46,13 +46,12 @@ func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTa
 
 	agents, leader := selectAgents()
 
-	now := time.Now()
 	t := &BackupTask{
-		Name:    name,
-		Agents:  agents,
-		Leader:  leader,
-		StartTS: now.Unix(),
-		Options: rawOpts,
+		Name:      name,
+		Agents:    agents,
+		Leader:    leader,
+		GroupSize: len(agents),
+		Options:   rawOpts,
 	}
 
 	taskDoc, err := json.Marshal(t)
@@ -69,10 +68,11 @@ func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTa
 	ops = append(ops, clientv3.OpPut(backupKey(t.Name), string(taskDoc), clientv3.WithLease(lease.ID)))
 	for _, agent := range agents {
 		item, err := json.Marshal(InboxItem{
-			Type:     TaskBackup,
-			Task:     t.Name,
-			IsLeader: agent == leader,
-			Options:  rawOpts,
+			Type:      TaskBackup,
+			Task:      t.Name,
+			GroupSize: t.GroupSize,
+			IsLeader:  agent == leader,
+			Options:   rawOpts,
 		})
 		if err != nil {
 			c.revoke(ctx, lease.ID)

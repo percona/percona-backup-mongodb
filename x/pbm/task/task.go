@@ -27,8 +27,8 @@ type BackupTask struct {
 	// Agents are the agents taking part in the backup, one per replica set.
 	Agents []string `json:"agents"`
 	// Leader is the agent coordinating the backup within the cluster
-	Leader  string `json:"leader"`
-	StartTS int64  `json:"start_ts"`
+	Leader    string `json:"leader"`
+	GroupSize int    `json:"group_size"`
 	// Options is what the backup was started with (service owning the operation defines its shape)
 	Options json.RawMessage `json:"options,omitempty"`
 }
@@ -42,9 +42,10 @@ const (
 
 // InboxItem is one agent's copy of the work.
 type InboxItem struct {
-	Type     TaskType `json:"type"`
-	Task     string   `json:"task"`
-	IsLeader bool     `json:"leader"`
+	Type      TaskType `json:"type"`
+	Task      string   `json:"task"`
+	GroupSize int      `json:"group_size"`
+	IsLeader  bool     `json:"leader"`
 	// Options is the task's options, copied verbatim from BackupTask.
 	Options json.RawMessage `json:"options,omitempty"`
 }

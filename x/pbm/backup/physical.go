@@ -64,28 +64,24 @@ func (o *Options) validate() error {
 }
 
 var phases = []phasesync.Phase{
-	PhasePrepare,
 	PhaseStarting,
+	PhaseMetaCreated,
+	PhaseMetaRSCreated,
 	PhaseBackupCursor,
 	PhaseBackupCursorExt,
-	PhaseRunning,
 	PhaseDone,
 }
 
 const (
-	PhasePrepare         phasesync.Phase = "prepare"
 	PhaseStarting        phasesync.Phase = "starting"
+	PhaseMetaCreated     phasesync.Phase = "metaCreated"
+	PhaseMetaRSCreated   phasesync.Phase = "metaCreatedRS"
 	PhaseBackupCursor    phasesync.Phase = "backupCursor"
 	PhaseBackupCursorExt phasesync.Phase = "backupCursorExt"
-	PhaseRunning         phasesync.Phase = "running"
 	PhaseDone            phasesync.Phase = "done"
 )
 
 const (
-	// groupSize is how many agents take part in a backup.
-	// todo: read it from the backup task instead of hardcoding it.
-	groupSize = 3
-
 	// barrierTTL is how long after an agent stops renewing its lease the rest
 	// of the group declares it lost.
 	barrierTTL = 10 * time.Second
@@ -160,7 +156,13 @@ func (s *PhysSvc) Start(ctx context.Context, opts Options) (*task.BackupTask, er
 }
 
 // Run performs this agent's part (core) of the physical backup.
-func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts json.RawMessage) error {
+func (s *PhysSvc) Run(
+	ctx context.Context,
+	name string,
+	groupSize int,
+	isLeader bool,
+	rawOpts json.RawMessage,
+) (err error) {
 	log.Printf("running backup %s; agent: %s; leader: %t", name, s.agentID, isLeader)
 	startTime := time.Now().UTC()
 
@@ -191,7 +193,7 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 		}
 	}()
 
-	logEndPhase, err := s.advance(ctx, b, name, PhasePrepare, isSharded)
+	pTS, err := s.advance(ctx, b, name, PhaseStarting, isSharded, startTime)
 	if err != nil {
 		return err
 	}
@@ -234,9 +236,7 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 		log.Printf("init backup meta")
 	}
 
-	logEndPhase()
-
-	logEndPhase, err = s.advance(ctx, b, name, PhaseStarting, isSharded)
+	pTS, err = s.advance(ctx, b, name, PhaseMetaCreated, isSharded, pTS)
 	if err != nil {
 		return err
 	}
@@ -293,9 +293,7 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 		}
 	}
 
-	logEndPhase()
-
-	logEndPhase, err = s.advance(ctx, b, name, PhaseBackupCursor, isSharded)
+	pTS, err = s.advance(ctx, b, name, PhaseMetaRSCreated, isSharded, pTS)
 	if err != nil {
 		return err
 	}
@@ -342,12 +340,12 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 	if err != nil {
 		return errors.Wrap(err, "update metadata")
 	}
-	logEndPhase()
 
-	logEndPhase, err = s.advance(ctx, b, name, PhaseBackupCursorExt, isSharded)
+	pTS, err = s.advance(ctx, b, name, PhaseBackupCursor, isSharded, pTS)
 	if err != nil {
 		return err
 	}
+
 	fwTS, lwTS := s.resolveFirstLastWriteForCluster(ctx, name)
 
 	if isLeader {
@@ -371,9 +369,7 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 	} else {
 		data = append(data, *stgb)
 	}
-	logEndPhase()
-
-	logEndPhase, err = s.advance(ctx, b, name, PhaseRunning, isSharded)
+	pTS, err = s.advance(ctx, b, name, PhaseBackupCursorExt, isSharded, pTS)
 	if err != nil {
 		return err
 	}
@@ -382,9 +378,8 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 	if err != nil {
 		return errors.Wrap(err, "upload")
 	}
-	logEndPhase()
 
-	logEndPhase, err = s.advance(ctx, b, name, PhaseDone, isSharded)
+	_, err = s.advance(ctx, b, name, PhaseDone, isSharded, pTS)
 	if err != nil {
 		return err
 	}
@@ -404,30 +399,37 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 	return nil
 }
 
-// advance moves this agent to phase and blocks until the rest of the group
-// reaches it. It returns the function that reports how long the phase's work
-// took, to be called once that work is done.
+// advance moves this agent to phase and blocks until the rest of the group reaches it.
+// It adds duration logging info for sharded cluster and RS.
 func (s *PhysSvc) advance(
 	ctx context.Context,
 	b *phasesync.Barrier,
 	name string,
 	phase phasesync.Phase,
 	isSharded bool,
-) (func(), error) {
-	msg := "phase %s for backup %s on %s"
+	phaseStartTime time.Time,
+) (time.Time, error) {
+	workingD := time.Now().UTC().Sub(phaseStartTime)
+	msg := "phase: %s for backup %s on %s"
 	if isSharded {
-		msg = "phase %s for backup %s on %s, waiting for the group"
+		msg = "phase: %s for backup %s on %s, waiting for the group"
 	}
 	log.Printf(msg, phase, name, s.agentID)
 
 	if err := b.Advance(ctx, phase); err != nil {
-		return nil, errors.Wrapf(err, "advance to %q", phase)
+		return time.Time{}, errors.Wrapf(err, "advance to %q", phase)
 	}
-	ps := time.Now()
 
-	return func() {
-		log.Printf("backup %s: %s: %s phase took %s", name, s.agentID, phase, time.Since(ps))
-	}, nil
+	phaseD := time.Now().UTC().Sub(phaseStartTime)
+	waitD := phaseD - workingD
+	if isSharded {
+		log.Printf("phase %s reached; working: %s, waiting: %s, total phase: %s duration",
+			phase, workingD, waitD, phaseD)
+	} else {
+		log.Printf("phase %s reached; total phase: %s duration", phase, phaseD)
+	}
+
+	return time.Now().UTC(), nil
 }
 
 func (s *PhysSvc) initMeta(
