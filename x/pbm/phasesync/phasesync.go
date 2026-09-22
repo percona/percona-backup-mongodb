@@ -23,6 +23,8 @@ var (
 // DefaultTTL is how long after a member stops renewing its lease it is declared lost.
 const DefaultTTL = 10 * time.Second
 
+type Phase string
+
 // Barrier is one member's handle on a group activity: for a group of agents that means that all agents stop
 // at phase point and do not proceed until all other agents reach this phase point.
 
@@ -35,8 +37,8 @@ type Barrier struct {
 	prefix  string // e.g. "/jobs/job-42/", always with a trailing slash
 	id      string // unique per agent, e.g. hostname:port
 	size    int    // expected group size: number of agents
-	phases  []string
-	rank    map[string]int
+	phases  []Phase
+	rank    map[Phase]int
 	reached int
 }
 
@@ -48,7 +50,7 @@ type Options struct {
 	// Size is how many agents take part. Defaults to 1 (e.g. for RS).
 	Size int
 	// Phases in the order they occur, e.g. {"starting", "working", "done"}.
-	Phases []string
+	Phases []Phase
 	// TTL defaults to DefaultTTL
 	TTL time.Duration
 }
@@ -78,7 +80,7 @@ func New(ctx context.Context, cli *clientv3.Client, opts Options) (*Barrier, err
 		ttl = DefaultTTL
 	}
 
-	rank := make(map[string]int, len(opts.Phases))
+	rank := make(map[Phase]int, len(opts.Phases))
 	for i, p := range opts.Phases {
 		rank[p] = i
 	}
@@ -126,7 +128,7 @@ func (b *Barrier) Close() error {
 // Advance publishes that this agent has reached phase, then blocks until every
 // member of the group has reached that phase. It returns when the
 // whole group is lined up, so the agent can start the next phase's work.
-func (b *Barrier) Advance(ctx context.Context, phase string) error {
+func (b *Barrier) Advance(ctx context.Context, phase Phase) error {
 	target, ok := b.rank[phase]
 	if !ok {
 		return fmt.Errorf("unknown phase %q", phase)
@@ -136,7 +138,7 @@ func (b *Barrier) Advance(ctx context.Context, phase string) error {
 	}
 	cli := b.sess.Client()
 
-	if _, err := cli.Put(ctx, b.key(), phase, clientv3.WithLease(b.sess.Lease())); err != nil {
+	if _, err := cli.Put(ctx, b.key(), string(phase), clientv3.WithLease(b.sess.Lease())); err != nil {
 		return errors.Wrapf(err, "announce phase %q", phase)
 	}
 	b.reached = target
@@ -211,7 +213,7 @@ func (b *Barrier) key() string { return b.prefix + b.id }
 func (b *Barrier) memberID(key string) string { return strings.TrimPrefix(key, b.prefix) }
 
 func (b *Barrier) rankOf(v string) int {
-	if i, ok := b.rank[v]; ok {
+	if i, ok := b.rank[Phase(v)]; ok {
 		return i
 	}
 

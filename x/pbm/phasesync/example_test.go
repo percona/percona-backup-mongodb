@@ -95,7 +95,7 @@ func runAgentRS1(ctx context.Context, cli *clientv3.Client, prefix string, size 
 		Prefix: prefix,
 		ID:     "rs1",
 		Size:   size,
-		Phases: []string{"preparing", "starting", "running", "done"},
+		Phases: []Phase{"preparing", "starting", "running", "done"},
 		TTL:    5 * time.Second,
 	})
 	if err != nil {
@@ -127,7 +127,7 @@ func runAgentRS2(ctx context.Context, cli *clientv3.Client, prefix string, size 
 		Prefix: prefix,
 		ID:     "rs2",
 		Size:   size,
-		Phases: []string{"preparing", "starting", "running", "done"},
+		Phases: []Phase{"preparing", "starting", "running", "done"},
 		TTL:    5 * time.Second,
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func runAgentCfg(ctx context.Context, cli *clientv3.Client, prefix string, size 
 		Prefix: prefix,
 		ID:     "cfg",
 		Size:   size,
-		Phases: []string{"preparing", "starting", "running", "done"},
+		Phases: []Phase{"preparing", "starting", "running", "done"},
 		TTL:    5 * time.Second,
 	})
 	if err != nil {
@@ -230,7 +230,7 @@ func runAgentRS0(ctx context.Context, cli *clientv3.Client, prefix string, size 
 		Prefix: prefix,
 		ID:     "rs0",
 		Size:   size,
-		Phases: []string{"preparing", "starting", "running", "done"},
+		Phases: []Phase{"preparing", "starting", "running", "done"},
 		TTL:    5 * time.Second,
 	})
 	if err != nil {

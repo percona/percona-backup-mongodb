@@ -28,16 +28,6 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/version"
 )
 
-// todo: use Phase type instead of string
-var phases = []string{
-	string(PhasePrepare),
-	string(PhaseStarting),
-	string(PhaseBackupCursor),
-	string(PhaseBackupCursorExt),
-	string(PhaseRunning),
-	string(PhaseDone),
-}
-
 var ErrInvalidOptions = errors.New("invalid backup options")
 
 type Options struct {
@@ -72,16 +62,22 @@ func (o *Options) validate() error {
 	return nil
 }
 
-// PhysStatus is a physical backup phase/status.
-type Phase string
+var phases = []phasesync.Phase{
+	PhasePrepare,
+	PhaseStarting,
+	PhaseBackupCursor,
+	PhaseBackupCursorExt,
+	PhaseRunning,
+	PhaseDone,
+}
 
 const (
-	PhasePrepare         Phase = "prepare"
-	PhaseStarting        Phase = "starting"
-	PhaseBackupCursor    Phase = "backupCursor"
-	PhaseBackupCursorExt Phase = "backupCursorExt"
-	PhaseRunning         Phase = "running"
-	PhaseDone            Phase = "done"
+	PhasePrepare         phasesync.Phase = "prepare"
+	PhaseStarting        phasesync.Phase = "starting"
+	PhaseBackupCursor    phasesync.Phase = "backupCursor"
+	PhaseBackupCursorExt phasesync.Phase = "backupCursorExt"
+	PhaseRunning         phasesync.Phase = "running"
+	PhaseDone            phasesync.Phase = "done"
 )
 
 const (
@@ -406,7 +402,7 @@ func (s *PhysSvc) advance(
 	ctx context.Context,
 	b *phasesync.Barrier,
 	name string,
-	phase Phase,
+	phase phasesync.Phase,
 	isSharded bool,
 ) (func(), error) {
 	msg := "phase %s for backup %s on %s"
@@ -415,7 +411,7 @@ func (s *PhysSvc) advance(
 	}
 	log.Printf(msg, phase, name, s.agentID)
 
-	if err := b.Advance(ctx, string(phase)); err != nil {
+	if err := b.Advance(ctx, phase); err != nil {
 		return nil, errors.Wrapf(err, "advance to %q", phase)
 	}
 	ps := time.Now()

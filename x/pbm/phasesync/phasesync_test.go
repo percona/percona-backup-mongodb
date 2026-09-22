@@ -18,7 +18,7 @@ import (
 
 const etcdImage = "gcr.io/etcd-development/etcd:v3.6.12"
 
-var backupPhases = []string{"preparing", "starting", "running", "done"}
+var backupPhases = []Phase{"preparing", "starting", "running", "done"}
 
 const waitTimeout = 500 * time.Millisecond
 
@@ -609,7 +609,7 @@ func TestClose(t *testing.T) {
 }
 
 // advanceAsync runs Advance in the background and reports its result.
-func advanceAsync(t *testing.T, b *Barrier, phase string) <-chan error {
+func advanceAsync(t *testing.T, b *Barrier, phase Phase) <-chan error {
 	t.Helper()
 
 	released := make(chan error, 1)
@@ -690,7 +690,7 @@ func newBarrier(t *testing.T, prefix, id string, size int) *Barrier {
 }
 
 // joinMember stands up a synthetic member the test drives manually.
-func joinMember(t *testing.T, prefix, id, phase string) clientv3.LeaseID {
+func joinMember(t *testing.T, prefix, id string, phase Phase) clientv3.LeaseID {
 	t.Helper()
 
 	lease, err := ctlCli.Grant(t.Context(), 60)
@@ -703,10 +703,10 @@ func joinMember(t *testing.T, prefix, id, phase string) clientv3.LeaseID {
 }
 
 // announce records that a synthetic member reached phase, the way Advance does.
-func announce(t *testing.T, prefix, id, phase string, lease clientv3.LeaseID) {
+func announce(t *testing.T, prefix, id string, phase Phase, lease clientv3.LeaseID) {
 	t.Helper()
 
-	_, err := ctlCli.Put(t.Context(), prefix+id, phase, clientv3.WithLease(lease))
+	_, err := ctlCli.Put(t.Context(), prefix+id, string(phase), clientv3.WithLease(lease))
 	if err != nil {
 		t.Fatalf("announce %q for %s: %v", phase, id, err)
 	}
