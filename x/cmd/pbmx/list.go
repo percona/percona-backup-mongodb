@@ -100,7 +100,7 @@ func formatBackupsFull(w io.Writer, metas []*backup.BackupMeta) error {
 			m.PBMVersion,
 			fmtUnixSec(m.StartTS),
 			fmtBSONTS(m.LastWriteTS),
-			m.Err,
+			m.Error,
 		}); err != nil {
 			return err
 		}

@@ -449,7 +449,7 @@ func (s *PhysSvc) initMeta(
 		// 	StorageConf: b.config.Storage,
 		// },
 		StartTS:  time.Now().Unix(),
-		Status:   defs.StatusStarting,
+		Status:   StatusInProgress,
 		Replsets: []BackupReplset{},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
 		LastWriteTS:  bson.Timestamp{T: 1, I: 1},

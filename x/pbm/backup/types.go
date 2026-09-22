@@ -46,35 +46,16 @@ type BackupMeta struct {
 	Size             int64             `bson:"size" json:"size"`
 	SizeUncompressed int64             `bson:"size_uncompressed" json:"size_uncompressed"`
 	MongoVersion     string            `bson:"mongodb_version" json:"mongodb_version"`
-	FCV              string            `bson:"fcv" json:"fcv"`
-	StartTS          int64             `bson:"start_ts" json:"start_ts"`
-	LastTransitionTS int64             `bson:"last_transition_ts" json:"last_transition_ts"`
-	FirstWriteTS     bson.Timestamp    `bson:"first_write_ts" json:"first_write_ts"`
-	LastWriteTS      bson.Timestamp    `bson:"last_write_ts" json:"last_write_ts"`
-	Status           defs.Status       `bson:"status" json:"status"`
-	Conditions       []Condition       `bson:"conditions" json:"conditions"`
-	Err              string            `bson:"error,omitempty" json:"error,omitempty"`
 	PBMVersion       string            `bson:"pbm_version" json:"pbm_version"`
+	FCV              string            `bson:"fcv" json:"fcv"`
+	StartTS          int64             `bson:"start_ts" json:"start_ts"`             //todo
+	FirstWriteTS     bson.Timestamp    `bson:"first_write_ts" json:"first_write_ts"` //todo
+	LastWriteTS      bson.Timestamp    `bson:"last_write_ts" json:"last_write_ts"`   //todo
+	Status           Status            `bson:"status" json:"status"`
 	BalancerStatus   topo.BalancerMode `bson:"balancer" json:"balancer"`
 	StartTime        int64             `bson:"start_time" json:"start_time"`
 	FinishTime       int64             `bson:"finish_time" json:"finish_time"`
-	runtimeError     error
-}
-
-func (b *BackupMeta) Error() error {
-	switch {
-	case b.runtimeError != nil:
-		return b.runtimeError
-	case b.Err != "":
-		return errors.New(b.Err)
-	default:
-		return nil
-	}
-}
-
-func (b *BackupMeta) SetRuntimeError(err error) {
-	b.runtimeError = err
-	b.Status = defs.StatusError
+	Error            string            `bson:"error,omitempty" json:"error,omitempty"`
 }
 
 // RS returns the metadata of the replset with given name.
@@ -94,20 +75,16 @@ type BackupReplset struct {
 	// Journal is not used. left for backward compatibility
 	Journal          []File           `bson:"journal,omitempty" json:"journal,omitempty"`
 	Files            []File           `bson:"files,omitempty" json:"files,omitempty"`
-	DumpName         string           `bson:"dump_name,omitempty" json:"backup_name,omitempty"`
-	OplogName        string           `bson:"oplog_name,omitempty" json:"oplog_name,omitempty"`
-	StartTS          int64            `bson:"start_ts" json:"start_ts"`
-	Status           defs.Status      `bson:"status" json:"status"`
+	StartTS          int64            `bson:"start_ts" json:"start_ts"` //todo
+	Status           Status           `bson:"status" json:"status"`
 	Size             int64            `bson:"size" json:"size"`
 	SizeUncompressed int64            `bson:"size_uncompressed" json:"size_uncompressed"`
 	IsConfigSvr      *bool            `bson:"iscs,omitempty" json:"iscs,omitempty"`
 	IsConfigShard    *bool            `bson:"configshard,omitempty" json:"configshard,omitempty"`
-	LastTransitionTS int64            `bson:"last_transition_ts" json:"last_transition_ts"`
 	FirstWriteTS     bson.Timestamp   `bson:"first_write_ts" json:"first_write_ts"`
 	LastWriteTS      bson.Timestamp   `bson:"last_write_ts" json:"last_write_ts"`
 	Node             string           `bson:"node" json:"node"` // node that performed backup
 	Error            string           `bson:"error,omitempty" json:"error,omitempty"`
-	Conditions       []Condition      `bson:"conditions" json:"conditions"`
 	MongodOpts       *topo.MongodOpts `bson:"mongod_opts,omitempty" json:"mongod_opts,omitempty"`
 
 	// required for external backup (PBM-1252)
@@ -119,11 +96,13 @@ type BackupReplset struct {
 	CustomThisID string `bson:"this_id,omitempty" json:"this_id,omitempty"`
 }
 
-type Condition struct {
-	Timestamp int64       `bson:"timestamp" json:"timestamp"`
-	Status    defs.Status `bson:"status" json:"status"`
-	Error     string      `bson:"error,omitempty" json:"error,omitempty"`
-}
+type Status string
+
+const (
+	StatusInProgress Status = "inProgress"
+	StatusDone       Status = "done"
+	StatusError      Status = "error"
+)
 
 type File struct {
 	Name                string      `bson:"filename" json:"filename"`

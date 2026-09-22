@@ -62,8 +62,8 @@ func TestInsert(t *testing.T) {
 		if got.Type != defs.LogicalBackup {
 			t.Errorf("Type = %q, want %q", got.Type, defs.LogicalBackup)
 		}
-		if got.Status != defs.StatusDone {
-			t.Errorf("Status = %q, want %q", got.Status, defs.StatusDone)
+		if got.Status != StatusDone {
+			t.Errorf("Status = %q, want %q", got.Status, StatusDone)
 		}
 	})
 
@@ -100,26 +100,26 @@ func TestModify(t *testing.T) {
 		}
 
 		out, err := repo.modify(ctx, "bcp", func(m *BackupMeta) error {
-			m.Status = defs.StatusError
-			m.Err = "boom"
+			m.Status = StatusError
+			m.Error = "boom"
 			return nil
 		})
 		if err != nil {
 			t.Fatalf("modify: %v", err)
 		}
-		if out.Err != "boom" {
-			t.Errorf("returned Err = %q, want %q", out.Err, "boom")
+		if out.Error != "boom" {
+			t.Errorf("returned Err = %q, want %q", out.Error, "boom")
 		}
 
 		got, err := repo.Get(ctx, "bcp")
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
-		if got.Status != defs.StatusError {
-			t.Errorf("Status = %q, want %q", got.Status, defs.StatusError)
+		if got.Status != StatusError {
+			t.Errorf("Status = %q, want %q", got.Status, StatusError)
 		}
-		if got.Err != "boom" {
-			t.Errorf("Err = %q, want %q", got.Err, "boom")
+		if got.Error != "boom" {
+			t.Errorf("Err = %q, want %q", got.Error, "boom")
 		}
 	})
 
@@ -142,7 +142,7 @@ func TestModify(t *testing.T) {
 					m.Size = 42
 				})
 			}
-			m.Err = "boom"
+			m.Error = "boom"
 			return nil
 		})
 		if err != nil {
@@ -151,8 +151,8 @@ func TestModify(t *testing.T) {
 		if calls != 2 {
 			t.Errorf("fn called %d times, want 2", calls)
 		}
-		if out.Err != "boom" {
-			t.Errorf("Err = %q, want %q", out.Err, "boom")
+		if out.Error != "boom" {
+			t.Errorf("Err = %q, want %q", out.Error, "boom")
 		}
 		if out.Size != 42 {
 			t.Errorf("Size = %d, want 42: the retry must build on the concurrent write", out.Size)
@@ -162,8 +162,8 @@ func TestModify(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
-		if got.Size != 42 || got.Err != "boom" {
-			t.Errorf("stored meta = (%d, %q), want (42, %q)", got.Size, got.Err, "boom")
+		if got.Size != 42 || got.Error != "boom" {
+			t.Errorf("stored meta = (%d, %q), want (42, %q)", got.Size, got.Error, "boom")
 		}
 	})
 
@@ -181,7 +181,7 @@ func TestModify(t *testing.T) {
 			concurrentWrite(t, cli, "bcp", func(m *BackupMeta) {
 				m.Size++
 			})
-			m.Err = "boom"
+			m.Error = "boom"
 			return nil
 		})
 		if !errors.Is(err, ErrConflict) {
@@ -195,8 +195,8 @@ func TestModify(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
-		if got.Err != "" {
-			t.Errorf("Err = %q, want empty: a modify that gave up must not write", got.Err)
+		if got.Error != "" {
+			t.Errorf("Err = %q, want empty: a modify that gave up must not write", got.Error)
 		}
 	})
 
@@ -209,7 +209,7 @@ func TestModify(t *testing.T) {
 
 		errBoom := errors.New("boom")
 		_, err := repo.modify(ctx, "bcp", func(m *BackupMeta) error {
-			m.Err = "written?"
+			m.Error = "written?"
 			return errBoom
 		})
 		if !errors.Is(err, errBoom) {
@@ -220,8 +220,8 @@ func TestModify(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
-		if got.Err != "" {
-			t.Errorf("Err = %q, want empty: an aborted modify must not write", got.Err)
+		if got.Error != "" {
+			t.Errorf("Err = %q, want empty: an aborted modify must not write", got.Error)
 		}
 	})
 
@@ -237,7 +237,7 @@ func TestModify(t *testing.T) {
 			if err := repo.Delete(ctx, "bcp"); err != nil && !errors.Is(err, ErrNotFound) {
 				t.Fatalf("concurrent Delete: %v", err)
 			}
-			m.Err = "boom"
+			m.Error = "boom"
 			return nil
 		})
 		if !errors.Is(err, ErrNotFound) {
@@ -274,7 +274,7 @@ func TestUpdateRSMeta(t *testing.T) {
 			t.Fatalf("Insert: %v", err)
 		}
 
-		rs := &BackupReplset{Name: "rs0", Node: "rs0-1", Status: defs.StatusRunning}
+		rs := &BackupReplset{Name: "rs0", Node: "rs0-1", Status: StatusInProgress}
 		if err := repo.UpdateRSMeta(ctx, "bcp", rs); err != nil {
 			t.Fatalf("UpdateRSMeta: %v", err)
 		}
@@ -301,12 +301,12 @@ func TestUpdateRSMeta(t *testing.T) {
 			t.Fatalf("Insert: %v", err)
 		}
 
-		first := &BackupReplset{Name: "rs0", Status: defs.StatusRunning}
+		first := &BackupReplset{Name: "rs0", Status: StatusInProgress}
 		if err := repo.UpdateRSMeta(ctx, "bcp", first); err != nil {
 			t.Fatalf("first UpdateRSMeta: %v", err)
 		}
 
-		second := &BackupReplset{Name: "rs0", Status: defs.StatusDone, Size: 42}
+		second := &BackupReplset{Name: "rs0", Status: StatusDone, Size: 42}
 		if err := repo.UpdateRSMeta(ctx, "bcp", second); err != nil {
 			t.Fatalf("second UpdateRSMeta: %v", err)
 		}
@@ -318,8 +318,8 @@ func TestUpdateRSMeta(t *testing.T) {
 		if len(got.Replsets) != 1 {
 			t.Fatalf("got %d replsets, want 1: the name must not be duplicated", len(got.Replsets))
 		}
-		if got.Replsets[0].Status != defs.StatusDone {
-			t.Errorf("Status = %q, want %q", got.Replsets[0].Status, defs.StatusDone)
+		if got.Replsets[0].Status != StatusDone {
+			t.Errorf("Status = %q, want %q", got.Replsets[0].Status, StatusDone)
 		}
 		if got.Replsets[0].Size != 42 {
 			t.Errorf("Size = %d, want 42", got.Replsets[0].Size)
@@ -337,7 +337,7 @@ func TestUpdateRSMeta(t *testing.T) {
 
 		// Two agents each write their own section.
 		for _, name := range []string{"rs0", "rs1"} {
-			rs := &BackupReplset{Name: name, Node: name + "-1", Status: defs.StatusRunning}
+			rs := &BackupReplset{Name: name, Node: name + "-1", Status: StatusInProgress}
 			if err := repo.UpdateRSMeta(ctx, "bcp", rs); err != nil {
 				t.Fatalf("UpdateRSMeta %s: %v", name, err)
 			}
@@ -347,7 +347,7 @@ func TestUpdateRSMeta(t *testing.T) {
 		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
 			Name:   "rs0",
 			Node:   "rs0-1",
-			Status: defs.StatusDone,
+			Status: StatusDone,
 		}); err != nil {
 			t.Fatalf("UpdateRSMeta rs0: %v", err)
 		}
@@ -364,11 +364,11 @@ func TestUpdateRSMeta(t *testing.T) {
 		for _, rs := range got.Replsets {
 			byName[rs.Name] = rs
 		}
-		if byName["rs0"].Status != defs.StatusDone {
-			t.Errorf("rs0 Status = %q, want %q", byName["rs0"].Status, defs.StatusDone)
+		if byName["rs0"].Status != StatusDone {
+			t.Errorf("rs0 Status = %q, want %q", byName["rs0"].Status, StatusDone)
 		}
-		if byName["rs1"].Status != defs.StatusRunning {
-			t.Errorf("rs1 Status = %q, want %q", byName["rs1"].Status, defs.StatusRunning)
+		if byName["rs1"].Status != StatusInProgress {
+			t.Errorf("rs1 Status = %q, want %q", byName["rs1"].Status, StatusInProgress)
 		}
 		if byName["rs1"].Node != "rs1-1" {
 			t.Errorf("rs1 Node = %q, want %q", byName["rs1"].Node, "rs1-1")
@@ -376,8 +376,8 @@ func TestUpdateRSMeta(t *testing.T) {
 		if got.Size != 7 {
 			t.Errorf("top-level Size = %d, want 7", got.Size)
 		}
-		if got.Status != defs.StatusDone {
-			t.Errorf("top-level Status = %q, want %q", got.Status, defs.StatusDone)
+		if got.Status != StatusDone {
+			t.Errorf("top-level Status = %q, want %q", got.Status, StatusDone)
 		}
 	})
 
@@ -568,7 +568,7 @@ func TestSetFinishTime(t *testing.T) {
 		}
 		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
 			Name:   "rs0",
-			Status: defs.StatusDone,
+			Status: StatusDone,
 		}); err != nil {
 			t.Fatalf("UpdateRSMeta: %v", err)
 		}
@@ -584,8 +584,8 @@ func TestSetFinishTime(t *testing.T) {
 		if len(got.Replsets) != 1 {
 			t.Fatalf("got %d replsets, want 1", len(got.Replsets))
 		}
-		if got.Replsets[0].Status != defs.StatusDone {
-			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, defs.StatusDone)
+		if got.Replsets[0].Status != StatusDone {
+			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, StatusDone)
 		}
 	})
 
@@ -710,7 +710,7 @@ func testMeta(name string) *BackupMeta {
 	return &BackupMeta{
 		Name:   name,
 		Type:   defs.LogicalBackup,
-		Status: defs.StatusDone,
+		Status: StatusDone,
 	}
 }
 
