@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -37,12 +38,38 @@ var phases = []string{
 	string(PhaseDone),
 }
 
+var ErrInvalidOptions = errors.New("invalid backup options")
+
 type Options struct {
-	Type                   defs.BackupType          `json:"type"`
-	Compression            compress.CompressionType `json:"compression,omitempty"`
-	CompressionLevel       *int                     `json:"compression_level,omitempty"`
-	NumParallelCollections int32                    `json:"num_parallel_collections,omitempty"`
-	Profile                string                   `json:"profile,omitempty"`
+	Type             defs.BackupType          `json:"type"`
+	Compression      compress.CompressionType `json:"compression,omitempty"`
+	CompressionLevel *int                     `json:"compression_level,omitempty"`
+	NumParallelFiles int32                    `json:"num_parallel_files,omitempty"`
+	Profile          string                   `json:"profile,omitempty"`
+}
+
+func (o *Options) validate() error {
+	if o.Type != defs.PhysicalBackup {
+		return errors.Wrapf(ErrInvalidOptions,
+			"backup type %q: only %q is supported", o.Type, defs.PhysicalBackup)
+	}
+
+	if o.Compression == "" {
+		o.Compression = defaultCompression
+	}
+	if !compress.IsValidCompressionType(string(o.Compression)) {
+		return errors.Wrapf(ErrInvalidOptions, "compression type %q", o.Compression)
+	}
+
+	switch {
+	case o.NumParallelFiles < 0:
+		return errors.Wrapf(ErrInvalidOptions,
+			"number of parallel files %d: must be positive", o.NumParallelFiles)
+	case o.NumParallelFiles == 0:
+		o.NumParallelFiles = defaultNumParallelFiles
+	}
+
+	return nil
 }
 
 // PhysStatus is a physical backup phase/status.
@@ -77,6 +104,16 @@ const (
 const (
 	// todo: get it from config
 	backupBufferSize = 10 * 1024
+)
+
+const (
+	// defaultCompression is what a backup is compressed with when the client
+	// asks for no particular compression.
+	defaultCompression = compress.CompressionTypeNone
+
+	// defaultNumParallelFiles is how many files are uploaded at once
+	// when the client doesn't ask for a particular number.
+	defaultNumParallelFiles = 1
 )
 
 // PhysSvc is the physical backup service.
@@ -119,22 +156,24 @@ func NewPhysSvc(
 	}
 }
 
-// Start begins a new physical backup and returns as soon as the work is
-// delegated.
+// Start begins a new physical backup and returns as soon as the work is delegated.
 // Backup itself runs on the agents.
-func (s *PhysSvc) Start(ctx context.Context) (*task.BackupTask, error) {
-	return s.composer.Backup(ctx, newBackupName())
+func (s *PhysSvc) Start(ctx context.Context, opts Options) (*task.BackupTask, error) {
+	if err := opts.validate(); err != nil {
+		return nil, err
+	}
+
+	return s.composer.Backup(ctx, newBackupName(), opts)
 }
 
 // Run performs this agent's part (core) of the physical backup.
-func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool) error {
+func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts json.RawMessage) error {
 	log.Printf("running backup %s; agent: %s; leader: %t", name, s.agentID, isLeader)
 	startTime := time.Now().UTC().Unix()
 
-	// todo: take these from the client once the CLI passes them through.
-	opts := Options{
-		Type:        defs.PhysicalBackup,
-		Compression: compress.CompressionTypeNone,
+	opts := Options{}
+	if err := json.Unmarshal(rawOpts, &opts); err != nil {
+		return errors.Wrap(err, "unmarshal backup options")
 	}
 
 	agent, err := s.statusSvc.GetMember(s.agentID)
@@ -464,9 +503,8 @@ func (s *PhysSvc) uploadPhysical(
 	dbpath string,
 	stg storage.Storage,
 ) error {
-	// todo: rename
-	if opts.NumParallelCollections > 1 {
-		log.Printf("uploading data (%d files in parallel)", opts.NumParallelCollections)
+	if opts.NumParallelFiles > 1 {
+		log.Printf("uploading data (%d files in parallel)", opts.NumParallelFiles)
 	} else {
 		log.Printf("uploading data")
 	}
@@ -481,7 +519,7 @@ func (s *PhysSvc) uploadPhysical(
 		opts.Compression,
 		opts.CompressionLevel,
 		backupBufferSize,
-		int(opts.NumParallelCollections),
+		int(opts.NumParallelFiles),
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
@@ -499,7 +537,7 @@ func (s *PhysSvc) uploadPhysical(
 		opts.Compression,
 		opts.CompressionLevel,
 		backupBufferSize,
-		int(opts.NumParallelCollections),
+		int(opts.NumParallelFiles),
 	)
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")

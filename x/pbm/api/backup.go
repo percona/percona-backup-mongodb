@@ -1,9 +1,12 @@
 package api
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 // backupHandler serves PBM backup endpoints.
@@ -31,8 +34,18 @@ func (h *backupHandler) handleGetAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *backupHandler) handleBackup(w http.ResponseWriter, r *http.Request) {
-	t, err := h.physSvc.Start(r.Context())
+	opts := backup.Options{}
+	if err := json.NewDecoder(r.Body).Decode(&opts); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid backup options", http.StatusBadRequest)
+		return
+	}
+
+	t, err := h.physSvc.Start(r.Context(), opts)
 	if err != nil {
+		if errors.Is(err, backup.ErrInvalidOptions) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

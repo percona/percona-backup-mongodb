@@ -12,6 +12,8 @@
 // the task leaves no stale trace behind.
 package task
 
+import "encoding/json"
+
 const (
 	backupsPrefix = "/pbm/tasks/backups/"
 	inboxPrefix   = "/pbm/tasks/inbox/"
@@ -27,6 +29,8 @@ type BackupTask struct {
 	// Leader is the agent coordinating the backup within the cluster
 	Leader  string `json:"leader"`
 	StartTS int64  `json:"start_ts"`
+	// Options is what the backup was started with (service owning the operation defines its shape)
+	Options json.RawMessage `json:"options,omitempty"`
 }
 
 type TaskType string
@@ -41,6 +45,8 @@ type InboxItem struct {
 	Type     TaskType `json:"type"`
 	Task     string   `json:"task"`
 	IsLeader bool     `json:"leader"`
+	// Options is the task's options, copied verbatim from BackupTask.
+	Options json.RawMessage `json:"options,omitempty"`
 }
 
 // backupKey resolves the backup name to the task key.

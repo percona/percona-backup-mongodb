@@ -15,7 +15,7 @@ const watchRetry = 5 * time.Second
 
 // Backuper runs the backup when inbox item is scheduled for this agent.
 type Backuper interface {
-	Run(ctx context.Context, name string, isLeader bool) error
+	Run(ctx context.Context, name string, isLeader bool, opts json.RawMessage) error
 }
 
 // Inbox watches one agent's inbox and runs the items it finds there.
@@ -94,7 +94,7 @@ func (i *Inbox) runBackup(ctx context.Context, a InboxItem, lease clientv3.Lease
 	i.keepAlive(ctx, lease)
 
 	log.Printf("inbox: %s: starting backup %s (leader: %t)", i.agentID, a.Task, a.IsLeader)
-	if err := i.backup.Run(ctx, a.Task, a.IsLeader); err != nil {
+	if err := i.backup.Run(ctx, a.Task, a.IsLeader, a.Options); err != nil {
 		log.Printf("inbox: %s: backup %s: %v", i.agentID, a.Task, err)
 		return
 	}

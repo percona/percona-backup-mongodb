@@ -37,7 +37,13 @@ func NewComposer(ccDB *clientv3.Client) *Composer {
 // All of it shares a single lease.
 // It returns as soon as the work is delegated; the backup itself runs on the
 // agents.
-func (c *Composer) Backup(ctx context.Context, name string) (*BackupTask, error) {
+// opts are the caller's backup options, composer only carries them over to the agents.
+func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTask, error) {
+	rawOpts, err := json.Marshal(opts)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal backup options")
+	}
+
 	agents, leader := selectAgents()
 
 	now := time.Now()
@@ -46,6 +52,7 @@ func (c *Composer) Backup(ctx context.Context, name string) (*BackupTask, error)
 		Agents:  agents,
 		Leader:  leader,
 		StartTS: now.Unix(),
+		Options: rawOpts,
 	}
 
 	taskDoc, err := json.Marshal(t)
@@ -65,6 +72,7 @@ func (c *Composer) Backup(ctx context.Context, name string) (*BackupTask, error)
 			Type:     TaskBackup,
 			Task:     t.Name,
 			IsLeader: agent == leader,
+			Options:  rawOpts,
 		})
 		if err != nil {
 			c.revoke(ctx, lease.ID)
