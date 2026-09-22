@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -16,6 +17,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	pbmlog "github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -963,4 +965,119 @@ func (m *mockBcpStg) SourceReader(filepath string) (io.ReadCloser, error) {
 		}
 	`
 	return io.NopCloser(strings.NewReader(metaJson)), nil
+}
+
+func TestLogicalRestoreTTLMonitor(t *testing.T) {
+	admin := leadConn.MongoClient().Database("admin")
+	original := ttlMonitorEnabled(t)
+	t.Cleanup(func() {
+		require.NoError(t, admin.RunCommand(context.Background(), bson.D{
+			{"setParameter", 1}, {"ttlMonitorEnabled", original},
+		}).Err())
+	})
+
+	for _, tc := range []struct {
+		name     string
+		enabled  bool
+		err      error
+		canceled bool
+	}{
+		{name: "enabled before success", enabled: true},
+		{name: "disabled before success"},
+		{name: "enabled before failure", enabled: true, err: errors.New("restore failed")},
+		{name: "enabled before cancellation", enabled: true, err: context.Canceled, canceled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			require.NoError(t, admin.RunCommand(ctx, bson.D{
+				{"setParameter", 1}, {"ttlMonitorEnabled", tc.enabled},
+			}).Err())
+			r := &Restore{
+				name:     t.Name(),
+				leadConn: leadConn,
+				nodeConn: leadConn.MongoClient(),
+				nodeInfo: &topo.NodeInfo{SetName: "rs0"},
+				log:      pbmlog.DiscardEvent,
+			}
+
+			require.NoError(t, r.disableTTLMonitor(ctx))
+			require.False(t, ttlMonitorEnabled(t))
+
+			// Exercise the common exit path, including cleanup with a canceled context.
+			if tc.canceled {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			r.exit(ctx, tc.err)
+			require.Equal(t, tc.enabled, ttlMonitorEnabled(t))
+		})
+	}
+}
+
+func TestDisableTTLMonitorWaitsForPass(t *testing.T) {
+	ctx := t.Context()
+	admin := leadConn.MongoClient().Database("admin")
+	var original struct {
+		Enabled bool  `bson:"ttlMonitorEnabled"`
+		Sleep   int64 `bson:"ttlMonitorSleepSecs"`
+	}
+	require.NoError(t, admin.RunCommand(ctx, bson.D{
+		{"getParameter", 1}, {"ttlMonitorEnabled", 1}, {"ttlMonitorSleepSecs", 1},
+	}).Decode(&original))
+	t.Cleanup(func() {
+		require.NoError(t, admin.RunCommand(context.Background(), bson.D{
+			{"configureFailPoint", "hangTTLMonitorBetweenPasses"}, {"mode", "off"},
+		}).Err())
+		require.NoError(t, admin.RunCommand(context.Background(), bson.D{
+			{"setParameter", 1}, {"ttlMonitorEnabled", original.Enabled}, {"ttlMonitorSleepSecs", original.Sleep},
+		}).Err())
+	})
+
+	// Hold a real TTL operation after it has passed the enabled check.
+	var failpoint struct {
+		Count int64 `bson:"count"`
+	}
+	require.NoError(t, admin.RunCommand(ctx, bson.D{
+		{"configureFailPoint", "hangTTLMonitorBetweenPasses"}, {"mode", "alwaysOn"},
+	}).Decode(&failpoint))
+	require.NoError(t, admin.RunCommand(ctx, bson.D{
+		{"setParameter", 1}, {"ttlMonitorEnabled", true}, {"ttlMonitorSleepSecs", 1},
+	}).Err())
+	require.NoError(t, admin.RunCommand(ctx, bson.D{
+		{"waitForFailPoint", "hangTTLMonitorBetweenPasses"},
+		{"timesEntered", failpoint.Count + 1}, {"maxTimeMS", 5000},
+	}).Err())
+
+	r := &Restore{nodeConn: leadConn.MongoClient(), log: pbmlog.DiscardEvent}
+	shortCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	err := r.disableTTLMonitor(shortCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.False(t, ttlMonitorEnabled(t))
+
+	// The polling timeout is independent of the caller's context deadline.
+	err = topo.WaitForTTLMonitorDisabled(ctx, r.nodeConn, 250*time.Millisecond)
+	require.EqualError(t, err, "timeout waiting for TTL monitor to stop")
+	require.NoError(t, ctx.Err())
+
+	// Disabling the parameter alone must not be enough; releasing the pass allows
+	// preparation to finish, and cleanup still remembers the original true value.
+	require.NoError(t, admin.RunCommand(ctx, bson.D{
+		{"configureFailPoint", "hangTTLMonitorBetweenPasses"}, {"mode", "off"},
+	}).Err())
+	require.NoError(t, r.disableTTLMonitor(ctx))
+	require.NoError(t, r.restoreTTLMonitor(shortCtx))
+	require.True(t, ttlMonitorEnabled(t))
+}
+
+func ttlMonitorEnabled(t *testing.T) bool {
+	t.Helper()
+	var settings struct {
+		Enabled bool `bson:"ttlMonitorEnabled"`
+	}
+	require.NoError(t, leadConn.MongoClient().Database("admin").RunCommand(t.Context(), bson.D{
+		{"getParameter", 1}, {"ttlMonitorEnabled", 1},
+	}).Decode(&settings))
+	return settings.Enabled
 }

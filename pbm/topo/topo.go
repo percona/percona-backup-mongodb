@@ -8,6 +8,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -262,4 +264,74 @@ Loop:
 	}
 
 	return bs
+}
+
+// GetTTLMonitorEnabled returns whether TTL monitoring is enabled on the node.
+func GetTTLMonitorEnabled(ctx context.Context, m *mongo.Client) (bool, error) {
+	var settings struct {
+		Enabled bool `bson:"ttlMonitorEnabled"`
+	}
+	err := m.Database("admin").RunCommand(ctx, bson.D{
+		{"getParameter", 1}, {"ttlMonitorEnabled", 1},
+	}).Decode(&settings)
+	return settings.Enabled, errors.Wrap(err, "get ttlMonitorEnabled")
+}
+
+// SetTTLMonitorEnabled changes the node's runtime TTL monitor setting.
+// Disabling it does not interrupt an existing pass.
+func SetTTLMonitorEnabled(ctx context.Context, m *mongo.Client, enabled bool) error {
+	err := m.Database("admin").RunCommand(ctx, bson.D{
+		{"setParameter", 1}, {"ttlMonitorEnabled", enabled},
+	}).Err()
+	return errors.Wrap(err, "set ttlMonitorEnabled")
+}
+
+// IsTTLMonitorRunning reports whether the node has a registered TTL operation context.
+// A sleeping monitor has none; a waiting or yielding pass can still have one.
+func IsTTLMonitorRunning(ctx context.Context, m *mongo.Client) (bool, error) {
+	// $currentOp requires local read concern rather than PBM's default majority.
+	admin := m.Database("admin", options.Database().SetReadConcern(readconcern.Local()))
+	// An opid identifies the TTL operation context even between individual deletes.
+	cur, err := admin.Aggregate(ctx, mongo.Pipeline{
+		{{"$currentOp", bson.D{{"allUsers", true}, {"idleConnections", true}}}},
+		{{"$match", bson.D{{"desc", "TTLMonitor"}, {"opid", bson.D{{"$exists", true}}}}}},
+		{{"$limit", 1}},
+	})
+	if err != nil {
+		return false, errors.Wrap(err, "check TTL monitor operations")
+	}
+	var ops []bson.M
+	if err := cur.All(ctx, &ops); err != nil {
+		return false, errors.Wrap(err, "read TTL monitor operations")
+	}
+	return len(ops) != 0, nil
+}
+
+// WaitForTTLMonitorDisabled waits for registered TTL operations to finish after
+// the caller has disabled the monitor. This is not an atomic stop-and-drain:
+// a pass that read the enabled flag before disablement may register its operation
+// context after the check. The timeout bounds polling; commands use the caller's context.
+func WaitForTTLMonitorDisabled(ctx context.Context, m *mongo.Client, timeout time.Duration) error {
+	stop := time.NewTimer(timeout)
+	defer stop.Stop()
+
+	tk := time.NewTicker(100 * time.Millisecond)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return errors.Wrap(ctx.Err(), "wait for TTL monitor to stop")
+		case <-stop.C:
+			return errors.New("timeout waiting for TTL monitor to stop")
+		case <-tk.C:
+			running, err := IsTTLMonitorRunning(ctx, m)
+			if err != nil {
+				return err
+			}
+			if !running {
+				return nil
+			}
+		}
+	}
 }
