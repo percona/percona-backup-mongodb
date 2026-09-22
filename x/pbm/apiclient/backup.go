@@ -2,6 +2,8 @@ package apiclient
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/x/pbm/task"
@@ -16,11 +18,16 @@ func (c *Client) ListBackups(ctx context.Context) ([]*backup.BackupMeta, error) 
 	return metas, nil
 }
 
-// StartBackup requests a new backup via POST /backup and returns the scheduled
-// task. It returns as soon as the backup is delegated to the agents.
-func (c *Client) StartBackup(ctx context.Context) (*task.BackupTask, error) {
+// StartBackup requests a new backup with opts via POST /backup and returns the
+// scheduled task. It returns as soon as the backup is delegated to the agents.
+func (c *Client) StartBackup(ctx context.Context, opts backup.Options) (*task.BackupTask, error) {
+	body, err := json.Marshal(opts)
+	if err != nil {
+		return nil, fmt.Errorf("marshal backup options: %w", err)
+	}
+
 	t := &task.BackupTask{}
-	if err := c.post(ctx, "/backup", t); err != nil {
+	if err := c.post(ctx, "/backup", body, t); err != nil {
 		return nil, err
 	}
 	return t, nil
