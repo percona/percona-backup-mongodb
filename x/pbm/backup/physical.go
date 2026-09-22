@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -89,10 +90,6 @@ const (
 	// of the group declares it lost.
 	barrierTTL = 10 * time.Second
 
-	// nameFormat is the common backup name format: a UTC timestamp, so that
-	// names sort chronologically.
-	nameFormat = "2006-01-02T15:04:05Z"
-
 	// phasesPrefix is where the agents of a backup sync their phases.
 	phasesPrefix = "/pbm/tasks/phases/"
 )
@@ -165,7 +162,7 @@ func (s *PhysSvc) Start(ctx context.Context, opts Options) (*task.BackupTask, er
 // Run performs this agent's part (core) of the physical backup.
 func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts json.RawMessage) error {
 	log.Printf("running backup %s; agent: %s; leader: %t", name, s.agentID, isLeader)
-	startTime := time.Now().UTC().Unix()
+	startTime := time.Now().UTC()
 
 	opts := Options{}
 	if err := json.Unmarshal(rawOpts, &opts); err != nil {
@@ -194,7 +191,6 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 		}
 	}()
 
-	// todo: on Rs there isn't group
 	logEndPhase, err := s.advance(ctx, b, name, PhasePrepare, isSharded)
 	if err != nil {
 		return err
@@ -231,7 +227,7 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 				balancer = topo.BalancerModeOn
 			}
 		}
-		err = s.initMeta(ctx, name, opts.Compression, balancer, startTime)
+		err = s.initMeta(ctx, name, opts.Compression, balancer, startTime.Unix())
 		if err != nil {
 			return errors.Wrap(err, "init meta")
 		}
@@ -383,6 +379,9 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 	}
 
 	err = s.uploadPhysical(ctx, name, opts, rsMeta, data, jrnls, bcur.Meta.DBpath, stg)
+	if err != nil {
+		return errors.Wrap(err, "upload")
+	}
 	logEndPhase()
 
 	logEndPhase, err = s.advance(ctx, b, name, PhaseDone, isSharded)
@@ -390,8 +389,18 @@ func (s *PhysSvc) Run(ctx context.Context, name string, isLeader bool, rawOpts j
 		return err
 	}
 
-	// l.Info("backup finished: %s, start: %v, finish: %v, duration: %v",
-	// 	cmd.Name, start.Format(time.RFC3339), finish.Format(time.RFC3339), finish.Sub(start))
+	finishTime := time.Now().UTC()
+	if isLeader {
+		if err = s.repo.SetFinishTime(ctx, name, finishTime.Unix()); err != nil {
+			return errors.Wrap(err, "set backup finish time")
+		}
+		if err = s.writeMeta(ctx, name, stg); err != nil {
+			return errors.Wrap(err, "write backup meta")
+		}
+	}
+
+	log.Printf("backup finished: %s, start: %v, finish: %v, duration: %v",
+		name, startTime.Format(time.RFC3339), finishTime.Format(time.RFC3339), finishTime.Sub(startTime))
 	return nil
 }
 
@@ -487,6 +496,28 @@ func (s *PhysSvc) stopBalancer() error {
 func (s *PhysSvc) resolveFirstLastWriteForCluster(ctx context.Context, name string) (bson.Timestamp, bson.Timestamp) {
 	// todo
 	return bson.Timestamp{}, bson.Timestamp{}
+}
+
+// writeMeta dumps the backup metadata on the storage.
+func (s *PhysSvc) writeMeta(ctx context.Context, name string, stg storage.Storage) error {
+	meta, err := s.repo.Get(ctx, name)
+	if err != nil {
+		return errors.Wrap(err, "get backup meta")
+	}
+
+	data, err := json.MarshalIndent(meta, "", "\t")
+	if err != nil {
+		return errors.Wrap(err, "marshal meta")
+	}
+
+	fname := name + defs.MetadataFileSuffix
+	err = stg.Save(fname, bytes.NewReader(data), storage.Size(int64(len(data))))
+	if err != nil {
+		return errors.Wrapf(err, "save %q", fname)
+	}
+	log.Printf("backup %s: %s: meta written to %q", name, s.agentID, fname)
+
+	return nil
 }
 
 func (s *PhysSvc) uploadPhysical(

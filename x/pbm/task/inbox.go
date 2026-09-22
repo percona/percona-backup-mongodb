@@ -95,13 +95,10 @@ func (i *Inbox) runBackup(ctx context.Context, a InboxItem, lease clientv3.Lease
 
 	log.Printf("inbox: %s: starting backup %s (leader: %t)", i.agentID, a.Task, a.IsLeader)
 	if err := i.backup.Run(ctx, a.Task, a.IsLeader, a.Options); err != nil {
-		log.Printf("inbox: %s: backup %s: %v", i.agentID, a.Task, err)
+		log.Printf("inbox: %s: backup error %s: %v", i.agentID, a.Task, err)
 		return
 	}
-	log.Printf("inbox: %s: backup %s done", i.agentID, a.Task)
-
-	// todo: report the outcome and drop the item from the inbox instead
-	// of letting the lease expire.
+	log.Printf("inbox: %s: backup %s is processed", i.agentID, a.Task)
 }
 
 // keepAlive renews the task's lease until ctx is canceled. Every participant

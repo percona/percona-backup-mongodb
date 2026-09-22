@@ -537,6 +537,68 @@ func TestGetAll(t *testing.T) {
 	})
 }
 
+func TestSetFinishTime(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("records the finish time", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		if err := repo.SetFinishTime(ctx, "bcp", 1776000000); err != nil {
+			t.Fatalf("SetFinishTime: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.FinishTime != 1776000000 {
+			t.Errorf("FinishTime = %d, want 1776000000", got.FinishTime)
+		}
+	})
+
+	t.Run("leaves the replset sections alone", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
+			Name:   "rs0",
+			Status: defs.StatusDone,
+		}); err != nil {
+			t.Fatalf("UpdateRSMeta: %v", err)
+		}
+
+		if err := repo.SetFinishTime(ctx, "bcp", 1776000000); err != nil {
+			t.Fatalf("SetFinishTime: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Replsets) != 1 {
+			t.Fatalf("got %d replsets, want 1", len(got.Replsets))
+		}
+		if got.Replsets[0].Status != defs.StatusDone {
+			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, defs.StatusDone)
+		}
+	})
+
+	t.Run("reports an unknown backup", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetFinishTime(ctx, "ghost", 1776000000)
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrNotFound)
+		}
+	})
+}
+
 func TestDelete(t *testing.T) {
 	ctx := context.Background()
 

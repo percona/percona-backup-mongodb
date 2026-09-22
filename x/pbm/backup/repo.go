@@ -138,6 +138,17 @@ func (r *Repo) UpdateRSMeta(ctx context.Context, name string, rs *BackupReplset)
 	return err
 }
 
+// SetFinishTime records when the backup ended.
+// It returns ErrNotFound if no such backup exists.
+func (r *Repo) SetFinishTime(ctx context.Context, name string, ts int64) error {
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		meta.FinishTime = ts
+		return nil
+	})
+
+	return err
+}
+
 // Delete removes the backup metadata document.
 // It returns ErrNotFound if no such backup exists.
 func (r *Repo) Delete(ctx context.Context, name string) error {
