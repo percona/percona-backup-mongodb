@@ -241,6 +241,12 @@ func (s *PhysSvc) Run(
 		return err
 	}
 
+	defer func() {
+		if err != nil && isLeader {
+			s.repo.SetError(ctx, name, err)
+		}
+	}()
+
 	rsMeta := &BackupReplset{
 		Name:        agent.MongoInfo.SetName,
 		Node:        agent.MongoInfo.Me,
@@ -265,6 +271,12 @@ func (s *PhysSvc) Run(
 	if err != nil {
 		return errors.Wrap(err, "add rs meta")
 	}
+
+	defer func() {
+		if err != nil {
+			s.repo.SetRSError(ctx, name, agent.MongoInfo.SetName, err)
+		}
+	}()
 
 	//
 	// step: setting balancer in the original status in any case
@@ -329,7 +341,6 @@ func (s *PhysSvc) Run(
 	}
 
 	rsMeta.MongodOpts = mopts
-	// rsMeta.Status =
 	rsMeta.FirstWriteTS = bcur.Meta.OplogEnd.TS
 	rsMeta.LastWriteTS = lwts
 	if cursor.CustomThisID != "" {
@@ -374,9 +385,18 @@ func (s *PhysSvc) Run(
 		return err
 	}
 
+	defer func() {
+		if err != nil && isLeader {
+			// todo: delete backup files or add config rules to keep them
+		}
+	}()
 	err = s.uploadPhysical(ctx, name, opts, rsMeta, data, jrnls, bcur.Meta.DBpath, stg)
 	if err != nil {
 		return errors.Wrap(err, "upload")
+	}
+
+	if err = s.repo.SetRSDone(ctx, name, agent.MongoInfo.SetName); err != nil {
+		return errors.Wrap(err, "set RS done status")
 	}
 
 	_, err = s.advance(ctx, b, name, PhaseDone, isSharded, pTS)

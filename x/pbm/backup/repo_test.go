@@ -540,10 +540,12 @@ func TestGetAll(t *testing.T) {
 func TestSetFinishTime(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("records the finish time", func(t *testing.T) {
+	t.Run("records the finish time and marks the backup done", func(t *testing.T) {
 		repo := newTestRepo(t)
 
-		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+		meta := testMeta("bcp")
+		meta.Status = StatusInProgress
+		if err := repo.Insert(ctx, meta); err != nil {
 			t.Fatalf("Insert: %v", err)
 		}
 
@@ -558,6 +560,9 @@ func TestSetFinishTime(t *testing.T) {
 		if got.FinishTime != 1776000000 {
 			t.Errorf("FinishTime = %d, want 1776000000", got.FinishTime)
 		}
+		if got.Status != StatusDone {
+			t.Errorf("Status = %q, want %q", got.Status, StatusDone)
+		}
 	})
 
 	t.Run("leaves the replset sections alone", func(t *testing.T) {
@@ -568,7 +573,7 @@ func TestSetFinishTime(t *testing.T) {
 		}
 		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
 			Name:   "rs0",
-			Status: StatusDone,
+			Status: StatusInProgress,
 		}); err != nil {
 			t.Fatalf("UpdateRSMeta: %v", err)
 		}
@@ -584,8 +589,9 @@ func TestSetFinishTime(t *testing.T) {
 		if len(got.Replsets) != 1 {
 			t.Fatalf("got %d replsets, want 1", len(got.Replsets))
 		}
-		if got.Replsets[0].Status != StatusDone {
-			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, StatusDone)
+		// only the top-level status is moved to done
+		if got.Replsets[0].Status != StatusInProgress {
+			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, StatusInProgress)
 		}
 	})
 
@@ -593,6 +599,364 @@ func TestSetFinishTime(t *testing.T) {
 		repo := newTestRepo(t)
 
 		err := repo.SetFinishTime(ctx, "ghost", 1776000000)
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrNotFound)
+		}
+	})
+}
+
+func TestSetError(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("records the error, the finish time and the status", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		meta := testMeta("bcp")
+		meta.Status = StatusInProgress
+		if err := repo.Insert(ctx, meta); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		before := time.Now().UTC().Unix()
+		if err := repo.SetError(ctx, "bcp", errors.New("boom")); err != nil {
+			t.Fatalf("SetError: %v", err)
+		}
+		after := time.Now().UTC().Unix()
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.Error != "boom" {
+			t.Errorf("Error = %q, want %q", got.Error, "boom")
+		}
+		if got.Status != StatusError {
+			t.Errorf("Status = %q, want %q", got.Status, StatusError)
+		}
+		if got.FinishTime < before || got.FinishTime > after {
+			t.Errorf("FinishTime = %d, want within [%d, %d]", got.FinishTime, before, after)
+		}
+	})
+
+	t.Run("tolerates a nil cause", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		meta := testMeta("bcp")
+		meta.Status = StatusInProgress
+		if err := repo.Insert(ctx, meta); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		if err := repo.SetError(ctx, "bcp", nil); err != nil {
+			t.Fatalf("SetError: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.Error != "" {
+			t.Errorf("Error = %q, want empty", got.Error)
+		}
+		if got.Status != StatusError {
+			t.Errorf("Status = %q, want %q", got.Status, StatusError)
+		}
+	})
+
+	t.Run("leaves the replset sections alone", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
+			Name:   "rs0",
+			Status: StatusInProgress,
+		}); err != nil {
+			t.Fatalf("UpdateRSMeta: %v", err)
+		}
+
+		if err := repo.SetError(ctx, "bcp", errors.New("boom")); err != nil {
+			t.Fatalf("SetError: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Replsets) != 1 {
+			t.Fatalf("got %d replsets, want 1", len(got.Replsets))
+		}
+		// only the top-level status carries the failure
+		if got.Replsets[0].Status != StatusInProgress {
+			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, StatusInProgress)
+		}
+		if got.Replsets[0].Error != "" {
+			t.Errorf("rs0 Error = %q, want empty", got.Replsets[0].Error)
+		}
+	})
+
+	t.Run("reports an unknown backup", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetError(ctx, "ghost", errors.New("boom"))
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrNotFound)
+		}
+	})
+}
+
+func TestSetRSError(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("records the error and the status on the section", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
+			Name:   "rs0",
+			Node:   "rs0-1",
+			Status: StatusInProgress,
+		}); err != nil {
+			t.Fatalf("UpdateRSMeta: %v", err)
+		}
+
+		if err := repo.SetRSError(ctx, "bcp", "rs0", errors.New("boom")); err != nil {
+			t.Fatalf("SetRSError: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Replsets) != 1 {
+			t.Fatalf("got %d replsets, want 1", len(got.Replsets))
+		}
+		if got.Replsets[0].Error != "boom" {
+			t.Errorf("rs0 Error = %q, want %q", got.Replsets[0].Error, "boom")
+		}
+		if got.Replsets[0].Status != StatusError {
+			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, StatusError)
+		}
+		// the rest of the section is kept
+		if got.Replsets[0].Node != "rs0-1" {
+			t.Errorf("rs0 Node = %q, want %q", got.Replsets[0].Node, "rs0-1")
+		}
+	})
+
+	t.Run("tolerates a nil cause", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
+			Name:   "rs0",
+			Status: StatusInProgress,
+		}); err != nil {
+			t.Fatalf("UpdateRSMeta: %v", err)
+		}
+
+		if err := repo.SetRSError(ctx, "bcp", "rs0", nil); err != nil {
+			t.Fatalf("SetRSError: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.Replsets[0].Error != "" {
+			t.Errorf("rs0 Error = %q, want empty", got.Replsets[0].Error)
+		}
+		if got.Replsets[0].Status != StatusError {
+			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, StatusError)
+		}
+	})
+
+	t.Run("leaves the other sections and the top level alone", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		meta := testMeta("bcp")
+		meta.Status = StatusInProgress
+		if err := repo.Insert(ctx, meta); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		for _, name := range []string{"rs0", "rs1"} {
+			rs := &BackupReplset{Name: name, Status: StatusInProgress}
+			if err := repo.UpdateRSMeta(ctx, "bcp", rs); err != nil {
+				t.Fatalf("UpdateRSMeta %s: %v", name, err)
+			}
+		}
+
+		if err := repo.SetRSError(ctx, "bcp", "rs0", errors.New("boom")); err != nil {
+			t.Fatalf("SetRSError: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Replsets) != 2 {
+			t.Fatalf("got %d replsets, want 2", len(got.Replsets))
+		}
+
+		byName := map[string]BackupReplset{}
+		for _, rs := range got.Replsets {
+			byName[rs.Name] = rs
+		}
+		if byName["rs1"].Status != StatusInProgress {
+			t.Errorf("rs1 Status = %q, want %q", byName["rs1"].Status, StatusInProgress)
+		}
+		if byName["rs1"].Error != "" {
+			t.Errorf("rs1 Error = %q, want empty", byName["rs1"].Error)
+		}
+		if got.Status != StatusInProgress {
+			t.Errorf("top-level Status = %q, want %q", got.Status, StatusInProgress)
+		}
+		if got.Error != "" {
+			t.Errorf("top-level Error = %q, want empty", got.Error)
+		}
+	})
+
+	t.Run("reports an unknown replset", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		err := repo.SetRSError(ctx, "bcp", "ghost", errors.New("boom"))
+		if !errors.Is(err, ErrRSNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrRSNotFound)
+		}
+	})
+
+	t.Run("empty replset name returns ErrNoRSName", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetRSError(ctx, "bcp", "", errors.New("boom"))
+		if !errors.Is(err, ErrNoRSName) {
+			t.Errorf("err = %v, want %v", err, ErrNoRSName)
+		}
+	})
+
+	t.Run("reports an unknown backup", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetRSError(ctx, "ghost", "rs0", errors.New("boom"))
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrNotFound)
+		}
+	})
+}
+
+func TestSetRSDone(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("moves the section to done", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
+			Name:   "rs0",
+			Node:   "rs0-1",
+			Status: StatusInProgress,
+		}); err != nil {
+			t.Fatalf("UpdateRSMeta: %v", err)
+		}
+
+		if err := repo.SetRSDone(ctx, "bcp", "rs0"); err != nil {
+			t.Fatalf("SetRSDone: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Replsets) != 1 {
+			t.Fatalf("got %d replsets, want 1", len(got.Replsets))
+		}
+		if got.Replsets[0].Status != StatusDone {
+			t.Errorf("rs0 Status = %q, want %q", got.Replsets[0].Status, StatusDone)
+		}
+		// the rest of the section is kept
+		if got.Replsets[0].Node != "rs0-1" {
+			t.Errorf("rs0 Node = %q, want %q", got.Replsets[0].Node, "rs0-1")
+		}
+	})
+
+	t.Run("leaves the other sections and the top level alone", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		meta := testMeta("bcp")
+		meta.Status = StatusInProgress
+		if err := repo.Insert(ctx, meta); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		for _, name := range []string{"rs0", "rs1"} {
+			rs := &BackupReplset{Name: name, Status: StatusInProgress}
+			if err := repo.UpdateRSMeta(ctx, "bcp", rs); err != nil {
+				t.Fatalf("UpdateRSMeta %s: %v", name, err)
+			}
+		}
+
+		if err := repo.SetRSDone(ctx, "bcp", "rs0"); err != nil {
+			t.Fatalf("SetRSDone: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Replsets) != 2 {
+			t.Fatalf("got %d replsets, want 2", len(got.Replsets))
+		}
+
+		byName := map[string]BackupReplset{}
+		for _, rs := range got.Replsets {
+			byName[rs.Name] = rs
+		}
+		if byName["rs0"].Status != StatusDone {
+			t.Errorf("rs0 Status = %q, want %q", byName["rs0"].Status, StatusDone)
+		}
+		if byName["rs1"].Status != StatusInProgress {
+			t.Errorf("rs1 Status = %q, want %q", byName["rs1"].Status, StatusInProgress)
+		}
+		if got.Status != StatusInProgress {
+			t.Errorf("top-level Status = %q, want %q", got.Status, StatusInProgress)
+		}
+	})
+
+	t.Run("reports an unknown replset", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		err := repo.SetRSDone(ctx, "bcp", "ghost")
+		if !errors.Is(err, ErrRSNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrRSNotFound)
+		}
+	})
+
+	t.Run("empty replset name returns ErrNoRSName", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetRSDone(ctx, "bcp", "")
+		if !errors.Is(err, ErrNoRSName) {
+			t.Errorf("err = %v, want %v", err, ErrNoRSName)
+		}
+	})
+
+	t.Run("reports an unknown backup", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetRSDone(ctx, "ghost", "rs0")
 		if !errors.Is(err, ErrNotFound) {
 			t.Errorf("err = %v, want %v", err, ErrNotFound)
 		}

@@ -19,6 +19,7 @@ var (
 	ErrNoName        = errors.New("backup name is empty")
 	ErrConflict      = errors.New("backup meta conflict")
 	ErrNoRSName      = errors.New("replset name is empty")
+	ErrRSNotFound    = errors.New("replset not found in backup")
 )
 
 const (
@@ -138,12 +139,80 @@ func (r *Repo) UpdateRSMeta(ctx context.Context, name string, rs *BackupReplset)
 	return err
 }
 
-// SetFinishTime records when the backup ended.
+// SetFinishTime records when the backup ended and set done status.
 // It returns ErrNotFound if no such backup exists.
 func (r *Repo) SetFinishTime(ctx context.Context, name string, ts int64) error {
 	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
 		meta.FinishTime = ts
+		meta.Status = StatusDone
 		return nil
+	})
+
+	return err
+}
+
+// SetError records the error the backup failed with error status.
+// It returns ErrNotFound if no such backup exists.
+func (r *Repo) SetError(ctx context.Context, name string, cause error) error {
+	msg := ""
+	if cause != nil {
+		msg = cause.Error()
+	}
+
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		meta.Error = msg
+		meta.FinishTime = time.Now().UTC().Unix()
+		meta.Status = StatusError
+		return nil
+	})
+
+	return err
+}
+
+// SetRSError sets on the rsName section the error that replset failed with,
+// and the error status.
+// It returns ErrNotFound if no such backup exists and ErrRSNotFound if RS doesn't exist.
+func (r *Repo) SetRSError(ctx context.Context, name, rsName string, cause error) error {
+	if rsName == "" {
+		return ErrNoRSName
+	}
+
+	msg := ""
+	if cause != nil {
+		msg = cause.Error()
+	}
+
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		for i := range meta.Replsets {
+			if meta.Replsets[i].Name == rsName {
+				meta.Replsets[i].Error = msg
+				meta.Replsets[i].Status = StatusError
+				return nil
+			}
+		}
+
+		return ErrRSNotFound
+	})
+
+	return err
+}
+
+// SetRSDone moves the rsName section to the done status.
+// It returns ErrNotFound if no such backup exists and ErrRSNotFound if RS doesn't exist.
+func (r *Repo) SetRSDone(ctx context.Context, name, rsName string) error {
+	if rsName == "" {
+		return ErrNoRSName
+	}
+
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		for i := range meta.Replsets {
+			if meta.Replsets[i].Name == rsName {
+				meta.Replsets[i].Status = StatusDone
+				return nil
+			}
+		}
+
+		return ErrRSNotFound
 	})
 
 	return err
