@@ -48,7 +48,6 @@ type BackupMeta struct {
 	MongoVersion     string            `bson:"mongodb_version" json:"mongodb_version"`
 	PBMVersion       string            `bson:"pbm_version" json:"pbm_version"`
 	FCV              string            `bson:"fcv" json:"fcv"`
-	StartTS          int64             `bson:"start_ts" json:"start_ts"`             //todo
 	FirstWriteTS     bson.Timestamp    `bson:"first_write_ts" json:"first_write_ts"` //todo
 	LastWriteTS      bson.Timestamp    `bson:"last_write_ts" json:"last_write_ts"`   //todo
 	Status           Status            `bson:"status" json:"status"`
@@ -75,7 +74,6 @@ type BackupReplset struct {
 	// Journal is not used. left for backward compatibility
 	Journal          []File           `bson:"journal,omitempty" json:"journal,omitempty"`
 	Files            []File           `bson:"files,omitempty" json:"files,omitempty"`
-	StartTS          int64            `bson:"start_ts" json:"start_ts"` //todo
 	Status           Status           `bson:"status" json:"status"`
 	Size             int64            `bson:"size" json:"size"`
 	SizeUncompressed int64            `bson:"size_uncompressed" json:"size_uncompressed"`

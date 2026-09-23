@@ -177,6 +177,12 @@ func (s *PhysSvc) Run(
 	}
 	isSharded := agent.MongoInfo.Sharded
 
+	// todo: read this from status
+	mVer, err := version.GetMongoVersion(ctx, s.nodeConn)
+	if err != nil {
+		return errors.Wrap(err, "mongodb version")
+	}
+
 	b, err := phasesync.New(ctx, s.ccDB, phasesync.Options{
 		Prefix: phasePrefix(name),
 		ID:     s.agentID,
@@ -197,9 +203,6 @@ func (s *PhysSvc) Run(
 	if err != nil {
 		return err
 	}
-
-	// bcp.SetMongoVersion(a.brief.Version.VersionString)
-	// bcp.SetTimeouts(cfg.Backup.Timeouts)
 
 	cfgName := config.DefaultConfigName
 	if opts.Profile != "" {
@@ -229,7 +232,7 @@ func (s *PhysSvc) Run(
 				balancer = topo.BalancerModeOn
 			}
 		}
-		err = s.initMeta(ctx, name, opts.Compression, balancer, startTime.Unix())
+		err = s.initMeta(ctx, name, opts.Compression, balancer, startTime.Unix(), mVer)
 		if err != nil {
 			return errors.Wrap(err, "init meta")
 		}
@@ -246,17 +249,13 @@ func (s *PhysSvc) Run(
 			s.repo.SetError(ctx, name, err)
 		}
 	}()
-
 	rsMeta := &BackupReplset{
-		Name:        agent.MongoInfo.SetName,
-		Node:        agent.MongoInfo.Me,
-		PBMVersion:  version.Current().Version,
-		IsConfigSvr: &agent.MongoInfo.ConfigSvr,
-		// MongoVersion: b.mongoVersion,
-		StartTS: time.Now().UTC().Unix(),
-		// Status:
-		// Conditions:   []Condition{},
-		// FirstWriteTS: oplogTS, // unimportant for physical
+		Name:         agent.MongoInfo.SetName,
+		Node:         agent.MongoInfo.Me,
+		PBMVersion:   version.Current().Version,
+		IsConfigSvr:  &agent.MongoInfo.ConfigSvr,
+		MongoVersion: mVer.VersionString,
+		Status:       StatusInProgress,
 	}
 
 	isConfigShard, err := topo.HasConfigShard(ctx, s.leadConn)
@@ -271,39 +270,27 @@ func (s *PhysSvc) Run(
 	if err != nil {
 		return errors.Wrap(err, "add rs meta")
 	}
-
 	defer func() {
 		if err != nil {
 			s.repo.SetRSError(ctx, name, agent.MongoInfo.SetName, err)
 		}
 	}()
 
-	//
-	// step: setting balancer in the original status in any case
-	// defer
-	// 	errd := topo.SetBalancerStatus(context.Background(), b.leadConn, topo.BalancerModeOn)
-
-	// step: checking storage access
-	// err = storage.HasReadAccess(ctx, stg)
-	// if err != nil {
-	// 	if !errors.Is(err, storage.ErrUninitialized) {
-	// 		return errors.Wrap(err, "check read access")
-	// 	}
-	//
-	// 	if inf.IsLeader() {
-	// 		err = util.Initialize(ctx, stg)
-	// 		if err != nil {
-	// 			return errors.Wrap(err, "init storage")
-	// 		}
-	// 	}
-	// }
-	//
-
 	if isLeader && isSharded && balancer == topo.BalancerModeOn {
-		if err = s.stopBalancer(); err != nil {
+		if err = s.stopBalancer(ctx); err != nil {
 			return err
 		}
 	}
+	defer func() {
+		if isSharded && balancer == topo.BalancerModeOn {
+			errB := topo.SetBalancerStatus(ctx, s.leadConn, topo.BalancerModeOn)
+			if errB != nil {
+				// todo: log this with highest severity
+				log.Printf("error while starting balancer: %s", errB)
+			}
+			log.Printf("balancer is on")
+		}
+	}()
 
 	pTS, err = s.advance(ctx, b, name, PhaseMetaRSCreated, isSharded, pTS)
 	if err != nil {
@@ -357,11 +344,16 @@ func (s *PhysSvc) Run(
 		return err
 	}
 
-	fwTS, lwTS := s.resolveFirstLastWriteForCluster(ctx, name)
+	fwTS, lwTS, err := s.resolveFirstLastWriteForCluster(ctx, name)
+	if err != nil {
+		return errors.Wrap(err, "resolve first and last write")
+	}
 
 	if isLeader {
-		// todo update meta
-		_, _ = fwTS, lwTS
+		err = s.repo.SetFirstLastWrite(ctx, name, fwTS, lwTS)
+		if err != nil {
+			return errors.Wrap(err, "set meta for first and last write")
+		}
 	}
 
 	log.Printf("set journal up to %v", lwTS)
@@ -458,24 +450,19 @@ func (s *PhysSvc) initMeta(
 	compression compress.CompressionType,
 	balancer topo.BalancerMode,
 	startTime int64,
+	mongoVer version.MongoVersion,
 ) error {
 	meta := &BackupMeta{
 		Type:        defs.PhysicalBackup,
 		Name:        name,
 		Compression: compression,
-		// Store: Storage{
-		// 	Name:        b.config.Name,
-		// 	IsProfile:   b.config.IsProfile,
-		// 	StorageConf: b.config.Storage,
-		// },
-		StartTS:  time.Now().Unix(),
-		Status:   StatusInProgress,
-		Replsets: []BackupReplset{},
+		Status:      StatusInProgress,
+		Replsets:    []BackupReplset{},
 		// the driver (mongo?) sets TS to the current wall clock if TS was 0, so have to init with 1
-		LastWriteTS:  bson.Timestamp{T: 1, I: 1},
-		FirstWriteTS: bson.Timestamp{T: 1, I: 1},
-		PBMVersion:   version.Current().Version,
-		// MongoVersion:   b.mongoVersion,
+		LastWriteTS:    bson.Timestamp{T: 1, I: 1},
+		FirstWriteTS:   bson.Timestamp{T: 1, I: 1},
+		PBMVersion:     version.Current().Version,
+		MongoVersion:   mongoVer.PSMDBVersion,
 		BalancerStatus: balancer,
 		StartTime:      startTime,
 	}
@@ -491,33 +478,80 @@ func (s *PhysSvc) initMeta(
 	return s.repo.Insert(ctx, meta)
 }
 
-func (s *PhysSvc) stopBalancer() error {
-	// t := b.timeouts.BalancerStop()
-	// if t > 0 {
-	// 	l.Debug("stopping balancer with timeout %s", t)
-	// 	err = topo.StopBalancer(ctx, b.leadConn, t.Milliseconds())
-	// } else {
-	// 	l.Debug("stopping balancer")
-	// 	err = topo.SetBalancerStatus(ctx, b.leadConn, topo.BalancerModeOff)
-	// }
-	// if err != nil {
-	// 	return errors.Wrap(err, "set balancer OFF")
-	// }
-	//
-	// l.Debug("waiting for balancer off")
-	// bs := topo.WaitForBalancerDisabled(ctx, b.leadConn, time.Second*30, l)
-	// if bs.IsDisabled() {
-	// 	l.Debug("balancer is disabled")
-	// } else {
-	// 	l.Warning("balancer is not disabled: balancer mode: %s, in balancer round: %t",
-	// 		bs.Mode, bs.InBalancerRound)
-	// }
-	return nil
+// stopBalancer turns the balancer off and waits for the running round to end.
+func (s *PhysSvc) stopBalancer(ctx context.Context) error {
+	const (
+		// todo: wire to config
+		timeout      = 30 * time.Minute
+		pollInterval = time.Minute
+	)
+
+	log.Printf("stopping balancer with timeout %s", timeout)
+	if err := topo.StopBalancer(ctx, s.leadConn, timeout.Milliseconds()); err != nil {
+		return errors.Wrap(err, "set balancer OFF")
+	}
+
+	log.Printf("waiting for balancer off")
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	tk := time.NewTicker(pollInterval)
+	defer tk.Stop()
+
+	// the last status read, to tell what the balancer was doing on timeout
+	var last *topo.BalancerStatus
+	for {
+		select {
+		case <-waitCtx.Done():
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if last == nil {
+				log.Printf("balancer status is unknown after %s", timeout)
+				return nil
+			}
+			log.Printf("balancer is not disabled: balancer mode: %s, in balancer round: %t",
+				last.Mode, last.InBalancerRound)
+
+			return nil
+
+		case <-tk.C:
+			bs, err := topo.GetBalancerStatus(waitCtx, s.leadConn)
+			if err != nil {
+				log.Printf("get balancer status: %v", err)
+				continue
+			}
+			if bs.IsDisabled() {
+				log.Printf("balancer is disabled")
+				return nil
+			}
+			last = bs
+		}
+	}
 }
 
-func (s *PhysSvc) resolveFirstLastWriteForCluster(ctx context.Context, name string) (bson.Timestamp, bson.Timestamp) {
-	// todo
-	return bson.Timestamp{}, bson.Timestamp{}
+func (s *PhysSvc) resolveFirstLastWriteForCluster(
+	ctx context.Context,
+	name string,
+) (bson.Timestamp, bson.Timestamp, error) {
+	meta, err := s.repo.Get(ctx, name)
+	if err != nil {
+		return bson.Timestamp{}, bson.Timestamp{}, errors.Wrap(err, "meta for first and last write")
+	}
+
+	// todo: check this logic, it should be fixed here
+	fw := meta.Replsets[0].FirstWriteTS
+	lw := meta.Replsets[0].LastWriteTS
+	for _, rs := range meta.Replsets {
+		if rs.FirstWriteTS.After(fw) {
+			fw = rs.FirstWriteTS
+		}
+		if rs.LastWriteTS.After(lw) {
+			lw = rs.LastWriteTS
+		}
+	}
+
+	return fw, lw, nil
 }
 
 // writeMeta dumps the backup metadata on the storage.

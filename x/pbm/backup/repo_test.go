@@ -10,6 +10,7 @@ import (
 
 	tcetcd "github.com/testcontainers/testcontainers-go/modules/etcd"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
@@ -533,6 +534,159 @@ func TestGetAll(t *testing.T) {
 			if got[i] != want[i] {
 				t.Fatalf("GetAll order: got %v, want %v", got, want)
 			}
+		}
+	})
+}
+
+func TestSetFirstLastWrite(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("records both cluster-wide timestamps", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		meta := testMeta("bcp")
+		meta.Status = StatusInProgress
+		if err := repo.Insert(ctx, meta); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		first := bson.Timestamp{T: 10, I: 1}
+		last := bson.Timestamp{T: 30, I: 5}
+		if err := repo.SetFirstLastWrite(ctx, "bcp", first, last); err != nil {
+			t.Fatalf("SetFirstLastWrite: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.FirstWriteTS != first {
+			t.Errorf("FirstWriteTS = %v, want %v", got.FirstWriteTS, first)
+		}
+		if got.LastWriteTS != last {
+			t.Errorf("LastWriteTS = %v, want %v", got.LastWriteTS, last)
+		}
+		// the write window says nothing about progress
+		if got.Status != StatusInProgress {
+			t.Errorf("Status = %q, want %q", got.Status, StatusInProgress)
+		}
+	})
+
+	t.Run("overwrites the stored timestamps", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		if err := repo.SetFirstLastWrite(ctx,
+			"bcp", bson.Timestamp{T: 10, I: 1}, bson.Timestamp{T: 30, I: 5},
+		); err != nil {
+			t.Fatalf("first SetFirstLastWrite: %v", err)
+		}
+
+		first := bson.Timestamp{T: 40, I: 2}
+		last := bson.Timestamp{T: 90, I: 7}
+		if err := repo.SetFirstLastWrite(ctx, "bcp", first, last); err != nil {
+			t.Fatalf("second SetFirstLastWrite: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.FirstWriteTS != first {
+			t.Errorf("FirstWriteTS = %v, want %v", got.FirstWriteTS, first)
+		}
+		if got.LastWriteTS != last {
+			t.Errorf("LastWriteTS = %v, want %v", got.LastWriteTS, last)
+		}
+	})
+
+	t.Run("zero timestamps are stored as given", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		if err := repo.SetFirstLastWrite(ctx,
+			"bcp", bson.Timestamp{T: 10, I: 1}, bson.Timestamp{T: 30, I: 5},
+		); err != nil {
+			t.Fatalf("SetFirstLastWrite: %v", err)
+		}
+
+		var zero bson.Timestamp
+		if err := repo.SetFirstLastWrite(ctx, "bcp", zero, zero); err != nil {
+			t.Fatalf("SetFirstLastWrite zero: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.FirstWriteTS != zero {
+			t.Errorf("FirstWriteTS = %v, want %v", got.FirstWriteTS, zero)
+		}
+		if got.LastWriteTS != zero {
+			t.Errorf("LastWriteTS = %v, want %v", got.LastWriteTS, zero)
+		}
+	})
+
+	t.Run("leaves the replset sections alone", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
+			Name:         "rs0",
+			Status:       StatusInProgress,
+			FirstWriteTS: bson.Timestamp{T: 11, I: 3},
+			LastWriteTS:  bson.Timestamp{T: 22, I: 4},
+		}); err != nil {
+			t.Fatalf("UpdateRSMeta: %v", err)
+		}
+
+		if err := repo.SetFirstLastWrite(ctx,
+			"bcp", bson.Timestamp{T: 10, I: 1}, bson.Timestamp{T: 30, I: 5},
+		); err != nil {
+			t.Fatalf("SetFirstLastWrite: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Replsets) != 1 {
+			t.Fatalf("got %d replsets, want 1", len(got.Replsets))
+		}
+		// only the cluster-wide window is rewritten
+		if want := (bson.Timestamp{T: 11, I: 3}); got.Replsets[0].FirstWriteTS != want {
+			t.Errorf("rs0 FirstWriteTS = %v, want %v", got.Replsets[0].FirstWriteTS, want)
+		}
+		if want := (bson.Timestamp{T: 22, I: 4}); got.Replsets[0].LastWriteTS != want {
+			t.Errorf("rs0 LastWriteTS = %v, want %v", got.Replsets[0].LastWriteTS, want)
+		}
+	})
+
+	t.Run("reports an unknown backup", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetFirstLastWrite(ctx,
+			"ghost", bson.Timestamp{T: 10, I: 1}, bson.Timestamp{T: 30, I: 5})
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrNotFound)
+		}
+	})
+
+	t.Run("empty name returns ErrNoName", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetFirstLastWrite(ctx,
+			"", bson.Timestamp{T: 10, I: 1}, bson.Timestamp{T: 30, I: 5})
+		if !errors.Is(err, ErrNoName) {
+			t.Errorf("err = %v, want %v", err, ErrNoName)
 		}
 	})
 }

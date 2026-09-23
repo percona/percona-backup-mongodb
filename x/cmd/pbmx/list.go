@@ -81,7 +81,7 @@ func formatBackupsFull(w io.Writer, metas []*backup.BackupMeta) error {
 	table.Header([]string{
 		"Name", "Type", "Status", "Size", "Compression",
 		"Selective", "Base", "Source backup", "Replsets", "Mongo version", "FCV",
-		"PBM version", "Start time", "Restore time", "Error",
+		"PBM version", "Restore time", "Error",
 	})
 
 	for _, m := range metas {
@@ -98,7 +98,6 @@ func formatBackupsFull(w io.Writer, metas []*backup.BackupMeta) error {
 			m.MongoVersion,
 			m.FCV,
 			m.PBMVersion,
-			fmtUnixSec(m.StartTS),
 			fmtBSONTS(m.LastWriteTS),
 			m.Error,
 		}); err != nil {

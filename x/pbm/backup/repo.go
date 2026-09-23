@@ -7,6 +7,7 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
@@ -133,6 +134,22 @@ func (r *Repo) UpdateRSMeta(ctx context.Context, name string, rs *BackupReplset)
 		}
 		meta.Replsets = append(meta.Replsets, *rs)
 
+		return nil
+	})
+
+	return err
+}
+
+// SetFirstLastWrite records the cluster-wide first and last write timestamps.
+// It returns ErrNotFound if no such backup exists.
+func (r *Repo) SetFirstLastWrite(
+	ctx context.Context,
+	name string,
+	first, last bson.Timestamp,
+) error {
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		meta.FirstWriteTS = first
+		meta.LastWriteTS = last
 		return nil
 	})
 
