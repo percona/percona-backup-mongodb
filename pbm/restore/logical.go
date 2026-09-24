@@ -36,7 +36,10 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
-const mongoErrUnsatisfiableCommitQuorum = 278
+const (
+	mongoErrUnsatisfiableCommitQuorum = 278
+	ttlMonitorTimeout                 = 30 * time.Second
+)
 
 // mDBCl represents mDB client iterface for the DB related ops.
 type mDBCl interface {
@@ -77,6 +80,8 @@ type Restore struct {
 	opid string
 
 	indexCatalog *idx.Catalog
+
+	ttlMonitorWasEnabled bool
 
 	db mDBCl
 }
@@ -159,6 +164,10 @@ func (r *Restore) Close() {
 }
 
 func (r *Restore) exit(ctx context.Context, err error) {
+	if ttlErr := r.restoreTTLMonitor(ctx); ttlErr != nil {
+		r.log.Error("restore ttlMonitorEnabled=true on %s: %v", r.brief.Me, ttlErr)
+	}
+
 	if err != nil && !errors.Is(err, ErrNoDataForShard) {
 		ferr := r.MarkFailed(ctx, err)
 		if ferr != nil {
@@ -168,6 +177,39 @@ func (r *Restore) exit(ctx context.Context, err error) {
 	}
 
 	r.Close()
+}
+
+// disableTTLMonitor runs on each participating primary before the restore barrier.
+func (r *Restore) disableTTLMonitor(ctx context.Context) error {
+	enabled, err := topo.GetTTLMonitorEnabled(ctx, r.nodeConn)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		// Register cleanup before sending the command: an error may mean a lost reply.
+		r.ttlMonitorWasEnabled = true
+		if err := topo.SetTTLMonitorEnabled(ctx, r.nodeConn, false); err != nil {
+			return errors.Wrap(err, "disable TTL monitor")
+		}
+		r.log.Info("TTL monitor disabled")
+	}
+
+	return topo.WaitForTTLMonitorDisabled(ctx, r.nodeConn, ttlMonitorTimeout)
+}
+
+func (r *Restore) restoreTTLMonitor(ctx context.Context) error {
+	if !r.ttlMonitorWasEnabled {
+		return nil
+	}
+	// Cleanup must still run when the restore context has been canceled.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ttlMonitorTimeout)
+	defer cancel()
+	if err := topo.SetTTLMonitorEnabled(ctx, r.nodeConn, true); err != nil {
+		return errors.Wrap(err, "restore TTL monitor setting")
+	}
+	r.ttlMonitorWasEnabled = false
+	r.log.Info("TTL monitor re-enabled")
+	return nil
 }
 
 // stopBalancer stops the balancer and waits for it to be fully disabled.
@@ -283,6 +325,10 @@ func (r *Restore) Snapshot(
 		if err := r.stopBalancer(ctx); err != nil {
 			return err
 		}
+	}
+
+	if err := r.disableTTLMonitor(ctx); err != nil {
+		return err
 	}
 
 	r.bcpStg, err = util.StorageFromConfig(&bcp.Store.StorageConf, r.brief.Me, r.log)
@@ -427,6 +473,10 @@ func (r *Restore) PITR(
 		if err := r.stopBalancer(ctx); err != nil {
 			return err
 		}
+	}
+
+	if err := r.disableTTLMonitor(ctx); err != nil {
+		return err
 	}
 
 	if bcp.LastWriteTS.Compare(cmd.OplogTS) >= 0 {
@@ -625,6 +675,10 @@ func (r *Restore) ReplayOplog(ctx context.Context, cmd *ctrl.ReplayCmd, opid ctr
 
 	opChunks, err := r.chunks(ctx, cmd.Start, cmd.End)
 	if err != nil {
+		return err
+	}
+
+	if err := r.disableTTLMonitor(ctx); err != nil {
 		return err
 	}
 
