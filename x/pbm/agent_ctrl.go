@@ -66,7 +66,7 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 		statusSvc,
 		configSvc,
 		cfg.Name,
-		task.NewComposer(etcdSrv.Client()),
+		task.NewComposer(etcdSrv.Client(), task.NewScheduler(statusSvc, configSvc)),
 	)
 
 	inbox := task.NewInbox(etcdSrv.Client(), cfg.Name, physSvc)

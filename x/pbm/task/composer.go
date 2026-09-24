@@ -21,13 +21,17 @@ const leaseTTL = 10 * time.Second
 // - composer select the agents by using scheduler,
 // - composer makes the cluster aware of it by delegating tasks over etcd.
 type Composer struct {
-	ccDB *clientv3.Client
+	ccDB      *clientv3.Client
+	scheduler *Scheduler
 }
 
 // NewComposer creates a task composer.
 // ccDB holds the control state.
-func NewComposer(ccDB *clientv3.Client) *Composer {
-	return &Composer{ccDB: ccDB}
+func NewComposer(ccDB *clientv3.Client, scheduler *Scheduler) *Composer {
+	return &Composer{
+		ccDB:      ccDB,
+		scheduler: scheduler,
+	}
 }
 
 // Backup schedules a new backup:
@@ -44,7 +48,10 @@ func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTa
 		return nil, errors.Wrap(err, "marshal backup options")
 	}
 
-	agents, leader := selectAgents()
+	agents, leader, err := c.scheduler.ResolveAgentsForBackup(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve backup agents")
+	}
 
 	t := &BackupTask{
 		Name:      name,

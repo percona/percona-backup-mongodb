@@ -60,7 +60,7 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 		statusSvc,
 		configSvc,
 		cfg.Name,
-		task.NewComposer(ccDB),
+		task.NewComposer(ccDB, task.NewScheduler(statusSvc, configSvc)),
 	)
 	inbox := task.NewInbox(ccDB, cfg.Name, physSvc)
 	go func() {
