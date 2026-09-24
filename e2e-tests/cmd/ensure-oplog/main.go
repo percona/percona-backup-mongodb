@@ -272,10 +272,12 @@ func ensureReplsetOplog(ctx context.Context, uri string, from, till bson.Timesta
 		return errors.Wrap(err, "get config")
 	}
 
-	stg, err := util.StorageFromConfig(&cfg.Storage, "", log.FromContext(ctx).NewDefaultEvent())
+	l := log.FromContext(ctx).NewDefaultEvent()
+	stg, err := util.StorageFromConfig(&cfg.Storage, "", l)
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	compression := defs.DefaultCompression
 	compressionLevel := (*int)(nil)

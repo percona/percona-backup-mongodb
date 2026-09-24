@@ -127,8 +127,11 @@ func TestPBMSupport(t *testing.T) {
 		wantErr  bool
 		contains string
 	}{
-		{name: "supported 7.0.x", ver: []int{7, 0, 1}, wantErr: false},
-		{name: "supported 8.0.x", ver: []int{8, 0, 1}, wantErr: false},
+		{name: "supported 7.0 patch release", ver: []int{7, 0, 1}, wantErr: false},
+		{name: "supported 8.0 patch release", ver: []int{8, 0, 1}, wantErr: false},
+		{name: "supported 8.3 without patch", ver: []int{8, 3}, wantErr: false},
+		{name: "supported 8.3 initial patch release", ver: []int{8, 3, 0}, wantErr: false},
+		{name: "supported 8.3 patch release", ver: []int{8, 3, 12}, wantErr: false},
 
 		{
 			name: "too old 4.4.18", ver: []int{4, 4, 18},
@@ -151,12 +154,16 @@ func TestPBMSupport(t *testing.T) {
 			wantErr: true, contains: "upgrade your MongoDB",
 		},
 		{
-			name: "unsupported minor 7.2.3", ver: []int{7, 2, 3},
-			wantErr: true, contains: "does not support minor versions of MongoDB",
+			name: "unsupported 7.2 patch release", ver: []int{7, 2, 3},
+			wantErr: true, contains: "does not support this minor version of MongoDB",
 		},
 		{
-			name: "unsupported minor 8.3.0", ver: []int{8, 3, 0},
-			wantErr: true, contains: "does not support minor versions of MongoDB",
+			name: "unsupported 8.x minor below 8.3", ver: []int{8, 2, 0},
+			wantErr: true, contains: "does not support this minor version of MongoDB",
+		},
+		{
+			name: "unsupported 8.x minor above 8.3", ver: []int{8, 4, 0},
+			wantErr: true, contains: "does not support this minor version of MongoDB",
 		},
 		{
 			name: "newer major 9.0.0", ver: []int{9, 0, 0},
@@ -179,7 +186,7 @@ func TestPBMSupport(t *testing.T) {
 					t.Fatalf("unexpected error message: %q does not contain %q", err.Error(), tc.contains)
 				}
 				if tc.contains == "" || !strings.Contains(tc.contains, "incomplete versionArray") {
-					if !strings.Contains(err.Error(), "This PBM works with MongoDB and PSMDB v7.0, v8.0") {
+					if !strings.Contains(err.Error(), "This PBM works with MongoDB and PSMDB v7.0, v8.0, v8.3") {
 						t.Fatalf("error should list supported versions, got: %q", err.Error())
 					}
 				}

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/internal/credutil"
 	"go.mongodb.org/mongo-driver/v2/internal/mongoutil"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
@@ -53,7 +54,7 @@ func NewClientEncryption(keyVaultClient *Client, opts ...options.Lister[options.
 		return nil, fmt.Errorf("error creating KMS providers map: %w", err)
 	}
 
-	mc, err := mongocrypt.NewMongoCrypt(&mcopts.MongoCryptOptions{
+	cryptOpts := &mcopts.MongoCryptOptions{
 		KmsProviders: kmsProviders,
 		// Explicitly disable loading the crypt_shared library for the Crypt used for
 		// ClientEncryption because it's only needed for AutoEncryption and we don't expect users to
@@ -61,7 +62,11 @@ func NewClientEncryption(keyVaultClient *Client, opts ...options.Lister[options.
 		CryptSharedLibDisabled: true,
 		HTTPClient:             cea.HTTPClient,
 		KeyExpiration:          cea.KeyExpiration,
-	})
+	}
+	if cea.AWSCredentialsProvider != nil {
+		cryptOpts.AWSCredentialsProvider = credutil.AWSOptionsProvider{Provider: cea.AWSCredentialsProvider}
+	}
+	mc, err := mongocrypt.NewMongoCrypt(cryptOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -245,29 +250,29 @@ func transformExplicitEncryptionOptions(opts ...options.Lister[options.EncryptOp
 		}
 		transformed.RangeOptions = &transformedRange
 	}
-	if args.TextOptions != nil {
-		textArgs, err := mongoutil.NewOptions[options.TextOptions](args.TextOptions)
+	if args.StringOptions != nil {
+		stringArgs, err := mongoutil.NewOptions[options.StringOptions](args.StringOptions)
 		if err != nil {
 			return nil, err
 		}
 
-		transformedText := mcopts.ExplicitTextOptions{
-			CaseSensitive:      textArgs.CaseSensitive,
-			DiacriticSensitive: textArgs.DiacriticSensitive,
+		transformedString := mcopts.ExplicitStringOptions{
+			CaseSensitive:      stringArgs.CaseSensitive,
+			DiacriticSensitive: stringArgs.DiacriticSensitive,
 		}
-		if textArgs.Substring != nil {
-			substringOpts := mcopts.SubstringOptions(*textArgs.Substring)
-			transformedText.Substring = &substringOpts
+		if stringArgs.Substring != nil {
+			substringOpts := mcopts.SubstringOptions(*stringArgs.Substring)
+			transformedString.Substring = &substringOpts
 		}
-		if textArgs.Prefix != nil {
-			prefixOpts := mcopts.PrefixOptions(*textArgs.Prefix)
-			transformedText.Prefix = &prefixOpts
+		if stringArgs.Prefix != nil {
+			prefixOpts := mcopts.PrefixOptions(*stringArgs.Prefix)
+			transformedString.Prefix = &prefixOpts
 		}
-		if textArgs.Suffix != nil {
-			suffixOpts := mcopts.SuffixOptions(*textArgs.Suffix)
-			transformedText.Suffix = &suffixOpts
+		if stringArgs.Suffix != nil {
+			suffixOpts := mcopts.SuffixOptions(*stringArgs.Suffix)
+			transformedString.Suffix = &suffixOpts
 		}
-		transformed.SetTextOptions(transformedText)
+		transformed.SetStringOptions(transformedString)
 	}
 	return transformed, nil
 }
@@ -457,7 +462,7 @@ func setRewrapManyDataKeyWriteModels(rewrappedDocuments []bsoncore.Document, wri
 
 		idSubtype, idData, ok := id.BinaryOK()
 		if !ok {
-			return fmt.Errorf("expected to assert %q as binary, got type %T", idKey, id)
+			return fmt.Errorf("expected to assert %q as binary, got type %s", idKey, id.Type)
 		}
 		binaryID := bson.Binary{Subtype: idSubtype, Data: idData}
 
