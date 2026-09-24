@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 
@@ -63,11 +64,6 @@ func New(cfg *Config, node string, l log.LogEvent) (storage.Storage, error) {
 }
 
 func (b *Blob) client() (*azblob.Client, error) {
-	cred, err := azblob.NewSharedKeyCredential(b.cfg.Account, string(b.cfg.Credentials.Key))
-	if err != nil {
-		return nil, errors.Wrap(err, "create credentials")
-	}
-
 	opts := &azblob.ClientOptions{}
 	opts.Retry = policy.RetryOptions{
 		MaxRetries:    b.cfg.Retryer.NumMaxRetries,
@@ -75,6 +71,19 @@ func (b *Blob) client() (*azblob.Client, error) {
 		MaxRetryDelay: b.cfg.Retryer.MaxRetryDelay,
 	}
 	epURL := b.cfg.resolveEndpointURL(b.node)
+
+	if b.cfg.Credentials.WorkloadIdentity {
+		cred, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return nil, errors.Wrap(err, "create workload identity credentials")
+		}
+		return azblob.NewClient(epURL, cred, opts)
+	}
+
+	cred, err := azblob.NewSharedKeyCredential(b.cfg.Account, string(b.cfg.Credentials.Key))
+	if err != nil {
+		return nil, errors.Wrap(err, "create credentials")
+	}
 	return azblob.NewClientWithSharedKeyCredential(epURL, cred, opts)
 }
 
