@@ -360,7 +360,7 @@ func (r *Repo) modify(
 	return nil, ErrConflict
 }
 
-// backoff waits before retrying a lost race between rendomly 5-200ms.
+// backoff waits before retrying a lost race randomly 5-200ms.
 func backoff(attempt int) {
 	shift := min(attempt-1, 16)
 	d := min(modifyBackoff<<shift, modifyMaxBackoff)

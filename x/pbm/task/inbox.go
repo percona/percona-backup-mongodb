@@ -82,7 +82,7 @@ func (i *Inbox) handle(ctx context.Context, value []byte, lease clientv3.LeaseID
 	case TaskBackup:
 		i.runBackup(ctx, a, lease)
 	default:
-		log.Printf("unknow taks type in inbox for %s: %q", i.agentID, a.Type)
+		log.Printf("unknown taks type in inbox for %s: %q", i.agentID, a.Type)
 	}
 }
 

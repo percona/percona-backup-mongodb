@@ -18,7 +18,7 @@ const leaseTTL = 10 * time.Second
 // Composer puts cluster-wide tasks together and delegates the work to the
 // agents. It is the central-coordination half of an operation:
 // - the service owning the operation (e.g. backup) decides exact phases and actions,
-// - composer select the agents by using scheduler,
+// - composer selects the agents by using scheduler,
 // - composer makes the cluster aware of it by delegating tasks over etcd.
 type Composer struct {
 	ccDB  *clientv3.Client

@@ -107,8 +107,8 @@ const (
 
 // PhysSvc is the physical backup service.
 // It orchestrates a physical backup:
-// - on the web API servier, it starts the backup cluster-wide,
-// - every agent involved in backkup executes backup core logic from Run method.
+// - on the web API server, it starts the backup cluster-wide,
+// - every agent involved in backup executes backup core logic from Run method.
 type PhysSvc struct {
 	ccDB    *clientv3.Client
 	repo    *Repo
