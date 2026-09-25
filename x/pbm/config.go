@@ -21,5 +21,9 @@ type WorkerAgentConfig struct {
 	Name     string
 	MongoURI string
 
+	// EtcdEndpoints are client endpoints (host:port) the worker-agent reads and writes the control state through.
+	// A ctrl-agent talks to its own embedded etcd instead.
+	EtcdEndpoints []string
+
 	disco.Config
 }

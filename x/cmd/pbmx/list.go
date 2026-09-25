@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -54,7 +54,8 @@ func formatBackups(w io.Writer, metas []*backup.BackupMeta) error {
 
 	table := tablewriter.NewWriter(w)
 	table.Header([]string{
-		"Name", "Type", "Profile", "Selective", "Base", "Restore time",
+		"Name", "Type", "Profile", "Selective", "Base", "Size",
+		"Size uncompressed", "Duration", "Restore time",
 	})
 
 	for _, m := range metas {
@@ -64,6 +65,9 @@ func formatBackups(w io.Writer, metas []*backup.BackupMeta) error {
 			"", // profiles are not part of the backup metadata yet
 			yesNo(isSelective(m)),
 			yesNo(isBase(m)),
+			fmtSize(m.Size),
+			fmtSize(m.SizeUncompressed),
+			fmtDuration(m),
 			fmtBSONTS(m.LastWriteTS),
 		}); err != nil {
 			return err
@@ -79,9 +83,9 @@ func formatBackupsFull(w io.Writer, metas []*backup.BackupMeta) error {
 
 	table := tablewriter.NewWriter(w)
 	table.Header([]string{
-		"Name", "Type", "Status", "Size", "Compression",
-		"Selective", "Base", "Source backup", "Replsets", "Mongo version", "FCV",
-		"PBM version", "Start time", "Restore time", "Error",
+		"Name", "Type", "Status", "Size", "Size uncompressed", "Duration",
+		"Compression", "Selective", "Base", "Source backup", "Replsets",
+		"Mongo version", "FCV", "PBM version", "Restore time", "Error",
 	})
 
 	for _, m := range metas {
@@ -89,7 +93,9 @@ func formatBackupsFull(w io.Writer, metas []*backup.BackupMeta) error {
 			m.Name,
 			string(m.Type),
 			string(m.Status),
-			strconv.FormatInt(m.Size, 10),
+			fmtSize(m.Size),
+			fmtSize(m.SizeUncompressed),
+			fmtDuration(m),
 			string(m.Compression),
 			yesNo(isSelective(m)),
 			yesNo(isBase(m)),
@@ -98,9 +104,8 @@ func formatBackupsFull(w io.Writer, metas []*backup.BackupMeta) error {
 			m.MongoVersion,
 			m.FCV,
 			m.PBMVersion,
-			fmtUnixSec(m.StartTS),
 			fmtBSONTS(m.LastWriteTS),
-			m.Err,
+			m.Error,
 		}); err != nil {
 			return err
 		}
@@ -149,4 +154,21 @@ func fmtUnixSec(sec int64) string {
 		return ""
 	}
 	return time.Unix(sec, 0).UTC().Format(tsLayout)
+}
+
+// fmtSize formats a byte count using binary (IEC) units, or "" when unset.
+func fmtSize(b int64) string {
+	if b <= 0 {
+		return ""
+	}
+	return humanize.IBytes(uint64(b))
+}
+
+// fmtDuration formats how long the backup took (finish - start), or "" when
+// the backup hasn't finished yet.
+func fmtDuration(m *backup.BackupMeta) string {
+	if m.StartTime <= 0 || m.FinishTime < m.StartTime {
+		return ""
+	}
+	return (time.Duration(m.FinishTime-m.StartTime) * time.Second).String()
 }

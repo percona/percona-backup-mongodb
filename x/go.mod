@@ -4,7 +4,9 @@ go 1.25.5
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
+	github.com/dustin/go-humanize v1.0.1
 	github.com/golang/snappy v1.0.0
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/serf v0.10.2
 	github.com/klauspost/compress v1.19.2
 	github.com/klauspost/pgzip v1.2.6
@@ -18,6 +20,7 @@ require (
 	go.etcd.io/etcd/server/v3 v3.6.12
 	go.mongodb.org/mongo-driver/v2 v2.9.1
 	golang.org/x/mod v0.40.0
+	golang.org/x/sync v0.22.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -43,7 +46,6 @@ require (
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -57,7 +59,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.0.1 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0 // indirect
@@ -141,7 +142,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
