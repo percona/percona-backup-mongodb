@@ -691,6 +691,123 @@ func TestSetFirstLastWrite(t *testing.T) {
 	})
 }
 
+func TestSetSize(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("records the cluster sizes", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		if err := repo.UpdateRSMeta(ctx, "bcp", &BackupReplset{
+			Name: "rs0",
+			Size: 5,
+		}); err != nil {
+			t.Fatalf("UpdateRSMeta: %v", err)
+		}
+
+		if err := repo.SetSize(ctx, "bcp", 42, 84); err != nil {
+			t.Fatalf("SetSize: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.Size != 42 || got.SizeUncompressed != 84 {
+			t.Errorf("sizes = (%d, %d), want (42, 84)", got.Size, got.SizeUncompressed)
+		}
+		// the replset sections are left alone
+		if got.Replsets[0].Size != 5 {
+			t.Errorf("rs0 Size = %d, want 5", got.Replsets[0].Size)
+		}
+	})
+
+	t.Run("reports an unknown backup", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetSize(ctx, "ghost", 42, 84)
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrNotFound)
+		}
+	})
+}
+
+func TestSetRSSize(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("records the sizes on the section only", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		for _, name := range []string{"rs0", "rs1"} {
+			rs := &BackupReplset{Name: name, Node: name + "-1"}
+			if err := repo.UpdateRSMeta(ctx, "bcp", rs); err != nil {
+				t.Fatalf("UpdateRSMeta %s: %v", name, err)
+			}
+		}
+
+		if err := repo.SetRSSize(ctx, "bcp", "rs0", 42, 84); err != nil {
+			t.Fatalf("SetRSSize: %v", err)
+		}
+
+		got, err := repo.Get(ctx, "bcp")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		byName := map[string]BackupReplset{}
+		for _, rs := range got.Replsets {
+			byName[rs.Name] = rs
+		}
+		if rs0 := byName["rs0"]; rs0.Size != 42 || rs0.SizeUncompressed != 84 {
+			t.Errorf("rs0 sizes = (%d, %d), want (42, 84)", rs0.Size, rs0.SizeUncompressed)
+		}
+		if byName["rs0"].Node != "rs0-1" {
+			t.Errorf("rs0 Node = %q, want %q", byName["rs0"].Node, "rs0-1")
+		}
+		if rs1 := byName["rs1"]; rs1.Size != 0 || rs1.SizeUncompressed != 0 {
+			t.Errorf("rs1 sizes = (%d, %d), want (0, 0)", rs1.Size, rs1.SizeUncompressed)
+		}
+		if got.Size != 0 || got.SizeUncompressed != 0 {
+			t.Errorf("top-level sizes = (%d, %d), want (0, 0)", got.Size, got.SizeUncompressed)
+		}
+	})
+
+	t.Run("reports an unknown replset", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		if err := repo.Insert(ctx, testMeta("bcp")); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+
+		err := repo.SetRSSize(ctx, "bcp", "ghost", 42, 84)
+		if !errors.Is(err, ErrRSNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrRSNotFound)
+		}
+	})
+
+	t.Run("empty replset name returns ErrNoRSName", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetRSSize(ctx, "bcp", "", 42, 84)
+		if !errors.Is(err, ErrNoRSName) {
+			t.Errorf("err = %v, want %v", err, ErrNoRSName)
+		}
+	})
+
+	t.Run("reports an unknown backup", func(t *testing.T) {
+		repo := newTestRepo(t)
+
+		err := repo.SetRSSize(ctx, "ghost", "rs0", 42, 84)
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want %v", err, ErrNotFound)
+		}
+	})
+}
+
 func TestSetFinishTime(t *testing.T) {
 	ctx := context.Background()
 

@@ -156,6 +156,46 @@ func (r *Repo) SetFirstLastWrite(
 	return err
 }
 
+// SetSize records the cluster-wide backup size on the storage, compressed
+// and uncompressed.
+// It returns ErrNotFound if no such backup exists.
+func (r *Repo) SetSize(ctx context.Context, name string, size, sizeUncompressed int64) error {
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		meta.Size = size
+		meta.SizeUncompressed = sizeUncompressed
+		return nil
+	})
+
+	return err
+}
+
+// SetRSSize records on the rsName section the size of that replset's backup
+// on the storage, compressed and uncompressed.
+// It returns ErrNotFound if no such backup exists and ErrRSNotFound if RS doesn't exist.
+func (r *Repo) SetRSSize(
+	ctx context.Context,
+	name, rsName string,
+	size, sizeUncompressed int64,
+) error {
+	if rsName == "" {
+		return ErrNoRSName
+	}
+
+	_, err := r.modify(ctx, name, func(meta *BackupMeta) error {
+		for i := range meta.Replsets {
+			if meta.Replsets[i].Name == rsName {
+				meta.Replsets[i].Size = size
+				meta.Replsets[i].SizeUncompressed = sizeUncompressed
+				return nil
+			}
+		}
+
+		return ErrRSNotFound
+	})
+
+	return err
+}
+
 // SetFinishTime records when the backup ended and set done status.
 // It returns ErrNotFound if no such backup exists.
 func (r *Repo) SetFinishTime(ctx context.Context, name string, ts int64) error {

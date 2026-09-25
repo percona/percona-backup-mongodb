@@ -405,6 +405,9 @@ func (s *PhysSvc) Run(
 
 	finishTime := time.Now().UTC()
 	if isLeader {
+		if err = s.setClusterSize(ctx, name); err != nil {
+			return errors.Wrap(err, "set backup size")
+		}
 		if err = s.repo.SetFinishTime(ctx, name, finishTime.Unix()); err != nil {
 			return errors.Wrap(err, "set backup finish time")
 		}
@@ -659,31 +662,33 @@ func (s *PhysSvc) uploadPhysical(
 
 	totalSize := size + flSize
 	totalUncompressed := sizeUncompressed + flSize
-	log.Printf("totalSize=%d; totalSizeUncompressed=%d", totalSize, totalUncompressed)
+	log.Printf("RS total size=%d; total size uncompressed=%d", totalSize, totalUncompressed)
 
-	// err = IncBackupSize(
-	// 	ctx,
-	// 	b.leadConn,
-	// 	bcp.Name,
-	// 	totalSize,
-	// 	&totalUncompressed,
-	// )
-	// if err != nil {
-	// 	return errors.Wrap(err, "inc backup size")
-	// }
-	// err = SetBackupSizeForRS(
-	// 	ctx,
-	// 	b.leadConn,
-	// 	bcp.Name,
-	// 	rsMeta.Name,
-	// 	totalSize,
-	// 	totalUncompressed,
-	// )
-	// if err != nil {
-	// 	return errors.Wrap(err, "set RS backup size")
-	// }
+	err = s.repo.SetRSSize(ctx, name, rsMeta.Name, totalSize, totalUncompressed)
+	if err != nil {
+		return errors.Wrap(err, "set RS backup size")
+	}
 
 	return nil
+}
+
+// setClusterSize sums up the sizes of all replsets and records them as the
+// cluster-wide backup size.
+func (s *PhysSvc) setClusterSize(ctx context.Context, name string) error {
+	meta, err := s.repo.Get(ctx, name)
+	if err != nil {
+		return errors.Wrap(err, "get backup meta")
+	}
+
+	size := int64(0)
+	sizeUncompressed := int64(0)
+	for _, rs := range meta.Replsets {
+		size += rs.Size
+		sizeUncompressed += rs.SizeUncompressed
+	}
+	log.Printf("cluster total size=%d; total size uncompressed=%d", size, sizeUncompressed)
+
+	return s.repo.SetSize(ctx, name, size, sizeUncompressed)
 }
 
 // newBackupName renders a backup name for the given time.
