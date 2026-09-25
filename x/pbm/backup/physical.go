@@ -246,7 +246,10 @@ func (s *PhysSvc) Run(
 
 	defer func() {
 		if err != nil && isLeader {
-			s.repo.SetError(ctx, name, err)
+			derr := s.repo.SetError(context.Background(), name, err)
+			if derr != nil {
+				log.Printf("error while setting cluster error status: %v", derr)
+			}
 		}
 	}()
 	rsMeta := &BackupReplset{
@@ -272,18 +275,21 @@ func (s *PhysSvc) Run(
 	}
 	defer func() {
 		if err != nil {
-			s.repo.SetRSError(ctx, name, agent.MongoInfo.SetName, err)
+			derr := s.repo.SetRSError(context.Background(), name, agent.MongoInfo.SetName, err)
+			if derr != nil {
+				log.Printf("error while setting RS error status: %v", derr)
+			}
 		}
 	}()
 
 	if isLeader && isSharded && balancer == topo.BalancerModeOn {
 		if err = s.stopBalancer(ctx); err != nil {
-			return err
+			return errors.Wrap(err, "stop balancer")
 		}
 	}
 	defer func() {
 		if isSharded && balancer == topo.BalancerModeOn {
-			errB := topo.SetBalancerStatus(ctx, s.leadConn, topo.BalancerModeOn)
+			errB := topo.SetBalancerStatus(context.Background(), s.leadConn, topo.BalancerModeOn)
 			if errB != nil {
 				// todo: log this with highest severity
 				log.Printf("error while starting balancer: %s", errB)
@@ -483,7 +489,7 @@ func (s *PhysSvc) stopBalancer(ctx context.Context) error {
 	const (
 		// todo: wire to config
 		timeout      = 30 * time.Minute
-		pollInterval = time.Minute
+		pollInterval = 5 * time.Second
 	)
 
 	log.Printf("stopping balancer with timeout %s", timeout)
@@ -501,6 +507,17 @@ func (s *PhysSvc) stopBalancer(ctx context.Context) error {
 	// the last status read, to tell what the balancer was doing on timeout
 	var last *topo.BalancerStatus
 	for {
+		bs, err := topo.GetBalancerStatus(waitCtx, s.leadConn)
+		switch {
+		case err != nil:
+			log.Printf("get balancer status: %v", err)
+		case bs.IsDisabled():
+			log.Printf("balancer is disabled")
+			return nil
+		default:
+			last = bs
+		}
+
 		select {
 		case <-waitCtx.Done():
 			if ctx.Err() != nil {
@@ -516,16 +533,6 @@ func (s *PhysSvc) stopBalancer(ctx context.Context) error {
 			return nil
 
 		case <-tk.C:
-			bs, err := topo.GetBalancerStatus(waitCtx, s.leadConn)
-			if err != nil {
-				log.Printf("get balancer status: %v", err)
-				continue
-			}
-			if bs.IsDisabled() {
-				log.Printf("balancer is disabled")
-				return nil
-			}
-			last = bs
 		}
 	}
 }
