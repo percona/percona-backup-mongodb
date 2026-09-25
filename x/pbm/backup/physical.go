@@ -239,11 +239,6 @@ func (s *PhysSvc) Run(
 		log.Printf("init backup meta")
 	}
 
-	pTS, err = s.advance(ctx, b, name, PhaseMetaCreated, isSharded, pTS)
-	if err != nil {
-		return err
-	}
-
 	defer func() {
 		if err != nil && isLeader {
 			derr := s.repo.SetError(context.Background(), name, err)
@@ -252,6 +247,12 @@ func (s *PhysSvc) Run(
 			}
 		}
 	}()
+
+	pTS, err = s.advance(ctx, b, name, PhaseMetaCreated, isSharded, pTS)
+	if err != nil {
+		return err
+	}
+
 	rsMeta := &BackupReplset{
 		Name:         agent.MongoInfo.SetName,
 		Node:         agent.MongoInfo.Me,
