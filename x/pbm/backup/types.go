@@ -48,8 +48,8 @@ type BackupMeta struct {
 	MongoVersion     string            `bson:"mongodb_version" json:"mongodb_version"`
 	PBMVersion       string            `bson:"pbm_version" json:"pbm_version"`
 	FCV              string            `bson:"fcv" json:"fcv"`
-	FirstWriteTS     bson.Timestamp    `bson:"first_write_ts" json:"first_write_ts"` //todo
-	LastWriteTS      bson.Timestamp    `bson:"last_write_ts" json:"last_write_ts"`   //todo
+	FirstWriteTS     bson.Timestamp    `bson:"first_write_ts" json:"first_write_ts"`
+	LastWriteTS      bson.Timestamp    `bson:"last_write_ts" json:"last_write_ts"`
 	Status           Status            `bson:"status" json:"status"`
 	BalancerStatus   topo.BalancerMode `bson:"balancer" json:"balancer"`
 	StartTime        int64             `bson:"start_time" json:"start_time"`
