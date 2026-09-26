@@ -15,6 +15,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
 )
 
@@ -143,8 +144,8 @@ func DeleteBackupData(ctx context.Context, conn connect.Client, stg storage.Stor
 }
 
 func CanDeleteBackup(ctx context.Context, conn connect.Client, bcp *BackupMeta) error {
-	if bcp.Status.IsRunning() {
-		return ErrBackupInProgress
+	if err := checkBackupInProgress(ctx, conn, bcp); err != nil {
+		return err
 	}
 	if !isValidBaseSnapshot(bcp) {
 		return nil
@@ -170,8 +171,8 @@ func CanDeleteIncrementalChain(
 	base *BackupMeta,
 	increments [][]*BackupMeta,
 ) error {
-	if base.Status.IsRunning() {
-		return ErrBackupInProgress
+	if err := checkBackupInProgress(ctx, conn, base); err != nil {
+		return err
 	}
 	if base.Type != defs.IncrementalBackup {
 		return ErrNonIncrementalBackup
@@ -195,6 +196,24 @@ func CanDeleteIncrementalChain(
 	}
 	if required {
 		return ErrBaseForPITR
+	}
+
+	return nil
+}
+
+func checkBackupInProgress(ctx context.Context, conn connect.Client, bcp *BackupMeta) error {
+	if !bcp.Status.IsRunning() {
+		return nil
+	}
+
+	clusterTime, err := topo.GetClusterTime(ctx, conn)
+	if err != nil {
+		return errors.Wrap(err, "get cluster time")
+	}
+	// A crashed agent may leave a nonterminal status behind. Use the same
+	// heartbeat threshold as backup status reporting to detect abandoned backups.
+	if bcp.Hb.T+defs.StaleFrameSec >= clusterTime.T {
+		return ErrBackupInProgress
 	}
 
 	return nil
