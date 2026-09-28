@@ -28,8 +28,7 @@ func TestMain(m *testing.M) {
 	}
 
 	ctx := context.Background()
-	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:8.0.4-multi",
-		testcontainers.WithCmdArgs("--setParameter", "enableTestCommands=1"))
+	mongodbContainer, err := mongodb.Run(ctx, "perconalab/percona-server-mongodb:8.0.4-multi")
 	if err != nil {
 		log.Fatalf("error while creating mongo test container: %v", err)
 	}
