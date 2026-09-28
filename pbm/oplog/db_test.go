@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -96,5 +97,43 @@ func TestApplyOps(t *testing.T) {
 	}
 	if cnt != 2 {
 		t.Fatalf("wrong number of docs in new collection, got=%d, want=1", cnt)
+	}
+}
+
+func TestApplyOpsBypassesDocumentValidation(t *testing.T) {
+	ctx := t.Context()
+	database := mClient.Database("apply_ops_validation")
+	t.Cleanup(func() {
+		require.NoError(t, database.Drop(context.Background()))
+	})
+
+	// Start with a valid document and a rule rejecting negative fieldX values.
+	err := database.CreateCollection(ctx, "c1", options.CreateCollection().
+		SetValidator(bson.D{{"fieldX", bson.D{{"$gte", 0}}}}).
+		SetValidationLevel("strict"))
+	require.NoError(t, err)
+	coll := database.Collection("c1")
+	_, err = coll.InsertOne(ctx, bson.D{{"_id", 1}, {"fieldX", 1}})
+	require.NoError(t, err)
+
+	// Replay 1 -> -1 -> 2 through PBM's wrapper. The intermediate value is invalid,
+	// but must actually be applied rather than skipped before reaching the target.
+	db := newMDB(mClient)
+	filter := bson.D{{"_id", 1}}
+	for _, value := range []int32{-1, 2} {
+		err = db.applyOps([]any{bson.D{
+			{"op", "u"},
+			{"ns", database.Name() + ".c1"},
+			{"o2", filter},
+			{"o", bson.D{
+				{"$v", 2},
+				{"diff", bson.D{{"u", bson.D{{"fieldX", value}}}}},
+			}},
+		}})
+		require.NoError(t, err)
+
+		var restored bson.M
+		require.NoError(t, coll.FindOne(ctx, filter).Decode(&restored))
+		require.Equal(t, value, restored["fieldX"])
 	}
 }
