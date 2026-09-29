@@ -348,7 +348,7 @@ func (pr *PartReader) tryChunk(buf *Arena, sess interface{}, start, end int64) (
 	const retry = 2
 	var err error
 
-	for i := 0; i < retry; i++ {
+	for range retry {
 		var r io.ReadCloser
 		r, err = pr.GetChunk(pr.Fname, buf, sess, start, end)
 
@@ -361,7 +361,7 @@ func (pr *PartReader) tryChunk(buf *Arena, sess interface{}, start, end int64) (
 			return r, err
 		}
 
-		pr.L.Warning("failed to download chunk %d-%d", start, end)
+		pr.L.Warning("failed to download chunk %d-%d, err: %v", start, end, err)
 	}
 
 	return nil, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", start, end, pr.Fsize, retry)
