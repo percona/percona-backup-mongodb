@@ -29,6 +29,7 @@ const (
 	etcdAdvertisePeerURLFlag   = "etcd-advertise-peer-url"
 	etcdAdvertiseClientURLFlag = "etcd-advertise-client-url"
 	etcdInitialClusterFlag     = "etcd-initial-cluster"
+	etcdEndpointsFlag          = "etcd-endpoints"
 
 	serfPortFlag = "serf-port"
 	serfJoinFlag = "serf-join"
@@ -37,9 +38,10 @@ const (
 
 	apiEndpointsFlag = "api-endpoints"
 
-	defaultAPISrvPort   = 9595
-	defaultEtcdDataDir  = "pbmx.etcd"
-	defaultAPIEndpoints = "localhost:9595"
+	defaultAPISrvPort    = 9595
+	defaultEtcdDataDir   = "pbmx.etcd"
+	defaultAPIEndpoints  = "localhost:9595"
+	defaultEtcdEndpoints = "localhost:2379"
 )
 
 func main() {
@@ -85,8 +87,9 @@ func rootCommand() *cobra.Command {
 // workerAgentConfig assembles the worker-agent config from CLI/config flags.
 func workerAgentConfig() *pbm.WorkerAgentConfig {
 	return &pbm.WorkerAgentConfig{
-		Name:     viper.GetString(nameFlag),
-		MongoURI: viper.GetString(mongoConnFlag),
+		Name:          viper.GetString(nameFlag),
+		MongoURI:      viper.GetString(mongoConnFlag),
+		EtcdEndpoints: splitList(viper.GetString(etcdEndpointsFlag)),
 		Config: disco.Config{
 			SerfPort: viper.GetInt(serfPortFlag),
 			SerfJoin: splitList(viper.GetString(serfJoinFlag)),
@@ -159,6 +162,8 @@ func setRootFlags(rootCmd *cobra.Command) {
 		"etcd client advertise URL (routable), e.g. http://etcd-0.example:2379")
 	persistentString(rootCmd, etcdInitialClusterFlag, "",
 		"etcd initial cluster member list: name0=peerURL0,name1=peerURL1,...")
+	persistentString(rootCmd, etcdEndpointsFlag, defaultEtcdEndpoints,
+		"comma-separated ctrl-agent etcd client endpoints (host:port) the worker agent connects to")
 
 	persistentInt(rootCmd, serfPortFlag, 0,
 		"serf gossip listen port, bound on 0.0.0.0 (default 7946)")

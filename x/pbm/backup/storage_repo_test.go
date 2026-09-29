@@ -17,8 +17,8 @@ func TestReadMetadata(t *testing.T) {
 		storageRepo, stg := newTestStorageRepo(t)
 
 		want := testMeta("2026-04-14T14:07:00Z")
-		want.Status = defs.StatusError
-		want.Err = "boom"
+		want.Status = StatusError
+		want.Error = "boom"
 		saveMeta(t, stg, want)
 
 		got, err := storageRepo.ReadMetadata(want.Name + defs.MetadataFileSuffix)
@@ -34,8 +34,8 @@ func TestReadMetadata(t *testing.T) {
 		if got.Status != want.Status {
 			t.Errorf("Status = %q, want %q", got.Status, want.Status)
 		}
-		if got.Err != want.Err {
-			t.Errorf("Err = %q, want %q", got.Err, want.Err)
+		if got.Error != want.Error {
+			t.Errorf("Err = %q, want %q", got.Error, want.Error)
 		}
 	})
 

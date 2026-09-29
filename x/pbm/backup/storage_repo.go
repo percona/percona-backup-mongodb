@@ -41,8 +41,8 @@ func (r *StorageRepo) ListBackupMeta() ([]*BackupMeta, error) {
 		// err = backup.CheckBackupDataFiles(ctx, stg, meta)
 		if err != nil {
 			fmt.Printf("skip snapshot %s: %v\n", meta.Name, err)
-			meta.Status = defs.StatusError
-			meta.Err = err.Error()
+			meta.Status = StatusError
+			meta.Error = err.Error()
 		}
 
 		backupMeta = append(backupMeta, meta)

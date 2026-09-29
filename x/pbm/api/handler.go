@@ -11,12 +11,17 @@ import (
 )
 
 // NewRouter builds the web API routes.
-func NewRouter(statusSvc *status.Svc, configSvc *config.Svc, backupRepo *backup.Repo) http.Handler {
+func NewRouter(
+	statusSvc *status.Svc,
+	configSvc *config.Svc,
+	backupRepo *backup.Repo,
+	physSvc *backup.PhysSvc,
+) http.Handler {
 	mux := http.NewServeMux()
 
 	newStatusHandler(statusSvc).registerRoutes(mux)
 	newConfigHandler(configSvc).registerRoutes(mux)
-	newBackupHandler(backupRepo).registerRoutes(mux)
+	newBackupHandler(backupRepo, physSvc).registerRoutes(mux)
 
 	return leaderOnly(statusSvc, mux)
 }
