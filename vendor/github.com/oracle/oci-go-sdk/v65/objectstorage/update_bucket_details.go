@@ -63,6 +63,11 @@ type UpdateBucketDetails struct {
 	// by Oracle.)
 	KmsKeyId *string `mandatory:"false" json:"kmsKeyId"`
 
+	// Specifies whether Object Storage should use intermediate cached Bucket Encryption Keys with server-side
+	// encryption using KMS (SSE-KMS) for new objects in the bucket. This reduces calls to OCI Vault Key Management
+	// Service (KMS). Existing objects are not affected.
+	IsBucketKeyEnabled *bool `mandatory:"false" json:"isBucketKeyEnabled"`
+
 	// The versioning status on the bucket. If in state `Enabled`, multiple versions of the same object can be kept in the bucket.
 	// When the object is overwritten or deleted, previous versions will still be available. When versioning is `Suspended`, the previous versions will still remain but new versions will no longer be created when overwitten or deleted.
 	// Versioning cannot be disabled on a bucket once enabled.
@@ -73,11 +78,10 @@ type UpdateBucketDetails struct {
 	// When auto tiering is `Disabled`, there will be no automatic transitions between storage tiers.
 	AutoTiering BucketAutoTieringEnum `mandatory:"false" json:"autoTiering,omitempty"`
 
-	// Scope in which the bucket is unique. Default value is NAMESPACE.
-	// Bucket scope as NAMESPACE means that the bucket is unique only in the owning namespace/tenancy. Other
-	// tenancies can have a bucket with same name in their namespace.
-	// Bucket scope as REGION means that the bucket is regionally unique. No other tenancy can have a bucket with
-	// same name and scope REGION.
+	// The bucket scope determines weather the bucket name must be unique within the tenancy and region (essentially the namespace) or across all tenancies in the region. The bucket scope also determines if the bucket supports S3 virtual-hosted style URL's or not.
+	// Allowed values:
+	// NAMESPACE: Only supports path-style bucket access, bucket name only needs to be unique within the tenancy and region.
+	// REGION: Supports both path-style and virtual-hosted URL style access, bucket name needs to be unique across all tenancies in the region.
 	// BucketScope can only be updated from NAMESPACE to REGION, it cannot be updated from REGION to NAMESPACE.
 	// Updating bucket scope is possible only if the bucket name is valid and there is no existing regionally unique
 	// bucket with the same name.

@@ -1,8 +1,12 @@
 package oss
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/arn"
 )
 
 func isValidRegion(region string) bool {
@@ -12,6 +16,15 @@ func isValidRegion(region string) bool {
 		}
 	}
 	return region != ""
+}
+
+func isValidAccountId(accountId string) bool {
+	for _, v := range accountId {
+		if v < '0' || v > '9' {
+			return false
+		}
+	}
+	return accountId != ""
 }
 
 func isValidEndpoint(endpoint *url.URL) bool {
@@ -94,4 +107,49 @@ func IsValidBucketName(bucketName *string) bool {
 
 func IsValidMethod(method string) bool {
 	return isValidMethod(method)
+}
+
+func IsValidAccountId(accountId string) bool {
+	return isValidAccountId(accountId)
+}
+
+func AssertValidateArnBucket(bucket string) error {
+	parsedArn, err := arn.ParseArn(bucket)
+	if err != nil {
+		return err
+	}
+
+	// must have account id
+	if parsedArn.AccountId() == nil || *parsedArn.AccountId() == "" {
+		return errors.New("OperationInput.bucket does not contain account id")
+	}
+
+	if !isValidAccountId(*parsedArn.AccountId()) {
+		return fmt.Errorf("OperationInput.bucket contains invalid account id: %s", *parsedArn.AccountId())
+	}
+
+	// must have bucket resource
+	resource := parsedArn.Resource()
+	resourceType := ""
+	if resource.ResourceType() != nil {
+		resourceType = *resource.ResourceType()
+	}
+
+	qualifier := ""
+	if resource.Qualifier() != nil {
+		qualifier = *resource.Qualifier()
+	}
+
+	if resourceType != "bucket" ||
+		strings.TrimSpace(resource.Resource()) == "" ||
+		qualifier != "" {
+		return fmt.Errorf("operationInput.bucket is not bucket arn, got %s", bucket)
+	}
+
+	// check bucket value
+	if !isValidBucketName(Ptr(resource.Resource())) {
+		return fmt.Errorf("bucket resource is invalid, got %s", bucket)
+	}
+
+	return nil
 }

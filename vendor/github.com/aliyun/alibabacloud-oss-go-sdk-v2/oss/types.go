@@ -76,6 +76,15 @@ func (r *RequestCommon) GetCommonFileds() (map[string]string, map[string]string,
 	return r.Headers, r.Parameters, r.Payload
 }
 
+// AddParameter adds a custom query parameter to the request.
+// It initializes the Parameters map if it is nil.
+func (r *RequestCommon) AddParameter(key, value string) {
+	if r.Parameters == nil {
+		r.Parameters = make(map[string]string)
+	}
+	r.Parameters[key] = value
+}
+
 type ResultCommon struct {
 	Status     string
 	StatusCode int

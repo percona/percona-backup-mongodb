@@ -32,6 +32,8 @@ type Cname struct {
 
 	// The container for which the certificate is configured.
 	CertificateConfiguration *CertificateConfiguration `xml:"CertificateConfiguration"`
+
+	IsWildCard *bool `xml:"IsWildCard"`
 }
 
 type BucketCnameConfiguration struct {
@@ -84,6 +86,8 @@ type CnameInfo struct {
 
 	// The container in which the certificate information is stored.
 	Certificate *CnameCertificate `xml:"Certificate"`
+
+	IsWildCard *bool `xml:"IsWildCard"`
 }
 
 type CnameToken struct {
@@ -290,6 +294,8 @@ type GetCnameTokenRequest struct {
 
 	// The name of the CNAME record that is mapped to the bucket.
 	Cname *string `input:"query,cname,required"`
+
+	Wildcard *bool `input:"query,wildcard"`
 
 	RequestCommon
 }
