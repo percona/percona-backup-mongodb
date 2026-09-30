@@ -189,16 +189,35 @@
 #  type:
 #    azure:
 
-## Azure storage account and container name
+## Azure storage account name. Used to derive the default endpoint URL
+## (https://<account>.blob.core.windows.net) when endpointUrl is not set.
 #      account:
+
+## Azure Blob Storage container name.
 #      container:
 
 ## Where to store data in the container
 #      prefix:
 
-## Specify the access key
+## Azure Blob service endpoint URL. Optional — defaults to
+## https://<account>.blob.core.windows.net when account is set.
+## Must be set when using workload identity without an account name,
+## e.g. when connecting via a private endpoint.
+## Example: https://mystorageaccount.blob.core.windows.net
+#      endpointUrl:
+
+## Credentials for authenticating to Azure Blob Storage.
+## Option 1 — shared key (storage account key):
 #      credentials:
 #        key:
+#
+## Option 2 — Azure Workload Identity / Managed Identity.
+## Omit the key and set workloadIdentity to true. PBM will use
+## DefaultAzureCredential to obtain a token from the environment
+## (e.g. workload identity, managed identity, or Azure CLI).
+## Either account or endpointUrl must be set.
+#      credentials:
+#        workloadIdentity: true
 #
 ## Retry upload configuration options.
 #      retryer:
