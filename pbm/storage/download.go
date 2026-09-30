@@ -229,6 +229,16 @@ func (b *ChunksQueue) Pop() any {
 	return x
 }
 
+// Release frees arena spans of all chunks left in the queue.
+func (b *ChunksQueue) Release() {
+	for _, c := range *b {
+		if c.r != nil {
+			c.r.Close()
+		}
+	}
+	*b = (*b)[:0]
+}
+
 // PART READER: common concurrent download logic.
 
 // GetChunkFunc is a provider-specific callback to download a chunk
@@ -294,24 +304,49 @@ func (pr *PartReader) Run(concurrency int, arenas []*Arena) {
 func (pr *PartReader) worker(buf *Arena) {
 	sess, err := pr.GetSess()
 	if err != nil {
-		pr.Errc <- errors.Wrap(err, "create session")
+		pr.sendErr(errors.Wrap(err, "create session"))
 		return
 	}
 
 	for {
+		// select picks a random ready case, so check close first to avoid
+		// starting a new download after the consumer is gone.
+		select {
+		case <-pr.close:
+			return
+		default:
+		}
+
 		select {
 		case ch := <-pr.taskq:
 			r, err := pr.retryChunk(buf, sess, ch.Start, ch.End, downloadRetries)
 			if err != nil {
-				pr.Errc <- err
+				pr.sendErr(err)
 				return
 			}
 
-			pr.Resultq <- Chunk{r: r, Meta: ch}
+			select {
+			case pr.Resultq <- Chunk{r: r, Meta: ch}:
+			case <-pr.close:
+				// the consumer has exited (e.g. the reader was closed before EOF).
+				// Release the span, otherwise it stays occupied forever and
+				// any next download from the same arena blocks in GetSpan().
+				if r != nil {
+					r.Close()
+				}
+				return
+			}
 
 		case <-pr.close:
 			return
 		}
+	}
+}
+
+func (pr *PartReader) sendErr(err error) {
+	select {
+	case pr.Errc <- err:
+	case <-pr.close:
 	}
 }
 

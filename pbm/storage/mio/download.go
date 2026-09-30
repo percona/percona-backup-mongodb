@@ -62,6 +62,7 @@ func (m *Minio) sourceReader(fname string, arenas []*storage.Arena, cc, download
 
 		cqueue := &storage.ChunksQueue{}
 		heap.Init(cqueue)
+		defer cqueue.Release()
 
 		for {
 			select {

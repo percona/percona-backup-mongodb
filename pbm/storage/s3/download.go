@@ -117,6 +117,7 @@ func (s *S3) sourceReader(fname string, arenas []*storage.Arena, cc, downloadChu
 
 		cqueue := &storage.ChunksQueue{}
 		heap.Init(cqueue)
+		defer cqueue.Release()
 
 		for {
 			select {

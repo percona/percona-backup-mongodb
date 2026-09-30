@@ -100,6 +100,7 @@ func (o *OCI) sourceReader(fname string, arenas []*storage.Arena, cc, downloadCh
 
 		cqueue := &storage.ChunksQueue{}
 		heap.Init(cqueue)
+		defer cqueue.Release()
 
 		for {
 			select {
