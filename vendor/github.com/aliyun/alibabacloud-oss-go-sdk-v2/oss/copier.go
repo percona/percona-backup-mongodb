@@ -34,10 +34,38 @@ type CopierOptions struct {
 
 	ClientOptions []func(*Options)
 
+	// ShallowCopy Flags
+	NoCheckSSE         bool
+	NoCheckCrossBucket bool
+
 	// MetaProperties and TagProperties takes effect in Copier.Copy
 	MetadataProperties *HeadObjectResult
 
 	TagProperties *GetObjectTaggingResult
+}
+
+func WithCopierPartSize(value int64) func(*CopierOptions) {
+	return func(o *CopierOptions) {
+		o.PartSize = value
+	}
+}
+
+func WithCopierParallelNum(value int) func(*CopierOptions) {
+	return func(o *CopierOptions) {
+		o.ParallelNum = value
+	}
+}
+
+func WithCopierNoCheckSSE(value bool) func(*CopierOptions) {
+	return func(o *CopierOptions) {
+		o.NoCheckSSE = value
+	}
+}
+
+func WithCopierNoCheckCrossBucket(value bool) func(*CopierOptions) {
+	return func(o *CopierOptions) {
+		o.NoCheckCrossBucket = value
+	}
 }
 
 type Copier struct {
@@ -251,14 +279,18 @@ func (d *copierDelegate) canUseShallowCopy() bool {
 	}
 
 	// Cross bucket
-	if d.request.SourceBucket != nil &&
-		ToString(d.request.SourceBucket) != ToString(d.request.Bucket) {
-		return false
+	if !d.options.NoCheckCrossBucket {
+		if d.request.SourceBucket != nil &&
+			ToString(d.request.SourceBucket) != ToString(d.request.Bucket) {
+			return false
+		}
 	}
 
 	// Decryption
-	if d.metaProp.Headers.Get(HeaderOssServerSideEncryption) != "" {
-		return false
+	if !d.options.NoCheckSSE {
+		if d.metaProp.Headers.Get(HeaderOssServerSideEncryption) != "" {
+			return false
+		}
 	}
 
 	return true
@@ -293,13 +325,13 @@ func (d *copierDelegate) singleCopy() (*CopyResult, error) {
 }
 
 func (d *copierDelegate) shallowCopy() (*CopyResult, error) {
-	// use signle copy first, if meets timeout, use multiCopy
+	// use signle copy first, if meets timeout or EntityTooLarge, use multiCopy
 	ctx, cancel := context.WithTimeout(d.context, 30*time.Second)
 	defer cancel()
 	result, err := d.base.client.CopyObject(ctx, d.request, d.options.ClientOptions...)
 
 	if err != nil {
-		if isContextError(ctx, &err) {
+		if isContextError(ctx, &err) || isEntityTooLargeError(err) {
 			return d.multiCopy()
 		}
 		return nil, d.wrapErr("", err)

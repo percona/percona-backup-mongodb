@@ -65,3 +65,13 @@ func endpointFromRegion(region string, disableSSL bool, etype EndpointType) stri
 type EndpointProvider interface {
 	BuildURL(input *OperationInput) string
 }
+
+// EndpointProviderE is like EndpointProvider but BuildURL can return an error.
+type EndpointProviderE interface {
+	BuildURL(input *OperationInput) (string, error)
+}
+
+// BucketNameResolver resolves a logical bucket name (e.g. prefix) into the actual bucket name.
+type BucketNameResolver interface {
+	BuildBucketName(input *OperationInput) (string, error)
+}
