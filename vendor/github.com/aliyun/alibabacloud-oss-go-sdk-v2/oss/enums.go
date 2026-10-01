@@ -121,8 +121,10 @@ type InventoryFrequencyType string
 
 // Enum values for InventoryFrequencyType
 const (
-	InventoryFrequencyDaily  InventoryFrequencyType = "Daily"
-	InventoryFrequencyWeekly InventoryFrequencyType = "Weekly"
+	InventoryFrequencyDaily   InventoryFrequencyType = "Daily"
+	InventoryFrequencyWeekly  InventoryFrequencyType = "Weekly"
+	InventoryFrequencyMonthly InventoryFrequencyType = "Monthly"
+	InventoryFrequencyOnce    InventoryFrequencyType = "Once"
 )
 
 // InventoryOptionalFieldType The configuration fields that are included in inventory lists.
@@ -137,6 +139,61 @@ const (
 	InventoryOptionalFieldIsMultipartUploaded InventoryOptionalFieldType = "IsMultipartUploaded"
 	InventoryOptionalFieldEncryptionStatus    InventoryOptionalFieldType = "EncryptionStatus"
 	InventoryOptionalFieldTransitionTime      InventoryOptionalFieldType = "TransitionTime"
+	InventoryOptionalFieldObjectAcl           InventoryOptionalFieldType = "ObjectAcl"
+	InventoryOptionalFieldTaggingCount        InventoryOptionalFieldType = "TaggingCount"
+	InventoryOptionalFieldObjectType          InventoryOptionalFieldType = "ObjectType"
+	InventoryOptionalFieldCRC64               InventoryOptionalFieldType = "Crc64"
+)
+
+// IncrementalInventoryOptionalFieldType The optional fields included in OSS incremental inventory reports.
+type IncrementalInventoryOptionalFieldType string
+
+// Enum values for IncrementalInventoryOptionalFieldType
+const (
+	// IncrementalInventoryOptionalFieldSequenceNumber Sequence number.
+	IncrementalInventoryOptionalFieldSequenceNumber IncrementalInventoryOptionalFieldType = "SequenceNumber"
+
+	// IncrementalInventoryOptionalFieldRecordType Event type.
+	IncrementalInventoryOptionalFieldRecordType IncrementalInventoryOptionalFieldType = "RecordType"
+
+	// IncrementalInventoryOptionalFieldRecordTimestamp Timestamp.
+	IncrementalInventoryOptionalFieldRecordTimestamp IncrementalInventoryOptionalFieldType = "RecordTimestamp"
+
+	// IncrementalInventoryOptionalFieldRequester Alibaba Cloud ID or Principal ID of the requester.
+	IncrementalInventoryOptionalFieldRequester IncrementalInventoryOptionalFieldType = "Requester"
+
+	// IncrementalInventoryOptionalFieldSourceIp Source IP of the requester.
+	IncrementalInventoryOptionalFieldSourceIp IncrementalInventoryOptionalFieldType = "SourceIp"
+
+	// IncrementalInventoryOptionalFieldRequestId Unique identifier of the request.
+	IncrementalInventoryOptionalFieldRequestId IncrementalInventoryOptionalFieldType = "RequestId"
+
+	// IncrementalInventoryOptionalFieldSize Size of the object.
+	IncrementalInventoryOptionalFieldSize IncrementalInventoryOptionalFieldType = "Size"
+
+	// IncrementalInventoryOptionalFieldStorageClass Storage class of the object.
+	IncrementalInventoryOptionalFieldStorageClass IncrementalInventoryOptionalFieldType = "StorageClass"
+
+	// IncrementalInventoryOptionalFieldLastModifiedDate Last modified date of the object.
+	IncrementalInventoryOptionalFieldLastModifiedDate IncrementalInventoryOptionalFieldType = "LastModifiedDate"
+
+	// IncrementalInventoryOptionalFieldETag ETag used to identify the content of an object.
+	IncrementalInventoryOptionalFieldETag IncrementalInventoryOptionalFieldType = "ETag"
+
+	// IncrementalInventoryOptionalFieldIsMultipartUploaded Whether the object is uploaded via multipart upload.
+	IncrementalInventoryOptionalFieldIsMultipartUploaded IncrementalInventoryOptionalFieldType = "IsMultipartUploaded"
+
+	// IncrementalInventoryOptionalFieldObjectType Type of the object.
+	IncrementalInventoryOptionalFieldObjectType IncrementalInventoryOptionalFieldType = "ObjectType"
+
+	// IncrementalInventoryOptionalFieldObjectAcl Read/write permissions of the object.
+	IncrementalInventoryOptionalFieldObjectAcl IncrementalInventoryOptionalFieldType = "ObjectAcl"
+
+	// IncrementalInventoryOptionalFieldCRC64 CRC64 of the object.
+	IncrementalInventoryOptionalFieldCRC64 IncrementalInventoryOptionalFieldType = "Crc64"
+
+	// IncrementalInventoryOptionalFieldEncryptionStatus Whether the object is encrypted.
+	IncrementalInventoryOptionalFieldEncryptionStatus IncrementalInventoryOptionalFieldType = "EncryptionStatus"
 )
 
 // AccessMonitorStatusType The type of access monitor status
@@ -266,6 +323,7 @@ const (
 	UrlStyleVirtualHosted UrlStyleType = iota
 	UrlStylePath
 	UrlStyleCName
+	UrlStyleVirtualHostedAlias
 )
 
 func (f UrlStyleType) String() string {
@@ -276,6 +334,8 @@ func (f UrlStyleType) String() string {
 		return "path-style"
 	case UrlStyleCName:
 		return "cname-style"
+	case UrlStyleVirtualHostedAlias:
+		return "virtual-hosted-alias-style"
 	}
 }
 
@@ -341,4 +401,5 @@ func (f AuthMethodType) String() string {
 const (
 	OpMetaKeyResponsHandler     string = "opm-response-handler"
 	OpMetaKeyRequestBodyTracker string = "opm-request-body-tracker"
+	OpMetaKeyIsBucketArn        string = "opm-is-bucket-arn"
 )

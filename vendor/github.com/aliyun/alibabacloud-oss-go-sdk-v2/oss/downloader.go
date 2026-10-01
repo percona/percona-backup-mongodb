@@ -21,25 +21,25 @@ type DownloaderOptions struct {
 	// The number of download tasks in parallel.
 	ParallelNum int
 
-	// Specifies whether to record the download progress in the checkpoint file. 
+	// Specifies whether to record the download progress in the checkpoint file.
 	EnableCheckpoint bool
 
 	// The path in which the checkpoint file is stored. Example: /local/dir/.
 	// This parameter is valid only if EnableCheckpoint is set to true.
 	CheckpointDir string
 
-	// Specifies whether to verify the CRC-64 of the downloaded object when the download is resumed. 
-	// By default, the CRC-64 is not verified. 
+	// Specifies whether to verify the CRC-64 of the downloaded object when the download is resumed.
+	// By default, the CRC-64 is not verified.
 	// This parameter is valid only if EnableCheckpoint is set to true.
 	VerifyData bool
 
 	// Specifies whether to use a temporary file when you download an object.
 	// A temporary file is used by default.
-	// The object is downloaded to the temporary file. 
+	// The object is downloaded to the temporary file.
 	// Then, the temporary file is renamed and uses the same name as the object that you want to download.
 	UseTempFile bool
 
-	// In memory buffer size for writing. Automatically align to 4K (4*1024 bytes). 
+	// In memory buffer size for writing. Automatically align to 4K (4*1024 bytes).
 	WriteBufferSize int
 
 	ClientOptions []func(*Options)
@@ -55,8 +55,8 @@ type Downloader struct {
 // Pass in additional functional options  to customize the downloader behavior.
 func NewDownloader(c DownloadAPIClient, optFns ...func(*DownloaderOptions)) *Downloader {
 	options := DownloaderOptions{
-		PartSize:    DefaultUploadPartSize,
-		ParallelNum: DefaultUploadParallel,
+		PartSize:    DefaultDownloadPartSize,
+		ParallelNum: DefaultDownloadParallel,
 		UseTempFile: true,
 	}
 
@@ -250,7 +250,7 @@ func (d *Downloader) newDelegate(ctx context.Context, request *GetObjectRequest,
 
 	if delegate.options.WriteBufferSize > 0 {
 		// align to 4K
-		const alignSize = 4*1024
+		const alignSize = 4 * 1024
 		delegate.options.WriteBufferSize = (delegate.options.WriteBufferSize + alignSize - 1) &^ (alignSize - 1)
 	}
 

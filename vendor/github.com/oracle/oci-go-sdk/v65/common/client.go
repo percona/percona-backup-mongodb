@@ -375,7 +375,7 @@ func NewClientWithConfig(configProvider ConfigurationProvider) (client BaseClien
 	client = defaultBaseClient(configProvider)
 
 	if authConfig, e := configProvider.AuthType(); e == nil && authConfig.OboToken != nil {
-		Debugf("authConfig's authType is %s, and token content is %s", authConfig.AuthType, *authConfig.OboToken)
+		Debugf("authConfig's authType is %s", authConfig.AuthType)
 		signOboToken(&client, *authConfig.OboToken, configProvider)
 	}
 
@@ -529,10 +529,16 @@ func (client *BaseClient) prepareRequest(request *http.Request) (err error) {
 	if err != nil {
 		return fmt.Errorf("host is invalid. %s", err.Error())
 	}
+	if clientURL.Scheme != "http" && clientURL.Scheme != "https" {
+		return fmt.Errorf("host is invalid. endpoint scheme must be http or https")
+	}
+	if clientURL.User != nil || clientURL.Path != "" || clientURL.RawQuery != "" || clientURL.Fragment != "" {
+		return fmt.Errorf("host is invalid. endpoint must not contain user info, path, query, or fragment")
+	}
 	request.URL.Host = clientURL.Host
 	request.URL.Scheme = clientURL.Scheme
 	currentPath := request.URL.Path
-	if !strings.HasPrefix(currentPath, fmt.Sprintf("/%s", client.BasePath)) {
+	if !strings.HasPrefix(currentPath, path.Clean(fmt.Sprintf("/%s", client.BasePath))) {
 		request.URL.Path = path.Clean(fmt.Sprintf("/%s/%s", client.BasePath, currentPath))
 		err := setRawPath(request.URL)
 		if err != nil {
@@ -560,7 +566,7 @@ func checkForSuccessfulResponse(res *http.Response, requestBody *io.ReadCloser) 
 				logRequest(res.Request, Logf, noLogging)
 				if requestBody != nil && *requestBody != http.NoBody {
 					bodyContent, _ := ioutil.ReadAll(*requestBody)
-					Logf("Dump Request Body: \n%s", string(bodyContent))
+					Logf("Dump Request Body: \n%s", RedactSensitiveStringForLogs(string(bodyContent)))
 				}
 			}
 			logResponse(res, Logf, infoLogging)
@@ -584,8 +590,12 @@ func logRequest(request *http.Request, fn func(format string, v ...interface{}),
 	}
 
 	dumpBody = dumpBody && defaultLogger.LogLevel() >= bodyLoggingLevel && bodyLoggingLevel != noLogging
-	if dump, e := httputil.DumpRequestOut(request, dumpBody); e == nil {
-		fn("Dump Request %s", string(dump))
+	originalHeaders := request.Header
+	request.Header = RedactSensitiveHeadersForLogs(originalHeaders)
+	dump, e := httputil.DumpRequestOut(request, dumpBody)
+	request.Header = originalHeaders
+	if e == nil {
+		fn("Dump Request %s", RedactSensitiveStringForLogs(string(dump)))
 	} else {
 		fn("%v\n", e)
 	}
@@ -601,8 +611,12 @@ func logResponse(response *http.Response, fn func(format string, v ...interface{
 		dumpBody = false
 	}
 	dumpBody = dumpBody && defaultLogger.LogLevel() >= bodyLoggingLevel && bodyLoggingLevel != noLogging
-	if dump, e := httputil.DumpResponse(response, dumpBody); e == nil {
-		fn("Dump Response %s", string(dump))
+	originalHeaders := response.Header
+	response.Header = RedactSensitiveHeadersForLogs(originalHeaders)
+	dump, e := httputil.DumpResponse(response, dumpBody)
+	response.Header = originalHeaders
+	if e == nil {
+		fn("Dump Response %s", RedactSensitiveStringForLogs(string(dump)))
 	} else {
 		fn("%v\n", e)
 	}
