@@ -1265,12 +1265,18 @@ func (r *PhysRestore) Snapshot(
 
 	var oplogRanges []oplogRange
 	if !pitr.IsZero() {
+		pitrStg, err := r.newStorage()
+		if err != nil {
+			return errors.Wrap(err, "pitr storage")
+		}
+		defer storage.Close(pitrStg, r.log)
+
 		chunks, err := chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
 
-		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: r.stg})
+		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: pitrStg})
 	}
 
 	if meta.Type == defs.IncrementalBackup {
