@@ -9,16 +9,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	pbmidx "github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
@@ -57,6 +60,10 @@ func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (bson.Binary, 
 
 func (d *mdbTestClient) ensureCollExists(_ string) error {
 	return nil
+}
+
+func (d *mdbTestClient) documentExists(_ context.Context, _ string, _ any) (bool, error) {
+	return false, errors.New("unexpected documentExists call")
 }
 
 func (d *mdbTestClient) applyOps(entries []interface{}) error {
@@ -527,6 +534,129 @@ func TestIsRoutingDocExcluded(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsMissingBucketUpdate(t *testing.T) {
+	ctx := t.Context()
+	database := mClient.Database("missing_bucket_error")
+	t.Cleanup(func() { require.NoError(t, database.Drop(context.Background())) })
+	require.NoError(t, database.CreateCollection(ctx, "ts1", options.CreateCollection().
+		SetTimeSeriesOptions(options.TimeSeries().SetTimeField("timestamp"))))
+	_, err := database.Collection("ts1").InsertOne(ctx, bson.D{{"timestamp", time.Now()}})
+	require.NoError(t, err)
+	var existing struct {
+		ID bson.ObjectID `bson:"_id"`
+	}
+	require.NoError(t, database.Collection("system.buckets.ts1").FindOne(ctx, bson.D{}).Decode(&existing))
+	missingControl := errors.Wrap(mongo.CommandError{Code: 6781400}, "command failed")
+	for _, tc := range []struct {
+		name     string
+		changeOp func(*db.Oplog)
+		applyErr error
+		missing  bool
+	}{
+		{name: "missing bucket", missing: true},
+		{name: "existing bucket", changeOp: func(op *db.Oplog) { op.Query = bson.D{{"_id", existing.ID}} }},
+		{name: "unrelated error", applyErr: mongo.CommandError{Code: 121}},
+		{name: "ordinary collection", changeOp: func(op *db.Oplog) { op.Namespace = database.Name() + ".c1" }},
+		{name: "insert", changeOp: func(op *db.Oplog) { op.Operation = "i" }},
+		{name: "replacement update", changeOp: func(op *db.Oplog) { op.Object = bson.D{{"control", bson.D{}}} }},
+		{name: "invalid diff", changeOp: func(op *db.Oplog) { op.Object = bson.D{{"$v", 2}, {"diff", "invalid"}} }},
+		{name: "missing id", changeOp: func(op *db.Oplog) { op.Query = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			op := db.Oplog{
+				Operation: "u", Namespace: database.Name() + ".system.buckets.ts1",
+				Query: bson.D{{"_id", bson.NewObjectID()}},
+				Object: bson.D{{"$v", 2}, {"diff", bson.D{
+					{"scontrol", bson.D{{"u", bson.D{{"closed", true}}}}},
+				}}},
+			}
+			if tc.changeOp != nil {
+				tc.changeOp(&op)
+			}
+			applyErr := missingControl
+			if tc.applyErr != nil {
+				applyErr = tc.applyErr
+			}
+			missing, err := newOplogRestoreTest(newMDB(mClient)).isMissingBucketUpdate(op, applyErr)
+			require.NoError(t, err)
+			require.Equal(t, tc.missing, missing)
+		})
+	}
+}
+
+func TestIsMissingBucketUpdateLookupFailure(t *testing.T) {
+	client, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
+	require.NoError(t, err)
+	require.NoError(t, client.Disconnect(t.Context()))
+	op := db.Oplog{
+		Operation: "u", Namespace: "test.system.buckets.ts1", Query: bson.D{{"_id", bson.NewObjectID()}},
+		Object: bson.D{{"$v", 2}, {"diff", bson.D{{"scontrol", bson.D{{"u", bson.D{{"closed", true}}}}}}}},
+	}
+	missing, err := newOplogRestoreTest(newMDB(client)).isMissingBucketUpdate(op, mongo.CommandError{Code: 6781400})
+	require.ErrorIs(t, err, mongo.ErrClientDisconnected)
+	require.False(t, missing)
+}
+
+func TestApplyMissingBucketUpdate(t *testing.T) {
+	ctx := t.Context()
+	database := mClient.Database("replay_missing_bucket")
+	t.Cleanup(func() { require.NoError(t, database.Drop(context.Background())) })
+	require.NoError(t, database.CreateCollection(ctx, "ts1", options.CreateCollection().
+		SetTimeSeriesOptions(options.TimeSeries().SetTimeField("timestamp"))))
+	wantMeasurement := bson.M{"_id": bson.NewObjectID(), "timestamp": bson.NewDateTimeFromTime(time.Now()), "x": int32(1)}
+	_, err := database.Collection("ts1").InsertOne(ctx, wantMeasurement)
+	require.NoError(t, err)
+	buckets := database.Collection("system.buckets.ts1")
+	var existing struct {
+		ID bson.ObjectID `bson:"_id"`
+	}
+	require.NoError(t, buckets.FindOne(ctx, bson.D{}).Decode(&existing))
+	missingID := bson.NewObjectID()
+	update := db.Oplog{
+		Timestamp: bson.Timestamp{T: 100, I: 1}, Version: 2,
+		Operation: "u", Namespace: database.Name() + ".system.buckets.ts1",
+		Query: bson.D{{"_id", missingID}},
+		Object: bson.D{{"$v", 2}, {"diff", bson.D{
+			{"scontrol", bson.D{{"u", bson.D{{"closed", true}}}}},
+		}}},
+	}
+	restore := newOplogRestoreTest(newMDB(mClient))
+	// MongoDB access returns the original failure; replay alone decides to skip it.
+	var cmdErr mongo.CommandError
+	require.ErrorAs(t, restore.mdb.applyOps([]any{update}), &cmdErr)
+	require.Equal(t, int32(6781400), cmdErr.Code)
+	existingUpdate := update
+	existingUpdate.Timestamp.I = 2
+	existingUpdate.Query = bson.D{{"_id", existing.ID}}
+	deleteOp := db.Oplog{
+		Timestamp: bson.Timestamp{T: 100, I: 3}, Version: 2,
+		Operation: "d", Namespace: update.Namespace, Object: bson.D{{"_id", missingID}},
+	}
+	var stream []byte
+	for _, op := range []db.Oplog{update, existingUpdate, deleteOp} {
+		raw, err := bson.Marshal(op)
+		require.NoError(t, err)
+		stream = append(stream, raw...)
+	}
+	last, err := restore.Apply(io.NopCloser(bytes.NewReader(stream)))
+	require.NoError(t, err)
+	require.Equal(t, deleteOp.Timestamp, last)
+	require.ErrorIs(t, buckets.FindOne(ctx, bson.D{{"_id", missingID}}).Err(), mongo.ErrNoDocuments)
+	var restored struct {
+		Control struct {
+			Closed bool `bson:"closed"`
+		} `bson:"control"`
+	}
+	require.NoError(t, buckets.FindOne(ctx, bson.D{{"_id", existing.ID}}).Decode(&restored))
+	require.True(t, restored.Control.Closed, "existing bucket update must be replayed")
+	var measurement bson.M
+	require.NoError(t, database.Collection("ts1").FindOne(ctx, bson.D{}).Decode(&measurement))
+	require.Equal(t, wantMeasurement, measurement)
+	count, err := database.Collection("ts1").CountDocuments(ctx, bson.D{})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
 }
 
 func TestApply(t *testing.T) {
