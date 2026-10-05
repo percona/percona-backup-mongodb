@@ -147,6 +147,7 @@ type mDBCl interface {
 	getUUIDForNS(ctx context.Context, ns string) (bson.Binary, error)
 	ensureCollExists(dbName string) error
 	applyOps(entries []interface{}) error
+	documentExists(ctx context.Context, ns string, id any) (bool, error)
 }
 
 // OplogRestore is the oplog applyer
@@ -1265,6 +1266,17 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 
 	err = o.mdb.applyOps([]interface{}{op})
 	if err != nil {
+		missing, lookupErr := o.isMissingBucketUpdate(op, err)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if missing {
+			// A bucket deleted during a logical dump can be absent when its older deltas are replayed.
+			o.log.Debug("skipping update to missing time-series bucket in %s matching %v at %v",
+				op.Namespace, op.Query, op.Timestamp)
+			return nil
+		}
+
 		// https://jira.percona.com/browse/PBM-818
 		if o.unsafe && op.Namespace == "config.chunks" {
 			if mongo.IsDuplicateKeyError(err) {
@@ -1281,6 +1293,51 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	}
 
 	return nil
+}
+
+// isMissingBucketUpdate reports whether the missing-control error came from a bucket
+// delta update whose target document is absent from the restored collection.
+// TTL can delete a bucket after oplog capture starts but before the logical dump reads it,
+// leaving updates in the backup without the bucket's pre-image.
+// Nonmatching errors and existing documents return false, nil; lookup failures return an error.
+// The caller retains applyErr and decides whether to log and skip the update.
+func (o *OplogRestore) isMissingBucketUpdate(op db.Oplog, applyErr error) (bool, error) {
+	const missingBucketControl = 6781400
+	var cmdErr mongo.CommandError
+	if !errors.As(applyErr, &cmdErr) || !cmdErr.HasErrorCode(missingBucketControl) {
+		return false, nil
+	}
+	id, ok := bucketDeltaID(op)
+	if !ok {
+		return false, nil
+	}
+	exists, err := o.mdb.documentExists(context.TODO(), op.Namespace, id)
+	if err != nil {
+		return false, errors.Wrapf(err, "check time-series bucket %s/%v", op.Namespace, id)
+	}
+	return !exists, nil
+}
+
+// bucketDeltaID extracts the target _id from a $v:2 delta update to a legacy
+// time-series bucket namespace. It returns false for other operations or when
+// the required delta-update fields are missing or have unexpected types.
+func bucketDeltaID(op db.Oplog) (any, bool) {
+	if op.Operation != "u" {
+		return nil, false
+	}
+	_, collName, _ := strings.Cut(op.Namespace, ".")
+	if !strings.HasPrefix(collName, "system.buckets.") {
+		return nil, false
+	}
+	v, err := bsonutil.FindIntByKey("$v", &op.Object)
+	if err != nil || v != 2 {
+		return nil, false
+	}
+	if _, err := bsonutil.FindSubdocumentByKey("diff", &op.Object); err != nil {
+		return nil, false
+	}
+	id, err := bsonutil.FindValueByKey("_id", &op.Query)
+	return id, err == nil && id != nil
 }
 
 type cqueue struct {
