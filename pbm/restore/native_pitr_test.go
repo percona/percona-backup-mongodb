@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mongodb/mongo-tools/common/db"
@@ -218,6 +219,38 @@ func TestNativePITRLoaderAdd(t *testing.T) {
 		l := newLoader(op(t, nts(190, 0), "i"), op(t, nts(200, 5), "i"))
 		if err := feed(t, l, op(t, nts(190, 0), "d")); err == nil {
 			t.Fatal("expected mismatch error")
+		}
+	})
+
+	t.Run("same ts, op and ns but a different operation fails", func(t *testing.T) {
+		withO := func(at bson.Timestamp, o, o2 bson.D) bson.Raw {
+			d := bson.D{{"ts", at}, {"t", int64(1)}, {"op", "u"}, {"ns", "db.c"}, {"o", o}}
+			if o2 != nil {
+				d = append(d, bson.E{"o2", o2})
+			}
+			b, err := bson.Marshal(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return b
+		}
+		set := func(v int) bson.D { return bson.D{{"$v", 2}, {"diff", bson.D{{"u", bson.D{{"x", v}}}}}} }
+		id := func(v int) bson.D { return bson.D{{"_id", v}} }
+
+		for name, c := range map[string][2]bson.Raw{
+			"o":  {withO(nts(190, 0), set(1), id(1)), withO(nts(190, 0), set(2), id(1))},
+			"o2": {withO(nts(190, 0), set(1), id(1)), withO(nts(190, 0), set(1), id(2))},
+		} {
+			l := newLoader(c[0], op(t, nts(200, 5), "i"))
+			err := feed(t, l, c[1], op(t, nts(200, 5), "i"))
+			if err == nil || !strings.Contains(err.Error(), "differs between the snapshot oplog and the chunks") {
+				t.Errorf("%s differs: expected mismatch error, got %v", name, err)
+			}
+		}
+
+		l := newLoader(withO(nts(190, 0), set(1), id(1)), op(t, nts(200, 5), "i"))
+		if err := feed(t, l, withO(nts(190, 0), set(1), id(1)), op(t, nts(200, 5), "i")); err != nil {
+			t.Errorf("identical entry: %v", err)
 		}
 	})
 

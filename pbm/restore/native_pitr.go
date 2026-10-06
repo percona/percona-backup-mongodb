@@ -602,9 +602,10 @@ func (l *nativePITRLoader) skipSnapshotEntry() error {
 	return nil
 }
 
-// sameEntry compares the identifying fields of two copies of an oplog entry.
+// sameEntry compares two copies of an oplog entry: the identifying fields
+// and the operation itself (chunks are raw copies of oplog.rs entries).
 func sameEntry(a, b bson.Raw) error {
-	for _, k := range []string{"t", "op", "ns"} {
+	for _, k := range []string{"t", "op", "ns", "o", "o2"} {
 		if !a.Lookup(k).Equal(b.Lookup(k)) {
 			return errors.Errorf("field %q: %v vs %v", k, a.Lookup(k), b.Lookup(k))
 		}
