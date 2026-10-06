@@ -62,6 +62,13 @@ const (
 	mongodLockTimeout = 30 * time.Minute
 	mongodPortTimeout = 5 * time.Minute
 
+	// 288 x 5m = 24h: mongod doesn't listen until startup oplog recovery
+	// completes, which for a long PITR window natively replayed in
+	// recoverStandaloneFromOplog can take hours. The log is still checked
+	// for E/F entries between tries, and the wait ends as soon as mongod
+	// exits, so a failed mongod is still caught in ~5m.
+	nativeTryConnCount = 288
+
 	internalMongodLog = "pbm.restore.log"
 
 	hbFrameSec          = 60 * 2
@@ -133,6 +140,13 @@ type PhysRestore struct {
 	bufSize         int
 
 	numParallelFiles int
+
+	// load the PITR window into the oplog for native replay (external restore)
+	nativePITR bool
+	// mongod supports allowDocumentsGreaterThanMaxUserSize (7.0.6+)
+	nativeBigDocs bool
+	// closed when the last mongod started by startMongo exits
+	mongodExited chan struct{}
 }
 
 func NewPhysical(
@@ -1263,6 +1277,26 @@ func (r *PhysRestore) Snapshot(
 		meta.Type = r.bcp.Type
 	}
 
+	if cmd.NativePITR {
+		switch {
+		case !cmd.External || cmd.ExtTS.IsZero():
+			return errors.New("native pitr requires an external restore with --ts")
+		case cmd.Exit:
+			return errors.New("native pitr can't be used with --exit")
+		case r.nodeInfo.IsSharded():
+			return errors.New("native pitr is supported for non-sharded replica sets only")
+		}
+		r.nativePITR = true
+		mv, err := version.GetMongoVersion(ctx, r.node)
+		if err != nil {
+			return errors.Wrap(err, "native pitr: get mongod version")
+		}
+		r.nativeBigDocs = nativeBigDocsSupported(mv.Version)
+		if err = r.nativePITRPreflight(); err != nil {
+			return err
+		}
+	}
+
 	var oplogRanges []oplogRange
 	if !pitr.IsZero() {
 		pitrStg, err := r.newStorage()
@@ -1861,13 +1895,22 @@ func (r *PhysRestore) getLasOpTime() (bson.Timestamp, error) {
 }
 
 func (r *PhysRestore) prepareData() error {
-	err := r.startMongo("--dbpath", r.dbpath,
-		"--setParameter", "disableLogicalSessionCacheRefresh=true")
+	opts := []string{"--dbpath", r.dbpath,
+		"--setParameter", "disableLogicalSessionCacheRefresh=true"}
+	if r.nativePITR {
+		// don't log every oplog insert batch as a slow op
+		opts = append(opts, "--slowms", "100000")
+		if r.nativeBigDocs {
+			// oplog entries may be larger than the user document limit
+			opts = append(opts, "--setParameter", "allowDocumentsGreaterThanMaxUserSize=true")
+		}
+	}
+	err := r.startMongo(opts...)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	c, err := r.tryConnNative(r.tmpPort, path.Join(r.dbpath, internalMongodLog), false)
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -1905,6 +1948,17 @@ func (r *PhysRestore) prepareData() error {
 	)
 	if err != nil {
 		return errors.Wrap(err, "set oplogTruncateAfterPoint")
+	}
+
+	if r.nativePITR {
+		err = r.loadNativePITR(ctx, c)
+		if err != nil {
+			// don't leave the tmp mongod running on the datadir
+			if serr := shutdownImpl(c, r.dbpath, true, r.tmpPort); serr != nil {
+				r.log.Warning("native pitr: shut down mongod after the failed load: %v", serr)
+			}
+			return err
+		}
 	}
 
 	return r.shutdown(c)
@@ -1946,14 +2000,24 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 }
 
 func (r *PhysRestore) recoverStandaloneFromOplog() error {
-	err := r.startMongo("--dbpath", r.dbpath,
+	opts := []string{"--dbpath", r.dbpath,
 		"--setParameter", "recoverFromOplogAsStandalone=true",
-		"--setParameter", "takeUnstableCheckpointOnShutdown=true")
+		"--setParameter", "takeUnstableCheckpointOnShutdown=true"}
+	if r.nativePITR {
+		// take unstable checkpoints while recovering instead of pinning
+		// history since the stable timestamp: keeps cache pressure down and
+		// lets a restart resume when the whole PITR window is replayed
+		opts = append(opts, "--setParameter", "startupRecoveryForRestore=true",
+			// the applier logs every op slower than slowms
+			"--slowms", "100000")
+	}
+	err := r.startMongo(opts...)
 	if err != nil {
 		return errors.Wrap(err, "start mongo")
 	}
 
-	c, err := tryConn(r.tmpPort, path.Join(r.dbpath, internalMongodLog))
+	// a non-fatal E line during hours of replay must not fail the restore
+	c, err := r.tryConnNative(r.tmpPort, path.Join(r.dbpath, internalMongodLog), r.nativePITR)
 	if err != nil {
 		return errors.Wrap(err, "connect to mongo")
 	}
@@ -2403,6 +2467,30 @@ func (r *PhysRestore) getcommittedTxn(context.Context) (map[string]bson.Timestam
 // If a try is unsuccessful, it will check the mongo logs and retry if
 // there are no errors or fatals.
 func tryConn(port int, logpath string) (*mongo.Client, error) {
+	return tryConnWith(port, logpath, tryConnCount, nil, nil)
+}
+
+// tryConnNative is tryConn that waits up to nativeTryConnCount tries and also
+// fails as soon as the mongod process exits. With warnOnE, E log lines are
+// logged as warnings instead of failing.
+func (r *PhysRestore) tryConnNative(port int, logpath string, warnOnE bool) (*mongo.Client, error) {
+	if !r.nativePITR {
+		return tryConn(port, logpath)
+	}
+	var warn func(string, ...any)
+	if warnOnE {
+		warn = r.log.Warning
+	}
+	return tryConnWith(port, logpath, nativeTryConnCount, r.mongodExited, warn)
+}
+
+func tryConnWith(
+	port int,
+	logpath string,
+	tries int,
+	exited <-chan struct{},
+	warnE func(string, ...any),
+) (*mongo.Client, error) {
 	type mlog struct {
 		T struct {
 			Date string `json:"$date"`
@@ -2413,8 +2501,9 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 
 	var cn *mongo.Client
 	var err error
+	var logOffset int64 // log already checked by previous tries
 	host := fmt.Sprintf("mongodb://localhost:%d", port)
-	for i := 0; i < tryConnCount; i++ {
+	for i := 0; i < tries; i++ {
 		cn, err = connect.MongoConnect(context.Background(), host,
 			connect.AppName("pbm-physical-restore"),
 			connect.Direct(true),
@@ -2426,27 +2515,46 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 			return cn, nil
 		}
 
+		select {
+		case <-exited:
+			return nil, errors.Errorf("mongod exited (see %s and the agent log), connect err: %v", logpath, err)
+		default:
+		}
+
 		f, ferr := os.Open(logpath)
 		if ferr != nil {
 			return nil, errors.Errorf("open logs: %v, connect err: %v", ferr, err)
 		}
-		defer f.Close()
+		if _, ferr = f.Seek(logOffset, io.SeekStart); ferr != nil {
+			f.Close()
+			return nil, errors.Errorf("seek logs: %v, connect err: %v", ferr, err)
+		}
 
 		dec := json.NewDecoder(f)
 		for {
 			var m mlog
-			if derr := dec.Decode(&m); errors.Is(derr, io.EOF) {
+			// mongod is still writing the log, so the last line may be partial;
+			// it is re-read on the next try
+			if derr := dec.Decode(&m); errors.Is(derr, io.EOF) || errors.Is(derr, io.ErrUnexpectedEOF) {
 				break
 			} else if derr != nil {
+				f.Close()
 				return nil, errors.Errorf("decode logs: %v, connect err: %v", derr, err)
 			}
+			if m.S == "E" && warnE != nil {
+				warnE("mongod logged an error while starting: %s / %s", m.Msg, m.T.Date)
+				continue
+			}
 			if m.S == "E" || m.S == "F" {
+				f.Close()
 				return nil, errors.Errorf("mongo failed with [%s] %s / %s, connect err: %v", m.S, m.Msg, m.T.Date, err)
 			}
 		}
+		logOffset += dec.InputOffset()
+		f.Close()
 	}
 
-	return nil, errors.Errorf("failed to  connect after %d tries: %v", tryConnCount, err)
+	return nil, errors.Errorf("failed to  connect after %d tries: %v", tries, err)
 }
 
 func (r *PhysRestore) startMongo(opts ...string) error {
@@ -2468,8 +2576,12 @@ func (r *PhysRestore) startMongo(opts ...string) error {
 		return err
 	}
 
+	exited := make(chan struct{})
+	r.mongodExited = exited
+
 	// release process resources
 	go func() {
+		defer close(exited)
 		err := cmd.Wait()
 		if err != nil {
 			slog.Printf("mongod process: %v, %s", err, errBuf)
