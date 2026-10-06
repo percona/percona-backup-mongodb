@@ -2,16 +2,21 @@ package restore
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mongodb/mongo-tools/common/db"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 // These tests don't need a mongod: go test ./pbm/restore -bench=NONE -run NativePITR
@@ -431,5 +436,56 @@ func TestNativeBigDocsSupported(t *testing.T) {
 		if got := nativeBigDocsSupported(c.v); got != c.want {
 			t.Errorf("%v: got %v, want %v", c.v, got, c.want)
 		}
+	}
+}
+
+// restore-finish after an agent restart rebuilds the restore from ext.dump:
+// the native PITR mode must survive it, or the window is silently not loaded.
+func TestNativePITRExtDumpRoundTrip(t *testing.T) {
+	for _, native := range []bool{true, false} {
+		t.Run(fmt.Sprintf("native=%v", native), func(t *testing.T) {
+			dir := t.TempDir()
+			stg, err := fs.New(&fs.Config{Path: dir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfgPath := filepath.Join(t.TempDir(), "pbm.yaml")
+			cfg := fmt.Sprintf("storage:\n  type: filesystem\n  filesystem:\n    path: %s\n", dir)
+			if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			const name, rs, node = "2026-01-01T00:00:00Z", "rs0", "node0:27017"
+			r := &PhysRestore{
+				stg:           stg,
+				name:          name,
+				rsConf:        &topo.RSConfig{ID: rs},
+				nodeInfo:      &topo.NodeInfo{Me: node, SetName: rs},
+				restoreTS:     nts(100, 1),
+				syncPathNode:  fmt.Sprintf("%s/%s/rs.%s/node.%s", defs.PhysRestoresDir, name, rs, node),
+				nativePITR:    native,
+				nativeBigDocs: native,
+			}
+			if err := r.extDumpFromPhysRestore(&RestoreMeta{Name: name}); err != nil {
+				t.Fatal(err)
+			}
+
+			l := log.New(nil, rs, node).NewEvent("restore", name, "", bson.Timestamp{})
+			got, _, err := physRestoreFromExtDump(l, &ExtFinishCmd{
+				RestoreName: name, CfgPath: cfgPath, RS: rs, Node: node,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer got.closeStorages()
+
+			if got.nativePITR != native || got.nativeBigDocs != native {
+				t.Errorf("nativePITR %v, nativeBigDocs %v after restore-finish; want %v",
+					got.nativePITR, got.nativeBigDocs, native)
+			}
+			if got.restoreTS != r.restoreTS {
+				t.Errorf("restoreTS %v, want %v", got.restoreTS, r.restoreTS)
+			}
+		})
 	}
 }

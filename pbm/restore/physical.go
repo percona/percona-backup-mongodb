@@ -3326,6 +3326,9 @@ type extDump struct {
 
 	RestoreMeta *RestoreMeta
 	LogOrdinal  int
+
+	NativePITR    bool `json:",omitempty"`
+	NativeBigDocs bool `json:",omitempty"`
 }
 
 // extDumpFromPhysRestore creates external restore dump file on the storage.
@@ -3359,6 +3362,8 @@ func (r *PhysRestore) extDumpFromPhysRestore(restoreMeta *RestoreMeta) error {
 		RSMap:              r.rsMap,
 		RestoreMeta:        restoreMeta,
 		LogOrdinal:         logOrdinal,
+		NativePITR:         r.nativePITR,
+		NativeBigDocs:      r.nativeBigDocs,
 	})
 	if err != nil {
 		return errors.Wrap(err, "marshal external dump state")
@@ -3529,6 +3534,8 @@ func physRestoreFromExtDump(
 		syncPathShards:     extDump.SyncPathShards,
 		syncPathDataShards: extDump.SyncPathDataShards,
 		rsMap:              extDump.RSMap,
+		nativePITR:         extDump.NativePITR,
+		nativeBigDocs:      extDump.NativeBigDocs,
 	}
 	restoreMeta := extDump.RestoreMeta
 
