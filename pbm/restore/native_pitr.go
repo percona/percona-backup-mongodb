@@ -138,8 +138,11 @@ func (r *PhysRestore) nativePITRPreflight() error {
 		return errors.Wrap(err, "native pitr")
 	}
 
+	// the coverage can reach back well before the snapshot: overlaps there
+	// may not matter. The chain actually loaded is checked in planNativePITR.
 	if len(overlaps) > 0 {
-		return errors.Errorf("native pitr: overlapping PITR chunks %s and %s (%d pair(s)): "+
+		r.log.Warning("native pitr: overlapping PITR chunks %s and %s (%d pair(s)): "+
+			"the restore fails if they are in the range it loads; "+
 			"make sure all chunks under this prefix come from the source cluster",
 			overlaps[0][0], overlaps[0][1], len(overlaps))
 	}
