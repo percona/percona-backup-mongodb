@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/mongodb/mongo-tools/common/db"
@@ -485,6 +486,60 @@ func TestNativePITRExtDumpRoundTrip(t *testing.T) {
 			}
 			if got.restoreTS != r.restoreTS {
 				t.Errorf("restoreTS %v, want %v", got.restoreTS, r.restoreTS)
+			}
+		})
+	}
+}
+
+func TestNativePITRPlanChain(t *testing.T) {
+	// snapshot oplog [bottom, top] = [{500 1}, {1000 7}], target {1300 0}
+	top, bottom, end := nts(1000, 7), nts(500, 1), nts(1300, 0)
+	early := chunk("early", nts(400, 1), nts(990, 3))
+	mid := chunk("mid", nts(990, 3), nts(1200, 4))
+	atTop := chunk("atTop", top, nts(1200, 4))
+	late := chunk("late", nts(1200, 4), nts(1400, 2))
+
+	cases := []struct {
+		name     string
+		chunks   []nativePITRChunk
+		top      bson.Timestamp
+		bottom   bson.Timestamp
+		wantFrom bson.Timestamp
+		want     []string
+		wantErr  bool
+	}{
+		{"overlap starts 60s below the top", []nativePITRChunk{early, mid, late}, top, bottom,
+			nts(940, 0), []string{"early", "mid", "late"}, false},
+		{"overlap clamped to the snapshot bottom", []nativePITRChunk{early, mid, late}, top, nts(970, 2),
+			nts(970, 2), []string{"early", "mid", "late"}, false},
+		{"pitr started at the snapshot top", []nativePITRChunk{atTop, late}, top, bottom,
+			top, []string{"atTop", "late"}, false},
+		{"pitr started just below the top", []nativePITRChunk{mid, late}, top, bottom,
+			nts(990, 3), []string{"mid", "late"}, false},
+		{"chunks start after the top", []nativePITRChunk{chunk("after", nts(1000, 8), nts(1400, 2))}, top, bottom,
+			bson.Timestamp{}, nil, true},
+		{"gap between the chunks", []nativePITRChunk{early, late}, top, bottom,
+			bson.Timestamp{}, nil, true},
+		{"overlapping chunks in the chain", []nativePITRChunk{early, chunk("x", nts(980, 0), nts(1350, 0))}, top, bottom,
+			bson.Timestamp{}, nil, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p, err := nativePITRPlanChain(c.chunks, c.top, c.bottom, end)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("want an error, got chain %v from %v", chainNames(p.chain), p.from)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.from != c.wantFrom {
+				t.Errorf("from %v, want %v", p.from, c.wantFrom)
+			}
+			if got := chainNames(p.chain); !slices.Equal(got, c.want) {
+				t.Errorf("chain %v, want %v", got, c.want)
 			}
 		})
 	}

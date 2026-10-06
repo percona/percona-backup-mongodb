@@ -121,6 +121,17 @@ func TestNativePITRIntegration(t *testing.T) {
 	// prepareData on the snapshot
 	startMongod(t, snapPort, snap, "--setParameter", "disableLogicalSessionCacheRefresh=true", "--slowms", "100000")
 	sc := connectMongod(t, snapPort)
+	// as in prepareData: check the chunks before local.* is modified
+	r := &PhysRestore{
+		stg:       stg,
+		restoreTS: target,
+		log:       log.DiscardEvent,
+		nodeInfo:  &topo.NodeInfo{SetName: "rs01"},
+	}
+	plan, err := r.planNativePITR(ctx, sc)
+	if err != nil || plan == nil {
+		t.Fatalf("planNativePITR: %v (plan %v)", err, plan)
+	}
 	lcl := sc.Database("local")
 	for _, c := range []string{"replset.minvalid", "replset.oplogTruncateAfterPoint", "replset.election", "system.replset"} {
 		mustDo(t, func() error { _, err := lcl.Collection(c).DeleteMany(ctx, bson.D{}); return err })
@@ -136,13 +147,7 @@ func TestNativePITRIntegration(t *testing.T) {
 		return err
 	})
 
-	r := &PhysRestore{
-		stg:       stg,
-		restoreTS: target,
-		log:       log.DiscardEvent,
-		nodeInfo:  &topo.NodeInfo{SetName: "rs01"},
-	}
-	if err := r.loadNativePITR(ctx, sc); err != nil {
+	if err := r.loadNativePITR(ctx, sc, plan); err != nil {
 		t.Fatalf("loadNativePITR: %v", err)
 	}
 	if got := oplogEdge(t, sc, -1); got != target {

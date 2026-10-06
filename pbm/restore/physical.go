@@ -1917,6 +1917,18 @@ func (r *PhysRestore) prepareData() error {
 
 	ctx := context.Background()
 
+	var nativePlan *nativePITRPlan
+	if r.nativePITR {
+		nativePlan, err = r.planNativePITR(ctx, c)
+		if err != nil {
+			// fail before local.* is modified
+			if serr := shutdownImpl(c, r.dbpath, true, r.tmpPort); serr != nil {
+				r.log.Warning("native pitr: shut down mongod after the failed check: %v", serr)
+			}
+			return err
+		}
+	}
+
 	_, err = c.Database("local").Collection("replset.minvalid").DeleteMany(ctx, bson.D{})
 	if err != nil {
 		return errors.Wrap(err, "drop replset.minvalid")
@@ -1951,7 +1963,7 @@ func (r *PhysRestore) prepareData() error {
 	}
 
 	if r.nativePITR {
-		err = r.loadNativePITR(ctx, c)
+		err = r.loadNativePITR(ctx, c, nativePlan)
 		if err != nil {
 			// don't leave the tmp mongod running on the datadir
 			if serr := shutdownImpl(c, r.dbpath, true, r.tmpPort); serr != nil {
