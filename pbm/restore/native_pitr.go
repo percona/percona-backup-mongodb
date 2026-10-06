@@ -183,6 +183,95 @@ func nativePITRCoverage(chunks []nativePITRChunk, to bson.Timestamp) (bson.Times
 	return from, overlaps
 }
 
+// nativePITRPlan is what loadNativePITR loads: chain covers [from, end],
+// and [from, top] is merged with the snapshot's oplog.
+type nativePITRPlan struct {
+	top, bottom bson.Timestamp // snapshot's oplog
+	from        bson.Timestamp // start of the merged overlap
+	chain       []nativePITRChunk
+}
+
+// planNativePITR checks the PITR chunks against the copied snapshot's oplog.
+// It runs in prepareData before local.* is modified, so if the chunks don't
+// connect to the snapshot the restore fails before the snapshot's replica set
+// metadata is changed.
+// It returns nil if the snapshot's oplog already reaches restoreTS.
+func (r *PhysRestore) planNativePITR(ctx context.Context, c *mongo.Client) (*nativePITRPlan, error) {
+	oplogColl := c.Database("local").Collection("oplog.rs")
+	topRaw, top, err := oplogEdgeEntry(ctx, oplogColl, -1)
+	if err != nil {
+		return nil, err
+	}
+	_, bottom, err := oplogEdgeEntry(ctx, oplogColl, 1)
+	if err != nil {
+		return nil, err
+	}
+	if top.Compare(r.restoreTS) >= 0 {
+		r.log.Info("native pitr: oplog top %v already reaches %v, nothing to load", top, r.restoreTS)
+		return nil, nil
+	}
+
+	chunks, err := r.nativePITRChunks()
+	if err != nil {
+		return nil, err
+	}
+	p, err := nativePITRPlanChain(chunks, top, bottom, r.restoreTS)
+	if err != nil {
+		return nil, errors.Wrap(err, "native pitr")
+	}
+	r.log.Info("native pitr: loading oplog (%v, %v] from %d chunk(s); merging the overlap "+
+		"[%v, %v] with the snapshot oplog (bottom %v, top op %q)",
+		top, r.restoreTS, len(p.chain), p.from, top, bottom, topRaw.Lookup("op").StringValue())
+	return p, nil
+}
+
+// nativePITRPlanChain picks the chunks to load for a snapshot oplog [bottom,
+// top] and a target `end`. The overlap merged with the snapshot oplog starts
+// nativePITROverlap below its top, no earlier than its bottom, and no earlier
+// than where the chunk coverage reaching `end` starts: PITR that began right
+// after the backup has chunks only from about the snapshot's top.
+func nativePITRPlanChain(chunks []nativePITRChunk, top, bottom, end bson.Timestamp) (*nativePITRPlan, error) {
+	covFrom, _ := nativePITRCoverage(chunks, end)
+	if covFrom.Compare(top) == 1 {
+		return nil, errors.Errorf("PITR chunks reaching %v start at %v, after the snapshot oplog top %v: "+
+			"the chunks don't cover the snapshot", end, covFrom, top)
+	}
+
+	from := bson.Timestamp{T: top.T - uint32(nativePITROverlap/time.Second)}
+	if from.Compare(bottom) == -1 {
+		from = bottom
+	}
+	if from.Compare(covFrom) == -1 {
+		from = covFrom
+	}
+
+	chain, err := nativePITRChain(chunks, from, end)
+	if err != nil {
+		return nil, errors.Wrap(err, "snapshot oplog top is not covered by PITR chunks")
+	}
+	if ov := nativePITRChainOverlaps(chain); len(ov) > 0 {
+		return nil, errors.Errorf("overlapping PITR chunks %s and %s", ov[0][0], ov[0][1])
+	}
+
+	return &nativePITRPlan{top: top, bottom: bottom, from: from, chain: chain}, nil
+}
+
+// oplogEdgeEntry returns the oplog's last (dir -1) or first (dir 1) entry.
+func oplogEdgeEntry(ctx context.Context, oplogColl *mongo.Collection, dir int) (bson.Raw, bson.Timestamp, error) {
+	var ts bson.Timestamp
+	raw, err := oplogColl.FindOne(ctx, bson.D{},
+		options.FindOne().SetSort(bson.D{{"$natural", dir}})).Raw()
+	if err != nil {
+		return nil, ts, errors.Wrap(err, "get the edge of the oplog")
+	}
+	var ok bool
+	ts.T, ts.I, ok = raw.Lookup("ts").TimestampOK()
+	if !ok {
+		return nil, ts, errors.Errorf("get the timestamp of record %v", raw)
+	}
+	return raw, ts, nil
+}
+
 // loadNativePITR appends oplog entries from the snapshot's oplog top up to and
 // including restoreTS into local.oplog.rs. Must run on a standalone mongod.
 //
@@ -198,55 +287,14 @@ func nativePITRCoverage(chunks []nativePITRChunk, to bson.Timestamp) (bson.Times
 // Forward reads of the oplog block on a standalone once entries above the
 // snapshot's top are inserted, so the merge cursor is drained before the
 // first insert and only reverse reads are used afterwards.
-func (r *PhysRestore) loadNativePITR(ctx context.Context, c *mongo.Client) error {
-	oplogColl := c.Database("local").Collection("oplog.rs")
-
-	edgeOfOplog := func(dir int) (bson.Raw, bson.Timestamp, error) {
-		var ts bson.Timestamp
-		raw, err := oplogColl.FindOne(ctx, bson.D{},
-			options.FindOne().SetSort(bson.D{{"$natural", dir}})).Raw()
-		if err != nil {
-			return nil, ts, errors.Wrap(err, "get the edge of the oplog")
-		}
-		var ok bool
-		ts.T, ts.I, ok = raw.Lookup("ts").TimestampOK()
-		if !ok {
-			return nil, ts, errors.Errorf("get the timestamp of record %v", raw)
-		}
-		return raw, ts, nil
-	}
-
-	topRaw, top, err := edgeOfOplog(-1)
-	if err != nil {
-		return err
-	}
-	_, bottom, err := edgeOfOplog(1)
-	if err != nil {
-		return err
-	}
-	if top.Compare(r.restoreTS) >= 0 {
-		r.log.Info("native pitr: oplog top %v already reaches %v, nothing to load", top, r.restoreTS)
+//
+// The plan comes from planNativePITR, run before prepareData modifies local.*.
+func (r *PhysRestore) loadNativePITR(ctx context.Context, c *mongo.Client, p *nativePITRPlan) error {
+	if p == nil {
 		return nil
 	}
-
-	chunks, err := r.nativePITRChunks()
-	if err != nil {
-		return err
-	}
-	from := bson.Timestamp{T: top.T - uint32(nativePITROverlap/time.Second)}
-	if from.Compare(bottom) == -1 {
-		from = bottom
-	}
-	chain, err := nativePITRChain(chunks, from, r.restoreTS)
-	if err != nil {
-		return errors.Wrap(err, "native pitr: snapshot oplog top is not covered by PITR chunks")
-	}
-	if ov := nativePITRChainOverlaps(chain); len(ov) > 0 {
-		return errors.Errorf("native pitr: overlapping PITR chunks %s and %s", ov[0][0], ov[0][1])
-	}
-	r.log.Info("native pitr: loading oplog (%v, %v] from %d chunk(s); merging the overlap "+
-		"[%v, %v] with the snapshot oplog (bottom %v, top op %q)",
-		top, r.restoreTS, len(chain), from, top, bottom, topRaw.Lookup("op").StringValue())
+	oplogColl := c.Database("local").Collection("oplog.rs")
+	from, top, bottom := p.from, p.top, p.bottom
 
 	cur, err := oplogColl.Find(ctx,
 		bson.D{{"ts", bson.D{{"$gte", from}, {"$lte", top}}}},
@@ -269,7 +317,7 @@ func (r *PhysRestore) loadNativePITR(ctx context.Context, c *mongo.Client) error
 	}
 	l.lastLog = l.start
 
-	for _, ch := range chain {
+	for _, ch := range p.chain {
 		done, err := l.loadChunk(r.stg, ch, func(msg string, args ...any) {
 			r.log.Info(msg, args...)
 		})
@@ -287,7 +335,7 @@ func (r *PhysRestore) loadNativePITR(ctx context.Context, c *mongo.Client) error
 		return errors.Wrap(err, "native pitr")
 	}
 
-	_, newTop, err := edgeOfOplog(-1)
+	_, newTop, err := oplogEdgeEntry(ctx, oplogColl, -1)
 	if err != nil {
 		return err
 	}
