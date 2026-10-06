@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mongodb/mongo-tools/common/db"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -575,5 +576,74 @@ func TestNativePITRPlanChain(t *testing.T) {
 				t.Errorf("chain %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// An s2 stream has no end marker: cut at a block boundary, it decompresses to
+// a clean EOF. loadChunk must catch a read that ends before the object does.
+func TestNativePITRChunkShortRead(t *testing.T) {
+	dir := t.TempDir()
+	stg, err := fs.New(&fs.Config{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start, end := nts(1790758174, 1), nts(1790758174, 20)
+	name := oplog.FormatChunkFilepath("rs01", start, end, compress.CompressionTypeS2)
+
+	var buf bytes.Buffer
+	w, err := compress.Compress(&buf, compress.CompressionTypeS2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := 0 // end of the first s2 block
+	for i := start.I; i <= end.I; i++ {
+		b, _ := bson.Marshal(bson.D{{"ts", nts(start.T, i)}, {"op", "n"}, {"o", bson.D{{"msg", "x"}}}})
+		if _, err := w.Write(b); err != nil {
+			t.Fatal(err)
+		}
+		if i == 10 {
+			if err := w.(interface{ Flush() error }).Flush(); err != nil {
+				t.Fatal(err)
+			}
+			cut = buf.Len()
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	full := buf.Bytes()
+	if err := stg.Save(name, bytes.NewReader(full)); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := stg.List("pbmPitr/rs01", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := parseNativePITRChunks("rs01", files, log.DiscardEvent)
+	if len(chunks) != 1 || chunks[0].size != int64(len(full)) {
+		t.Fatalf("chunks %+v, want one of %d bytes", chunks, len(full))
+	}
+
+	// every entry is below the merged overlap: read and skipped, nothing inserted
+	load := func() error {
+		l := &nativePITRLoader{from: nts(1790758175, 0), bottom: nts(1, 0), top: nts(1790758176, 0),
+			end: nts(1790758177, 0), lastLog: time.Now()}
+		_, err := l.loadChunk(stg, chunks[0], func(string, ...any) {})
+		return err
+	}
+
+	if err := load(); err != nil {
+		t.Fatalf("whole object: %v", err)
+	}
+
+	// the read now ends at a block boundary, before the object's listed size
+	if err := os.WriteFile(filepath.Join(dir, name), full[:cut], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = load()
+	if err == nil || !strings.Contains(err.Error(), "short read") {
+		t.Fatalf("object cut at a block boundary: want a short read error, got %v", err)
 	}
 }

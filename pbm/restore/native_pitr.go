@@ -52,6 +52,7 @@ type nativePITRChunk struct {
 	start bson.Timestamp
 	end   bson.Timestamp
 	comp  compress.CompressionType
+	size  int64 // object size on the storage
 }
 
 // nativePITRChain picks a contiguous chain of chunks covering [from, to].
@@ -114,6 +115,7 @@ func parseNativePITRChunks(rs string, files []storage.FileInfo, l log.LogEvent) 
 			start: m.StartTS,
 			end:   m.EndTS,
 			comp:  m.Compression,
+			size:  f.Size,
 		})
 	}
 
@@ -424,7 +426,20 @@ func (l *nativePITRLoader) loadChunk(
 	}
 	defer sr.Close()
 
-	rdr, err := compress.Decompress(sr, ch.comp)
+	// s2 and snappy streams have no end marker: an object cut at a block
+	// boundary decompresses to a clean EOF. Check the whole object was read.
+	cr := &countReader{r: sr}
+	readAll := func() error {
+		if _, err := io.Copy(io.Discard, cr); err != nil {
+			return errors.Wrap(err, "read the rest of the object")
+		}
+		if cr.n != ch.size {
+			return errors.Errorf("read %d bytes of the %d-byte object: short read", cr.n, ch.size)
+		}
+		return nil
+	}
+
+	rdr, err := compress.Decompress(cr, ch.comp)
 	if err != nil {
 		return false, errors.Wrap(err, "decompress object")
 	}
@@ -437,7 +452,10 @@ func (l *nativePITRLoader) loadChunk(
 	for {
 		doc := src.LoadNext()
 		if doc == nil {
-			return false, errors.Wrap(src.Err(), "read oplog entry")
+			if err := src.Err(); err != nil {
+				return false, errors.Wrap(err, "read oplog entry")
+			}
+			return false, readAll()
 		}
 
 		done, err := l.add(bson.Raw(doc))
@@ -448,8 +466,7 @@ func (l *nativePITRLoader) loadChunk(
 			// Read the object to the end: the storage downloader's workers
 			// block forever on an abandoned reader, holding the download
 			// buffer every later read on this storage waits for.
-			_, err = io.Copy(io.Discard, sr)
-			return true, errors.Wrap(err, "drain the rest of the chunk")
+			return true, readAll()
 		}
 
 		if time.Since(l.lastLog) >= nativePITRProgressFreq {
@@ -688,4 +705,15 @@ func nativePITRChainOverlaps(chain []nativePITRChunk) [][2]string {
 		}
 	}
 	return ov
+}
+
+type countReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
