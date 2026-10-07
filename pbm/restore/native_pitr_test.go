@@ -255,6 +255,36 @@ func TestNativePITRLoaderAdd(t *testing.T) {
 		}
 	})
 
+	t.Run("same operation but a different collection or transaction fails", func(t *testing.T) {
+		mk := func(extra ...bson.E) bson.Raw {
+			d := bson.D{{"ts", nts(190, 0)}, {"t", int64(1)}, {"op", "i"}, {"ns", "db.c"},
+				{"o", bson.D{{"_id", 1}}}}
+			b, err := bson.Marshal(append(d, extra...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return b
+		}
+		uuid := func(b byte) bson.E {
+			return bson.E{"ui", bson.Binary{Subtype: 4, Data: bytes.Repeat([]byte{b}, 16)}}
+		}
+		txn := func(n int64) []bson.E {
+			return []bson.E{{"lsid", bson.D{{"id", bson.Binary{Subtype: 4, Data: make([]byte, 16)}}}}, {"txnNumber", n}}
+		}
+
+		for name, c := range map[string][2]bson.Raw{
+			"ui":                     {mk(uuid(1)), mk(uuid(2))},
+			"txnNumber":              {mk(txn(1)...), mk(txn(2)...)},
+			"lsid only in the chunk": {mk(), mk(txn(1)...)},
+		} {
+			l := newLoader(c[0], op(t, nts(200, 5), "i"))
+			err := feed(t, l, c[1], op(t, nts(200, 5), "i"))
+			if err == nil || !strings.Contains(err.Error(), "differs between the snapshot oplog and the chunks") {
+				t.Errorf("%s: expected mismatch error, got %v", name, err)
+			}
+		}
+	})
+
 	t.Run("entries below the snapshot oplog bottom are skipped", func(t *testing.T) {
 		l := newLoader(op(t, nts(100, 0), "i"), op(t, nts(200, 5), "i"))
 		err := feed(t, l, op(t, nts(90, 0), "i"), op(t, nts(99, 9), "i"), op(t, nts(100, 0), "i"),

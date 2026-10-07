@@ -14,6 +14,7 @@ package restore
 // which OplogEntryBase allows.
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"path"
@@ -619,15 +620,27 @@ func (l *nativePITRLoader) skipSnapshotEntry() error {
 	return nil
 }
 
-// sameEntry compares two copies of an oplog entry: the identifying fields
-// and the operation itself (chunks are raw copies of oplog.rs entries).
+// sameEntry compares two copies of an oplog entry. Chunks are raw copies of
+// oplog.rs entries, so the copies must be byte-identical.
 func sameEntry(a, b bson.Raw) error {
-	for _, k := range []string{"t", "op", "ns", "o", "o2"} {
-		if !a.Lookup(k).Equal(b.Lookup(k)) {
-			return errors.Errorf("field %q: %v vs %v", k, a.Lookup(k), b.Lookup(k))
+	if bytes.Equal(a, b) {
+		return nil
+	}
+
+	// name the first differing field for the error
+	ea, _ := a.Elements()
+	for _, e := range ea {
+		if !e.Value().Equal(b.Lookup(e.Key())) {
+			return errors.Errorf("field %q: %v vs %v", e.Key(), e.Value(), b.Lookup(e.Key()))
 		}
 	}
-	return nil
+	eb, _ := b.Elements()
+	for _, e := range eb {
+		if _, err := a.LookupErr(e.Key()); err != nil {
+			return errors.Errorf("field %q only in the chunk entry: %v", e.Key(), e.Value())
+		}
+	}
+	return errors.New("same fields in a different order")
 }
 
 // flush inserts the queued entries.
