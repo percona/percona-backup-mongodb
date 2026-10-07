@@ -2527,12 +2527,6 @@ func tryConnWith(
 			return cn, nil
 		}
 
-		select {
-		case <-exited:
-			return nil, errors.Errorf("mongod exited (see %s and the agent log), connect err: %v", logpath, err)
-		default:
-		}
-
 		f, ferr := os.Open(logpath)
 		if ferr != nil {
 			return nil, errors.Errorf("open logs: %v, connect err: %v", ferr, err)
@@ -2564,6 +2558,13 @@ func tryConnWith(
 		}
 		logOffset += dec.InputOffset()
 		f.Close()
+
+		// checked after the log, so an F line explaining the exit is reported
+		select {
+		case <-exited:
+			return nil, errors.Errorf("mongod exited (see %s and the agent log), connect err: %v", logpath, err)
+		default:
+		}
 	}
 
 	return nil, errors.Errorf("failed to  connect after %d tries: %v", tries, err)
