@@ -906,6 +906,12 @@ func (app *pbmApp) buildRestoreCmd() *cobra.Command {
 		&restoreOptions.exit, "exit", false,
 		"Agent will exit in copyReady phase allowing restart. External backups only!",
 	)
+	restoreCmd.Flags().BoolVar(
+		&restoreOptions.nativePITR, "native-pitr", false,
+		"Load PITR oplog up to --ts into the restored nodes' oplog and replay it with mongod's "+
+			"native startup recovery during restore-finish, instead of 'pbm oplog-replay'. "+
+			"External restore of a non-sharded replica set with --ts only!",
+	)
 	restoreCmd.Flags().Bool(
 		"fallback-enabled", false, "Enables/disables fallback strategy when performing a physical restore.",
 	)

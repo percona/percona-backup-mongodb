@@ -53,6 +53,7 @@ type restoreOpts struct {
 	conf            string
 	ts              string
 	exit            bool
+	nativePITR      bool
 	fallback        *bool
 	allowPartlyDone *bool
 
@@ -504,6 +505,7 @@ func doRestore(
 			RSMap:               rsMapping,
 			External:            o.extern,
 			Exit:                o.exit,
+			NativePITR:          o.nativePITR,
 			Fallback:            o.fallback,
 			AllowPartlyDone:     o.allowPartlyDone,
 		},
@@ -911,6 +913,14 @@ func validateExternalOpts(o *restoreOpts) error {
 	}
 	if !o.extern && o.conf != "" {
 		return errors.New("Specifying mongod config is only possible for external restore (--external).")
+	}
+	if o.nativePITR {
+		if !o.extern || o.ts == "" {
+			return errors.New("--native-pitr requires --external and --ts.")
+		}
+		if o.exit {
+			return errors.New("--native-pitr can't be used with --exit.")
+		}
 	}
 	return nil
 }
