@@ -89,6 +89,14 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 	return d.applyErr
 }
 
+// failingApplyMDB returns a chosen apply error while retaining real database lookups.
+type failingApplyMDB struct {
+	mDBCl
+	applyErr error
+}
+
+func (d *failingApplyMDB) applyOps(_ []interface{}) error { return d.applyErr }
+
 func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
 	db := newMDBTestClient()
 	oRestore := newOplogRestoreTest(db)
@@ -548,16 +556,16 @@ func TestIsMissingBucketUpdate(t *testing.T) {
 		ID bson.ObjectID `bson:"_id"`
 	}
 	require.NoError(t, database.Collection("system.buckets.ts1").FindOne(ctx, bson.D{}).Decode(&existing))
-	missingControl := errors.Wrap(mongo.CommandError{Code: 6781400}, "command failed")
 	for _, tc := range []struct {
 		name     string
 		changeOp func(*db.Oplog)
-		applyErr error
 		missing  bool
 	}{
 		{name: "missing bucket", missing: true},
 		{name: "existing bucket", changeOp: func(op *db.Oplog) { op.Query = bson.D{{"_id", existing.ID}} }},
-		{name: "unrelated error", applyErr: mongo.CommandError{Code: 121}},
+		{name: "missing collection", changeOp: func(op *db.Oplog) {
+			op.Namespace = database.Name() + ".system.buckets.absent"
+		}},
 		{name: "ordinary collection", changeOp: func(op *db.Oplog) { op.Namespace = database.Name() + ".c1" }},
 		{name: "insert", changeOp: func(op *db.Oplog) { op.Operation = "i" }},
 		{name: "replacement update", changeOp: func(op *db.Oplog) { op.Object = bson.D{{"control", bson.D{}}} }},
@@ -575,11 +583,7 @@ func TestIsMissingBucketUpdate(t *testing.T) {
 			if tc.changeOp != nil {
 				tc.changeOp(&op)
 			}
-			applyErr := missingControl
-			if tc.applyErr != nil {
-				applyErr = tc.applyErr
-			}
-			missing, err := newOplogRestoreTest(newMDB(mClient)).isMissingBucketUpdate(op, applyErr)
+			missing, err := newOplogRestoreTest(newMDB(mClient)).isMissingBucketUpdate(op)
 			require.NoError(t, err)
 			require.Equal(t, tc.missing, missing)
 		})
@@ -594,7 +598,7 @@ func TestIsMissingBucketUpdateLookupFailure(t *testing.T) {
 		Operation: "u", Namespace: "test.system.buckets.ts1", Query: bson.D{{"_id", bson.NewObjectID()}},
 		Object: bson.D{{"$v", 2}, {"diff", bson.D{{"scontrol", bson.D{{"u", bson.D{{"closed", true}}}}}}}},
 	}
-	missing, err := newOplogRestoreTest(newMDB(client)).isMissingBucketUpdate(op, mongo.CommandError{Code: 6781400})
+	missing, err := newOplogRestoreTest(newMDB(client)).isMissingBucketUpdate(op)
 	require.ErrorIs(t, err, mongo.ErrClientDisconnected)
 	require.False(t, missing)
 }
@@ -624,12 +628,18 @@ func TestApplyMissingBucketUpdate(t *testing.T) {
 	}
 	restore := newOplogRestoreTest(newMDB(mClient))
 	// MongoDB access returns the original failure; replay alone decides to skip it.
-	var cmdErr mongo.CommandError
-	require.ErrorAs(t, restore.mdb.applyOps([]any{update}), &cmdErr)
-	require.Equal(t, int32(6781400), cmdErr.Code)
+	require.Error(t, restore.mdb.applyOps([]any{update}))
 	existingUpdate := update
 	existingUpdate.Timestamp.I = 2
 	existingUpdate.Query = bson.D{{"_id", existing.ID}}
+	for _, applyErr := range []error{
+		&mongo.CommandError{Code: 8, Message: "applyOps had one or more errors applying ops"},
+		errors.New("unrelated application failure"),
+	} {
+		failing := newOplogRestoreTest(&failingApplyMDB{mDBCl: newMDB(mClient), applyErr: applyErr})
+		require.NoError(t, failing.handleNonTxnOp(update))
+		require.ErrorIs(t, failing.handleNonTxnOp(existingUpdate), applyErr)
+	}
 	deleteOp := db.Oplog{
 		Timestamp: bson.Timestamp{T: 100, I: 3}, Version: 2,
 		Operation: "d", Namespace: update.Namespace, Object: bson.D{{"_id", missingID}},
@@ -657,6 +667,11 @@ func TestApplyMissingBucketUpdate(t *testing.T) {
 	count, err := database.Collection("ts1").CountDocuments(ctx, bson.D{})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), count)
+	// A missing collection must not be mistaken for a missing bucket document.
+	update.Namespace = database.Name() + ".system.buckets.absent"
+	var cmdErr mongo.CommandError
+	require.ErrorAs(t, restore.handleNonTxnOp(update), &cmdErr)
+	require.Equal(t, int32(26), cmdErr.Code) // NamespaceNotFound
 }
 
 func TestApply(t *testing.T) {
