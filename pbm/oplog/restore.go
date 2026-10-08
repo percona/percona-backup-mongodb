@@ -1266,12 +1266,17 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 
 	err = o.mdb.applyOps([]interface{}{op})
 	if err != nil {
+		// TTL can delete a bucket during the dump, leaving updates without their pre-image.
+		// MongoDB 8.0 applyOps defaults to upserting missing documents; a bucket delta can
+		// then fail with 6781400 (missing control). MongoDB 8.3 disables forced upserts:
+		// the missing document produces UpdateOperationFailed (218), which applyOps logs
+		// server-side but reports to the driver as a generic UnknownError.
+		// Check bucket/collection existence instead of matching version-specific errors.
 		missing, lookupErr := o.isMissingBucketUpdate(op)
 		if lookupErr != nil {
 			return lookupErr
 		}
 		if missing {
-			// A bucket deleted during a logical dump can be absent when its older deltas are replayed.
 			o.log.Debug("skipping update to missing time-series bucket in %s matching %v at %v: %v",
 				op.Namespace, op.Query, op.Timestamp, err)
 			return nil
