@@ -1266,14 +1266,19 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 
 	err = o.mdb.applyOps([]interface{}{op})
 	if err != nil {
-		missing, lookupErr := o.isMissingBucketUpdate(op, err)
+		// TTL can delete a bucket during the dump, leaving updates without their pre-image.
+		// MongoDB 8.0 applyOps defaults to upserting missing documents; a bucket delta can
+		// then fail with 6781400 (missing control). MongoDB 8.3 disables forced upserts:
+		// the missing document produces UpdateOperationFailed (218), which applyOps logs
+		// server-side but reports to the driver as a generic UnknownError.
+		// Check bucket/collection existence instead of matching version-specific errors.
+		missing, lookupErr := o.isMissingBucketUpdate(op)
 		if lookupErr != nil {
 			return lookupErr
 		}
 		if missing {
-			// A bucket deleted during a logical dump can be absent when its older deltas are replayed.
-			o.log.Debug("skipping update to missing time-series bucket in %s matching %v at %v",
-				op.Namespace, op.Query, op.Timestamp)
+			o.log.Debug("skipping update to missing time-series bucket in %s matching %v at %v: %v",
+				op.Namespace, op.Query, op.Timestamp, err)
 			return nil
 		}
 
@@ -1295,18 +1300,10 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	return nil
 }
 
-// isMissingBucketUpdate reports whether the missing-control error came from a bucket
-// delta update whose target document is absent from the restored collection.
-// TTL can delete a bucket after oplog capture starts but before the logical dump reads it,
-// leaving updates in the backup without the bucket's pre-image.
-// Nonmatching errors and existing documents return false, nil; lookup failures return an error.
-// The caller retains applyErr and decides whether to log and skip the update.
-func (o *OplogRestore) isMissingBucketUpdate(op db.Oplog, applyErr error) (bool, error) {
-	const missingBucketControl = 6781400
-	var cmdErr mongo.CommandError
-	if !errors.As(applyErr, &cmdErr) || !cmdErr.HasErrorCode(missingBucketControl) {
-		return false, nil
-	}
+// isMissingBucketUpdate reports whether a legacy bucket delta targets a missing
+// document in an existing collection. Used after replay fails, it checks state
+// rather than the error cause. Lookup failures are returned to the caller.
+func (o *OplogRestore) isMissingBucketUpdate(op db.Oplog) (bool, error) {
 	id, ok := bucketDeltaID(op)
 	if !ok {
 		return false, nil
@@ -1315,7 +1312,15 @@ func (o *OplogRestore) isMissingBucketUpdate(op db.Oplog, applyErr error) (bool,
 	if err != nil {
 		return false, errors.Wrapf(err, "check time-series bucket %s/%v", op.Namespace, id)
 	}
-	return !exists, nil
+	if exists {
+		return false, nil
+	}
+	// A find on an absent collection also returns no documents. Do not hide that failure.
+	uuid, err := o.mdb.getUUIDForNS(context.TODO(), op.Namespace)
+	if err != nil {
+		return false, errors.Wrapf(err, "check time-series bucket collection %s", op.Namespace)
+	}
+	return !uuid.IsZero(), nil
 }
 
 // bucketDeltaID extracts the target _id from a $v:2 delta update to a legacy
