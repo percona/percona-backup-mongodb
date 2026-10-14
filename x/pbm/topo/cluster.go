@@ -39,16 +39,16 @@ type Shard struct {
 }
 
 // ClusterTime returns mongo's current cluster time
-func GetClusterTime(ctx context.Context, m connect.Client) (bson.Timestamp, error) {
+func GetClusterTime(ctx context.Context, m *mongo.Client) (bson.Timestamp, error) {
 	// Make a read to force the cluster timestamp update.
 	// Otherwise, cluster timestamp could remain the same between node info reads,
 	// while in fact time has been moved forward.
-	err := m.LockCollection().FindOne(ctx, bson.D{}).Err()
+	err := m.Database("admin").Collection("system.version").FindOne(ctx, bson.D{}).Err()
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		return bson.Timestamp{}, errors.Wrap(err, "void read")
 	}
 
-	inf, err := GetNodeInfo(ctx, m.MongoClient())
+	inf, err := GetNodeInfo(ctx, m)
 	if err != nil {
 		return bson.Timestamp{}, errors.Wrap(err, "get NodeInfo")
 	}

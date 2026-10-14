@@ -15,11 +15,13 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	stds3 "github.com/percona/percona-backup-mongodb/pbm/storage/s3"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 func TestMetadataEncodeDecodeWithMinio(t *testing.T) {
@@ -137,6 +139,147 @@ func TestBackupsList(t *testing.T) {
 
 	assert.NoError(t, err)
 	assertExpectedBackupList(t, expected, actual)
+}
+
+func TestChangeRSStateOrAdd(t *testing.T) {
+	const (
+		backupName = "incremental"
+		rsName     = "shard2RS"
+		node       = "mongo-pbm-test:27027"
+		failure    = "can't find incremental backup history"
+	)
+
+	TestEnv.Reset(t)
+	_, err := TestEnv.Client.BcpCollection().InsertOne(t.Context(), BackupMeta{
+		Name:     backupName,
+		Type:     defs.IncrementalBackup,
+		Status:   defs.StatusStarting,
+		Replsets: []BackupReplset{},
+	})
+	require.NoError(t, err)
+
+	err = ChangeRSStateOrAdd(TestEnv.Client, backupName, BackupReplset{
+		Name:    rsName,
+		Node:    node,
+		StartTS: 1,
+		Status:  defs.StatusRunning,
+	}, defs.StatusError, failure)
+	require.NoError(t, err)
+
+	meta, err := NewDBManager(TestEnv.Client).GetBackupByName(t.Context(), backupName)
+	require.NoError(t, err)
+	require.Len(t, meta.Replsets, 1)
+	rs := meta.Replsets[0]
+	assert.Equal(t, rsName, rs.Name)
+	assert.Equal(t, node, rs.Node)
+	assert.Equal(t, defs.StatusError, rs.Status)
+	assert.Equal(t, failure, rs.Error)
+	require.Len(t, rs.Conditions, 1)
+	assert.Equal(t, Condition{
+		Timestamp: rs.LastTransitionTS,
+		Status:    defs.StatusError,
+		Error:     failure,
+	}, rs.Conditions[0])
+}
+
+func TestChangeRSStateOrAddMatchesChangeRSState(t *testing.T) {
+	const (
+		changeBackupName = "change-state"
+		orAddBackupName  = "change-state-or-add"
+		rsName           = "shard2RS"
+		failure          = "backup failed"
+	)
+
+	TestEnv.Reset(t)
+	rs := BackupReplset{
+		Name:             rsName,
+		Node:             "mongo-pbm-test:27027",
+		Status:           defs.StatusRunning,
+		StartTS:          1,
+		LastTransitionTS: 1,
+		CustomThisID:     "existing-id",
+		Conditions: []Condition{{
+			Timestamp: 1,
+			Status:    defs.StatusRunning,
+		}},
+	}
+
+	for _, name := range []string{changeBackupName, orAddBackupName} {
+		_, err := TestEnv.Client.BcpCollection().InsertOne(t.Context(), BackupMeta{
+			Name:     name,
+			Type:     defs.IncrementalBackup,
+			Status:   defs.StatusStarting,
+			Replsets: []BackupReplset{rs},
+		})
+		require.NoError(t, err)
+	}
+
+	err := ChangeRSState(TestEnv.Client, changeBackupName, rsName, defs.StatusError, failure)
+	require.NoError(t, err)
+	err = ChangeRSStateOrAdd(TestEnv.Client, orAddBackupName, rs, defs.StatusError, failure)
+	require.NoError(t, err)
+
+	changed, err := NewDBManager(TestEnv.Client).GetBackupByName(t.Context(), changeBackupName)
+	require.NoError(t, err)
+	orAdded, err := NewDBManager(TestEnv.Client).GetBackupByName(t.Context(), orAddBackupName)
+	require.NoError(t, err)
+	require.Len(t, changed.Replsets, 1)
+	require.Len(t, orAdded.Replsets, 1)
+	changedRS := changed.Replsets[0]
+	orAddedRS := orAdded.Replsets[0]
+	require.Len(t, changedRS.Conditions, 2)
+	require.Len(t, orAddedRS.Conditions, 2)
+	assert.Equal(
+		t,
+		changedRS.LastTransitionTS,
+		changedRS.Conditions[1].Timestamp,
+	)
+	assert.Equal(
+		t,
+		orAddedRS.LastTransitionTS,
+		orAddedRS.Conditions[1].Timestamp,
+	)
+
+	diff := cmp.Diff(
+		changedRS,
+		orAddedRS,
+		cmpopts.IgnoreFields(BackupReplset{}, "LastTransitionTS"),
+		cmpopts.IgnoreFields(Condition{}, "Timestamp"),
+	)
+	assert.Empty(t, diff)
+}
+
+func TestConvergedReturnsReplicaSetError(t *testing.T) {
+	const (
+		backupName = "incremental"
+		rsName     = "shard2RS"
+		failure    = "can't find incremental backup history"
+	)
+
+	TestEnv.Reset(t)
+	_, err := TestEnv.Client.BcpCollection().InsertOne(t.Context(), BackupMeta{
+		Name:   backupName,
+		Type:   defs.IncrementalBackup,
+		Status: defs.StatusStarting,
+		Replsets: []BackupReplset{{
+			Name:   rsName,
+			Status: defs.StatusError,
+			Error:  failure,
+		}},
+	})
+	require.NoError(t, err)
+
+	b := &Backup{leadConn: TestEnv.Client}
+	ok, err := b.converged(
+		t.Context(),
+		backupName,
+		"opid",
+		[]topo.Shard{{RS: rsName}},
+		defs.StatusRunning,
+	)
+
+	assert.False(t, ok)
+	require.EqualError(t, err, "backup on shard shard2RS failed: can't find incremental backup history")
 }
 
 func assertExpectedBackupList(t *testing.T, expectedMeta, actualMeta []BackupMeta) {

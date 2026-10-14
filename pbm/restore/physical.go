@@ -37,7 +37,9 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -1263,12 +1265,18 @@ func (r *PhysRestore) Snapshot(
 
 	var oplogRanges []oplogRange
 	if !pitr.IsZero() {
+		pitrStg, err := r.newStorage()
+		if err != nil {
+			return errors.Wrap(err, "pitr storage")
+		}
+		defer storage.Close(pitrStg, r.log)
+
 		chunks, err := chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
 
-		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: r.stg})
+		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: pitrStg})
 	}
 
 	if meta.Type == defs.IncrementalBackup {
@@ -1959,7 +1967,7 @@ func (r *PhysRestore) replayPITROnStandalone(
 	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
-	ctx := context.Background()
+	ctx := log.SetLogEventToContext(context.Background(), r.log)
 	flags := []string{
 		"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
@@ -1985,19 +1993,18 @@ func (r *PhysRestore) replayPITROnStandalone(
 		end:    &to,
 		unsafe: true,
 	}
-	partial, err := applyOplog(ctx,
+	partial, err := r.replayOplogWithIndexes(
+		ctx,
 		nodeConn,
 		oplogRanges,
 		&oplogOption,
-		r.nodeInfo,
-		nil,
-		r.setcommittedTxn,
-		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+	)
 	if err != nil {
-		return errors.Wrap(err, "replay oplog")
+		return err
 	}
+
 	if len(partial) > 0 {
 		tops := []db.Oplog{}
 		for _, t := range partial {
@@ -2015,6 +2022,66 @@ func (r *PhysRestore) replayPITROnStandalone(
 	}
 
 	return r.shutdown(nodeConn)
+}
+
+// replayOplogWithIndexes replays oplog ranges and builds the indexes after.
+func (r *PhysRestore) replayOplogWithIndexes(
+	ctx context.Context,
+	nodeConn *mongo.Client,
+	oplogRanges []oplogRange,
+	oplogOption *applyOplogOption,
+	stat *phys.DistTxnStat,
+	mgoV *version.MongoVersion,
+) ([]oplog.Txn, error) {
+	indexCatalog := idx.NewCatalog(mgoV)
+	partial, err := applyOplog(
+		ctx,
+		nodeConn,
+		oplogRanges,
+		oplogOption,
+		r.nodeInfo,
+		indexCatalog,
+		r.setcommittedTxn,
+		r.getcommittedTxn,
+		stat,
+		mgoV,
+		defs.PhysicalBackup,
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "replay oplog")
+	}
+
+	err = r.restoreIndexes(ctx, nodeConn, indexCatalog)
+	if err != nil {
+		return nil, errors.Wrap(err, "restore index")
+	}
+
+	return partial, nil
+}
+
+// restoreIndexes builds all the indexes collected in the index catalog
+// during the oplog replay of the physical PITR.
+func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client, idxc *idx.Catalog) error {
+	r.log.Debug("building indexes created during PITR")
+	for _, ns := range idxc.Namespaces() {
+		for _, group := range idxc.BuildGroups(ns.DB, ns.Collection) {
+			var indexNames []string
+			for _, index := range group.Indexes {
+				indexNames = append(indexNames, index.Options["name"].(string))
+			}
+
+			rawCommand := createIndexesCommand(group, nil)
+
+			r.log.Info("restoring indexes for %s.%s: %s",
+				ns.DB, group.Collection, strings.Join(indexNames, ", "))
+			err := nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			if err != nil {
+				return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, group.Collection)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *PhysRestore) resetRS() error {
@@ -2383,6 +2450,9 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 }
 
 func (r *PhysRestore) startMongo(opts ...string) error {
+	// PBM-1779: disable TTL Monitor during restore (all mongod restarts)
+	opts = append(opts, []string{"--setParameter", "ttlMonitorEnabled=false"}...)
+
 	if r.tmpConf != nil {
 		opts = append(opts, []string{"-f", r.tmpConf.Name()}...)
 	}

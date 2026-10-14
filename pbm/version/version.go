@@ -16,7 +16,7 @@ import (
 )
 
 // current PBM version
-const version = "2.16.0"
+const version = "2.17.0"
 
 var (
 	platform  string
@@ -203,6 +203,12 @@ func (v MongoVersion) IsShardedTimeseriesSupported() bool {
 
 func (v MongoVersion) IsConfigShardSupported() bool {
 	return v.Version[0] >= 8
+}
+
+// SupportsRawData reports whether MongoDB supports the rawData command option (8.3+).
+func (v MongoVersion) SupportsRawData() bool {
+	major := v.Major()
+	return major > 8 || major == 8 && len(v.Version) > 1 && v.Version[1] >= 3
 }
 
 func GetMongoVersion(ctx context.Context, m *mongo.Client) (MongoVersion, error) {

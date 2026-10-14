@@ -237,7 +237,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				status = defs.StatusCancelled
 			}
 
-			ferr := ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, status, err.Error())
+			ferr := ChangeRSStateOrAdd(b.leadConn, bcp.Name, rsMeta, status, err.Error())
 			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
 
 			if inf.IsLeader() {
@@ -562,6 +562,7 @@ func (b *Backup) converged(
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
+	backupErr := bmeta.Error()
 	for _, sh := range shards {
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.RS {
@@ -592,12 +593,19 @@ func (b *Backup) converged(
 				case defs.StatusCancelled:
 					return false, storage.ErrCancelled
 				case defs.StatusError:
-					if shard.Error == "" {
+					switch {
+					case shard.Error != "" && backupErr != nil:
+						return false, errors.Errorf("backup on shard %s failed with %s: %v",
+							shard.Name, shard.Error, backupErr)
+					case shard.Error != "":
+						return false, errors.Errorf("backup on shard %s failed: %s",
+							shard.Name, shard.Error)
+					case backupErr != nil:
 						return false, errors.Errorf("backup on shard %s failed: %v",
-							shard.Name, bmeta.Error())
+							shard.Name, backupErr)
+					default:
+						return false, errors.Errorf("backup on shard %s failed", shard.Name)
 					}
-					return false, errors.Errorf("backup on shard %s failed with %s: %v",
-						shard.Name, shard.Error, bmeta.Error())
 				}
 			}
 		}

@@ -39,14 +39,20 @@ type Config struct {
 	// By default, the oss client will use virtual hosted addressing i.e., https://bucket.oss-cn-hangzhou.aliyuncs.com/key.
 	UsePathStyle *bool
 
-	// If the endpoint is s CName, set this flag to true
+	// If the endpoint is a CName, set this flag to true
 	UseCName *bool
+
+	// If the endpoint is a short-alias host, set this flag to true
+	UseVirtualHostedAlias *bool
 
 	// Connect timeout
 	ConnectTimeout *time.Duration
 
 	// read & write timeout
 	ReadWriteTimeout *time.Duration
+
+	// max connection
+	MaxConnections *int
 
 	// Skip server certificate verification
 	InsecureSkipVerify *bool
@@ -108,6 +114,10 @@ type Config struct {
 	// Additional signable headers.
 	AdditionalHeaders []string
 
+	// Default http headers, automatically added to every request sent by the client.
+	// A header set by the request itself takes precedence over the default one.
+	DefaultRequestHeaders map[string]string
+
 	// The optional user specific identifier appended to the User-Agent header.
 	UserAgent *string
 
@@ -120,7 +130,7 @@ type Config struct {
 	// The account id
 	AccountId *string
 
-  // Local address to bind to for outgoing connections.
+	// Local address to bind to for outgoing connections.
 	BindAddress net.IP
 }
 
@@ -187,6 +197,11 @@ func (c *Config) WithUseCName(enable bool) *Config {
 	return c
 }
 
+func (c *Config) WithUseVirtualHostedAlias(enable bool) *Config {
+	c.UseVirtualHostedAlias = Ptr(enable)
+	return c
+}
+
 func (c *Config) WithConnectTimeout(value time.Duration) *Config {
 	c.ConnectTimeout = Ptr(value)
 	return c
@@ -194,6 +209,11 @@ func (c *Config) WithConnectTimeout(value time.Duration) *Config {
 
 func (c *Config) WithReadWriteTimeout(value time.Duration) *Config {
 	c.ReadWriteTimeout = Ptr(value)
+	return c
+}
+
+func (c *Config) WithMaxConnections(value int) *Config {
+	c.MaxConnections = Ptr(value)
 	return c
 }
 
@@ -277,6 +297,11 @@ func (c *Config) WithAdditionalHeaders(value []string) *Config {
 	return c
 }
 
+func (c *Config) WithDefaultRequestHeaders(value map[string]string) *Config {
+	c.DefaultRequestHeaders = value
+	return c
+}
+
 func (c *Config) WithUserAgent(value string) *Config {
 	c.UserAgent = Ptr(value)
 	return c
@@ -296,7 +321,7 @@ func (c *Config) WithAccountId(value string) *Config {
 	c.AccountId = Ptr(value)
 	return c
 }
-  
+
 func (c *Config) WithBindAddress(value net.IP) *Config {
 	c.BindAddress = value
 	return c

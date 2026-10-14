@@ -21,6 +21,9 @@ const requestTimeout = 5 * time.Second
 // ErrNotFound is returned when the requested resource does not exist (HTTP 404).
 var ErrNotFound = errors.New("not found")
 
+// ErrBadRequest is returned when the API refuses the request (HTTP 400).
+var ErrBadRequest = errors.New("bad request")
+
 // Client talks to the ctrl-agent web API, resolving the leader automatically.
 type Client struct {
 	endpoints []string
@@ -46,9 +49,10 @@ func (c *Client) put(ctx context.Context, path string, body []byte) error {
 	return c.do(ctx, http.MethodPut, path, body, nil)
 }
 
-// post issues POST path with no body, expecting an empty 204 response.
-func (c *Client) post(ctx context.Context, path string) error {
-	return c.do(ctx, http.MethodPost, path, nil, nil)
+// post issues POST path with an optional JSON body.
+// Response body is decoded into out when out is non-nil, otherwise an empty 204 is expected.
+func (c *Client) post(ctx context.Context, path string, body []byte, out any) error {
+	return c.do(ctx, http.MethodPost, path, body, out)
 }
 
 // do issues the request against each endpoint in turn, following at most one
@@ -59,6 +63,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 		err := c.doFrom(ctx, method, normalizeEndpoint(ep), path, body, out, true)
 		if err == nil {
 			return nil
+		}
+		// the request itself is at fault, another endpoint won't do anything better.
+		if errors.Is(err, ErrBadRequest) {
+			return err
 		}
 		errs = append(errs, fmt.Errorf("%s: %w", ep, err))
 	}
@@ -98,7 +106,7 @@ func (c *Client) doFrom(
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
-	case http.StatusOK:
+	case http.StatusOK, http.StatusAccepted:
 		if out != nil {
 			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 				return fmt.Errorf("decode response: %w", err)
@@ -127,6 +135,13 @@ func (c *Client) doFrom(
 
 	case http.StatusNotFound:
 		return ErrNotFound
+
+	case http.StatusBadRequest:
+		reason, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return ErrBadRequest
+		}
+		return fmt.Errorf("%w: %s", ErrBadRequest, strings.TrimSpace(string(reason)))
 
 	default:
 		return fmt.Errorf("unexpected status %s", resp.Status)

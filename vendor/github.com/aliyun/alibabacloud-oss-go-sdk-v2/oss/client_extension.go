@@ -1,6 +1,7 @@
 package oss
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -32,6 +33,19 @@ func (c *Client) OpenFile(ctx context.Context, bucket string, key string, optFns
 // AppendFile opens or creates the named file for appending.
 func (c *Client) AppendFile(ctx context.Context, bucket string, key string, optFns ...func(*AppendOptions)) (*AppendOnlyFile, error) {
 	return NewAppendFile(ctx, c, bucket, key, optFns...)
+}
+
+// NewWriteOnlyFile creates a sequential, buffered, background-concurrent write
+// handle producing a Normal object. No network call is made until the first
+// full part is flushed.
+func (c *Client) NewWriteOnlyFile(ctx context.Context, bucket string, key string, optFns ...func(*WriteOnlyOptions)) (*WriteOnlyFile, error) {
+	return NewWriteOnlyFile(ctx, c, bucket, key, optFns...)
+}
+
+// OpenWriteOnlyFile resumes a WriteOnlyFile from a checkpoint snapshot
+// (obtained from a prior StatCheckpoint call).
+func (c *Client) OpenWriteOnlyFile(ctx context.Context, bucket string, key string, checkpoint WriteCheckpoint, optFns ...func(*WriteOnlyOptions)) (*WriteOnlyFile, error) {
+	return OpenWriteOnlyFile(ctx, c, bucket, key, checkpoint, optFns...)
 }
 
 type IsObjectExistOptions struct {
@@ -161,4 +175,120 @@ func (c *Client) getObjectToFileNoRerty(ctx context.Context, request *GetObjectR
 		err = checkResponseHeaderCRC64(fmt.Sprint(hash.Sum64()), result.Headers)
 	}
 	return result, true, err
+}
+
+// GetObjectToFileV2 downloads the object into a local file.
+// Compared to GetObjectToFile, GetObjectToFileV2 provides the following enhancements:
+//  1. Supports configurable write buffer size via writeBufferSize parameter to reduce disk I/O frequency.
+//     Pass nil to use unbuffered writes.
+//  2. Automatic resume on network disconnection. If the download is interrupted due to network instability,
+//     it will automatically reconnect from the point of disconnection and continue downloading,
+//     powered by NewRangeReader which transparently handles reconnection.
+func (c *Client) GetObjectToFileV2(ctx context.Context, request *GetObjectRequest, filePath string, writeBufferSize *int, optFns ...func(*Options)) (*GetObjectResult, error) {
+	if request == nil {
+		return nil, NewErrParamNull("request")
+	}
+
+	var getRequest GetObjectRequest
+	copyRequest(&getRequest, request)
+
+	var (
+		firstResult *GetObjectResult
+		crcHash     hash.Hash64
+		prog        *progressTracker
+	)
+
+	if request.ProgressFn != nil {
+		prog = &progressTracker{pr: request.ProgressFn}
+	}
+
+	if c.hasFeature(FeatureEnableCRC64CheckDownload) && request.Range == nil {
+		crcHash = NewCRC64(0)
+	}
+
+	getFn := func(ctx context.Context, httpRange HTTPRange) (output *ReaderRangeGetOutput, err error) {
+		getRequest.Range = nil
+		getRequest.RangeBehavior = nil
+		rangeStr := httpRange.FormatHTTPRange()
+		if rangeStr != nil {
+			getRequest.Range = rangeStr
+			getRequest.RangeBehavior = Ptr("standard")
+		}
+
+		result, err := c.GetObject(ctx, &getRequest, optFns...)
+		if err != nil {
+			return nil, err
+		}
+
+		if firstResult == nil {
+			firstResult = result
+			if prog != nil {
+				if result.ContentRange != nil {
+					_, _, prog.total, _ = ParseContentRange(*result.ContentRange)
+				} else {
+					prog.total = result.ContentLength
+				}
+			}
+		}
+
+		return &ReaderRangeGetOutput{
+			Body:          result.Body,
+			ETag:          result.ETag,
+			ContentLength: result.ContentLength,
+			ContentRange:  result.ContentRange,
+		}, nil
+	}
+
+	var httpRange *HTTPRange
+	if request.Range != nil {
+		hr, err := ParseRange(ToString(request.Range))
+		if err != nil {
+			return nil, err
+		}
+		httpRange = hr
+	}
+
+	reader, err := NewRangeReader(ctx, getFn, httpRange, "")
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	file, err := os.Create(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var r io.Reader = reader
+	var writers []io.Writer
+	if crcHash != nil {
+		writers = append(writers, crcHash)
+	}
+	if prog != nil {
+		writers = append(writers, prog)
+	}
+	if len(writers) > 0 {
+		r = io.TeeReader(reader, io.MultiWriter(writers...))
+	}
+
+	var writer io.Writer = file
+	if writeBufferSize != nil && *writeBufferSize > 0 {
+		writer = bufio.NewWriterSize(file, *writeBufferSize)
+	}
+
+	_, err = io.Copy(writer, r)
+
+	if err == nil {
+		switch w := writer.(type) {
+		case *bufio.Writer:
+			err = w.Flush()
+		}
+	}
+
+	if err == nil && crcHash != nil && firstResult != nil {
+		err = checkResponseHeaderCRC64(fmt.Sprint(crcHash.Sum64()), firstResult.Headers)
+	}
+
+	return firstResult, err
 }

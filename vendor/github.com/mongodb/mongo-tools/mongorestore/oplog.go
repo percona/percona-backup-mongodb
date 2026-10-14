@@ -8,6 +8,7 @@ package mongorestore
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,7 +26,6 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	"golang.org/x/exp/slices"
 )
 
 type oplogContext struct {
@@ -56,6 +56,27 @@ var knownCommands = mapset.NewSet(
 )
 
 var errorTimestampBeforeLimit = fmt.Errorf("timestamp before limit")
+
+// upgradeDowngradeViewlessTimeseriesCmd is emitted by setFCV on 9.0+ deployments when a
+// timeseries collection is converted between its viewful and viewless forms. See SERVER-114505.
+const upgradeDowngradeViewlessTimeseriesCmd = "upgradeDowngradeViewlessTimeseries"
+
+// The conversion cannot be replayed: applying it requires the collection UUID, which mongorestore
+// strips unless --preserveUUID is set, and skipping it would leave the target collection in a form
+// that does not match the namespaces used by the oplog entries after the conversion. Rather than
+// silently producing a collection in an inconsistent state, we fail with a specific diagnostic.
+func newViewlessTimeseriesConversionError(op db.Oplog) error {
+	return fmt.Errorf(
+		"oplog entry %#q at %v cannot be replayed: this oplog window crosses a "+
+			"timeseries format conversion caused by an FCV change between 8.x and 9.0. "+
+			"Replaying across such a conversion is not supported. Restore an oplog range "+
+			"that does not span the FCV change, using --oplogLimit to stop before it if "+
+			"needed: %v",
+		upgradeDowngradeViewlessTimeseriesCmd,
+		op.Timestamp,
+		op,
+	)
+}
 
 // shouldIgnoreNamespace returns true if the given namespace should be ignored during applyOps.
 func shouldIgnoreNamespace(ns string) bool {
@@ -170,6 +191,11 @@ var ignoredCEntries = mapset.NewSet(
 	"startIndexBuild",
 	"abortIndexBuild",
 	"setMultikeyMetadata",
+	// The second phase of a replicated table drop (SERVER-118737). Its payload is a storage
+	// engine ident name that only means anything on the node that produced it, so it must be
+	// skipped rather than forwarded to the restore target. The logical drop is already carried
+	// by the first-phase drop/dropIndexes entry, which we do apply.
+	"dropIdent",
 )
 
 func (restore *MongoRestore) HandleOp(oplogCtx *oplogContext, op db.Oplog) error {
@@ -234,6 +260,10 @@ func (restore *MongoRestore) HandleNonTxnOp(oplogCtx *oplogContext, op db.Oplog)
 			return fmt.Errorf("Empty object value for op: %v", op)
 		}
 		cmdName := op.Object[0].Key
+
+		if cmdName == upgradeDowngradeViewlessTimeseriesCmd {
+			return newViewlessTimeseriesConversionError(op)
+		}
 
 		if !knownCommands.ContainsOne(cmdName) {
 			return fmt.Errorf("unknown oplog command name %v: %v", cmdName, op)
@@ -455,7 +485,10 @@ func (restore *MongoRestore) ApplyOp(session *mongo.Client, op db.Oplog) error {
 		},
 	)
 	if err := singleRes.Err(); err != nil {
-		return fmt.Errorf("applyOps: %v", err)
+		return fmt.Errorf(
+			"applyOps (note that --oplogReplay and --preserveUUID are not supported with sharded or disaggregated storage clusters): %v",
+			err,
+		)
 	}
 	res := bson.M{}
 	if err := singleRes.Decode(&res); err != nil {

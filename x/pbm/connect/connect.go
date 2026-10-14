@@ -446,16 +446,4 @@ type Client interface {
 
 	ConfigDatabase() *mongo.Database
 	AdminCommand(ctx context.Context, cmd bson.D, opts ...options.Lister[options.RunCmdOptions]) *mongo.SingleResult
-
-	LogCollection() *mongo.Collection
-	ConfigCollection() *mongo.Collection
-	LockCollection() *mongo.Collection
-	LockOpCollection() *mongo.Collection
-	BcpCollection() *mongo.Collection
-	RestoresCollection() *mongo.Collection
-	CmdStreamCollection() *mongo.Collection
-	PITRChunksCollection() *mongo.Collection
-	PITRCollection() *mongo.Collection
-	PBMOpLogCollection() *mongo.Collection
-	AgentsStatusCollection() *mongo.Collection
 }

@@ -53,11 +53,6 @@ const (
 	MaxBSONSize = 16 * 1024 * 1024 // 16MB - maximum BSON document size
 )
 
-// Default port for integration tests.
-const (
-	DefaultTestPort = "33333"
-)
-
 const (
 	// ignorable errors.
 	ErrDuplicateKeyCode         = 11000
@@ -182,7 +177,8 @@ func addClientCertFromBytes(cfg *tls.Config, data []byte, keyPasswd string) (str
 				certDecodedBlock = currentBlock.Bytes
 			}
 		} else if strings.HasSuffix(currentBlock.Type, "PRIVATE KEY") {
-			isEncrypted := x509.IsEncryptedPEMBlock(currentBlock) || strings.Contains(currentBlock.Type, "ENCRYPTED PRIVATE KEY")
+			isEncrypted := x509.IsEncryptedPEMBlock(currentBlock) ||
+				strings.Contains(currentBlock.Type, "ENCRYPTED PRIVATE KEY")
 			if isEncrypted {
 				if keyPasswd == "" {
 					return "", fmt.Errorf("no password provided to decrypt private key")
@@ -199,7 +195,10 @@ func addClientCertFromBytes(cfg *tls.Config, data []byte, keyPasswd string) (str
 					}
 				} else if strings.Contains(currentBlock.Type, "ENCRYPTED") {
 					// The pkcs8 package only handles the PKCS #5 v2.0 scheme.
-					decrypted, err := pkcs8.ParsePKCS8PrivateKey(currentBlock.Bytes, []byte(keyPasswd))
+					decrypted, err := pkcs8.ParsePKCS8PrivateKey(
+						currentBlock.Bytes,
+						[]byte(keyPasswd),
+					)
 					if err != nil {
 						return "", err
 					}
@@ -210,7 +209,11 @@ func addClientCertFromBytes(cfg *tls.Config, data []byte, keyPasswd string) (str
 				}
 
 				var encoded bytes.Buffer
-				if err := pem.Encode(&encoded, &pem.Block{Type: currentBlock.Type, Bytes: keyBytes}); err != nil {
+				err = pem.Encode(
+					&encoded,
+					&pem.Block{Type: currentBlock.Type, Bytes: keyBytes},
+				)
+				if err != nil {
 					return "", err
 				}
 				keyBlock := encoded.Bytes()
@@ -284,7 +287,7 @@ func addCACertsFromFile(cfg *tls.Config, file string) error {
 }
 
 // AKSCallback is a callback function that can be used to authenticate with Azure Kubernetes
-// Service. See https://github.com/pmeredit/atlas-azure-fed-auth for testing, speficially the go
+// Service. See https://github.com/pmeredit/atlas-azure-fed-auth for testing, specifically the go
 // test with AKS.
 func AKSCallback(
 	ctx context.Context,
@@ -485,7 +488,8 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 				} else if okApp || okClient || okTenant || okToken {
 					return nil, fmt.Errorf(
 						"must set all of AZURE_TENANT_ID, AZURE_APP_CLIENT, AZURE_IDENTITY_CLIENT_ID, " +
-							"and AZURE_FEDERATED_TOKEN_FILE for Azure Kubernetes Service")
+							"and AZURE_FEDERATED_TOKEN_FILE for Azure Kubernetes Service",
+					)
 				}
 			}
 			cred.Username = cs.Username
@@ -542,7 +546,12 @@ func configureClient(opts options.ToolOptions) (*mongo.Client, error) {
 				keyPasswd,
 			)
 		} else if cs.SSLCertificateFileSet || cs.SSLPrivateKeyFileSet {
-			x509Subject, err = addClientCertFromSeparateFiles(tlsConfig, cs.SSLCertificateFile, cs.SSLPrivateKeyFile, keyPasswd)
+			x509Subject, err = addClientCertFromSeparateFiles(
+				tlsConfig,
+				cs.SSLCertificateFile,
+				cs.SSLPrivateKeyFile,
+				keyPasswd,
+			)
 		}
 		if err != nil {
 			return nil, fmt.Errorf(

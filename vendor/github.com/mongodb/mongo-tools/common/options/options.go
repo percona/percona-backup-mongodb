@@ -14,6 +14,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,6 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
-	"golang.org/x/exp/slices"
 	"gopkg.in/yaml.v2"
 )
 
@@ -521,7 +521,9 @@ func (opts *ToolOptions) ParseArgs(args []string) ([]string, error) {
 		}
 	}
 
-	failpoint.ParseFailpoints(opts.Failpoints)
+	if err := failpoint.DefaultManager.Parse(opts.Failpoints); err != nil {
+		return []string{}, err
+	}
 
 	err = opts.NormalizeOptionsAndURI()
 	if err != nil {
@@ -852,7 +854,12 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 				}
 			}
 			if conflictingPorts {
-				return ConflictingArgsErrorFormat("port", strings.Join(cs.Hosts, ","), opts.Port, "--port")
+				return ConflictingArgsErrorFormat(
+					"port",
+					strings.Join(cs.Hosts, ","),
+					opts.Port,
+					"--port",
+				)
 			}
 			// remove trailing comma
 			opts.Host = opts.Host[:len(opts.Host)-1]
@@ -863,10 +870,10 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 		}
 
 		if opts.ServerSelectionTimeout != 0 && cs.ServerSelectionTimeoutSet {
-			if (time.Duration(opts.ServerSelectionTimeout) * time.Millisecond) != cs.ServerSelectionTimeout {
+			if (time.Duration(opts.ServerSelectionTimeout) * time.Second) != cs.ServerSelectionTimeout {
 				return ConflictingArgsErrorFormat(
 					"serverSelectionTimeout",
-					strconv.Itoa(int(cs.ServerSelectionTimeout/time.Millisecond)),
+					strconv.Itoa(int(cs.ServerSelectionTimeout/time.Second)),
 					strconv.Itoa(opts.ServerSelectionTimeout),
 					"--serverSelectionTimeout",
 				)
@@ -875,49 +882,49 @@ func (opts *ToolOptions) setOptionsFromURI(cs *connstring.ConnString) error {
 		if opts.ServerSelectionTimeout != 0 && !cs.ServerSelectionTimeoutSet {
 			cs.ServerSelectionTimeout = time.Duration(
 				opts.ServerSelectionTimeout,
-			) * time.Millisecond
+			) * time.Second
 			cs.ServerSelectionTimeoutSet = true
 		}
 		if opts.ServerSelectionTimeout == 0 && cs.ServerSelectionTimeoutSet {
 			opts.ServerSelectionTimeout = int(
-				cs.ServerSelectionTimeout / time.Millisecond,
+				cs.ServerSelectionTimeout / time.Second,
 			)
 		}
 
 		if opts.Timeout != 3 && cs.ConnectTimeoutSet {
-			if (time.Duration(opts.Timeout) * time.Millisecond) != cs.ConnectTimeout {
+			if (time.Duration(opts.Timeout) * time.Second) != cs.ConnectTimeout {
 				return ConflictingArgsErrorFormat(
 					"connectTimeout",
-					strconv.Itoa(int(cs.ConnectTimeout/time.Millisecond)),
+					strconv.Itoa(int(cs.ConnectTimeout/time.Second)),
 					strconv.Itoa(opts.Timeout),
 					"--dialTimeout",
 				)
 			}
 		}
 		if opts.Timeout != 3 && !cs.ConnectTimeoutSet {
-			cs.ConnectTimeout = time.Duration(opts.Timeout) * time.Millisecond
+			cs.ConnectTimeout = time.Duration(opts.Timeout) * time.Second
 			cs.ConnectTimeoutSet = true
 		}
 		if opts.Timeout == 3 && cs.ConnectTimeoutSet {
-			opts.Timeout = int(cs.ConnectTimeout / time.Millisecond)
+			opts.Timeout = int(cs.ConnectTimeout / time.Second)
 		}
 
 		if opts.SocketTimeout != 0 && cs.SocketTimeoutSet {
-			if (time.Duration(opts.SocketTimeout) * time.Millisecond) != cs.SocketTimeout {
+			if (time.Duration(opts.SocketTimeout) * time.Second) != cs.SocketTimeout {
 				return ConflictingArgsErrorFormat(
 					"SocketTimeout",
-					strconv.Itoa(int(cs.SocketTimeout/time.Millisecond)),
+					strconv.Itoa(int(cs.SocketTimeout/time.Second)),
 					strconv.Itoa(opts.SocketTimeout),
 					"--socketTimeout",
 				)
 			}
 		}
 		if opts.SocketTimeout != 0 && !cs.SocketTimeoutSet {
-			cs.SocketTimeout = time.Duration(opts.SocketTimeout) * time.Millisecond
+			cs.SocketTimeout = time.Duration(opts.SocketTimeout) * time.Second
 			cs.SocketTimeoutSet = true
 		}
 		if opts.SocketTimeout == 0 && cs.SocketTimeoutSet {
-			opts.SocketTimeout = int(cs.SocketTimeout / time.Millisecond)
+			opts.SocketTimeout = int(cs.SocketTimeout / time.Second)
 		}
 
 		if len(cs.Compressors) != 0 {
