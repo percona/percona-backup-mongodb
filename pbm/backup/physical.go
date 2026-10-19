@@ -213,6 +213,20 @@ func backupCursorName(s string) string {
 	return strings.NewReplacer("-", "", ":", "").Replace(s)
 }
 
+// isMissingIncrementalHistory recognizes backup-cursor ENOENT errors for the
+// missing-history diagnostic. MongoDB maps them to UnknownError in 8.0 and
+// NoSuchKey in 8.3; additional WiredTiger context can follow the message prefix.
+func (b *Backup) isMissingIncrementalHistory(err error) bool {
+	const (
+		noSuchKey    = 4
+		unknownError = 8
+	)
+	var cmdErr mongo.CommandError
+	return b.typ == defs.IncrementalBackup && errors.As(err, &cmdErr) &&
+		(cmdErr.Code == unknownError || cmdErr.Code == noSuchKey) &&
+		strings.HasPrefix(cmdErr.Message, "2: No such file or directory")
+}
+
 func (b *Backup) doPhysical(
 	ctx context.Context,
 	bcp *ctrl.BackupCmd,
@@ -287,7 +301,7 @@ func (b *Backup) doPhysical(
 
 	bcur, err := cursor.Data(ctx)
 	if err != nil {
-		if b.typ == defs.IncrementalBackup && strings.Contains(err.Error(), "(UnknownError) 2: No such file or directory") {
+		if b.isMissingIncrementalHistory(err) {
 			return errors.New("can't find incremental backup history." +
 				" Previous backup was made on another node." +
 				" You can make a new base incremental backup to start a new history.")
