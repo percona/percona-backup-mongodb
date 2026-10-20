@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
@@ -48,6 +49,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	logger, err := zap.NewProduction()
+	if err != nil {
+		fmt.Println("init logger:", err)
+		os.Exit(1)
+	}
+	defer func() { _ = logger.Sync() }()
+
 	rootCmd := rootCommand()
 	rootCmd.AddCommand(backupCommand())
 	rootCmd.AddCommand(listCommand())
@@ -58,6 +66,7 @@ func main() {
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Println(err)
+		_ = logger.Sync()
 		os.Exit(1)
 	}
 }
