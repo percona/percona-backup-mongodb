@@ -17,7 +17,11 @@ import (
 )
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
-func RunWorkerAgent(ctx context.Context, lg *zap.Logger, cfg *WorkerAgentConfig) error {
+func RunWorkerAgent(
+	ctx context.Context,
+	lg, etcdLg *zap.Logger,
+	cfg *WorkerAgentConfig,
+) error {
 	lg = lg.With(zap.String("agent", cfg.Name))
 
 	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
@@ -48,7 +52,7 @@ func RunWorkerAgent(ctx context.Context, lg *zap.Logger, cfg *WorkerAgentConfig)
 	statusSvc.SetPublisher(d)
 	go statusSvc.Run(ctx)
 
-	ccDB, err := etcd.NewClient(cfg.EtcdEndpoints)
+	ccDB, err := etcd.NewClient(etcdLg, cfg.EtcdEndpoints)
 	if err != nil {
 		return fmt.Errorf("connect control state: %w", err)
 	}

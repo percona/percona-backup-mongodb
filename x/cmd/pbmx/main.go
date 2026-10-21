@@ -44,10 +44,15 @@ const (
 	logLevelFlag   = "log-level"
 	logFormatFlag  = "log-format"
 
+	etcdLogOutputsFlag = "etcd-log-outputs"
+	etcdLogLevelFlag   = "etcd-log-level"
+	etcdLogFormatFlag  = "etcd-log-format"
+
 	defaultAPISrvPort    = 9595
 	defaultEtcdDataDir   = "pbmx.etcd"
 	defaultAPIEndpoints  = "localhost:9595"
 	defaultEtcdEndpoints = "localhost:2379"
+	defaultEtcdLogLevel  = "error"
 )
 
 func main() {
@@ -76,20 +81,26 @@ func rootCommand() *cobra.Command {
 			return loadConfig()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			lg, err := newLogger()
+			lg, err := newLogger(logOutputsFlag, logLevelFlag, logFormatFlag)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "init logger")
 			}
 			defer func() { _ = lg.Sync() }()
+
+			etcdLg, err := newLogger(etcdLogOutputsFlag, etcdLogLevelFlag, etcdLogFormatFlag)
+			if err != nil {
+				return errors.Wrap(err, "init etcd logger")
+			}
+			defer func() { _ = etcdLg.Sync() }()
 
 			// todo: remove once all components get lg passed in
 			defer zap.RedirectStdLog(lg)()
 
 			// worker is the default agent's role
 			if viper.GetBool(ctrlAgentFlag) {
-				return pbm.RunCtrlAgent(cmd.Context(), lg, ctrlAgentConfig())
+				return pbm.RunCtrlAgent(cmd.Context(), lg, etcdLg, ctrlAgentConfig())
 			}
-			return pbm.RunWorkerAgent(cmd.Context(), lg, workerAgentConfig())
+			return pbm.RunWorkerAgent(cmd.Context(), lg, etcdLg, workerAgentConfig())
 		},
 	}
 
@@ -129,17 +140,13 @@ func ctrlAgentConfig() *pbm.CtrlAgentConfig {
 	}
 }
 
-// newLogger builds the agent's logger from the log flags.
-func newLogger() (*zap.Logger, error) {
-	lg, err := log.New(log.Config{
-		Outputs: splitList(viper.GetString(logOutputsFlag)),
-		Level:   viper.GetString(logLevelFlag),
-		Format:  viper.GetString(logFormatFlag),
+// newLogger builds a logger from the given outputs, level and format flags.
+func newLogger(outputsFlag, levelFlag, formatFlag string) (*zap.Logger, error) {
+	return log.New(log.Config{
+		Outputs: splitList(viper.GetString(outputsFlag)),
+		Level:   viper.GetString(levelFlag),
+		Format:  viper.GetString(formatFlag),
 	})
-	if err != nil {
-		return nil, errors.Wrap(err, "init logger")
-	}
-	return lg, nil
 }
 
 func loadConfig() error {
@@ -220,6 +227,13 @@ func setRootFlags(rootCmd *cobra.Command) {
 		"log level: debug, info, warn or error")
 	persistentString(rootCmd, logFormatFlag, log.DefaultFormat,
 		"log format: json or console")
+
+	persistentString(rootCmd, etcdLogOutputsFlag, log.StderrOutput,
+		"comma-separated etcd log targets: stdout, stderr or a file path")
+	persistentString(rootCmd, etcdLogLevelFlag, defaultEtcdLogLevel,
+		"etcd log level: debug, info, warn or error")
+	persistentString(rootCmd, etcdLogFormatFlag, log.DefaultFormat,
+		"etcd log format: json or console")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and

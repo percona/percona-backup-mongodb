@@ -5,12 +5,13 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 )
 
 const dialTimeout = 5 * time.Second
 
 // NewClient connects to the ctrl-agents' etcd as a remote client.
-func NewClient(endpoints []string) (*clientv3.Client, error) {
+func NewClient(lg *zap.Logger, endpoints []string) (*clientv3.Client, error) {
 	if len(endpoints) == 0 {
 		return nil, fmt.Errorf("no etcd endpoints configured")
 	}
@@ -18,5 +19,6 @@ func NewClient(endpoints []string) (*clientv3.Client, error) {
 	return clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
 		DialTimeout: dialTimeout,
+		Logger:      lg.Named("etcd").Named("client"),
 	})
 }

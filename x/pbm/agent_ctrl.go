@@ -21,7 +21,11 @@ import (
 // RunCtrlAgent starts the control agent: it joins the PBM discovery cluster,
 // brings up embedded etcd, and blocks until ctx is canceled or the server
 // reports a fatal error.
-func RunCtrlAgent(ctx context.Context, lg *zap.Logger, cfg *CtrlAgentConfig) error {
+func RunCtrlAgent(
+	ctx context.Context,
+	lg, etcdLg *zap.Logger,
+	cfg *CtrlAgentConfig,
+) error {
 	lg = lg.With(zap.String("agent", cfg.Name))
 
 	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
@@ -49,7 +53,7 @@ func RunCtrlAgent(ctx context.Context, lg *zap.Logger, cfg *CtrlAgentConfig) err
 	}()
 	log.Printf("ctrl-agent: %s added to PBM cluster", cfg.Name)
 
-	etcdSrv, err := etcd.Start(ctx, cfg.Name, cfg.Config)
+	etcdSrv, err := etcd.Start(ctx, etcdLg, cfg.Name, cfg.Config)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil
