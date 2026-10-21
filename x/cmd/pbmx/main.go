@@ -54,9 +54,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// the logger is set up in the root's PersistentPreRunE, once the flags/agent's config are parsed
-	defer func() { _ = zap.L().Sync() }()
-
 	rootCmd := rootCommand()
 	rootCmd.AddCommand(backupCommand())
 	rootCmd.AddCommand(listCommand())
@@ -67,7 +64,6 @@ func main() {
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Println(err)
-		_ = zap.L().Sync()
 		os.Exit(1)
 	}
 }
@@ -77,17 +73,23 @@ func rootCommand() *cobra.Command {
 		Use:   "pbmx",
 		Short: "Percona Backup for MongoDB (experimental)",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if err := loadConfig(); err != nil {
-				return err
-			}
-			return setupLogger()
+			return loadConfig()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			lg, err := newLogger()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = lg.Sync() }()
+
+			// todo: remove once all components get lg passed in
+			defer zap.RedirectStdLog(lg)()
+
 			// worker is the default agent's role
 			if viper.GetBool(ctrlAgentFlag) {
-				return pbm.RunCtrlAgent(cmd.Context(), ctrlAgentConfig())
+				return pbm.RunCtrlAgent(cmd.Context(), lg, ctrlAgentConfig())
 			}
-			return pbm.RunWorkerAgent(cmd.Context(), workerAgentConfig())
+			return pbm.RunWorkerAgent(cmd.Context(), lg, workerAgentConfig())
 		},
 	}
 
@@ -127,20 +129,17 @@ func ctrlAgentConfig() *pbm.CtrlAgentConfig {
 	}
 }
 
-// setupLogger builds the logger from the log flags and installs it as the zap global logger.
-func setupLogger() error {
-	l, err := log.New(log.Config{
+// newLogger builds the agent's logger from the log flags.
+func newLogger() (*zap.Logger, error) {
+	lg, err := log.New(log.Config{
 		Outputs: splitList(viper.GetString(logOutputsFlag)),
 		Level:   viper.GetString(logLevelFlag),
 		Format:  viper.GetString(logFormatFlag),
 	})
 	if err != nil {
-		return errors.Wrap(err, "init logger")
+		return nil, errors.Wrap(err, "init logger")
 	}
-
-	zap.ReplaceGlobals(l)
-	zap.RedirectStdLog(l)
-	return nil
+	return lg, nil
 }
 
 func loadConfig() error {

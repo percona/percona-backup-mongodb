@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	"go.uber.org/zap"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
@@ -15,7 +17,9 @@ import (
 )
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
-func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
+func RunWorkerAgent(ctx context.Context, lg *zap.Logger, cfg *WorkerAgentConfig) error {
+	lg = lg.With(zap.String("agent", cfg.Name))
+
 	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
 	if err != nil {
 		return fmt.Errorf("connect local mongod: %w", err)
@@ -53,6 +57,7 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 	backupRepo := backup.New(ccDB)
 	configSvc := config.New(ccDB, backup.NewStorageResyncer(backupRepo))
 	physSvc := backup.NewPhysSvc(
+		lg,
 		ccDB,
 		backupRepo,
 		nodeConn,

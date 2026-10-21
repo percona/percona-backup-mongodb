@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 
+	"go.uber.org/zap"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/api"
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
@@ -19,7 +21,9 @@ import (
 // RunCtrlAgent starts the control agent: it joins the PBM discovery cluster,
 // brings up embedded etcd, and blocks until ctx is canceled or the server
 // reports a fatal error.
-func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
+func RunCtrlAgent(ctx context.Context, lg *zap.Logger, cfg *CtrlAgentConfig) error {
+	lg = lg.With(zap.String("agent", cfg.Name))
+
 	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
 	if err != nil {
 		return fmt.Errorf("connect local mongod: %w", err)
@@ -59,6 +63,7 @@ func RunCtrlAgent(ctx context.Context, cfg *CtrlAgentConfig) error {
 	storageResyncer := backup.NewStorageResyncer(backupRepo)
 	configSvc := config.New(etcdSrv.Client(), storageResyncer)
 	physSvc := backup.NewPhysSvc(
+		lg,
 		etcdSrv.Client(),
 		backupRepo,
 		nodeConn,
