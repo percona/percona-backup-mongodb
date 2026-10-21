@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,7 +14,9 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/x/pbm"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
+	"github.com/percona/percona-backup-mongodb/x/pbm/log"
 )
 
 const (
@@ -39,6 +40,10 @@ const (
 
 	apiEndpointsFlag = "api-endpoints"
 
+	logOutputsFlag = "log-outputs"
+	logLevelFlag   = "log-level"
+	logFormatFlag  = "log-format"
+
 	defaultAPISrvPort    = 9595
 	defaultEtcdDataDir   = "pbmx.etcd"
 	defaultAPIEndpoints  = "localhost:9595"
@@ -49,12 +54,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger, err := zap.NewProduction()
-	if err != nil {
-		fmt.Println("init logger:", err)
-		os.Exit(1)
-	}
-	defer func() { _ = logger.Sync() }()
+	// the logger is set up in the root's PersistentPreRunE, once the flags/agent's config are parsed
+	defer func() { _ = zap.L().Sync() }()
 
 	rootCmd := rootCommand()
 	rootCmd.AddCommand(backupCommand())
@@ -66,7 +67,7 @@ func main() {
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Println(err)
-		_ = logger.Sync()
+		_ = zap.L().Sync()
 		os.Exit(1)
 	}
 }
@@ -76,7 +77,10 @@ func rootCommand() *cobra.Command {
 		Use:   "pbmx",
 		Short: "Percona Backup for MongoDB (experimental)",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return loadConfig()
+			if err := loadConfig(); err != nil {
+				return err
+			}
+			return setupLogger()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// worker is the default agent's role
@@ -121,6 +125,22 @@ func ctrlAgentConfig() *pbm.CtrlAgentConfig {
 		},
 		APISrvPort: viper.GetInt(apiSrvPortFlag),
 	}
+}
+
+// setupLogger builds the logger from the log flags and installs it as the zap global logger.
+func setupLogger() error {
+	l, err := log.New(log.Config{
+		Outputs: splitList(viper.GetString(logOutputsFlag)),
+		Level:   viper.GetString(logLevelFlag),
+		Format:  viper.GetString(logFormatFlag),
+	})
+	if err != nil {
+		return errors.Wrap(err, "init logger")
+	}
+
+	zap.ReplaceGlobals(l)
+	zap.RedirectStdLog(l)
+	return nil
 }
 
 func loadConfig() error {
@@ -194,6 +214,13 @@ func setRootFlags(rootCmd *cobra.Command) {
 		"comma-separated ctrl-agent API endpoints (host:port) for client commands; "+
 			"the leader is resolved automatically",
 	)
+
+	persistentString(rootCmd, logOutputsFlag, log.StderrOutput,
+		"comma-separated log targets: stdout, stderr or a file path")
+	persistentString(rootCmd, logLevelFlag, log.DefaultLevel,
+		"log level: debug, info, warn or error")
+	persistentString(rootCmd, logFormatFlag, log.DefaultFormat,
+		"log format: json or console")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and
