@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"go.uber.org/zap/zaptest"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
@@ -26,7 +28,7 @@ var okHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 })
 
 func TestLeaderOnlyServesOnLeader(t *testing.T) {
-	h := leaderOnly(fakeRouter{leader: true}, okHandler)
+	h := leaderOnly(zaptest.NewLogger(t), fakeRouter{leader: true}, okHandler)
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/status", nil))
@@ -37,7 +39,7 @@ func TestLeaderOnlyServesOnLeader(t *testing.T) {
 }
 
 func TestLeaderOnlyRoutesToLeader(t *testing.T) {
-	h := leaderOnly(fakeRouter{
+	h := leaderOnly(zaptest.NewLogger(t), fakeRouter{
 		leader:   false,
 		memberOK: true,
 		member:   status.AgentInfo{Name: "ctrl-agent-0", Addr: "10.0.0.1", APIPort: 9000},
@@ -65,7 +67,7 @@ func TestLeaderOnlyNoLeaderYet(t *testing.T) {
 		"no apiport": {leader: false, memberOK: true, member: status.AgentInfo{Name: "ctrl-agent-0", Addr: "10.0.0.1"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := leaderOnly(fr, okHandler)
+			h := leaderOnly(zaptest.NewLogger(t), fr, okHandler)
 			rr := httptest.NewRecorder()
 			h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/status", nil))
 			if rr.Code != http.StatusServiceUnavailable {

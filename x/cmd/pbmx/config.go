@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -125,7 +124,7 @@ func readConfigFromFile(filename string) (*config.Config, error) {
 	}
 	defer func() {
 		if err := f.Close(); err != nil {
-			log.Printf("close %q: %v", filename, err)
+			fmt.Fprintf(os.Stderr, "close %q: %v\n", filename, err)
 		}
 	}()
 

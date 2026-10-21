@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/topo"
 )
@@ -68,6 +68,7 @@ type SubsysStatus struct {
 // StatusEvents received over the discovery layer). Periodically, it reads its own local mongod
 // and broadcasts the local AgentInfo to all other peers.
 type Svc struct {
+	lg   *zap.Logger
 	name string // this agent's serf node name
 	role Role
 
@@ -103,8 +104,9 @@ type LeaderChecker interface {
 // New creates a status service.
 // apiPort is this agent's web API port, advertised to peers, pass 0 for agents
 // with no API (workers).
-func New(name string, role Role, localMongo *mongo.Client, apiPort int) *Svc {
+func New(lg *zap.Logger, name string, role Role, localMongo *mongo.Client, apiPort int) *Svc {
 	return &Svc{
+		lg:      lg.Named("status"),
 		name:    name,
 		role:    role,
 		mc:      localMongo,
@@ -115,13 +117,13 @@ func New(name string, role Role, localMongo *mongo.Client, apiPort int) *Svc {
 }
 
 // NewForCtrlAgent creates a status service for ctrl-agent.
-func NewForCtrlAgent(name string, localMongo *mongo.Client, apiPort int) *Svc {
-	return New(name, RoleCtrl, localMongo, apiPort)
+func NewForCtrlAgent(lg *zap.Logger, name string, localMongo *mongo.Client, apiPort int) *Svc {
+	return New(lg, name, RoleCtrl, localMongo, apiPort)
 }
 
 // NewForWorkerAgent creates a status service for worker-agent.
-func NewForWorkerAgent(name string, localMongo *mongo.Client) *Svc {
-	return New(name, RoleWorker, localMongo, 0)
+func NewForWorkerAgent(lg *zap.Logger, name string, localMongo *mongo.Client) *Svc {
+	return New(lg, name, RoleWorker, localMongo, 0)
 }
 
 // DiscoSync exposes the receive channel as a send-only end for the discovery layer.
@@ -159,7 +161,7 @@ func (s *Svc) Run(ctx context.Context) {
 		case <-t.C:
 			s.refreshLocal(ctx)
 		case <-ctx.Done():
-			log.Printf("status: %s service stopped", s.name)
+			s.lg.Info("service stopped")
 			return
 		}
 	}
@@ -321,7 +323,7 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 
 	if s.pub != nil {
 		if err := s.pub.Publish(encodeTags(s.role, mi, isLeader, s.apiPort)); err != nil {
-			log.Printf("status: publish local info: %v", err)
+			s.lg.Warn("publish local info", zap.Error(err))
 		}
 	}
 }
@@ -354,7 +356,7 @@ func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
 }
 
 func (s *Svc) handleMongoErr(mongoErr error) {
-	log.Printf("status: read local mongo info: %v", mongoErr)
+	s.lg.Warn("read local mongo info", zap.Error(mongoErr))
 
 	s.mu.Lock()
 	self := s.mems[s.name]
@@ -365,7 +367,7 @@ func (s *Svc) handleMongoErr(mongoErr error) {
 
 	if s.pub != nil {
 		if err := s.pub.Publish(encodeTags(s.role, self.MongoInfo, false, s.apiPort)); err != nil {
-			log.Printf("status: publish local info: %v", err)
+			s.lg.Warn("publish local info", zap.Error(err))
 		}
 	}
 }

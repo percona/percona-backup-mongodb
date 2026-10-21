@@ -5,6 +5,8 @@ import (
 	"context"
 	"testing"
 
+	"go.uber.org/zap/zaptest"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
@@ -18,7 +20,7 @@ func TestSyncBackupList(t *testing.T) {
 		saveMeta(t, stg, testMeta("2026-04-12T09:00:00Z"))
 		saveMeta(t, stg, testMeta("2026-04-14T14:07:00Z"))
 
-		if err := syncBackupList(ctx, repo, storageRepo); err != nil {
+		if err := syncBackupList(ctx, zaptest.NewLogger(t), repo, storageRepo); err != nil {
 			t.Fatalf("syncBackupList: %v", err)
 		}
 
@@ -51,7 +53,7 @@ func TestSyncBackupList(t *testing.T) {
 		}
 		saveMeta(t, stg, testMeta("fresh"))
 
-		if err := syncBackupList(ctx, repo, storageRepo); err != nil {
+		if err := syncBackupList(ctx, zaptest.NewLogger(t), repo, storageRepo); err != nil {
 			t.Fatalf("syncBackupList: %v", err)
 		}
 
@@ -71,7 +73,7 @@ func TestSyncBackupList(t *testing.T) {
 			t.Fatalf("seed Insert: %v", err)
 		}
 
-		if err := syncBackupList(ctx, repo, storageRepo); err != nil {
+		if err := syncBackupList(ctx, zaptest.NewLogger(t), repo, storageRepo); err != nil {
 			t.Fatalf("syncBackupList: %v", err)
 		}
 

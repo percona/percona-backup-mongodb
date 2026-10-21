@@ -3,10 +3,10 @@ package task
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
@@ -21,14 +21,16 @@ type Backuper interface {
 // Inbox watches one agent's inbox and runs the items it finds there.
 // Every agent (worker and ctrl-agent) runs one.
 type Inbox struct {
+	lg      *zap.Logger
 	ccDB    *clientv3.Client
 	agentID string
 	backup  Backuper
 }
 
 // NewInbox creates the inbox watcher for the agent named agentID.
-func NewInbox(ccDB *clientv3.Client, agentID string, backup Backuper) *Inbox {
+func NewInbox(lg *zap.Logger, ccDB *clientv3.Client, agentID string, backup Backuper) *Inbox {
 	return &Inbox{
+		lg:      lg.Named("inbox"),
 		ccDB:    ccDB,
 		agentID: agentID,
 		backup:  backup,
@@ -39,7 +41,7 @@ func NewInbox(ccDB *clientv3.Client, agentID string, backup Backuper) *Inbox {
 func (i *Inbox) Run(ctx context.Context) error {
 	for {
 		if err := i.watch(ctx); err != nil {
-			log.Printf("inbox: %s: %v; retrying in %s", i.agentID, err, watchRetry)
+			i.lg.Warn("watch inbox, retrying", zap.Duration("retry_in", watchRetry), zap.Error(err))
 		}
 
 		select {
@@ -74,7 +76,7 @@ func (i *Inbox) watch(ctx context.Context) error {
 func (i *Inbox) handle(ctx context.Context, value []byte, lease clientv3.LeaseID) {
 	a := InboxItem{}
 	if err := json.Unmarshal(value, &a); err != nil {
-		log.Printf("inbox: %s: unmarshal item: %v", i.agentID, err)
+		i.lg.Error("unmarshal item", zap.Error(err))
 		return
 	}
 
@@ -82,7 +84,7 @@ func (i *Inbox) handle(ctx context.Context, value []byte, lease clientv3.LeaseID
 	case TaskBackup:
 		i.runBackup(ctx, a, lease)
 	default:
-		log.Printf("unknown taks type in inbox for %s: %q", i.agentID, a.Type)
+		i.lg.Warn("unknown task type", zap.String("type", string(a.Type)))
 	}
 }
 
@@ -91,27 +93,29 @@ func (i *Inbox) runBackup(ctx context.Context, a InboxItem, lease clientv3.Lease
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	i.keepAlive(ctx, lease)
+	lg := i.lg.With(zap.String("backup", a.Task), zap.Bool("leader", a.IsLeader))
 
-	log.Printf("inbox: %s: starting backup %s (leader: %t)", i.agentID, a.Task, a.IsLeader)
+	i.keepAlive(ctx, lg, lease)
+
+	lg.Info("starting backup")
 	if err := i.backup.Run(ctx, a.Task, a.GroupSize, a.IsLeader, a.Options); err != nil {
-		log.Printf("inbox: %s: backup error %s: %v", i.agentID, a.Task, err)
+		lg.Error("backup failed", zap.Error(err))
 		return
 	}
-	log.Printf("inbox: %s: backup %s is processed", i.agentID, a.Task)
+	lg.Info("backup is processed")
 }
 
 // keepAlive renews the task's lease until ctx is canceled. Every participant
 // renews the same lease, so the task survives as long as any of them works
 // on it.
-func (i *Inbox) keepAlive(ctx context.Context, lease clientv3.LeaseID) {
+func (i *Inbox) keepAlive(ctx context.Context, lg *zap.Logger, lease clientv3.LeaseID) {
 	if lease == clientv3.NoLease {
 		return
 	}
 
 	ch, err := i.ccDB.KeepAlive(ctx, lease)
 	if err != nil {
-		log.Printf("inbox: %s: keep alive lease %d: %v", i.agentID, lease, err)
+		lg.Error("keep alive lease", zap.Int64("lease", int64(lease)), zap.Error(err))
 		return
 	}
 

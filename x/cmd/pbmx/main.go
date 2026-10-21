@@ -104,9 +104,6 @@ func rootCommand() *cobra.Command {
 			}
 			defer func() { _ = serfLg.Sync() }()
 
-			// todo: remove once all components get lg passed in
-			defer zap.RedirectStdLog(lg)()
-
 			// worker is the default agent's role
 			if viper.GetBool(ctrlAgentFlag) {
 				return pbm.RunCtrlAgent(cmd.Context(), lg, etcdLg, serfLg, ctrlAgentConfig())

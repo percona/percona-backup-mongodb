@@ -3,7 +3,6 @@ package connect
 
 import (
 	"context"
-	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
@@ -299,12 +299,12 @@ func (l *clientImpl) Disconnect(ctx context.Context) error {
 
 // Disconnect tears down a raw mongo client. It is a no-op for a nil client, so it
 // is safe to defer unconditionally over an optional connection.
-func Disconnect(client *mongo.Client) {
+func Disconnect(lg *zap.Logger, client *mongo.Client) {
 	if client == nil {
 		return
 	}
 	if err := client.Disconnect(context.Background()); err != nil {
-		log.Printf("disconnect mongo client: %v", err)
+		lg.Warn("disconnect mongo client", zap.Error(err))
 	}
 }
 

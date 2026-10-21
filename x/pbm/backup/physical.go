@@ -312,7 +312,7 @@ func (s *PhysSvc) Run(
 	}
 
 	currOpts := bson.D{}
-	cursor := NewBackupCursor(s.nodeConn, currOpts)
+	cursor := NewBackupCursor(lg, s.nodeConn, currOpts)
 	defer cursor.Close()
 
 	bcur, err := cursor.Data(ctx)
@@ -336,7 +336,7 @@ func (s *PhysSvc) Run(
 	if err != nil {
 		return errors.Wrap(err, "get mongod options")
 	}
-	err = topo.ExpandSecOptsWithEncAtRest(ctx, s.nodeConn, mopts.Security)
+	err = topo.ExpandSecOptsWithEncAtRest(ctx, lg, s.nodeConn, mopts.Security)
 	if err != nil {
 		return errors.Wrap(err, "get encryption at rest options")
 	}

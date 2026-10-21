@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.uber.org/zap/zaptest"
+
 	fscfg "github.com/percona/percona-backup-mongodb/x/pbm/config/fs"
 	"github.com/percona/percona-backup-mongodb/x/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/x/pbm/storage"
@@ -149,7 +151,7 @@ func newTestStorageRepo(t *testing.T) (*StorageRepo, storage.Storage) {
 		t.Fatalf("create fs storage: %v", err)
 	}
 
-	return NewStorageRepo(stg), stg
+	return NewStorageRepo(zaptest.NewLogger(t), stg), stg
 }
 
 func saveMeta(t *testing.T, stg storage.Storage, meta *BackupMeta) {

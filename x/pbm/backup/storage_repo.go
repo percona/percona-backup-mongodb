@@ -2,7 +2,8 @@ package backup
 
 import (
 	"encoding/json"
-	"fmt"
+
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
@@ -11,12 +12,14 @@ import (
 
 // StorageRepo reads backup metadata from the backup storage.
 type StorageRepo struct {
+	lg  *zap.Logger
 	stg storage.Storage
 }
 
 // NewStorageRepo creates a storage-backed backup metadata reader.
-func NewStorageRepo(stg storage.Storage) *StorageRepo {
+func NewStorageRepo(lg *zap.Logger, stg storage.Storage) *StorageRepo {
 	return &StorageRepo{
+		lg:  lg,
 		stg: stg,
 	}
 }
@@ -33,14 +36,14 @@ func (r *StorageRepo) ListBackupMeta() ([]*BackupMeta, error) {
 	for _, b := range backupFiles {
 		meta, err := r.ReadMetadata(b.Name)
 		if err != nil {
-			fmt.Printf("read metadata of backup %s: %v\n", b.Name, err)
+			r.lg.Warn("read backup metadata", zap.String("file", b.Name), zap.Error(err))
 			continue
 		}
 
 		// todo: add file checks
 		// err = backup.CheckBackupDataFiles(ctx, stg, meta)
 		if err != nil {
-			fmt.Printf("skip snapshot %s: %v\n", meta.Name, err)
+			r.lg.Warn("skip snapshot", zap.String("backup", meta.Name), zap.Error(err))
 			meta.Status = StatusError
 			meta.Error = err.Error()
 		}

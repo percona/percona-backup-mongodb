@@ -13,6 +13,7 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap/zaptest"
 
 	tcetcd "github.com/testcontainers/testcontainers-go/modules/etcd"
 
@@ -66,7 +67,7 @@ func newTestHandler(t *testing.T) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	newConfigHandler(config.New(cli, noopResyncer{})).registerRoutes(mux)
+	newConfigHandler(zaptest.NewLogger(t), config.New(cli, noopResyncer{})).registerRoutes(mux)
 	return mux
 }
 

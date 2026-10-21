@@ -3,7 +3,6 @@ package pbm
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"go.uber.org/zap"
 
@@ -28,7 +27,7 @@ func RunWorkerAgent(
 	if err != nil {
 		return fmt.Errorf("connect local mongod: %w", err)
 	}
-	defer connect.Disconnect(nodeConn)
+	defer connect.Disconnect(lg, nodeConn)
 
 	leadConn, err := connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
 	if err != nil {
@@ -36,18 +35,18 @@ func RunWorkerAgent(
 	}
 	defer leadConn.Disconnect(ctx)
 
-	statusSvc := status.NewForWorkerAgent(cfg.Name, nodeConn)
+	statusSvc := status.NewForWorkerAgent(lg, cfg.Name, nodeConn)
 
-	d, err := disco.Start(ctx, serfLg, cfg.Name, cfg.Config, statusSvc.DiscoSync())
+	d, err := disco.Start(ctx, lg, serfLg, cfg.Name, cfg.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
 	defer func() {
 		if err := d.Stop(); err != nil {
-			log.Printf("serf shutdown: %v", err)
+			lg.Warn("serf shutdown", zap.Error(err))
 		}
 	}()
-	log.Printf("agent: %s added to PBM cluster", cfg.Name)
+	lg.Info("added to PBM cluster")
 
 	statusSvc.SetPublisher(d)
 	go statusSvc.Run(ctx)
@@ -59,7 +58,7 @@ func RunWorkerAgent(
 	defer ccDB.Close()
 
 	backupRepo := backup.New(ccDB)
-	configSvc := config.New(ccDB, backup.NewStorageResyncer(backupRepo))
+	configSvc := config.New(ccDB, backup.NewStorageResyncer(lg, backupRepo))
 	physSvc := backup.NewPhysSvc(
 		lg,
 		ccDB,
@@ -69,18 +68,18 @@ func RunWorkerAgent(
 		statusSvc,
 		configSvc,
 		cfg.Name,
-		task.NewComposer(ccDB, task.NewScheduler(statusSvc, configSvc)),
+		task.NewComposer(lg, ccDB, task.NewScheduler(statusSvc, configSvc)),
 	)
-	inbox := task.NewInbox(ccDB, cfg.Name, physSvc)
+	inbox := task.NewInbox(lg, ccDB, cfg.Name, physSvc)
 	go func() {
-		log.Printf("run inbox for agent: %s", cfg.Name)
+		lg.Info("run inbox")
 		if err := inbox.Run(ctx); err != nil {
-			log.Printf("agent: task inbox: %v", err)
+			lg.Info("task inbox stopped", zap.Error(err))
 		}
 	}()
 
 	<-ctx.Done()
 
-	log.Printf("agent: %s is shutdown", cfg.Name)
+	lg.Info("agent is shutdown")
 	return nil
 }

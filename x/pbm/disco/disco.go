@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/hashicorp/serf/serf"
@@ -29,6 +28,7 @@ type Config struct {
 
 // Discovery runs serf node and its membership event loop.
 type Discovery struct {
+	lg   *zap.Logger
 	serf *serf.Serf
 	sync chan<- status.StatusEvent
 	done chan struct{}
@@ -39,7 +39,7 @@ type Discovery struct {
 // channel for the status service. The caller owns shutdown via Stop().
 func Start(
 	ctx context.Context,
-	serfLg *zap.Logger,
+	lg, serfLg *zap.Logger,
 	name string,
 	cfg Config,
 	sync chan<- status.StatusEvent,
@@ -64,7 +64,7 @@ func Start(
 		return nil, fmt.Errorf("create serf: %w", err)
 	}
 
-	d := &Discovery{serf: s, sync: sync, done: make(chan struct{})}
+	d := &Discovery{lg: lg.Named("discovery"), serf: s, sync: sync, done: make(chan struct{})}
 	go d.eventLoop(ctx, eventCh)
 
 	if len(cfg.SerfJoin) > 0 {
@@ -82,10 +82,10 @@ func (d *Discovery) retryJoin(ctx context.Context, peers []string) {
 
 	for {
 		if _, err := d.serf.Join(peers, true); err != nil {
-			log.Printf("serf: join attempt failed (%v); retrying in %s", err, serfJoinInterval)
+			d.lg.Warn("join attempt failed, retrying", zap.Duration("retry_in", serfJoinInterval), zap.Error(err))
 		}
 		if n := len(d.serf.Members()); n > 1 {
-			log.Printf("serf: clustered with %d members", n)
+			d.lg.Info("clustered", zap.Int("members", n))
 			return
 		}
 
@@ -132,8 +132,11 @@ func (d *Discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) 
 	}
 
 	for _, m := range me.Members {
-		log.Printf("serf membership: %s name=%s addr=%s:%d",
-			me.Type, m.Name, m.Addr, m.Port)
+		d.lg.Debug("membership",
+			zap.Stringer("event", me.Type),
+			zap.String("member", m.Name),
+			zap.Stringer("addr", m.Addr),
+			zap.Uint16("port", m.Port))
 
 		ev := status.StatusEvent{
 			Kind:  kind,

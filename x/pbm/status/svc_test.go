@@ -3,10 +3,12 @@ package status
 import (
 	"errors"
 	"testing"
+
+	"go.uber.org/zap/zaptest"
 )
 
 func TestApplyCachesAndRemovesMembers(t *testing.T) {
-	s := New("self", RoleWorker, nil, 0)
+	s := New(zaptest.NewLogger(t), "self", RoleWorker, nil, 0)
 
 	s.apply(StatusEvent{
 		Kind:    MemberUp,
@@ -63,7 +65,7 @@ func TestApplyCachesAndRemovesMembers(t *testing.T) {
 }
 
 func TestGetMembersForRSAndSorting(t *testing.T) {
-	s := New("self", RoleWorker, nil, 0)
+	s := New(zaptest.NewLogger(t), "self", RoleWorker, nil, 0)
 	s.apply(StatusEvent{
 		Kind: MemberUp, Name: "rs1-0", Alive: true,
 		Payload: encodeTags(RoleWorker, MongoInfo{SetName: "rs1"}, false, 0),
@@ -105,7 +107,7 @@ type fakeLeadership bool
 func (f fakeLeadership) IsLeader() bool { return bool(f) }
 
 func TestRefreshLocalCachesSelfAndPublishes(t *testing.T) {
-	s := New("self", RoleCtrl, nil, 0)
+	s := New(zaptest.NewLogger(t), "self", RoleCtrl, nil, 0)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 
@@ -125,7 +127,7 @@ func TestRefreshLocalCachesSelfAndPublishes(t *testing.T) {
 
 func TestLeadershipPropagates(t *testing.T) {
 	// A ctrl agent that holds leadership caches and advertises the leader bit.
-	s := New("self", RoleCtrl, nil, 0)
+	s := New(zaptest.NewLogger(t), "self", RoleCtrl, nil, 0)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 	s.SetLeaderChecker(fakeLeadership(true))
@@ -141,7 +143,7 @@ func TestLeadershipPropagates(t *testing.T) {
 	}
 
 	// A peer decoding that broadcast sees the leader.
-	peer := New("peer", RoleWorker, nil, 0)
+	peer := New(zaptest.NewLogger(t), "peer", RoleWorker, nil, 0)
 	peer.apply(StatusEvent{Kind: MemberUp, Name: "self", Alive: true, Payload: fp.last})
 	if m, _ := peer.GetMember("self"); !m.IsLeader {
 		t.Fatalf("peer should observe leader: %+v", m)
@@ -150,7 +152,7 @@ func TestLeadershipPropagates(t *testing.T) {
 
 func TestSelfAdvertisesAPIPort(t *testing.T) {
 	// A ctrl agent advertises its constructor-injected API port.
-	s := New("self", RoleCtrl, nil, 9000)
+	s := New(zaptest.NewLogger(t), "self", RoleCtrl, nil, 9000)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 
@@ -165,7 +167,7 @@ func TestSelfAdvertisesAPIPort(t *testing.T) {
 }
 
 func TestLeaderLookupAndAPIPort(t *testing.T) {
-	s := New("self", RoleWorker, nil, 0)
+	s := New(zaptest.NewLogger(t), "self", RoleWorker, nil, 0)
 
 	// A ctrl leader advertises its API port; the bit round-trips through tags.
 	s.apply(StatusEvent{
@@ -182,14 +184,14 @@ func TestLeaderLookupAndAPIPort(t *testing.T) {
 	}
 
 	// With no advertised leader, Leader reports none.
-	if _, ok := New("self", RoleWorker, nil, 0).Leader(); ok {
+	if _, ok := New(zaptest.NewLogger(t), "self", RoleWorker, nil, 0).Leader(); ok {
 		t.Fatal("expected no leader when none advertised")
 	}
 }
 
 func TestWorkerNeverLeader(t *testing.T) {
 	// Workers carry no probe; leaving leadership unset must keep them followers.
-	s := New("self", RoleWorker, nil, 0)
+	s := New(zaptest.NewLogger(t), "self", RoleWorker, nil, 0)
 	fp := &fakePublisher{}
 	s.SetPublisher(fp)
 
