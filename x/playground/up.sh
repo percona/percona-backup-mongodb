@@ -19,5 +19,8 @@ if [[ ${SKIP_CLUSTER:-} != "1" ]]; then
     (cd ../docker/sharded && ./init.sh)
 fi
 
+# agents append to their log files, so start each run with fresh ones
+[[ ${KEEP_LOGS:-} == "1" ]] || rm -rf ./tmp/logs
+
 echo ">> starting agents (goreman)..."
 exec goreman start
