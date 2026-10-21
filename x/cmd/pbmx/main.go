@@ -48,11 +48,16 @@ const (
 	etcdLogLevelFlag   = "etcd-log-level"
 	etcdLogFormatFlag  = "etcd-log-format"
 
+	serfLogOutputsFlag = "serf-log-outputs"
+	serfLogLevelFlag   = "serf-log-level"
+	serfLogFormatFlag  = "serf-log-format"
+
 	defaultAPISrvPort    = 9595
 	defaultEtcdDataDir   = "pbmx.etcd"
 	defaultAPIEndpoints  = "localhost:9595"
 	defaultEtcdEndpoints = "localhost:2379"
 	defaultEtcdLogLevel  = "error"
+	defaultSerfLogLevel  = "error"
 )
 
 func main() {
@@ -93,14 +98,20 @@ func rootCommand() *cobra.Command {
 			}
 			defer func() { _ = etcdLg.Sync() }()
 
+			serfLg, err := newLogger(serfLogOutputsFlag, serfLogLevelFlag, serfLogFormatFlag)
+			if err != nil {
+				return errors.Wrap(err, "init serf logger")
+			}
+			defer func() { _ = serfLg.Sync() }()
+
 			// todo: remove once all components get lg passed in
 			defer zap.RedirectStdLog(lg)()
 
 			// worker is the default agent's role
 			if viper.GetBool(ctrlAgentFlag) {
-				return pbm.RunCtrlAgent(cmd.Context(), lg, etcdLg, ctrlAgentConfig())
+				return pbm.RunCtrlAgent(cmd.Context(), lg, etcdLg, serfLg, ctrlAgentConfig())
 			}
-			return pbm.RunWorkerAgent(cmd.Context(), lg, etcdLg, workerAgentConfig())
+			return pbm.RunWorkerAgent(cmd.Context(), lg, etcdLg, serfLg, workerAgentConfig())
 		},
 	}
 
@@ -234,6 +245,13 @@ func setRootFlags(rootCmd *cobra.Command) {
 		"etcd log level: debug, info, warn or error")
 	persistentString(rootCmd, etcdLogFormatFlag, log.DefaultFormat,
 		"etcd log format: json or console")
+
+	persistentString(rootCmd, serfLogOutputsFlag, log.StderrOutput,
+		"comma-separated serf log targets: stdout, stderr or a file path")
+	persistentString(rootCmd, serfLogLevelFlag, defaultSerfLogLevel,
+		"serf log level: debug, info, warn or error")
+	persistentString(rootCmd, serfLogFormatFlag, log.DefaultFormat,
+		"serf log format: json or console")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and

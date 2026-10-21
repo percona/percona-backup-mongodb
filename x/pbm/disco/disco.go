@@ -8,10 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/hashicorp/serf/serf"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
@@ -39,6 +39,7 @@ type Discovery struct {
 // channel for the status service. The caller owns shutdown via Stop().
 func Start(
 	ctx context.Context,
+	serfLg *zap.Logger,
 	name string,
 	cfg Config,
 	sync chan<- status.StatusEvent,
@@ -54,7 +55,9 @@ func Start(
 	if cfg.SerfPort != 0 {
 		sc.MemberlistConfig.BindPort = cfg.SerfPort
 	}
-	sc.Logger = log.New(os.Stdout, "serf ", log.LstdFlags) // todo
+	serfStdLog := newSerfStdLog(serfLg.Named("serf"))
+	sc.Logger = serfStdLog
+	sc.MemberlistConfig.Logger = serfStdLog
 
 	s, err := serf.Create(sc)
 	if err != nil {

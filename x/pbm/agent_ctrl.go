@@ -23,7 +23,7 @@ import (
 // reports a fatal error.
 func RunCtrlAgent(
 	ctx context.Context,
-	lg, etcdLg *zap.Logger,
+	lg, etcdLg, serfLg *zap.Logger,
 	cfg *CtrlAgentConfig,
 ) error {
 	lg = lg.With(zap.String("agent", cfg.Name))
@@ -42,7 +42,7 @@ func RunCtrlAgent(
 
 	statusSvc := status.NewForCtrlAgent(cfg.Name, nodeConn, cfg.APISrvPort)
 
-	d, err := disco.Start(ctx, cfg.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
+	d, err := disco.Start(ctx, serfLg, cfg.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}

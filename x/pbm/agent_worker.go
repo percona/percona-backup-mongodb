@@ -19,7 +19,7 @@ import (
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
 func RunWorkerAgent(
 	ctx context.Context,
-	lg, etcdLg *zap.Logger,
+	lg, etcdLg, serfLg *zap.Logger,
 	cfg *WorkerAgentConfig,
 ) error {
 	lg = lg.With(zap.String("agent", cfg.Name))
@@ -38,7 +38,7 @@ func RunWorkerAgent(
 
 	statusSvc := status.NewForWorkerAgent(cfg.Name, nodeConn)
 
-	d, err := disco.Start(ctx, cfg.Name, cfg.Config, statusSvc.DiscoSync())
+	d, err := disco.Start(ctx, serfLg, cfg.Name, cfg.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
