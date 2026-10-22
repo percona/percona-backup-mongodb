@@ -4,9 +4,10 @@ package log
 import (
 	"slices"
 
-	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 // Supported log outputs. Any other output is treated as a file path.
