@@ -174,6 +174,10 @@ type RestoreCmd struct {
 	ExtConf  topo.ExternOpts `bson:"extConf"`
 	ExtTS    bson.Timestamp  `bson:"extTS"`
 	Exit     bool            `bson:"exit"`
+
+	// NativePITR loads PITR chunks up to ExtTS into the restored oplog and
+	// replays them with mongod's startup recovery (external restore only).
+	NativePITR bool `bson:"nativePITR,omitempty"`
 }
 
 func (r RestoreCmd) String() string {
