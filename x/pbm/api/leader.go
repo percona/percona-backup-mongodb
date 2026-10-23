@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"go.uber.org/zap"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
@@ -30,7 +32,7 @@ type leaderRouter interface {
 // Non-leader replies 421 Misdirected Request with the leader's routing
 // info. While leader is unknown, it replies 503.
 // If agent is leader, request is processed with appropriate handler.
-func leaderOnly(svc leaderRouter, next http.Handler) http.Handler {
+func leaderOnly(lg *zap.Logger, svc leaderRouter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if svc.IsLeader() {
 			next.ServeHTTP(w, r)
@@ -43,7 +45,7 @@ func leaderOnly(svc leaderRouter, next http.Handler) http.Handler {
 			return
 		}
 
-		writeJSON(w, http.StatusMisdirectedRequest, RoutingResponse{
+		writeJSON(lg, w, http.StatusMisdirectedRequest, RoutingResponse{
 			Leader: LeaderRef{
 				Name:    leader.Name,
 				Address: net.JoinHostPort(leader.Addr, strconv.Itoa(leader.APIPort)),

@@ -5,18 +5,21 @@ import (
 	"io"
 	"net/http"
 
+	"go.uber.org/zap"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 // backupHandler serves PBM backup endpoints.
 type backupHandler struct {
+	lg      *zap.Logger
 	repo    *backup.Repo
 	physSvc *backup.PhysSvc
 }
 
-func newBackupHandler(repo *backup.Repo, physSvc *backup.PhysSvc) *backupHandler {
-	return &backupHandler{repo: repo, physSvc: physSvc}
+func newBackupHandler(lg *zap.Logger, repo *backup.Repo, physSvc *backup.PhysSvc) *backupHandler {
+	return &backupHandler{lg: lg, repo: repo, physSvc: physSvc}
 }
 
 func (h *backupHandler) registerRoutes(mux *http.ServeMux) {
@@ -30,7 +33,7 @@ func (h *backupHandler) handleGetAll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, metas)
+	writeJSON(h.lg, w, http.StatusOK, metas)
 }
 
 func (h *backupHandler) handleBackup(w http.ResponseWriter, r *http.Request) {
@@ -49,5 +52,5 @@ func (h *backupHandler) handleBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, t)
+	writeJSON(h.lg, w, http.StatusAccepted, t)
 }

@@ -6,10 +6,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/x/pbm/defs"
@@ -169,7 +169,7 @@ func IsInitialized(ctx context.Context, stg Storage) (bool, error) {
 // It gets the size (stat) and reads the content of the PBM init file.
 //
 // ErrUninitialized is returned if there is no init file.
-func HasReadAccess(ctx context.Context, stg Storage) error {
+func HasReadAccess(ctx context.Context, lg *zap.Logger, stg Storage) error {
 	stat, err := stg.FileStat(defs.StorInitFile)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
@@ -186,7 +186,7 @@ func HasReadAccess(ctx context.Context, stg Storage) error {
 	defer func() {
 		err := r.Close()
 		if err != nil {
-			log.Printf("HasReadAccess(): close file: %v", err)
+			lg.Warn("close storage init file", zap.Error(err))
 		}
 	}()
 

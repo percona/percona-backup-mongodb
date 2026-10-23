@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/storage"
@@ -46,6 +46,7 @@ type BackupCursorData struct {
 }
 
 type BackupCursor struct {
+	lg    *zap.Logger
 	id    UUID
 	conn  *mongo.Client
 	opts  bson.D
@@ -54,8 +55,9 @@ type BackupCursor struct {
 	CustomThisID string
 }
 
-func NewBackupCursor(conn *mongo.Client, opts bson.D) *BackupCursor {
+func NewBackupCursor(lg *zap.Logger, conn *mongo.Client, opts bson.D) *BackupCursor {
 	return &BackupCursor{
+		lg:   lg,
 		conn: conn,
 		opts: opts,
 	}
@@ -94,10 +96,11 @@ func (bc *BackupCursor) create(ctx context.Context, retry int) (*mongo.Cursor, e
 			if se.HasErrorCode(openConflictWithCheckpointErrCode) {
 				// {code: 50915,name: BackupCursorOpenConflictWithCheckpoint, categories: [RetriableError]}
 				// https://github.com/percona/percona-server-mongodb/blob/psmdb-6.0.6-5/src/mongo/base/error_codes.yml#L526
-				log.Printf("a checkpoint took place, retrying: %d/%d", i+1, retry)
+				bc.lg.Warn("a checkpoint took place, retrying", zap.Int("attempt", i+1), zap.Int("max", retry))
 				retryableErr = true
 			} else if se.HasErrorCode(oplogRolledOverErrCode) {
-				log.Printf("oplog rolled over while establishing the backup cursor, retrying: %d/%d", i+1, retry)
+				bc.lg.Warn("oplog rolled over while establishing the backup cursor, retrying",
+					zap.Int("attempt", i+1), zap.Int("max", retry))
 				retryableErr = true
 			}
 
@@ -165,8 +168,9 @@ func (bc *BackupCursor) Data(ctx context.Context) (_ *BackupCursorData, err erro
 		for {
 			select {
 			case <-bc.close:
-				log.Printf("stop cursor polling: %v, cursor err: %v",
-					cur.Close(context.Background()), cur.Err()) // `ctx` is already canceled, so use a background context
+				bc.lg.Info("stop cursor polling",
+					zap.NamedError("close_err", cur.Close(context.Background())), // `ctx` is already canceled, so use a background context
+					zap.NamedError("cursor_err", cur.Err()))
 				return
 			case <-tk.C:
 				cur.TryNext(ctx)

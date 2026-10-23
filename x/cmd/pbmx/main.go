@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,10 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
+	"github.com/percona/percona-backup-mongodb/x/pbm/log"
 )
 
 const (
@@ -38,10 +40,24 @@ const (
 
 	apiEndpointsFlag = "api-endpoints"
 
+	logOutputsFlag = "log-outputs"
+	logLevelFlag   = "log-level"
+	logFormatFlag  = "log-format"
+
+	etcdLogOutputsFlag = "etcd-log-outputs"
+	etcdLogLevelFlag   = "etcd-log-level"
+	etcdLogFormatFlag  = "etcd-log-format"
+
+	serfLogOutputsFlag = "serf-log-outputs"
+	serfLogLevelFlag   = "serf-log-level"
+	serfLogFormatFlag  = "serf-log-format"
+
 	defaultAPISrvPort    = 9595
 	defaultEtcdDataDir   = "pbmx.etcd"
 	defaultAPIEndpoints  = "localhost:9595"
 	defaultEtcdEndpoints = "localhost:2379"
+	defaultEtcdLogLevel  = "error"
+	defaultSerfLogLevel  = "error"
 )
 
 func main() {
@@ -70,11 +86,29 @@ func rootCommand() *cobra.Command {
 			return loadConfig()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			lg, err := newLogger(logOutputsFlag, logLevelFlag, logFormatFlag)
+			if err != nil {
+				return errors.Wrap(err, "init logger")
+			}
+			defer func() { _ = lg.Sync() }()
+
+			etcdLg, err := newLogger(etcdLogOutputsFlag, etcdLogLevelFlag, etcdLogFormatFlag)
+			if err != nil {
+				return errors.Wrap(err, "init etcd logger")
+			}
+			defer func() { _ = etcdLg.Sync() }()
+
+			serfLg, err := newLogger(serfLogOutputsFlag, serfLogLevelFlag, serfLogFormatFlag)
+			if err != nil {
+				return errors.Wrap(err, "init serf logger")
+			}
+			defer func() { _ = serfLg.Sync() }()
+
 			// worker is the default agent's role
 			if viper.GetBool(ctrlAgentFlag) {
-				return pbm.RunCtrlAgent(cmd.Context(), ctrlAgentConfig())
+				return pbm.RunCtrlAgent(cmd.Context(), lg, etcdLg, serfLg, ctrlAgentConfig())
 			}
-			return pbm.RunWorkerAgent(cmd.Context(), workerAgentConfig())
+			return pbm.RunWorkerAgent(cmd.Context(), lg, etcdLg, serfLg, workerAgentConfig())
 		},
 	}
 
@@ -112,6 +146,15 @@ func ctrlAgentConfig() *pbm.CtrlAgentConfig {
 		},
 		APISrvPort: viper.GetInt(apiSrvPortFlag),
 	}
+}
+
+// newLogger builds a logger from the given outputs, level and format flags.
+func newLogger(outputsFlag, levelFlag, formatFlag string) (*zap.Logger, error) {
+	return log.New(log.Config{
+		Outputs: splitList(viper.GetString(outputsFlag)),
+		Level:   viper.GetString(levelFlag),
+		Format:  viper.GetString(formatFlag),
+	})
 }
 
 func loadConfig() error {
@@ -185,6 +228,27 @@ func setRootFlags(rootCmd *cobra.Command) {
 		"comma-separated ctrl-agent API endpoints (host:port) for client commands; "+
 			"the leader is resolved automatically",
 	)
+
+	persistentString(rootCmd, logOutputsFlag, log.StderrOutput,
+		"comma-separated log targets: stdout, stderr or a file path")
+	persistentString(rootCmd, logLevelFlag, log.DefaultLevel,
+		"log level: debug, info, warn or error")
+	persistentString(rootCmd, logFormatFlag, log.DefaultFormat,
+		"log format: json or console")
+
+	persistentString(rootCmd, etcdLogOutputsFlag, log.StderrOutput,
+		"comma-separated etcd log targets: stdout, stderr or a file path")
+	persistentString(rootCmd, etcdLogLevelFlag, defaultEtcdLogLevel,
+		"etcd log level: debug, info, warn or error")
+	persistentString(rootCmd, etcdLogFormatFlag, log.DefaultFormat,
+		"etcd log format: json or console")
+
+	persistentString(rootCmd, serfLogOutputsFlag, log.StderrOutput,
+		"comma-separated serf log targets: stdout, stderr or a file path")
+	persistentString(rootCmd, serfLogLevelFlag, defaultSerfLogLevel,
+		"serf log level: debug, info, warn or error")
+	persistentString(rootCmd, serfLogFormatFlag, log.DefaultFormat,
+		"serf log format: json or console")
 }
 
 // persistentString registers a persistent string flag, binds it to viper, and

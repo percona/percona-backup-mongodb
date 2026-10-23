@@ -4,17 +4,20 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"go.uber.org/zap"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 // configHandler serves PBM config endpoints.
 type configHandler struct {
+	lg  *zap.Logger
 	svc *config.Svc
 }
 
-func newConfigHandler(svc *config.Svc) *configHandler {
-	return &configHandler{svc: svc}
+func newConfigHandler(lg *zap.Logger, svc *config.Svc) *configHandler {
+	return &configHandler{lg: lg, svc: svc}
 }
 
 func (h *configHandler) registerRoutes(mux *http.ServeMux) {
@@ -31,7 +34,7 @@ func (h *configHandler) handleGetAll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, cfgs)
+	writeJSON(h.lg, w, http.StatusOK, cfgs)
 }
 
 func (h *configHandler) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +47,7 @@ func (h *configHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, cfg)
+	writeJSON(h.lg, w, http.StatusOK, cfg)
 }
 
 func (h *configHandler) handleUpsert(w http.ResponseWriter, r *http.Request) {

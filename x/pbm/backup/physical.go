@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"time"
@@ -13,6 +12,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/compress"
@@ -110,6 +110,7 @@ const (
 // - on the web API server, it starts the backup cluster-wide,
 // - every agent involved in backup executes backup core logic from Run method.
 type PhysSvc struct {
+	lg      *zap.Logger
 	ccDB    *clientv3.Client
 	repo    *Repo
 	agentID string
@@ -124,6 +125,7 @@ type PhysSvc struct {
 
 // NewPhysSvc creates the physical backup service.
 func NewPhysSvc(
+	lg *zap.Logger,
 	ccDB *clientv3.Client,
 	repo *Repo,
 	nodeConn *mongo.Client,
@@ -134,6 +136,7 @@ func NewPhysSvc(
 	composer *task.Composer,
 ) *PhysSvc {
 	return &PhysSvc{
+		lg:        lg.Named("backup"),
 		ccDB:      ccDB,
 		repo:      repo,
 		nodeConn:  nodeConn,
@@ -163,7 +166,8 @@ func (s *PhysSvc) Run(
 	isLeader bool,
 	rawOpts json.RawMessage,
 ) (err error) {
-	log.Printf("running backup %s; agent: %s; leader: %t", name, s.agentID, isLeader)
+	lg := s.lg.With(zap.String("backup", name), zap.Bool("leader", isLeader))
+	lg.Info("running backup")
 	startTime := time.Now().UTC()
 
 	opts := Options{}
@@ -195,11 +199,11 @@ func (s *PhysSvc) Run(
 	}
 	defer func() {
 		if err := b.Close(); err != nil {
-			log.Printf("backup %s: %s: leave phase barrier: %v", name, s.agentID, err)
+			lg.Warn("leave phase barrier", zap.Error(err))
 		}
 	}()
 
-	pTS, err := s.advance(ctx, b, name, PhaseStarting, isSharded, startTime)
+	pTS, err := s.advance(ctx, lg, b, PhaseStarting, isSharded, startTime)
 	if err != nil {
 		return err
 	}
@@ -218,7 +222,11 @@ func (s *PhysSvc) Run(
 	if err != nil {
 		return errors.Wrap(err, "create storage")
 	}
-	log.Printf("backup %s: %s: storage %s at %s", name, s.agentID, cfg.Storage.Typ(), cfg.Storage.Path())
+	lg.Info(
+		"backup storage created",
+		zap.String("type", cfg.Storage.Typ()),
+		zap.String("path", cfg.Storage.Path()),
+	)
 
 	// add backup meta doc for the cluster, so only leader will do it once
 	balancer := topo.BalancerModeOff
@@ -236,19 +244,19 @@ func (s *PhysSvc) Run(
 		if err != nil {
 			return errors.Wrap(err, "init meta")
 		}
-		log.Printf("init backup meta")
+		lg.Info("init backup meta")
 	}
 
 	defer func() {
 		if err != nil && isLeader {
 			derr := s.repo.SetError(context.Background(), name, err)
 			if derr != nil {
-				log.Printf("error while setting cluster error status: %v", derr)
+				lg.Error("set cluster error status", zap.Error(derr))
 			}
 		}
 	}()
 
-	pTS, err = s.advance(ctx, b, name, PhaseMetaCreated, isSharded, pTS)
+	pTS, err = s.advance(ctx, lg, b, PhaseMetaCreated, isSharded, pTS)
 	if err != nil {
 		return err
 	}
@@ -278,13 +286,13 @@ func (s *PhysSvc) Run(
 		if err != nil {
 			derr := s.repo.SetRSError(context.Background(), name, agent.MongoInfo.SetName, err)
 			if derr != nil {
-				log.Printf("error while setting RS error status: %v", derr)
+				lg.Error("set RS error status", zap.Error(derr))
 			}
 		}
 	}()
 
 	if isLeader && isSharded && balancer == topo.BalancerModeOn {
-		if err = s.stopBalancer(ctx); err != nil {
+		if err = s.stopBalancer(ctx, lg); err != nil {
 			return errors.Wrap(err, "stop balancer")
 		}
 	}
@@ -292,20 +300,19 @@ func (s *PhysSvc) Run(
 		if isSharded && balancer == topo.BalancerModeOn {
 			errB := topo.SetBalancerStatus(context.Background(), s.leadConn, topo.BalancerModeOn)
 			if errB != nil {
-				// todo: log this with highest severity
-				log.Printf("error while starting balancer: %s", errB)
+				lg.Error("start balancer", zap.Error(errB))
 			}
-			log.Printf("balancer is on")
+			lg.Info("balancer is on")
 		}
 	}()
 
-	pTS, err = s.advance(ctx, b, name, PhaseMetaRSCreated, isSharded, pTS)
+	pTS, err = s.advance(ctx, lg, b, PhaseMetaRSCreated, isSharded, pTS)
 	if err != nil {
 		return err
 	}
 
 	currOpts := bson.D{}
-	cursor := NewBackupCursor(s.nodeConn, currOpts)
+	cursor := NewBackupCursor(lg, s.nodeConn, currOpts)
 	defer cursor.Close()
 
 	bcur, err := cursor.Data(ctx)
@@ -313,7 +320,7 @@ func (s *PhysSvc) Run(
 		return errors.Wrap(err, "get backup files")
 	}
 
-	log.Printf("backup cursor id: %s", bcur.Meta.ID)
+	lg.Info("backup cursor opened", zap.Stringer("cursor_id", bcur.Meta.ID))
 
 	lwts, err := topo.GetLastWrite(ctx, s.nodeConn, true)
 	if err != nil {
@@ -329,7 +336,7 @@ func (s *PhysSvc) Run(
 	if err != nil {
 		return errors.Wrap(err, "get mongod options")
 	}
-	err = topo.ExpandSecOptsWithEncAtRest(ctx, s.nodeConn, mopts.Security)
+	err = topo.ExpandSecOptsWithEncAtRest(ctx, lg, s.nodeConn, mopts.Security)
 	if err != nil {
 		return errors.Wrap(err, "get encryption at rest options")
 	}
@@ -346,7 +353,7 @@ func (s *PhysSvc) Run(
 		return errors.Wrap(err, "update metadata")
 	}
 
-	pTS, err = s.advance(ctx, b, name, PhaseBackupCursor, isSharded, pTS)
+	pTS, err = s.advance(ctx, lg, b, PhaseBackupCursor, isSharded, pTS)
 	if err != nil {
 		return err
 	}
@@ -363,7 +370,7 @@ func (s *PhysSvc) Run(
 		}
 	}
 
-	log.Printf("set journal up to %v", lwTS)
+	lg.Info("set journal up to", zap.Any("last_write_ts", lwTS))
 
 	jrnls, err := cursor.Journals(lwTS)
 	if err != nil {
@@ -379,7 +386,7 @@ func (s *PhysSvc) Run(
 	} else {
 		data = append(data, *stgb)
 	}
-	pTS, err = s.advance(ctx, b, name, PhaseBackupCursorExt, isSharded, pTS)
+	pTS, err = s.advance(ctx, lg, b, PhaseBackupCursorExt, isSharded, pTS)
 	if err != nil {
 		return err
 	}
@@ -389,7 +396,7 @@ func (s *PhysSvc) Run(
 			// todo: delete backup files or add config rules to keep them
 		}
 	}()
-	err = s.uploadPhysical(ctx, name, opts, rsMeta, data, jrnls, bcur.Meta.DBpath, stg)
+	err = s.uploadPhysical(ctx, lg, name, opts, rsMeta, data, jrnls, bcur.Meta.DBpath, stg)
 	if err != nil {
 		return errors.Wrap(err, "upload")
 	}
@@ -398,26 +405,28 @@ func (s *PhysSvc) Run(
 		return errors.Wrap(err, "set RS done status")
 	}
 
-	_, err = s.advance(ctx, b, name, PhaseDone, isSharded, pTS)
+	_, err = s.advance(ctx, lg, b, PhaseDone, isSharded, pTS)
 	if err != nil {
 		return err
 	}
 
 	finishTime := time.Now().UTC()
 	if isLeader {
-		if err = s.setClusterSize(ctx, name); err != nil {
+		if err = s.setClusterSize(ctx, lg, name); err != nil {
 			return errors.Wrap(err, "set backup size")
 		}
 		if err = s.repo.SetFinishTime(ctx, name, finishTime.Unix()); err != nil {
 			return errors.Wrap(err, "set backup finish time")
 		}
-		if err = s.writeMeta(ctx, name, stg); err != nil {
+		if err = s.writeMeta(ctx, lg, name, stg); err != nil {
 			return errors.Wrap(err, "write backup meta")
 		}
 	}
 
-	log.Printf("backup finished: %s, start: %v, finish: %v, duration: %v",
-		name, startTime.Format(time.RFC3339), finishTime.Format(time.RFC3339), finishTime.Sub(startTime))
+	lg.Info("backup finished",
+		zap.Time("start", startTime),
+		zap.Time("finish", finishTime),
+		zap.Duration("duration", finishTime.Sub(startTime)))
 	return nil
 }
 
@@ -425,18 +434,19 @@ func (s *PhysSvc) Run(
 // It adds duration logging info for sharded cluster and RS.
 func (s *PhysSvc) advance(
 	ctx context.Context,
+	lg *zap.Logger,
 	b *phasesync.Barrier,
-	name string,
 	phase phasesync.Phase,
 	isSharded bool,
 	phaseStartTime time.Time,
 ) (time.Time, error) {
 	workingD := time.Now().UTC().Sub(phaseStartTime)
-	msg := "phase: %s for backup %s on %s"
+	lg = lg.With(zap.String("phase", string(phase)))
 	if isSharded {
-		msg = "phase: %s for backup %s on %s, waiting for the group"
+		lg.Info("advancing to phase, waiting for the group")
+	} else {
+		lg.Info("advancing to phase")
 	}
-	log.Printf(msg, phase, name, s.agentID)
 
 	if err := b.Advance(ctx, phase); err != nil {
 		return time.Time{}, errors.Wrapf(err, "advance to %q", phase)
@@ -445,10 +455,12 @@ func (s *PhysSvc) advance(
 	phaseD := time.Now().UTC().Sub(phaseStartTime)
 	waitD := phaseD - workingD
 	if isSharded {
-		log.Printf("phase %s reached; working: %s, waiting: %s, total phase: %s duration",
-			phase, workingD, waitD, phaseD)
+		lg.Info("phase reached",
+			zap.Duration("working", workingD),
+			zap.Duration("waiting", waitD),
+			zap.Duration("total", phaseD))
 	} else {
-		log.Printf("phase %s reached; total phase: %s duration", phase, phaseD)
+		lg.Info("phase reached", zap.Duration("total", phaseD))
 	}
 
 	return time.Now().UTC(), nil
@@ -489,19 +501,19 @@ func (s *PhysSvc) initMeta(
 }
 
 // stopBalancer turns the balancer off and waits for the running round to end.
-func (s *PhysSvc) stopBalancer(ctx context.Context) error {
+func (s *PhysSvc) stopBalancer(ctx context.Context, lg *zap.Logger) error {
 	const (
 		// todo: wire to config
 		timeout      = 30 * time.Minute
 		pollInterval = 5 * time.Second
 	)
 
-	log.Printf("stopping balancer with timeout %s", timeout)
+	lg.Info("stopping balancer", zap.Duration("timeout", timeout))
 	if err := topo.StopBalancer(ctx, s.leadConn, timeout.Milliseconds()); err != nil {
 		return errors.Wrap(err, "set balancer OFF")
 	}
 
-	log.Printf("waiting for balancer off")
+	lg.Info("waiting for balancer off")
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -514,9 +526,9 @@ func (s *PhysSvc) stopBalancer(ctx context.Context) error {
 		bs, err := topo.GetBalancerStatus(waitCtx, s.leadConn)
 		switch {
 		case err != nil:
-			log.Printf("get balancer status: %v", err)
+			lg.Warn("get balancer status", zap.Error(err))
 		case bs.IsDisabled():
-			log.Printf("balancer is disabled")
+			lg.Info("balancer is disabled")
 			return nil
 		default:
 			last = bs
@@ -528,11 +540,12 @@ func (s *PhysSvc) stopBalancer(ctx context.Context) error {
 				return ctx.Err()
 			}
 			if last == nil {
-				log.Printf("balancer status is unknown after %s", timeout)
+				lg.Warn("balancer status is unknown", zap.Duration("timeout", timeout))
 				return nil
 			}
-			log.Printf("balancer is not disabled: balancer mode: %s, in balancer round: %t",
-				last.Mode, last.InBalancerRound)
+			lg.Warn("balancer is not disabled",
+				zap.String("mode", string(last.Mode)),
+				zap.Bool("in_balancer_round", last.InBalancerRound))
 
 			return nil
 
@@ -566,7 +579,7 @@ func (s *PhysSvc) resolveFirstLastWriteForCluster(
 }
 
 // writeMeta dumps the backup metadata on the storage.
-func (s *PhysSvc) writeMeta(ctx context.Context, name string, stg storage.Storage) error {
+func (s *PhysSvc) writeMeta(ctx context.Context, lg *zap.Logger, name string, stg storage.Storage) error {
 	meta, err := s.repo.Get(ctx, name)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
@@ -582,13 +595,14 @@ func (s *PhysSvc) writeMeta(ctx context.Context, name string, stg storage.Storag
 	if err != nil {
 		return errors.Wrapf(err, "save %q", fname)
 	}
-	log.Printf("backup %s: %s: meta written to %q", name, s.agentID, fname)
+	lg.Info("meta written", zap.String("file", fname))
 
 	return nil
 }
 
 func (s *PhysSvc) uploadPhysical(
 	ctx context.Context,
+	lg *zap.Logger,
 	name string,
 	opts Options,
 	rsMeta *BackupReplset,
@@ -597,11 +611,7 @@ func (s *PhysSvc) uploadPhysical(
 	dbpath string,
 	stg storage.Storage,
 ) error {
-	if opts.NumParallelFiles > 1 {
-		log.Printf("uploading data (%d files in parallel)", opts.NumParallelFiles)
-	} else {
-		log.Printf("uploading data")
-	}
+	lg.Info("uploading data", zap.Int32("parallel_files", opts.NumParallelFiles))
 
 	dataFiles, err := uploadFiles(
 		ctx,
@@ -618,9 +628,9 @@ func (s *PhysSvc) uploadPhysical(
 	if err != nil {
 		return errors.Wrap(err, "upload data files")
 	}
-	log.Printf("uploading data done")
+	lg.Info("uploading data done")
 
-	log.Printf("uploading journals")
+	lg.Info("uploading journals")
 	ju, err := uploadFiles(
 		ctx,
 		jrnls,
@@ -636,7 +646,7 @@ func (s *PhysSvc) uploadPhysical(
 	if err != nil {
 		return errors.Wrap(err, "upload journal files")
 	}
-	log.Printf("uploading journals done")
+	lg.Info("uploading journals done")
 
 	filelist := Filelist(dataFiles)
 	filelist = append(filelist, ju...)
@@ -658,11 +668,11 @@ func (s *PhysSvc) uploadPhysical(
 	if err != nil {
 		return errors.Wrapf(err, "upload filelist %q", filelistPath)
 	}
-	log.Printf("uploaded: %q %s", filelistPath, storage.PrettySize(flSize))
+	lg.Info("uploaded filelist", zap.String("file", filelistPath), zap.String("size", storage.PrettySize(flSize)))
 
 	totalSize := size + flSize
 	totalUncompressed := sizeUncompressed + flSize
-	log.Printf("RS total size=%d; total size uncompressed=%d", totalSize, totalUncompressed)
+	lg.Info("RS total size", zap.Int64("size", totalSize), zap.Int64("size_uncompressed", totalUncompressed))
 
 	err = s.repo.SetRSSize(ctx, name, rsMeta.Name, totalSize, totalUncompressed)
 	if err != nil {
@@ -674,7 +684,7 @@ func (s *PhysSvc) uploadPhysical(
 
 // setClusterSize sums up the sizes of all replsets and records them as the
 // cluster-wide backup size.
-func (s *PhysSvc) setClusterSize(ctx context.Context, name string) error {
+func (s *PhysSvc) setClusterSize(ctx context.Context, lg *zap.Logger, name string) error {
 	meta, err := s.repo.Get(ctx, name)
 	if err != nil {
 		return errors.Wrap(err, "get backup meta")
@@ -686,7 +696,7 @@ func (s *PhysSvc) setClusterSize(ctx context.Context, name string) error {
 		size += rs.Size
 		sizeUncompressed += rs.SizeUncompressed
 	}
-	log.Printf("cluster total size=%d; total size uncompressed=%d", size, sizeUncompressed)
+	lg.Info("cluster total size", zap.Int64("size", size), zap.Int64("size_uncompressed", sizeUncompressed))
 
 	return s.repo.SetSize(ctx, name, size, sizeUncompressed)
 }

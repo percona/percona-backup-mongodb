@@ -3,12 +3,12 @@ package topo
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
@@ -270,6 +270,7 @@ func GetMongodOpts(ctx context.Context, m *mongo.Client, defaults *MongodOpts) (
 // For Vault, SecretVersion is assigned.
 func ExpandSecOptsWithEncAtRest(
 	ctx context.Context,
+	lg *zap.Logger,
 	m *mongo.Client,
 	secOpts *MongodOptsSec,
 ) error {
@@ -285,7 +286,7 @@ func ExpandSecOptsWithEncAtRest(
 			return errors.Wrap(err, "get encryption at rest for kmip")
 		}
 		if encAtRestRaw.IsZero() {
-			fmt.Print("To store KMIP's keyIdentifier info within backup metadata, " +
+			lg.Warn("To store KMIP's keyIdentifier info within backup metadata, " +
 				"the latest PSMDB patch version is required.")
 			// backup should continue
 			return nil
@@ -311,7 +312,7 @@ func ExpandSecOptsWithEncAtRest(
 			return errors.Wrap(err, "get encryption at rest for vault")
 		}
 		if encAtRestRaw.IsZero() {
-			fmt.Print("To store Vault's secretVersion info within backup metadata, " +
+			lg.Warn("To store Vault's secretVersion info within backup metadata, " +
 				"the latest PSMDB patch version is required.")
 			return nil
 		}

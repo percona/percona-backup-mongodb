@@ -99,6 +99,15 @@ Rule: dependency flows one way, `cmd/pbmx/` → `pbm/`. `pbm/` must not import `
     - https://google.github.io/styleguide/go/best-practices
 - additionally you can expand with uber's style guide:
     - https://github.com/uber-go/guide/blob/master/style.md
+- errors: use `github.com/percona/percona-backup-mongodb/x/pbm/errors` (not stdlib `errors`/`fmt.Errorf`):
+  `errors.Wrap`/`Wrapf` to add context to a returned error, `errors.New`/`Errorf` for new ones.
+- logging: structured `*zap.Logger` (not `Sugar()`, not stdlib `log`), passed explicitly — no global logger (`zap.L()`).
+    - name it `lg` everywhere: struct field, function param, local var.
+    - `lg` is the first param, or second right after `ctx`: `NewPhysSvc(lg, ...)`, `advance(ctx, lg, ...)`.
+    - a component stores `lg.Named("<component>")`; agent entry points add `lg = lg.With(zap.String("agent", name))`.
+    - per operation, derive a child logger (`lg := s.lg.With(zap.String("backup", name))`) and pass it to helpers;
+      don't log via `s.lg` inside them or the operation fields get lost. Don't carry the logger in `ctx`.
+    - constant messages, values as fields: `lg.Info("phase reached", zap.Duration("total", d))`, errors via `zap.Error(err)`.
 - git
     - never create git commits or pr requests automatically.
 - never modify anything out of x directory. If it's necessary ask for confirmation.

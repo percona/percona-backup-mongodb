@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3client"
+	"go.uber.org/zap"
 )
 
 // Config holds embedded etcd server configuration.
@@ -44,7 +44,7 @@ type Server struct {
 
 // Start brings up the embedded etcd server under the given member name and
 // blocks until it is ready, ctx is canceled, or readyTimeout elapses.
-func Start(ctx context.Context, name string, cfg Config) (*Server, error) {
+func Start(ctx context.Context, lg *zap.Logger, name string, cfg Config) (*Server, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create etcd data dir: %w", err)
 	}
@@ -52,7 +52,8 @@ func Start(ctx context.Context, name string, cfg Config) (*Server, error) {
 	ecfg := embed.NewConfig()
 	ecfg.Dir = cfg.DataDir
 	ecfg.Name = name
-	ecfg.LogOutputs = []string{filepath.Join(cfg.DataDir, fmt.Sprintf("etcd-%s.log", name))}
+	// log-level is set by lg.
+	ecfg.ZapLoggerBuilder = embed.NewZapLoggerBuilder(lg.Named("etcd"))
 
 	ecfg.InitialClusterToken = "pbm-cc-cluster"
 	ecfg.ClusterState = embed.ClusterStateFlagNew

@@ -3,7 +3,8 @@ package pbm
 import (
 	"context"
 	"fmt"
-	"log"
+
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
@@ -15,12 +16,18 @@ import (
 )
 
 // RunWorkerAgent starts the worker agent: it performs backup/restore work.
-func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
+func RunWorkerAgent(
+	ctx context.Context,
+	lg, etcdLg, serfLg *zap.Logger,
+	cfg *WorkerAgentConfig,
+) error {
+	lg = lg.With(zap.String("agent", cfg.Name))
+
 	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
 	if err != nil {
 		return fmt.Errorf("connect local mongod: %w", err)
 	}
-	defer connect.Disconnect(nodeConn)
+	defer connect.Disconnect(lg, nodeConn)
 
 	leadConn, err := connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
 	if err != nil {
@@ -28,31 +35,32 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 	}
 	defer leadConn.Disconnect(ctx)
 
-	statusSvc := status.NewForWorkerAgent(cfg.Name, nodeConn)
+	statusSvc := status.NewForWorkerAgent(lg, cfg.Name, nodeConn)
 
-	d, err := disco.Start(ctx, cfg.Name, cfg.Config, statusSvc.DiscoSync())
+	d, err := disco.Start(ctx, lg, serfLg, cfg.Name, cfg.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
 	defer func() {
 		if err := d.Stop(); err != nil {
-			log.Printf("serf shutdown: %v", err)
+			lg.Warn("serf shutdown", zap.Error(err))
 		}
 	}()
-	log.Printf("agent: %s added to PBM cluster", cfg.Name)
+	lg.Info("added to PBM cluster")
 
 	statusSvc.SetPublisher(d)
 	go statusSvc.Run(ctx)
 
-	ccDB, err := etcd.NewClient(cfg.EtcdEndpoints)
+	ccDB, err := etcd.NewClient(etcdLg, cfg.EtcdEndpoints)
 	if err != nil {
 		return fmt.Errorf("connect control state: %w", err)
 	}
 	defer ccDB.Close()
 
 	backupRepo := backup.New(ccDB)
-	configSvc := config.New(ccDB, backup.NewStorageResyncer(backupRepo))
+	configSvc := config.New(ccDB, backup.NewStorageResyncer(lg, backupRepo))
 	physSvc := backup.NewPhysSvc(
+		lg,
 		ccDB,
 		backupRepo,
 		nodeConn,
@@ -60,18 +68,18 @@ func RunWorkerAgent(ctx context.Context, cfg *WorkerAgentConfig) error {
 		statusSvc,
 		configSvc,
 		cfg.Name,
-		task.NewComposer(ccDB, task.NewScheduler(statusSvc, configSvc)),
+		task.NewComposer(lg, ccDB, task.NewScheduler(statusSvc, configSvc)),
 	)
-	inbox := task.NewInbox(ccDB, cfg.Name, physSvc)
+	inbox := task.NewInbox(lg, ccDB, cfg.Name, physSvc)
 	go func() {
-		log.Printf("run inbox for agent: %s", cfg.Name)
+		lg.Info("run inbox")
 		if err := inbox.Run(ctx); err != nil {
-			log.Printf("agent: task inbox: %v", err)
+			lg.Info("task inbox stopped", zap.Error(err))
 		}
 	}()
 
 	<-ctx.Done()
 
-	log.Printf("agent: %s is shutdown", cfg.Name)
+	lg.Info("agent is shutdown")
 	return nil
 }

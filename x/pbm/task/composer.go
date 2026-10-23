@@ -3,10 +3,10 @@ package task
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
@@ -21,14 +21,16 @@ const leaseTTL = 10 * time.Second
 // - composer selects the agents by using scheduler,
 // - composer makes the cluster aware of it by delegating tasks over etcd.
 type Composer struct {
+	lg    *zap.Logger
 	ccDB  *clientv3.Client
 	sched *Scheduler
 }
 
 // NewComposer creates a task composer.
 // ccDB holds the control state.
-func NewComposer(ccDB *clientv3.Client, scheduler *Scheduler) *Composer {
+func NewComposer(lg *zap.Logger, ccDB *clientv3.Client, scheduler *Scheduler) *Composer {
 	return &Composer{
+		lg:    lg.Named("composer"),
 		ccDB:  ccDB,
 		sched: scheduler,
 	}
@@ -43,6 +45,8 @@ func NewComposer(ccDB *clientv3.Client, scheduler *Scheduler) *Composer {
 // agents.
 // opts are the caller's backup options, composer only carries them over to the agents.
 func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTask, error) {
+	lg := c.lg.With(zap.String("backup", name))
+
 	rawOpts, err := json.Marshal(opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal backup options")
@@ -82,7 +86,7 @@ func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTa
 			Options:   rawOpts,
 		})
 		if err != nil {
-			c.revoke(ctx, lease.ID)
+			c.revoke(ctx, lg, lease.ID)
 			return nil, errors.Wrapf(err, "marshal item for %s", agent)
 		}
 		ops = append(ops,
@@ -94,11 +98,11 @@ func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTa
 		Then(ops...).
 		Commit()
 	if err != nil {
-		c.revoke(ctx, lease.ID)
+		c.revoke(ctx, lg, lease.ID)
 		return nil, errors.Wrap(err, "put backup task")
 	}
 	if !resp.Succeeded {
-		c.revoke(ctx, lease.ID)
+		c.revoke(ctx, lg, lease.ID)
 		return nil, ErrAlreadyExists
 	}
 
@@ -106,8 +110,8 @@ func (c *Composer) Backup(ctx context.Context, name string, opts any) (*BackupTa
 }
 
 // revoke drops a lease whose keys were never written.
-func (c *Composer) revoke(ctx context.Context, id clientv3.LeaseID) {
+func (c *Composer) revoke(ctx context.Context, lg *zap.Logger, id clientv3.LeaseID) {
 	if _, err := c.ccDB.Revoke(ctx, id); err != nil {
-		log.Printf("task: revoke lease %d: %v", id, err)
+		lg.Warn("revoke lease", zap.Int64("lease", int64(id)), zap.Error(err))
 	}
 }
