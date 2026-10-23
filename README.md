@@ -1,5 +1,5 @@
 # Percona Backup for MongoDB
-[![Go Report Card](https://goreportcard.com/badge/github.com/percona/percona-backup-mongodb)](https://goreportcard.com/report/github.com/percona/percona-backup-mongodb) [![CLA assistant](https://cla-assistant.percona.com/readme/badge/percona/percona-backup-mongodb)](https://cla-assistant.percona.com/percona/percona-backup-mongodb)
+[![Go Report Card](https://goreportcard.com/badge/github.com/percona/percona-backup-mongodb)](https://goreportcard.com/report/github.com/percona/percona-backup-mongodb) [![CLA assistant](https://cla-assistant.percona.com/readme/badge/percona/percona-backup-mongodb)](https://cla-assistant.percona.com/percona/percona-backup-mongodb) [![OSAF: Percona Backup for MongoDB](https://img.shields.io/badge/Accessibility%20Framework-Percona%20Backup%20for%20MongoDB-F143AB?logo=github&logoColor=000000)](https://github.com/open-source-accessibility/Open-Source-Accessibility-Framework/issues/50)
 
 ![PBM logo](percona-backup-for-mongodb.png)
 
