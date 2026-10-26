@@ -48,14 +48,15 @@ func RunWorkerAgent(
 	}()
 	lg.Info("added to PBM cluster")
 
-	statusSvc.SetPublisher(d)
-	go statusSvc.Run(ctx)
-
 	ccDB, err := etcd.NewClient(etcdLg, cfg.EtcdEndpoints)
 	if err != nil {
 		return fmt.Errorf("connect control state: %w", err)
 	}
 	defer ccDB.Close()
+
+	statusSvc.SetPublisher(d)
+	statusSvc.SetRepo(status.NewRepo(ccDB))
+	go statusSvc.Run(ctx)
 
 	backupRepo := backup.New(ccDB)
 	configSvc := config.New(ccDB, backup.NewStorageResyncer(lg, backupRepo))

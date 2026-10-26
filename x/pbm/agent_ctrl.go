@@ -87,6 +87,7 @@ func RunCtrlAgent(
 
 	// wire the status service before starting its loop
 	statusSvc.SetPublisher(d)
+	statusSvc.SetRepo(status.NewRepo(etcdSrv.Client()))
 	statusSvc.SetLeaderChecker(etcdSrv)
 	go statusSvc.Run(ctx)
 

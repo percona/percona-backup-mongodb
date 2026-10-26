@@ -159,7 +159,7 @@ func (d *Discovery) handleMemberEvent(ctx context.Context, mEvt serf.MemberEvent
 
 		select {
 		case d.sync <- ev:
-			// todo: turn on logging here
+			// pass event one by one to status svc
 		case <-ctx.Done():
 			return
 		}
