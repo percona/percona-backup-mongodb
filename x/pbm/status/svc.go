@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"sync"
@@ -15,8 +16,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/topo"
 )
 
-// refreshInterval is how often an agent re-reads its local mongod and
-// re-broadcasts its own AgentInfo so peers' caches stay converged.
+// refreshInterval is how often an agent re-reads its local mongod for change monitoring purpose.
 const refreshInterval = 5 * time.Second
 
 // ErrNotFound is returned by GetMember when no member is cached under the name.
@@ -85,6 +85,9 @@ type Svc struct {
 
 	recv ReceiveChannel
 	pub  Publisher
+
+	// lastPub is the last tag set successfully published, used for change detection
+	lastPub map[string]string
 
 	mu   sync.RWMutex
 	mems clusterMembers
@@ -321,11 +324,25 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	//- introduce agent's meta doc, instead of broadcasting every property
 	//- improve error handling: db down, storage down, agent down
 
-	if s.pub != nil {
-		if err := s.pub.Publish(encodeTags(s.role, mi, isLeader, s.apiPort)); err != nil {
-			s.lg.Warn("publish local info", zap.Error(err))
-		}
+	s.publish(encodeTags(s.role, mi, isLeader, s.apiPort))
+}
+
+// publish broadcasts tags to the cluster unless they are identical to the last
+// successfully published set.
+func (s *Svc) publish(tags map[string]string) {
+	if s.pub == nil {
+		return
 	}
+	if s.lastPub != nil && maps.Equal(s.lastPub, tags) {
+		// nothing has changed since last time
+		return
+	}
+
+	if err := s.pub.Publish(tags); err != nil {
+		s.lg.Warn("publish local info", zap.Error(err))
+		return
+	}
+	s.lastPub = tags
 }
 
 // localMongoInfo reads this agent's own mongod and maps its node info into MongoInfo.
@@ -365,11 +382,7 @@ func (s *Svc) handleMongoErr(mongoErr error) {
 	s.mems[s.name] = self
 	s.mu.Unlock()
 
-	if s.pub != nil {
-		if err := s.pub.Publish(encodeTags(s.role, self.MongoInfo, false, s.apiPort)); err != nil {
-			s.lg.Warn("publish local info", zap.Error(err))
-		}
-	}
+	s.publish(encodeTags(s.role, self.MongoInfo, false, s.apiPort))
 }
 
 // GetAllMembers returns all agents within PBM's cluster.

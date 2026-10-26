@@ -64,7 +64,12 @@ func Start(
 		return nil, fmt.Errorf("create serf: %w", err)
 	}
 
-	d := &Discovery{lg: lg.Named("discovery"), serf: s, sync: sync, done: make(chan struct{})}
+	d := &Discovery{
+		lg:   lg.Named("discovery"),
+		serf: s,
+		sync: sync,
+		done: make(chan struct{}),
+	}
 	go d.eventLoop(ctx, eventCh)
 
 	if len(cfg.SerfJoin) > 0 {
@@ -125,18 +130,21 @@ func (d *Discovery) eventLoop(ctx context.Context, eventCh <-chan serf.Event) {
 	}
 }
 
-func (d *Discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) {
-	kind, alive, ok := classifyEvent(me.Type)
+func (d *Discovery) handleMemberEvent(ctx context.Context, mEvt serf.MemberEvent) {
+	kind, alive, ok := classifyEvent(mEvt.Type)
 	if !ok {
-		return // just ignore it for now, but improve it
+		d.lg.Warn("recived invalid serf event",
+			zap.Stringer("type", mEvt.Type),
+			zap.Any("member-event", mEvt),
+		)
+		return
 	}
 
-	for _, m := range me.Members {
-		d.lg.Debug("membership",
-			zap.Stringer("event", me.Type),
-			zap.String("member", m.Name),
-			zap.Stringer("addr", m.Addr),
-			zap.Uint16("port", m.Port))
+	for _, m := range mEvt.Members {
+		d.lg.Debug("member event",
+			zap.Stringer("type", mEvt.Type),
+			zap.Any("event", m),
+		)
 
 		ev := status.StatusEvent{
 			Kind:  kind,
