@@ -19,6 +19,7 @@ func TestCastSetsDefaults(t *testing.T) {
 	require.NoError(t, cfg.Cast())
 
 	assert.Equal(t, AuthTypeUserPrincipal, cfg.Credentials.Type)
+	assert.False(t, cfg.EnableIMDS)
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
 	assert.Equal(t, defaultUploadConcurrency, cfg.UploadConcurrency)
 	assert.Equal(t, float64(defaultMaxObjSizeGB), cfg.GetMaxObjSizeGB())

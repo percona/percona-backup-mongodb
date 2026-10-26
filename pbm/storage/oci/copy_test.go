@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,7 +138,7 @@ func TestWaitCopyWorkRequestContextDeadline(t *testing.T) {
 	err = o.waitCopyWorkRequest(ctx, "wr1")
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.Positive(t, httpClient.calls)
+	assert.Positive(t, httpClient.calls.Load())
 }
 
 func assertErrorContains(t *testing.T, err error, parts ...string) {
@@ -150,11 +151,11 @@ func assertErrorContains(t *testing.T, err error, parts ...string) {
 }
 
 type inProgressWorkRequestHTTPClient struct {
-	calls int
+	calls atomic.Int64
 }
 
 func (c *inProgressWorkRequestHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	c.calls++
+	c.calls.Add(1)
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Status:     "200 OK",
