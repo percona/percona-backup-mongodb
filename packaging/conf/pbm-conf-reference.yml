@@ -218,6 +218,11 @@
 #    namespace:
 #    bucket:
 
+## Optional full OCI Object Storage endpoint URL, including https://.
+## When undefined, the OCI SDK derives the endpoint from the region.
+## The region must still identify the actual bucket region, including for server-side copy.
+#    endpointUrl:
+
 ## The data directory to store backups in.
 ## When undefined, backups are saved at the root of the bucket.
 #    prefix:

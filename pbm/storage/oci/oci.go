@@ -109,6 +109,10 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 		// the endpoint from provider.Region() when custom config is applied.
 		client.SetRegion(cfg.Region)
 	}
+	if cfg.EndpointURL != "" {
+		// Apply after all region configuration, which refreshes the SDK endpoint.
+		client.Host = strings.TrimRight(cfg.EndpointURL, "/")
+	}
 	// Match OCI transfer manager behavior: use a no-timeout client for large uploads.
 	client.HTTPClient = &http.Client{}
 
