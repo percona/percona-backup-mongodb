@@ -100,9 +100,9 @@ func (d *agentDoc) applyTo(m *AgentInfo) {
 type Svc struct {
 	lg   *zap.Logger
 	repo agentRepo
-	// mc is a direct connection to this agent's local mongod.
-	// It's nil when the agent has no attached.
-	mc *mongo.Client
+	// nodeConn is a direct connection to this agent's local mongod.
+	// It's nil when the agent is not attached.
+	nodeConn *mongo.Client
 	// leader reports whether this agent is the cluster leader
 	leader LeaderChecker
 	pub    Publisher
@@ -145,13 +145,13 @@ type LeaderChecker interface {
 // with no API (workers).
 func New(lg *zap.Logger, name string, role Role, localMongo *mongo.Client, apiPort int) *Svc {
 	return &Svc{
-		lg:      lg.Named("status"),
-		name:    name,
-		role:    role,
-		mc:      localMongo,
-		apiPort: apiPort,
-		recv:    make(ReceiveChannel, 64), // todo: improve
-		mems:    map[string]AgentInfo{},
+		lg:       lg.Named("status"),
+		name:     name,
+		role:     role,
+		nodeConn: localMongo,
+		apiPort:  apiPort,
+		recv:     make(ReceiveChannel, 64), // todo: improve
+		mems:     map[string]AgentInfo{},
 	}
 }
 
@@ -305,6 +305,7 @@ func (s *Svc) loadPeer(ctx context.Context, name string, rev int64) {
 	m := s.mems[name]
 	doc.applyTo(&m)
 	s.mems[name] = m
+	lg.Debug("upload agent info", zap.Any("agent-info", s.mems[name]))
 }
 
 // putAgentDoc stores this agent's doc in the repo and returns its revision.
@@ -423,13 +424,13 @@ func (s *Svc) publish(ctx context.Context, doc agentDoc) {
 // localMongoInfo reads this agent's own mongod and maps its node info into MongoInfo.
 // When the agent has no MongoDB attached, it is a no-op and returns the zero MongoInfo.
 func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
-	if s.mc == nil {
+	if s.nodeConn == nil {
 		return MongoInfo{}, nil
 	}
 
 	// GetNodeInfoExt also reads the parsed command line, so IsSharded reflects the
 	// node's clusterRole even before hello gossips $configServerState.
-	ni, err := topo.GetNodeInfoExt(ctx, s.mc)
+	ni, err := topo.GetNodeInfoExt(ctx, s.nodeConn)
 	if err != nil {
 		return MongoInfo{}, fmt.Errorf("get local node info: %w", err)
 	}

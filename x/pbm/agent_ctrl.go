@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/api"
@@ -27,17 +28,25 @@ func RunCtrlAgent(
 ) error {
 	lg = lg.With(zap.String("agent", cfg.Name))
 
-	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
-	if err != nil {
-		return fmt.Errorf("connect local mongod: %w", err)
-	}
-	defer connect.Disconnect(lg, nodeConn)
+	var nodeConn *mongo.Client
+	var leadConn connect.Client
+	var err error
 
-	leadConn, err := connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
-	if err != nil {
-		return fmt.Errorf("connect cluster leader: %w", err)
+	if cfg.MongoURI == "" {
+		lg.Info("agent is not connected to mongodb node")
+	} else {
+		nodeConn, err = connect.ConnectDirect(ctx, cfg.MongoURI)
+		if err != nil {
+			return fmt.Errorf("connect local mongod: %w", err)
+		}
+		defer connect.Disconnect(lg, nodeConn)
+
+		leadConn, err = connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
+		if err != nil {
+			return fmt.Errorf("connect cluster leader: %w", err)
+		}
+		defer leadConn.Disconnect(ctx)
 	}
-	defer leadConn.Disconnect(ctx)
 
 	statusSvc := status.NewForCtrlAgent(lg, cfg.Name, nodeConn, cfg.APISrvPort)
 
