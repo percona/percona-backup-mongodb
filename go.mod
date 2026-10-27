@@ -1,6 +1,6 @@
 module github.com/percona/percona-backup-mongodb
 
-go 1.27.1
+go 1.27.3
 
 require (
 	cloud.google.com/go/storage v1.68.0
