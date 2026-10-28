@@ -1,4 +1,5 @@
 // PBM 2.x package
+// todo: refactor this package
 package connect
 
 import (

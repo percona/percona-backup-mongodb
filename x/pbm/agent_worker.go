@@ -10,6 +10,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 	"github.com/percona/percona-backup-mongodb/x/pbm/task"
@@ -21,23 +22,21 @@ func RunWorkerAgent(
 	lg, etcdLg, serfLg *zap.Logger,
 	cfg *WorkerAgentConfig,
 ) error {
-	lg = lg.With(zap.String("agent", cfg.Name))
-
-	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
-	if err != nil {
-		return fmt.Errorf("connect local mongod: %w", err)
+	if cfg.MongoURI == "" {
+		return errors.New("worker agent requires MongoDB connection string")
 	}
-	defer connect.Disconnect(lg, nodeConn)
 
-	leadConn, err := connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
+	ac, err := connect.ConnectAgent(ctx, lg, cfg.MongoURI, cfg.Name)
 	if err != nil {
-		return fmt.Errorf("connect cluster leader: %w", err)
+		return fmt.Errorf("resolve agent: %w", err)
 	}
-	defer leadConn.Disconnect(ctx)
+	defer ac.Disconnect(context.Background(), lg)
 
-	statusSvc := status.NewForWorkerAgent(lg, cfg.Name, nodeConn)
+	lg = lg.With(zap.String("agent", ac.Name))
 
-	d, err := disco.Start(ctx, lg, serfLg, cfg.Name, cfg.Config, statusSvc.DiscoSync())
+	statusSvc := status.NewForWorkerAgent(lg, ac.Name, ac.NodeConn)
+
+	d, err := disco.Start(ctx, lg, serfLg, ac.Name, cfg.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
@@ -64,14 +63,14 @@ func RunWorkerAgent(
 		lg,
 		ccDB,
 		backupRepo,
-		nodeConn,
-		leadConn,
+		ac.NodeConn,
+		ac.LeadConn,
 		statusSvc,
 		configSvc,
-		cfg.Name,
+		ac.Name,
 		task.NewComposer(lg, ccDB, task.NewScheduler(statusSvc, configSvc)),
 	)
-	inbox := task.NewInbox(lg, ccDB, cfg.Name, physSvc)
+	inbox := task.NewInbox(lg, ccDB, ac.Name, physSvc)
 	go func() {
 		lg.Info("run inbox")
 		if err := inbox.Run(ctx); err != nil {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/api"
@@ -26,31 +25,17 @@ func RunCtrlAgent(
 	lg, etcdLg, serfLg *zap.Logger,
 	cfg *CtrlAgentConfig,
 ) error {
-	lg = lg.With(zap.String("agent", cfg.Name))
-
-	var nodeConn *mongo.Client
-	var leadConn connect.Client
-	var err error
-
-	if cfg.MongoURI == "" {
-		lg.Info("agent is not connected to mongodb node")
-	} else {
-		nodeConn, err = connect.ConnectDirect(ctx, cfg.MongoURI)
-		if err != nil {
-			return fmt.Errorf("connect local mongod: %w", err)
-		}
-		defer connect.Disconnect(lg, nodeConn)
-
-		leadConn, err = connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
-		if err != nil {
-			return fmt.Errorf("connect cluster leader: %w", err)
-		}
-		defer leadConn.Disconnect(ctx)
+	ac, err := connect.ConnectAgent(ctx, lg, cfg.MongoURI, cfg.Name)
+	if err != nil {
+		return fmt.Errorf("resolve agent: %w", err)
 	}
+	defer ac.Disconnect(context.Background(), lg)
 
-	statusSvc := status.NewForCtrlAgent(lg, cfg.Name, nodeConn, cfg.APISrvPort)
+	lg = lg.With(zap.String("agent", ac.Name))
 
-	d, err := disco.Start(ctx, lg, serfLg, cfg.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
+	statusSvc := status.NewForCtrlAgent(lg, ac.Name, ac.NodeConn, cfg.APISrvPort)
+
+	d, err := disco.Start(ctx, lg, serfLg, ac.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
 	if err != nil {
 		return fmt.Errorf("start pbm cluster: %w", err)
 	}
@@ -61,7 +46,7 @@ func RunCtrlAgent(
 	}()
 	lg.Info("added to PBM cluster")
 
-	etcdSrv, err := etcd.Start(ctx, etcdLg, cfg.Name, cfg.Config)
+	etcdSrv, err := etcd.Start(ctx, etcdLg, ac.Name, cfg.Config)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil
@@ -78,15 +63,15 @@ func RunCtrlAgent(
 		lg,
 		etcdSrv.Client(),
 		backupRepo,
-		nodeConn,
-		leadConn,
+		ac.NodeConn,
+		ac.LeadConn,
 		statusSvc,
 		configSvc,
-		cfg.Name,
+		ac.Name,
 		task.NewComposer(lg, etcdSrv.Client(), task.NewScheduler(statusSvc, configSvc)),
 	)
 
-	inbox := task.NewInbox(lg, etcdSrv.Client(), cfg.Name, physSvc)
+	inbox := task.NewInbox(lg, etcdSrv.Client(), ac.Name, physSvc)
 	go func() {
 		lg.Info("run inbox")
 		if err := inbox.Run(ctx); err != nil {
