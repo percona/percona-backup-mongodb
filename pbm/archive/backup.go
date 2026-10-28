@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/sync/errgroup"
@@ -277,6 +278,7 @@ func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]Inde
 
 	var idxSpecs []IndexSpec
 	for i := range idxs {
+		idxs[i] = normalizeIDIndexCollation(idxs[i])
 		var idxSpec IndexSpec
 		for _, opt := range idxs[i] {
 			if _, ok := validIndexOptions[opt.Key]; ok {
@@ -287,6 +289,26 @@ func (bcp *backupImpl) listIndexes(ctx context.Context, db, coll string) ([]Inde
 	}
 
 	return idxSpecs, nil
+}
+
+// MongoDB 9.0 may report explicit simple collation in listIndexes. Omit it on
+// the _id index: UUID-preserving restores create it via applyOps, which
+// requires simple collation to be implicit. Secondary indexes may need an
+// explicit simple collation to override the collection default.
+func normalizeIDIndexCollation(index bson.D) bson.D {
+	name, err := bsonutil.FindStringValueByKey("name", &index)
+	if err != nil || name != "_id_" {
+		return index
+	}
+
+	return slices.DeleteFunc(index, func(option bson.E) bool {
+		if option.Key != "collation" {
+			return false
+		}
+		collation, ok := option.Value.(bson.D)
+		return ok && len(collation) == 1 &&
+			collation[0].Key == "locale" && collation[0].Value == "simple"
+	})
 }
 
 func (bcp *backupImpl) dumpAllCollections(ctx context.Context, nss []*NamespaceV2) error {
