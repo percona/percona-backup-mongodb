@@ -5,13 +5,12 @@ package disco
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/hashicorp/serf/serf"
 	"go.uber.org/zap"
 
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
@@ -61,7 +60,7 @@ func Start(
 
 	s, err := serf.Create(sc)
 	if err != nil {
-		return nil, fmt.Errorf("create serf: %w", err)
+		return nil, errors.Wrap(err, "create serf")
 	}
 
 	d := &Discovery{

@@ -3,7 +3,6 @@ package status
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +11,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 func TestApplyCachesAndRemovesMembers(t *testing.T) {

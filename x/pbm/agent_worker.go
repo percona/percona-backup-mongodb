@@ -2,7 +2,6 @@ package pbm
 
 import (
 	"context"
-	"fmt"
 
 	"go.uber.org/zap"
 
@@ -28,7 +27,7 @@ func RunWorkerAgent(
 
 	ac, err := connect.ConnectAgent(ctx, lg, cfg.MongoURI, cfg.Name)
 	if err != nil {
-		return fmt.Errorf("resolve agent: %w", err)
+		return errors.Wrap(err, "resolve agent")
 	}
 	defer ac.Disconnect(context.Background(), lg)
 
@@ -38,7 +37,7 @@ func RunWorkerAgent(
 
 	d, err := disco.Start(ctx, lg, serfLg, ac.Name, cfg.Config, statusSvc.DiscoSync())
 	if err != nil {
-		return fmt.Errorf("start pbm cluster: %w", err)
+		return errors.Wrap(err, "start pbm cluster")
 	}
 	defer func() {
 		if err := d.Stop(); err != nil {
@@ -49,7 +48,7 @@ func RunWorkerAgent(
 
 	ccDB, err := etcd.NewClient(etcdLg, cfg.EtcdEndpoints)
 	if err != nil {
-		return fmt.Errorf("connect control state: %w", err)
+		return errors.Wrap(err, "connect control state")
 	}
 	defer ccDB.Close()
 

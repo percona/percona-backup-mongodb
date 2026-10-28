@@ -3,9 +3,9 @@ package apiclient
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 // GetConfig fetches the config document under name from /config/{name}. It
@@ -31,7 +31,7 @@ func (c *Client) ListConfigs(ctx context.Context) ([]*config.Config, error) {
 func (c *Client) SetConfig(ctx context.Context, cfg *config.Config) error {
 	body, err := json.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+		return errors.Wrap(err, "marshal config")
 	}
 
 	name := cfg.Name

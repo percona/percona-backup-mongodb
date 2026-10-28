@@ -2,7 +2,6 @@ package status
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 	"sync"
@@ -432,7 +431,7 @@ func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
 	// node's clusterRole even before hello gossips $configServerState.
 	ni, err := topo.GetNodeInfoExt(ctx, s.nodeConn)
 	if err != nil {
-		return MongoInfo{}, fmt.Errorf("get local node info: %w", err)
+		return MongoInfo{}, errors.Wrap(err, "get local node info")
 	}
 
 	return MongoInfo{

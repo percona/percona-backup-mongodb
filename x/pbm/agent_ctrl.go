@@ -2,8 +2,6 @@ package pbm
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"go.uber.org/zap"
 
@@ -12,6 +10,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 	"github.com/percona/percona-backup-mongodb/x/pbm/task"
@@ -27,7 +26,7 @@ func RunCtrlAgent(
 ) error {
 	ac, err := connect.ConnectAgent(ctx, lg, cfg.MongoURI, cfg.Name)
 	if err != nil {
-		return fmt.Errorf("resolve agent: %w", err)
+		return errors.Wrap(err, "resolve agent")
 	}
 	defer ac.Disconnect(context.Background(), lg)
 
@@ -37,7 +36,7 @@ func RunCtrlAgent(
 
 	d, err := disco.Start(ctx, lg, serfLg, ac.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
 	if err != nil {
-		return fmt.Errorf("start pbm cluster: %w", err)
+		return errors.Wrap(err, "start pbm cluster")
 	}
 	defer func() {
 		if err := d.Stop(); err != nil {
@@ -51,7 +50,7 @@ func RunCtrlAgent(
 		if errors.Is(err, context.Canceled) {
 			return nil
 		}
-		return fmt.Errorf("start etcd: %w", err)
+		return errors.Wrap(err, "start etcd")
 	}
 	defer etcdSrv.Close()
 	lg.Info("started control collection db")
@@ -96,8 +95,8 @@ func RunCtrlAgent(
 		lg.Info("agent is shutdown")
 		return nil
 	case err := <-etcdSrv.Err():
-		return fmt.Errorf("embedded etcd stopped: %w", err)
+		return errors.Wrap(err, "embedded etcd stopped")
 	case err := <-apiSrv.Err():
-		return fmt.Errorf("api server stopped: %w", err)
+		return errors.Wrap(err, "api server stopped")
 	}
 }
