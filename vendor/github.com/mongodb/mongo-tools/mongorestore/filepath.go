@@ -10,6 +10,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,7 +117,7 @@ func (f *realBSONFile) Open() (err error) {
 		gzFile, err := gzip.NewReader(posFile)
 		posUncompressedFile := &posTrackingReader{0, gzFile}
 		if err != nil {
-			return fmt.Errorf("error decompressing compresed BSON file %#q: %v", f.path, err)
+			return fmt.Errorf("error decompressing compressed BSON file %#q: %v", f.path, err)
 		}
 		f.PosReader = &mixedPosTrackingReader{
 			readHolder: posUncompressedFile,
@@ -218,28 +219,28 @@ func (restore *MongoRestore) getInfoFromFile(filename string) (string, FileType,
 	var err error
 
 	// .bin supported for legacy reasons
-	if strings.HasSuffix(baseFileName, ".bin") {
-		collName = strings.TrimSuffix(baseFileName, ".bin")
+	if before, ok := strings.CutSuffix(baseFileName, ".bin"); ok {
+		collName = before
 		fileType = BSONFileType
 	} else if restore.InputOptions.Gzip && restore.InputOptions.Archive == "" {
 		// Gzip indicates that files in a dump directory should have a .gz suffix
 		// but it does not indicate that the "files" provided by the archive should,
 		// compressed or otherwise.
-		if strings.HasSuffix(baseFileName, ".metadata.json.gz") {
-			collName = strings.TrimSuffix(baseFileName, ".metadata.json.gz")
+		if before, ok := strings.CutSuffix(baseFileName, ".metadata.json.gz"); ok {
+			collName = before
 			fileType = MetadataFileType
 			metadataFullPath = filename
-		} else if strings.HasSuffix(baseFileName, ".bson.gz") {
-			collName = strings.TrimSuffix(baseFileName, ".bson.gz")
+		} else if before, ok := strings.CutSuffix(baseFileName, ".bson.gz"); ok {
+			collName = before
 			fileType = BSONFileType
 			metadataFullPath = strings.TrimSuffix(filename, ".bson.gz") + ".metadata.json.gz"
 		}
-	} else if strings.HasSuffix(baseFileName, ".metadata.json") {
-		collName = strings.TrimSuffix(baseFileName, ".metadata.json")
+	} else if before, ok := strings.CutSuffix(baseFileName, ".metadata.json"); ok {
+		collName = before
 		fileType = MetadataFileType
 		metadataFullPath = filename
-	} else if strings.HasSuffix(baseFileName, ".bson") {
-		collName = strings.TrimSuffix(baseFileName, ".bson")
+	} else if before, ok := strings.CutSuffix(baseFileName, ".bson"); ok {
+		collName = before
 		fileType = BSONFileType
 		metadataFullPath = strings.TrimSuffix(filename, ".bson") + ".metadata.json"
 	}
@@ -259,7 +260,7 @@ func (restore *MongoRestore) getInfoFromFile(filename string) (string, FileType,
 	}
 
 	// Unescape the finalized collection name and return it.
-	unescapedCollName, err = util.UnescapeCollectionName(collName)
+	unescapedCollName, err = url.QueryUnescape(collName)
 	if err != nil {
 		return "", UnknownFileType, fmt.Errorf(
 			"error parsing collection name from filename %#q: %v",
@@ -364,7 +365,10 @@ func (restore *MongoRestore) CreateAllIntents(dir archive.DirLike) error {
 					if restore.InputOptions.Archive == "-" {
 						oplogIntent.Location = "archive on stdin"
 					} else {
-						oplogIntent.Location = fmt.Sprintf("archive %#q", restore.InputOptions.Archive)
+						oplogIntent.Location = fmt.Sprintf(
+							"archive %#q",
+							restore.InputOptions.Archive,
+						)
 					}
 
 					// no need to check that we want to cache here
@@ -374,11 +378,19 @@ func (restore *MongoRestore) CreateAllIntents(dir archive.DirLike) error {
 						Demux:  restore.archive.Demux,
 					}
 				} else {
-					oplogIntent.BSONFile = &realBSONFile{path: entry.Path(), intent: oplogIntent, gzip: restore.InputOptions.Gzip}
+					oplogIntent.BSONFile = &realBSONFile{
+						path:   entry.Path(),
+						intent: oplogIntent,
+						gzip:   restore.InputOptions.Gzip,
+					}
 				}
 				restore.manager.Put(oplogIntent)
 			} else {
-				log.Logvf(log.Always, `don't know what to do with file %#q, skipping...`, entry.Path())
+				log.Logvf(
+					log.Always,
+					`don't know what to do with file %#q, skipping...`,
+					entry.Path(),
+				)
 			}
 		}
 	}
@@ -446,15 +458,24 @@ func (restore *MongoRestore) CreateIntentsForDB(db string, dir archive.DirLike) 
 				// holds the users for a database that was dumped with --dumpDbUsersAndRoles enabled).
 				// If these special files manage to be included in a dump directory during a full
 				// (multi-db) restore, we should ignore them.
-				if restore.ToolOptions.Namespace != nil && restore.ToolOptions.DB == "" && strings.HasPrefix(collection, "$") {
-					log.Logvf(log.DebugLow, "not restoring special collection %#q", db+"."+collection)
+				if restore.ToolOptions.Namespace != nil && restore.ToolOptions.DB == "" &&
+					strings.HasPrefix(collection, "$") {
+					log.Logvf(
+						log.DebugLow,
+						"not restoring special collection %#q",
+						db+"."+collection,
+					)
 					skip = true
 				}
 				// TOOLS-717: disallow restoring to the system.profile collection.
 				// Server versions >= 3.0.3 disallow user inserts to system.profile so
 				// it would likely fail anyway.
 				if collection == "system.profile" {
-					log.Logvf(log.DebugLow, "skipping restore of system.profile collection in %#q", db)
+					log.Logvf(
+						log.DebugLow,
+						"skipping restore of system.profile collection in %#q",
+						db,
+					)
 					skip = true
 				}
 				// skip restoring the indexes collection if we are using metadata
@@ -466,14 +487,25 @@ func (restore *MongoRestore) CreateIntentsForDB(db string, dir archive.DirLike) 
 					skip = true
 				}
 
-				checkSourceNS := db + "." + strings.TrimPrefix(collection, common.TimeseriesBucketPrefix)
+				checkSourceNS := db + "." + strings.TrimPrefix(
+					collection,
+					common.TimeseriesBucketPrefix,
+				)
 
 				if !restore.includer.Has(checkSourceNS) {
-					log.Logvf(log.DebugLow, "skipping restoring %#q, it is not included", db+"."+collection)
+					log.Logvf(
+						log.DebugLow,
+						"skipping restoring %#q, it is not included",
+						db+"."+collection,
+					)
 					skip = true
 				}
 				if restore.excluder.Has(checkSourceNS) {
-					log.Logvf(log.DebugLow, "skipping restoring %#q, it is excluded", db+"."+collection)
+					log.Logvf(
+						log.DebugLow,
+						"skipping restoring %#q, it is excluded",
+						db+"."+collection,
+					)
 					skip = true
 				}
 				destNS := restore.renamer.Get(sourceNS)
@@ -493,12 +525,18 @@ func (restore *MongoRestore) CreateIntentsForDB(db string, dir archive.DirLike) 
 					}
 					if skip {
 						// adding the DemuxOut to the demux, but not adding the intent to the manager
-						mutedOut := &archive.MutedCollection{Intent: intent, Demux: restore.archive.Demux}
+						mutedOut := &archive.MutedCollection{
+							Intent: intent,
+							Demux:  restore.archive.Demux,
+						}
 						restore.archive.Demux.Open(sourceNS, mutedOut)
 						continue
 					}
 					if intent.IsSpecialCollection() {
-						specialCollectionCache := archive.NewSpecialCollectionCache(intent, restore.archive.Demux)
+						specialCollectionCache := archive.NewSpecialCollectionCache(
+							intent,
+							restore.archive.Demux,
+						)
 						intent.BSONFile = specialCollectionCache
 						restore.archive.Demux.Open(sourceNS, specialCollectionCache)
 					} else {
@@ -513,7 +551,11 @@ func (restore *MongoRestore) CreateIntentsForDB(db string, dir archive.DirLike) 
 						continue
 					}
 					intent.Location = entry.Path()
-					intent.BSONFile = &realBSONFile{path: entry.Path(), intent: intent, gzip: restore.InputOptions.Gzip}
+					intent.BSONFile = &realBSONFile{
+						path:   entry.Path(),
+						intent: intent,
+						gzip:   restore.InputOptions.Gzip,
+					}
 				}
 				log.Logvf(log.Info, "found collection %#q bson to restore to %#q", sourceNS, destNS)
 				restore.manager.PutWithNamespace(checkSourceNS, intent)
@@ -524,16 +566,27 @@ func (restore *MongoRestore) CreateIntentsForDB(db string, dir archive.DirLike) 
 				}
 
 				checkSourceNS := sourceNS
-				if trimmedColl, ok := strings.CutPrefix(collection, common.TimeseriesBucketPrefix); ok {
+				if trimmedColl, ok := strings.CutPrefix(
+					collection,
+					common.TimeseriesBucketPrefix,
+				); ok {
 					checkSourceNS = db + "." + trimmedColl
 				}
 
 				if !restore.includer.Has(checkSourceNS) {
-					log.Logvf(log.DebugLow, "skipping restoring %#q metadata, it is not included", db+"."+collection)
+					log.Logvf(
+						log.DebugLow,
+						"skipping restoring %#q metadata, it is not included",
+						db+"."+collection,
+					)
 					continue
 				}
 				if restore.excluder.Has(checkSourceNS) {
-					log.Logvf(log.DebugLow, "skipping restoring %#q metadata, it is excluded", db+"."+collection)
+					log.Logvf(
+						log.DebugLow,
+						"skipping restoring %#q metadata, it is excluded",
+						db+"."+collection,
+					)
 					continue
 				}
 
@@ -550,14 +603,30 @@ func (restore *MongoRestore) CreateIntentsForDB(db string, dir archive.DirLike) 
 					if restore.InputOptions.Archive == "-" {
 						intent.MetadataLocation = "archive on stdin"
 					} else {
-						intent.MetadataLocation = fmt.Sprintf("archive %#q", restore.InputOptions.Archive)
+						intent.MetadataLocation = fmt.Sprintf(
+							"archive %#q",
+							restore.InputOptions.Archive,
+						)
 					}
-					intent.MetadataFile = &archive.MetadataPreludeFile{Origin: sourceNS, Intent: intent, Prelude: restore.archive.Prelude}
+					intent.MetadataFile = &archive.MetadataPreludeFile{
+						Origin:  sourceNS,
+						Intent:  intent,
+						Prelude: restore.archive.Prelude,
+					}
 				} else {
 					intent.MetadataLocation = entry.Path()
-					intent.MetadataFile = &realMetadataFile{path: entry.Path(), intent: intent, gzip: restore.InputOptions.Gzip}
+					intent.MetadataFile = &realMetadataFile{
+						path:   entry.Path(),
+						intent: intent,
+						gzip:   restore.InputOptions.Gzip,
+					}
 				}
-				log.Logvf(log.Info, "found collection metadata from %#q to restore to %#q", sourceNS, destNS)
+				log.Logvf(
+					log.Info,
+					"found collection metadata from %#q to restore to %#q",
+					sourceNS,
+					destNS,
+				)
 				log.Logvf(log.DebugLow, "adding intent for %#q", sourceNS)
 				restore.manager.PutWithNamespace(sourceNS, intent)
 			default:

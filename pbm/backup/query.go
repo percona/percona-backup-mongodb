@@ -85,8 +85,13 @@ func ChangeBackupStateOPID(conn connect.Client, opid string, s defs.Status, msg 
 }
 
 func ChangeBackupState(conn connect.Client, bcpName string, s defs.Status, msg string) error {
-	return changeBackupState(context.TODO(),
-		conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+	return changeBackupState(
+		context.TODO(),
+		conn, bson.D{{"name", bcpName}},
+		time.Now().UTC().Unix(),
+		s,
+		msg,
+	)
 }
 
 func ChangeBackupStateWithUnixTime(
@@ -94,10 +99,17 @@ func ChangeBackupStateWithUnixTime(
 	conn connect.Client,
 	bcpName string,
 	s defs.Status,
-	unix int64,
+	ts int64,
 	msg string,
 ) error {
-	return changeBackupState(ctx, conn, bson.D{{"name", bcpName}}, time.Now().UTC().Unix(), s, msg)
+	return changeBackupState(
+		ctx,
+		conn,
+		bson.D{{"name", bcpName}},
+		ts,
+		s,
+		msg,
+	)
 }
 
 func changeBackupState(
@@ -163,6 +175,30 @@ func SetSrcBackup(ctx context.Context, conn connect.Client, bcpName, srcName str
 	return err
 }
 
+// SetFinishTime sets the time when the backup has ended.
+func SetFinishTime(ctx context.Context, conn connect.Client, bcpName string, sec int64) error {
+	_, err := conn.BcpCollection().UpdateOne(
+		ctx,
+		bson.D{{"name", bcpName}},
+		bson.D{
+			{"$set", bson.M{"finish_time": sec}},
+		},
+	)
+
+	return err
+}
+
+// GetFinishTime returns the time when the backup has ended.
+// Zero means it hasn't ended yet, or the meta couldn't be read.
+func GetFinishTime(ctx context.Context, conn connect.Client, bcpName string) int64 {
+	meta, err := getBackupMeta(ctx, conn, bson.D{{"name", bcpName}})
+	if err != nil {
+		return 0
+	}
+
+	return meta.FinishTime
+}
+
 func SetFirstWrite(ctx context.Context, conn connect.Client, bcpName string, first bson.Timestamp) error {
 	_, err := conn.BcpCollection().UpdateOne(
 		ctx,
@@ -204,7 +240,59 @@ func AddRSMeta(ctx context.Context, conn connect.Client, bcpName string, rs Back
 
 func ChangeRSState(conn connect.Client, bcpName, rsName string, s defs.Status, msg string) error {
 	ts := time.Now().UTC().Unix()
-	_, err := conn.BcpCollection().UpdateOne(
+	_, err := changeRSState(conn, bcpName, rsName, s, msg, ts)
+
+	return err
+}
+
+// ChangeRSStateOrAdd changes the state of existing replica-set metadata. If the
+// metadata does not exist yet, it adds the supplied replica-set metadata in the
+// requested state. It is intended for terminal error reporting before the
+// regular replica-set metadata registration has completed.
+func ChangeRSStateOrAdd(
+	conn connect.Client,
+	bcpName string,
+	rs BackupReplset,
+	s defs.Status,
+	msg string,
+) error {
+	ts := time.Now().UTC().Unix()
+	res, err := changeRSState(conn, bcpName, rs.Name, s, msg, ts)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount != 0 {
+		return nil
+	}
+
+	rs.Status = s
+	rs.LastTransitionTS = ts
+	rs.Error = msg
+	rs.Conditions = append(rs.Conditions, Condition{Timestamp: ts, Status: s, Error: msg})
+
+	res, err = conn.BcpCollection().UpdateOne(
+		context.Background(),
+		bson.D{{"name", bcpName}},
+		bson.D{{"$push", bson.M{"replsets": rs}}},
+	)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return errors.Errorf("backup %q metadata not found", bcpName)
+	}
+
+	return nil
+}
+
+func changeRSState(
+	conn connect.Client,
+	bcpName, rsName string,
+	s defs.Status,
+	msg string,
+	ts int64,
+) (*mongo.UpdateResult, error) {
+	return conn.BcpCollection().UpdateOne(
 		context.Background(),
 		bson.D{{"name", bcpName}, {"replsets.name", rsName}},
 		bson.D{
@@ -214,8 +302,6 @@ func ChangeRSState(conn connect.Client, bcpName, rsName string, s defs.Status, m
 			{"$push", bson.M{"replsets.$.conditions": Condition{Timestamp: ts, Status: s, Error: msg}}},
 		},
 	)
-
-	return err
 }
 
 // IncBackupSize increments total backup size.

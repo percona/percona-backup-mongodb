@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"os"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -10,8 +9,6 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
-	"github.com/percona/percona-backup-mongodb/pbm/storage"
-	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
 
 func ListProfiles(ctx context.Context, m connect.Client) ([]Config, error) {
@@ -50,6 +47,10 @@ func GetProfile(ctx context.Context, m connect.Client, name string) (*Config, er
 		return nil, errors.Wrap(err, "decode")
 	}
 
+	if profile.Lifecycle == nil {
+		profile.Lifecycle = &LifecycleConf{}
+	}
+
 	return profile, nil
 }
 
@@ -65,11 +66,8 @@ func AddProfile(ctx context.Context, m connect.Client, profile *Config) error {
 		return errors.Wrap(err, "cast storage")
 	}
 	sanitizeStoragePaths(&profile.Storage)
-
-	if profile.Storage.Type == storage.S3 {
-		// call the function for notification purpose.
-		// warning about unsupported levels will be printed
-		s3.SDKLogLevel(profile.Storage.S3.DebugLogLevels, os.Stderr)
+	if err := ValidateLifecycle(profile.Lifecycle); err != nil {
+		return err
 	}
 
 	_, err := m.ConfigCollection().ReplaceOne(ctx,

@@ -324,14 +324,18 @@ func (pr *PartReader) retryChunk(buf *Arena, sess interface{}, start, end int64,
 		if err == nil {
 			return r, nil
 		}
+		if i == retries-1 {
+			break
+		}
 
 		pr.L.Warning("retryChunk got %v, try to reconnect in %v", err, time.Second*time.Duration(i))
 		time.Sleep(time.Second * time.Duration(i))
-		sess, err = pr.GetSess()
-		if err != nil {
-			pr.L.Warning("recreate session err: %v", err)
+		nextSess, sessErr := pr.GetSess()
+		if sessErr != nil {
+			pr.L.Warning("recreate session err: %v", sessErr)
 			continue
 		}
+		sess = nextSess
 		pr.L.Info("session recreated, resuming download")
 	}
 
@@ -344,7 +348,7 @@ func (pr *PartReader) tryChunk(buf *Arena, sess interface{}, start, end int64) (
 	const retry = 2
 	var err error
 
-	for i := 0; i < retry; i++ {
+	for range retry {
 		var r io.ReadCloser
 		r, err = pr.GetChunk(pr.Fname, buf, sess, start, end)
 
@@ -352,11 +356,12 @@ func (pr *PartReader) tryChunk(buf *Arena, sess interface{}, start, end int64) (
 			return r, nil
 		}
 
-		if errors.Is(err, &GetObjError{}) {
+		var getObjErr GetObjError
+		if errors.As(err, &getObjErr) {
 			return r, err
 		}
 
-		pr.L.Warning("failed to download chunk %d-%d", start, end)
+		pr.L.Warning("failed to download chunk %d-%d, err: %v", start, end, err)
 	}
 
 	return nil, errors.Wrapf(err, "failed to download chunk %d-%d (of %d) after %d retries", start, end, pr.Fsize, retry)
@@ -386,15 +391,6 @@ func (e GetObjError) Error() string {
 	return e.Err.Error()
 }
 
-func (e GetObjError) Unwap() error {
+func (e GetObjError) Unwrap() error {
 	return e.Err
-}
-
-func (GetObjError) Is(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	_, ok := err.(GetObjError) //nolint:errorlint
-	return ok
 }

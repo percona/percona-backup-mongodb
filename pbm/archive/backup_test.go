@@ -1,13 +1,17 @@
 package archive
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log"
 	"os"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -442,3 +446,133 @@ func assertIdxOpt(t *testing.T, idxs []IndexSpec, idxName string,
 		}
 	}
 }
+
+func TestNormalizeIDIndexCollation(t *testing.T) {
+	tests := []struct {
+		name      string
+		indexName string
+		version   int32
+		collation any
+		remove    bool
+	}{
+		{
+			name: "v2 id index with simple collation", indexName: "_id_", version: 2,
+			collation: bson.D{{"locale", "simple"}}, remove: true,
+		},
+		{
+			name: "v1 id index with simple collation", indexName: "_id_", version: 1,
+			collation: bson.D{{"locale", "simple"}}, remove: true,
+		},
+		{
+			name: "legacy id index without collation", indexName: "_id_", version: 2,
+		},
+		{
+			name: "id index with non-simple collation", indexName: "_id_", version: 2,
+			collation: bson.D{{"locale", "en"}, {"strength", int32(2)}},
+		},
+		{
+			name: "secondary index with simple collation", indexName: "name_1", version: 2,
+			collation: bson.D{{"locale", "simple"}},
+		},
+		{
+			name: "secondary index without collation", indexName: "name_1", version: 2,
+		},
+		{
+			name: "id index with additional collation fields", indexName: "_id_", version: 2,
+			collation: bson.D{{"locale", "simple"}, {"strength", int32(2)}},
+		},
+		{
+			name: "id index with unexpected collation type", indexName: "_id_", version: 2,
+			collation: "simple",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := bson.D{{"_id", int32(1)}}
+			if tt.indexName != "_id_" {
+				key = bson.D{{"name", int32(1)}, {"createdAt", int32(-1)}}
+			}
+			index := bson.D{
+				{"v", tt.version},
+				{"key", key},
+				{"name", tt.indexName},
+			}
+			want := slices.Clone(index)
+			if tt.collation != nil {
+				index = append(index, bson.E{"collation", tt.collation})
+				if !tt.remove {
+					want = append(want, bson.E{"collation", tt.collation})
+				}
+			}
+			// Keep an option after collation to verify that removal preserves it.
+			index = append(index, bson.E{"ns", "test.col1"})
+			want = append(want, bson.E{"ns", "test.col1"})
+
+			require.Equal(t, want, normalizeIDIndexCollation(index))
+		})
+	}
+}
+
+func TestNormalizeIDIndexCollationMetadata(t *testing.T) {
+	var buf bytes.Buffer
+	bcp := &backupImpl{
+		serverVersion: "9.0.0",
+		fcv:           "9.0",
+		newFile: func(name string) (io.WriteCloser, error) {
+			require.Equal(t, MetaFileV2, name)
+			return &metadataBuffer{&buf}, nil
+		},
+	}
+
+	idIndex := bson.D{
+		{"v", int32(2)},
+		{"key", bson.D{{"_id", int32(1)}}},
+		{"name", "_id_"},
+		{"collation", bson.D{{"locale", "simple"}}},
+	}
+	secondaryIndex := IndexSpec{
+		{"v", int32(2)},
+		{"key", bson.D{{"name", int32(1)}, {"createdAt", int32(-1)}}},
+		{"name", "name_1_createdAt_-1"},
+		{"collation", bson.D{{"locale", "simple"}}},
+	}
+	wantIndexes := []IndexSpec{
+		{
+			{"v", int32(2)},
+			{"key", bson.D{{"_id", int32(1)}}},
+			{"name", "_id_"},
+		},
+		secondaryIndex,
+	}
+	ns := &NamespaceV2{
+		DB: "test", Name: "col1", Type: "collection",
+		UUID: "00112233445566778899aabbccddeeff",
+		Indexes: []IndexSpec{
+			IndexSpec(normalizeIDIndexCollation(idIndex)),
+			secondaryIndex,
+		},
+	}
+	require.NoError(t, bcp.writeMeta([]*NamespaceV2{ns}))
+
+	var meta ArchiveMetaV2
+	require.NoError(t, bson.Unmarshal(buf.Bytes(), &meta))
+	require.Len(t, meta.Namespaces, 1)
+	require.Equal(t, wantIndexes, meta.Namespaces[0].Indexes)
+
+	converted, err := convertMetaToV1(&meta)
+	require.NoError(t, err)
+	require.Len(t, converted.Namespaces, 1)
+	var restoreMetadata struct {
+		Indexes []IndexSpec `bson:"indexes"`
+		UUID    string      `bson:"uuid"`
+	}
+	err = bson.UnmarshalExtJSON([]byte(converted.Namespaces[0].Metadata), true, &restoreMetadata)
+	require.NoError(t, err)
+	require.Equal(t, wantIndexes, restoreMetadata.Indexes)
+	require.Equal(t, ns.UUID, restoreMetadata.UUID)
+}
+
+type metadataBuffer struct{ *bytes.Buffer }
+
+func (*metadataBuffer) Close() error { return nil }

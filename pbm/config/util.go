@@ -31,10 +31,11 @@ func GetProfiledConfig(ctx context.Context, conn connect.Client, profile string)
 			return nil, errors.Wrap(err, "storage cast")
 		}
 
-		// use storage config only
+		// Apply fields that can be overridden by a profile.
 		cfg.Storage = custom.Storage
 		cfg.Name = custom.Name
 		cfg.IsProfile = true
+		cfg.Lifecycle = custom.Lifecycle
 	}
 
 	if storage.ParseType(string(cfg.Storage.Type)) == storage.Undefined {

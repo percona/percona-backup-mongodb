@@ -9,17 +9,24 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	pbmidx "github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/pbm/version"
 )
 
 func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
@@ -31,7 +38,7 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 		excludeNS:    matcher,
 		noUUIDns:     noUUID,
 		preserveUUID: true,
-		indexCatalog: idx.NewIndexCatalog(),
+		indexCatalog: pbmidx.NewCatalog(&version.MongoVersion{Version: []int{7, 0, 0}}),
 		nodeInfo:     &topo.NodeInfo{},
 		log:          log.DiscardEvent,
 	}
@@ -39,6 +46,8 @@ func newOplogRestoreTest(mdb mDBCl) *OplogRestore {
 
 type mdbTestClient struct {
 	applyOpsInv []map[string]string
+	appliedOps  []db.Oplog
+	applyErr    error
 }
 
 func newMDBTestClient() *mdbTestClient {
@@ -51,6 +60,10 @@ func (d *mdbTestClient) getUUIDForNS(_ context.Context, _ string) (bson.Binary, 
 
 func (d *mdbTestClient) ensureCollExists(_ string) error {
 	return nil
+}
+
+func (d *mdbTestClient) documentExists(_ context.Context, _ string, _ any) (bool, error) {
+	return false, errors.New("unexpected documentExists call")
 }
 
 func (d *mdbTestClient) applyOps(entries []interface{}) error {
@@ -71,9 +84,18 @@ func (d *mdbTestClient) applyOps(entries []interface{}) error {
 		invParams["o2"] = "1"
 	}
 	d.applyOpsInv = append(d.applyOpsInv, invParams)
+	d.appliedOps = append(d.appliedOps, oe)
 
-	return nil
+	return d.applyErr
 }
+
+// failingApplyMDB returns a chosen apply error while retaining real database lookups.
+type failingApplyMDB struct {
+	mDBCl
+	applyErr error
+}
+
+func (d *failingApplyMDB) applyOps(_ []interface{}) error { return d.applyErr }
 
 func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
 	db := newMDBTestClient()
@@ -91,6 +113,56 @@ func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
 		require.Equal(t, want, db.applyOpsInv[i]["cmd"])
 		require.Empty(t, db.applyOpsInv[i]["o2"])
 	}
+}
+
+func TestCloneEntryRemappedCreateStripsO2(t *testing.T) {
+	oRestore := newOplogRestoreTest(newMDBTestClient())
+	err := oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{
+		FromNS: "mydb.c1",
+		ToNS:   "restored.c1_clone",
+	})
+	require.NoError(t, err)
+
+	uuid := bson.Binary{Subtype: 0x04, Data: []byte{1, 2, 3, 4}}
+	op := dbOplogCreateWithO2(uuid)
+
+	oRestore.cloneEntry(&op)
+
+	require.Equal(t, "restored.$cmd", op.Namespace)
+	require.Equal(t, "c1_clone", op.Object[0].Value)
+	require.Nil(t, op.UI)
+	require.Empty(t, op.Query)
+}
+
+func TestCloneEntryDoesNotStripCreateO2WithoutCloneNS(t *testing.T) {
+	oRestore := newOplogRestoreTest(newMDBTestClient())
+
+	uuid := bson.Binary{Subtype: 0x04, Data: []byte{1, 2, 3, 4}}
+	op := dbOplogCreateWithO2(uuid)
+
+	oRestore.cloneEntry(&op)
+
+	require.Equal(t, "mydb.$cmd", op.Namespace)
+	require.Equal(t, "c1", op.Object[0].Value)
+	require.NotNil(t, op.UI)
+	require.NotEmpty(t, op.Query)
+}
+
+func TestCloneEntryPreservesO2ForClonedUpdate(t *testing.T) {
+	oRestore := newOplogRestoreTest(newMDBTestClient())
+	err := oRestore.SetCloneNS(context.Background(), snapshot.CloneNS{
+		FromNS: "mydb.c1",
+		ToNS:   "restored.c1_clone",
+	})
+	require.NoError(t, err)
+
+	op := *createUpdateOp(t, "mydb.c1")
+
+	oRestore.cloneEntry(&op)
+
+	require.Equal(t, "restored.c1_clone", op.Namespace)
+	require.Nil(t, op.UI)
+	require.NotEmpty(t, op.Query)
 }
 
 func dbOplogCreateWithO2(uuid bson.Binary) db.Oplog {
@@ -470,6 +542,136 @@ func TestIsRoutingDocExcluded(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsMissingBucketUpdate(t *testing.T) {
+	ctx := t.Context()
+	database := mClient.Database("missing_bucket_error")
+	t.Cleanup(func() { require.NoError(t, database.Drop(context.Background())) })
+	require.NoError(t, database.CreateCollection(ctx, "ts1", options.CreateCollection().
+		SetTimeSeriesOptions(options.TimeSeries().SetTimeField("timestamp"))))
+	_, err := database.Collection("ts1").InsertOne(ctx, bson.D{{"timestamp", time.Now()}})
+	require.NoError(t, err)
+	var existing struct {
+		ID bson.ObjectID `bson:"_id"`
+	}
+	require.NoError(t, database.Collection("system.buckets.ts1").FindOne(ctx, bson.D{}).Decode(&existing))
+	for _, tc := range []struct {
+		name     string
+		changeOp func(*db.Oplog)
+		missing  bool
+	}{
+		{name: "missing bucket", missing: true},
+		{name: "existing bucket", changeOp: func(op *db.Oplog) { op.Query = bson.D{{"_id", existing.ID}} }},
+		{name: "missing collection", changeOp: func(op *db.Oplog) {
+			op.Namespace = database.Name() + ".system.buckets.absent"
+		}},
+		{name: "ordinary collection", changeOp: func(op *db.Oplog) { op.Namespace = database.Name() + ".c1" }},
+		{name: "insert", changeOp: func(op *db.Oplog) { op.Operation = "i" }},
+		{name: "replacement update", changeOp: func(op *db.Oplog) { op.Object = bson.D{{"control", bson.D{}}} }},
+		{name: "invalid diff", changeOp: func(op *db.Oplog) { op.Object = bson.D{{"$v", 2}, {"diff", "invalid"}} }},
+		{name: "missing id", changeOp: func(op *db.Oplog) { op.Query = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			op := db.Oplog{
+				Operation: "u", Namespace: database.Name() + ".system.buckets.ts1",
+				Query: bson.D{{"_id", bson.NewObjectID()}},
+				Object: bson.D{{"$v", 2}, {"diff", bson.D{
+					{"scontrol", bson.D{{"u", bson.D{{"closed", true}}}}},
+				}}},
+			}
+			if tc.changeOp != nil {
+				tc.changeOp(&op)
+			}
+			missing, err := newOplogRestoreTest(newMDB(mClient)).isMissingBucketUpdate(op)
+			require.NoError(t, err)
+			require.Equal(t, tc.missing, missing)
+		})
+	}
+}
+
+func TestIsMissingBucketUpdateLookupFailure(t *testing.T) {
+	client, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
+	require.NoError(t, err)
+	require.NoError(t, client.Disconnect(t.Context()))
+	op := db.Oplog{
+		Operation: "u", Namespace: "test.system.buckets.ts1", Query: bson.D{{"_id", bson.NewObjectID()}},
+		Object: bson.D{{"$v", 2}, {"diff", bson.D{{"scontrol", bson.D{{"u", bson.D{{"closed", true}}}}}}}},
+	}
+	missing, err := newOplogRestoreTest(newMDB(client)).isMissingBucketUpdate(op)
+	require.ErrorIs(t, err, mongo.ErrClientDisconnected)
+	require.False(t, missing)
+}
+
+func TestApplyMissingBucketUpdate(t *testing.T) {
+	ctx := t.Context()
+	database := mClient.Database("replay_missing_bucket")
+	t.Cleanup(func() { require.NoError(t, database.Drop(context.Background())) })
+	require.NoError(t, database.CreateCollection(ctx, "ts1", options.CreateCollection().
+		SetTimeSeriesOptions(options.TimeSeries().SetTimeField("timestamp"))))
+	wantMeasurement := bson.M{"_id": bson.NewObjectID(), "timestamp": bson.NewDateTimeFromTime(time.Now()), "x": int32(1)}
+	_, err := database.Collection("ts1").InsertOne(ctx, wantMeasurement)
+	require.NoError(t, err)
+	buckets := database.Collection("system.buckets.ts1")
+	var existing struct {
+		ID bson.ObjectID `bson:"_id"`
+	}
+	require.NoError(t, buckets.FindOne(ctx, bson.D{}).Decode(&existing))
+	missingID := bson.NewObjectID()
+	update := db.Oplog{
+		Timestamp: bson.Timestamp{T: 100, I: 1}, Version: 2,
+		Operation: "u", Namespace: database.Name() + ".system.buckets.ts1",
+		Query: bson.D{{"_id", missingID}},
+		Object: bson.D{{"$v", 2}, {"diff", bson.D{
+			{"scontrol", bson.D{{"u", bson.D{{"closed", true}}}}},
+		}}},
+	}
+	restore := newOplogRestoreTest(newMDB(mClient))
+	// MongoDB access returns the original failure; replay alone decides to skip it.
+	require.Error(t, restore.mdb.applyOps([]any{update}))
+	existingUpdate := update
+	existingUpdate.Timestamp.I = 2
+	existingUpdate.Query = bson.D{{"_id", existing.ID}}
+	for _, applyErr := range []error{
+		&mongo.CommandError{Code: 8, Message: "applyOps had one or more errors applying ops"},
+		errors.New("unrelated application failure"),
+	} {
+		failing := newOplogRestoreTest(&failingApplyMDB{mDBCl: newMDB(mClient), applyErr: applyErr})
+		require.NoError(t, failing.handleNonTxnOp(update))
+		require.ErrorIs(t, failing.handleNonTxnOp(existingUpdate), applyErr)
+	}
+	deleteOp := db.Oplog{
+		Timestamp: bson.Timestamp{T: 100, I: 3}, Version: 2,
+		Operation: "d", Namespace: update.Namespace, Object: bson.D{{"_id", missingID}},
+	}
+	var stream []byte
+	for _, op := range []db.Oplog{update, existingUpdate, deleteOp} {
+		raw, err := bson.Marshal(op)
+		require.NoError(t, err)
+		stream = append(stream, raw...)
+	}
+	last, err := restore.Apply(io.NopCloser(bytes.NewReader(stream)))
+	require.NoError(t, err)
+	require.Equal(t, deleteOp.Timestamp, last)
+	require.ErrorIs(t, buckets.FindOne(ctx, bson.D{{"_id", missingID}}).Err(), mongo.ErrNoDocuments)
+	var restored struct {
+		Control struct {
+			Closed bool `bson:"closed"`
+		} `bson:"control"`
+	}
+	require.NoError(t, buckets.FindOne(ctx, bson.D{{"_id", existing.ID}}).Decode(&restored))
+	require.True(t, restored.Control.Closed, "existing bucket update must be replayed")
+	var measurement bson.M
+	require.NoError(t, database.Collection("ts1").FindOne(ctx, bson.D{}).Decode(&measurement))
+	require.Equal(t, wantMeasurement, measurement)
+	count, err := database.Collection("ts1").CountDocuments(ctx, bson.D{})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+	// A missing collection must not be mistaken for a missing bucket document.
+	update.Namespace = database.Name() + ".system.buckets.absent"
+	var cmdErr mongo.CommandError
+	require.ErrorAs(t, restore.handleNonTxnOp(update), &cmdErr)
+	require.Equal(t, int32(26), cmdErr.Code) // NamespaceNotFound
 }
 
 func TestApply(t *testing.T) {
@@ -1156,5 +1358,238 @@ func createConfigChunksEntry(uuid string) *db.Oplog {
 			{"uuid", bson.Binary{Subtype: bson.TypeBinaryUUID, Data: uuidDecoded}},
 			{"shard", "rsX"},
 		},
+	}
+}
+
+func TestHandleNonTxnOp(t *testing.T) {
+	t.Run("collMod cmd", func(t *testing.T) {
+		const (
+			tDB      = "mydb"
+			tColl    = "c1"
+			tIdxName = "ttl_1"
+		)
+
+		t.Run("physical: index missing in catalog is applied on the node", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.PhysicalBackup
+
+			err := oRestore.handleNonTxnOp(collModTTLOplog(tDB, tColl, tIdxName, 200))
+			if err != nil {
+				t.Fatalf("collMod should be applied on the node, got err=%v", err)
+			}
+
+			if len(mdb.appliedOps) != 1 {
+				t.Fatalf("wrong number of applied ops: want=1, got=%d", len(mdb.appliedOps))
+			}
+			// the applied command has to keep its index modifier
+			idxMod, err := bsonutil.FindValueByKey("index", &mdb.appliedOps[0].Object)
+			if err != nil {
+				t.Fatalf("applied collMod has no index modifier: %v", mdb.appliedOps[0].Object)
+			}
+			idxModDoc, ok := idxMod.(bson.D)
+			if !ok {
+				t.Fatalf("index modifier is not a document: %v", idxMod)
+			}
+			name, err := bsonutil.FindStringValueByKey("name", &idxModDoc)
+			if err != nil || name != tIdxName {
+				t.Errorf("wrong index within applied collMod: want=%s, got=%v (err=%v)", tIdxName, name, err)
+			}
+		})
+
+		t.Run("logical: index missing in catalog returns error", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.LogicalBackup
+
+			err := oRestore.handleNonTxnOp(collModTTLOplog(tDB, tColl, tIdxName, 200))
+			if err == nil {
+				t.Fatal("expected error for the index missing in the catalog")
+			}
+
+			if len(mdb.appliedOps) != 0 {
+				t.Errorf("collMod should not be applied on the node, got=%d ops", len(mdb.appliedOps))
+			}
+		})
+
+		t.Run("physical: index in catalog is not applied on the node", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.PhysicalBackup
+			oRestore.indexCatalog.AddIndex(tDB, tColl, &idx.IndexDocument{
+				Key:     bson.D{{"createdAt", 1}},
+				Options: bson.M{"name": tIdxName, "expireAfterSeconds": 100},
+			})
+
+			err := oRestore.handleNonTxnOp(collModTTLOplog(tDB, tColl, tIdxName, 200))
+			if err != nil {
+				t.Fatalf("got err=%v", err)
+			}
+
+			if len(mdb.appliedOps) != 0 {
+				t.Errorf("collMod should be done on the catalog only, got=%d applied ops", len(mdb.appliedOps))
+			}
+			modified := oRestore.indexCatalog.GetIndex(tDB, tColl, tIdxName)
+			if modified == nil {
+				t.Fatal("index is gone from the catalog")
+			}
+			if modified.Options["expireAfterSeconds"] != 200 {
+				t.Errorf("catalog index is not modified: want=200, got=%v", modified.Options["expireAfterSeconds"])
+			}
+		})
+
+		t.Run("physical: unrelated catalog error is reported", func(t *testing.T) {
+			mdb := newMDBTestClient()
+			oRestore := newOplogRestoreTest(mdb)
+			oRestore.backupType = defs.PhysicalBackup
+
+			op := collModTTLOplog(tDB, tColl, tIdxName, 200)
+			op.Object = bson.D{
+				{"collMod", tColl},
+				{"index", bson.D{{"expireAfterSeconds", 200}}},
+			}
+
+			if err := oRestore.handleNonTxnOp(op); err == nil {
+				t.Fatal("expected error for the index modifier without name and keyPattern")
+			}
+			if len(mdb.appliedOps) != 0 {
+				t.Errorf("collMod should not be applied on the node, got=%d ops", len(mdb.appliedOps))
+			}
+		})
+	})
+}
+
+// collModTTLOplog creates collMod oplog entry which changes TTL of the index.
+func collModTTLOplog(dbName, collName, idxName string, expireAfterSeconds int) db.Oplog {
+	return db.Oplog{
+		Timestamp: bson.Timestamp{T: 100, I: 1},
+		Version:   2,
+		Operation: "c",
+		Namespace: dbName + ".$cmd",
+		Object: bson.D{
+			{"collMod", collName},
+			{"index", bson.D{
+				{"name", idxName},
+				{"expireAfterSeconds", expireAfterSeconds},
+			}},
+		},
+	}
+}
+
+func TestHandleRenameCollection(t *testing.T) {
+	mdb := newMDBTestClient()
+	r := newOplogRestoreTest(mdb)
+	r.indexCatalog.AddOplogIndex("db", "metrics", &idx.IndexDocument{
+		Key: bson.D{{"value", 1}}, Options: bson.M{"name": "source_idx"},
+	})
+	r.indexCatalog.AddIndex("other", "stats", &idx.IndexDocument{
+		Key: bson.D{{"old", 1}}, Options: bson.M{"name": "obsolete"},
+	})
+	op := renameOplog("db.metrics", "other.stats")
+
+	require.NoError(t, r.handleNonTxnOp(op))
+
+	require.Equal(t, []db.Oplog{op}, mdb.appliedOps)
+	require.Empty(t, r.indexCatalog.GetIndexes("db", "metrics"))
+	require.NotNil(t, r.indexCatalog.GetIndex("other", "stats", "source_idx"))
+	require.Nil(t, r.indexCatalog.GetIndex("other", "stats", "obsolete"))
+}
+
+func TestFailedRenamePreservesCatalog(t *testing.T) {
+	mdb := newMDBTestClient()
+	mdb.applyErr = errors.New("rename rejected")
+	r := newOplogRestoreTest(mdb)
+	for _, collection := range []string{"metrics", "stats"} {
+		r.indexCatalog.AddIndex("db", collection, &idx.IndexDocument{
+			Key: bson.D{{"value", 1}}, Options: bson.M{"name": collection + "_idx"},
+		})
+	}
+
+	err := r.handleNonTxnOp(renameOplog("db.metrics", "db.stats"))
+
+	require.ErrorIs(t, err, mdb.applyErr)
+	require.NotNil(t, r.indexCatalog.GetIndex("db", "metrics", "metrics_idx"))
+	require.NotNil(t, r.indexCatalog.GetIndex("db", "stats", "stats_idx"))
+}
+
+func TestExcludedRenamePreservesCatalog(t *testing.T) {
+	mdb := newMDBTestClient()
+	r := newOplogRestoreTest(mdb)
+	var err error
+	r.excludeNS, err = ns.NewMatcher([]string{"db.stats"})
+	require.NoError(t, err)
+	r.indexCatalog.AddIndex("db", "metrics", &idx.IndexDocument{
+		Key: bson.D{{"value", 1}}, Options: bson.M{"name": "source_idx"},
+	})
+	op := renameOplog("db.metrics", "db.stats")
+
+	require.NoError(t, r.handleNonTxnOp(op))
+	require.Empty(t, mdb.appliedOps)
+	require.NotNil(t, r.indexCatalog.GetIndex("db", "metrics", "source_idx"))
+}
+
+func TestTimeSeriesRenameThenDrop(t *testing.T) {
+	const (
+		database = "test125_fsmdb0"
+		temp     = "system.buckets.tmp.agg_out.9c79fa0c-4512-42ae-97bf-50d958271143"
+		output   = "system.buckets.interrupt_temp_out"
+	)
+	mdb := newMDBTestClient()
+	r := newOplogRestoreTest(mdb)
+	r.ver = &db.Version{8, 0, 17}
+	r.indexCatalog = pbmidx.NewCatalog(&version.MongoVersion{Version: []int{8, 0, 17}})
+
+	// Index-lifecycle commands from PBM-1762's 08:18:30–08:18:36 chunk.
+	commands := []struct {
+		increment uint32
+		command   bson.D
+	}{
+		{10, bson.D{
+			{"create", temp}, {"temp", true}, {"clusteredIndex", true},
+			{"timeseries", bson.D{{"timeField", "time"}, {"metaField", "tag"}, {"granularity", "seconds"}}},
+		}},
+		{15, bson.D{
+			{"createIndexes", temp}, {"v", int32(2)}, {"name", "tag_1_time_1"},
+			{"key", bson.D{{"meta", int32(1)}, {"control.min.time", int32(1)}, {"control.max.time", int32(1)}}},
+		}},
+		{21, bson.D{
+			{"renameCollection", database + "." + temp}, {"to", database + "." + output}, {"stayTemp", false},
+		}},
+	}
+	for _, command := range commands {
+		require.NoError(t, r.handleNonTxnOp(db.Oplog{
+			Timestamp: bson.Timestamp{T: 1778141913, I: command.increment},
+			Operation: "c", Namespace: database + ".$cmd", Object: command.command,
+		}))
+	}
+	groups := r.indexCatalog.BuildGroups(database, "interrupt_temp_out")
+	require.Len(t, groups, 1)
+	require.Equal(t, output, groups[0].Collection)
+	require.Len(t, groups[0].Indexes, 1)
+	require.Equal(t, "tag_1_time_1", groups[0].Indexes[0].Options["name"])
+	require.Empty(t, r.indexCatalog.BuildGroups(database, temp))
+
+	require.NoError(t, r.handleNonTxnOp(db.Oplog{
+		Timestamp: bson.Timestamp{T: 1778141913, I: 32},
+		Operation: "c", Namespace: database + ".$cmd", Object: bson.D{{"drop", output}},
+	}))
+	require.Empty(t, r.indexCatalog.BuildGroups(database, temp))
+	require.Empty(t, r.indexCatalog.BuildGroups(database, output))
+	require.Empty(t, r.indexCatalog.Namespaces())
+}
+
+func renameOplog(from, to string) db.Oplog {
+	sourceUUID := bson.Binary{Subtype: bson.TypeBinaryUUID, Data: make([]byte, 16)}
+	targetUUID := bson.Binary{Subtype: bson.TypeBinaryUUID, Data: make([]byte, 16)}
+	sourceUUID.Data[0] = 1
+	targetUUID.Data[0] = 2
+	return db.Oplog{
+		Operation: "c",
+		Namespace: "admin.$cmd",
+		UI:        &sourceUUID,
+		Object: bson.D{
+			{"renameCollection", from}, {"to", to}, {"dropTarget", targetUUID},
+		},
+		Query: bson.D{{"numRecords", int64(1)}},
 	}
 }

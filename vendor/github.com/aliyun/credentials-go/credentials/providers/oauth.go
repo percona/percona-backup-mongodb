@@ -102,20 +102,15 @@ func (b *OAuthCredentialsProviderBuilder) Build() (provider *OAuthCredentialsPro
 		return
 	}
 
-	if b.provider.refreshToken == "" {
-		err = errors.New("OAuth access token is empty or expired, please re-login with cli")
-		return
-	}
-
 	provider = b.provider
 	return
 }
 
 func (provider *OAuthCredentialsProvider) getCredentials() (session *sessionCredentials, err error) {
 
-	// OAuth token 必须提前足够时间刷新，确保有效期 >= 15分钟用于后续 exchange 操作
-	// 设置为20分钟（1200秒）提前量，留有5分钟余量
-	if provider.accessToken == "" || provider.accessTokenExpire == 0 || provider.accessTokenExpire-time.Now().Unix() <= 1200 {
+	// 仅在 refreshToken 存在时尝试刷新 accessToken
+	// 若 refreshToken 不存在，则直接使用当前 accessToken 去交换 accessKeyId，由服务端判断是否有效
+	if provider.refreshToken != "" && (provider.accessToken == "" || provider.accessTokenExpire == 0 || provider.accessTokenExpire-time.Now().Unix() <= 1200) {
 		err = provider.tryRefreshOauthToken()
 		if err != nil {
 			return nil, err

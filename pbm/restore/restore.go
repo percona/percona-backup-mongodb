@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/golang/snappy"
-	"github.com/mongodb/mongo-tools/common/idx"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
@@ -16,6 +14,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -330,16 +329,24 @@ func applyOplog(
 	ranges []oplogRange,
 	options *applyOplogOption,
 	info *topo.NodeInfo,
-	ic *idx.IndexCatalog,
+	ic *idx.Catalog,
 	setTxn setcommittedTxnFn,
 	getTxn getcommittedTxnFn,
 	stat *phys.DistTxnStat,
 	mgoV *version.MongoVersion,
+	backupType defs.BackupType,
 ) (partial []oplog.Txn, err error) {
 	log := log.LogEventFromContext(ctx)
 	log.Info("starting oplog replay")
 
-	oplogRestore, err := oplog.NewOplogRestore(node, ic, mgoV, info, log)
+	oplogRestore, err := oplog.NewOplogRestore(
+		node,
+		ic,
+		mgoV,
+		backupType,
+		info,
+		log,
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "create oplog")
 	}
@@ -371,20 +378,7 @@ func applyOplog(
 		for _, chnk := range oplogRange.chunks {
 			log.Debug("+ applying %v", chnk)
 
-			// If the compression is Snappy and it failed we try S2.
-			// Up until v1.7.0 the compression of pitr chunks was always S2.
-			// But it was a mess in the code which lead to saving pitr chunk files
-			// with the `.snappy`` extension although it was S2 in fact. And during
-			// the restore, decompression treated .snappy as S2 ¯\_(ツ)_/¯ It wasn’t
-			// an issue since there was no choice. Now, Snappy produces `.snappy` files
-			// and S2 - `.s2` which is ok. But this means the old chunks (made by previous
-			// PBM versions) won’t be compatible - during the restore, PBM will treat such
-			// files as Snappy (judging by its suffix) but in fact, they are s2 files
-			// and restore will fail with snappy: corrupt input. So we try S2 in such a case.
 			lts, err = replayChunk(chnk.FName, oplogRestore, stg, chnk.Compression)
-			if err != nil && errors.Is(err, snappy.ErrCorrupt) {
-				lts, err = replayChunk(chnk.FName, oplogRestore, stg, compress.CompressionTypeS2)
-			}
 			if err != nil {
 				return nil, errors.Wrapf(err, "replay chunk %v.%v", chnk.StartTS.T, chnk.EndTS.T)
 			}
@@ -445,4 +439,23 @@ func replayChunk(
 
 	lts, err := oplog.Apply(oplogReader)
 	return lts, errors.Wrap(err, "apply oplog for chunk")
+}
+
+// createIndexesCommand builds createIndexes command for the specified group.
+// When commitQuorum is nil, the commitQuorum field is omitted from the command and
+// that's mandatory for standalone mongod instance.
+func createIndexesCommand(group idx.BuildGroup, commitQuorum any) bson.D {
+	cmd := bson.D{
+		{"createIndexes", group.Collection},
+		{"indexes", group.Indexes},
+		{"ignoreUnknownIndexOptions", true},
+	}
+	if group.RawData {
+		cmd = append(cmd, bson.E{"rawData", true})
+	}
+	if commitQuorum != nil {
+		cmd = append(cmd, bson.E{"commitQuorum", commitQuorum})
+	}
+
+	return cmd
 }

@@ -58,6 +58,8 @@ type BackupMeta struct {
 	Err              string                   `bson:"error,omitempty" json:"error,omitempty"`
 	PBMVersion       string                   `bson:"pbm_version" json:"pbm_version"`
 	BalancerStatus   topo.BalancerMode        `bson:"balancer" json:"balancer"`
+	StartTime        int64                    `bson:"start_time" json:"start_time"`
+	FinishTime       int64                    `bson:"finish_time" json:"finish_time"`
 	runtimeError     error
 }
 

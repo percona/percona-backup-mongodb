@@ -65,6 +65,11 @@ type CreateBucketDetails struct {
 	// Management service to generate a data encryption key or to encrypt or decrypt a data encryption key.
 	KmsKeyId *string `mandatory:"false" json:"kmsKeyId"`
 
+	// Specifies whether Object Storage should use intermediate cached Bucket Encryption Keys with server-side
+	// encryption using KMS (SSE-KMS) for new objects in the bucket. This reduces calls to OCI Vault Key Management
+	// Service (KMS). Existing objects are not affected.
+	IsBucketKeyEnabled *bool `mandatory:"false" json:"isBucketKeyEnabled"`
+
 	// Set the versioning status on the bucket. By default, a bucket is created with versioning `Disabled`. Use this option to enable versioning during bucket creation. Objects in a version enabled bucket are protected from overwrites and deletions. Previous versions of the same object will be available in the bucket.
 	Versioning CreateBucketDetailsVersioningEnum `mandatory:"false" json:"versioning,omitempty"`
 
@@ -74,11 +79,10 @@ type CreateBucketDetails struct {
 	// tiers based on the access pattern of the objects.
 	AutoTiering BucketAutoTieringEnum `mandatory:"false" json:"autoTiering,omitempty"`
 
-	// Scope in which the bucket is unique. Default value is NAMESPACE.
-	// Bucket scope as NAMESPACE means that the bucket is unique only in the owning namespace/tenancy. Other
-	// tenancies can have a bucket with same name in their namespace.
-	// Bucket scope as REGION means that the bucket is regionally unique. No other tenancy can have a bucket with
-	// same name and scope REGION.
+	// The bucket scope determines weather the bucket name must be unique within the tenancy and region (essentially the namespace) or across all tenancies in the region. The bucket scope also determines if the bucket supports S3 virtual-hosted style URL's or not.
+	// Allowed values:
+	// NAMESPACE: Only supports path-style bucket access, bucket name only needs to be unique within the tenancy and region.
+	// REGION: Supports both path-style and virtual-hosted URL style access, bucket name needs to be unique across all tenancies in the region.
 	BucketScope BucketBucketScopeEnum `mandatory:"false" json:"bucketScope,omitempty"`
 }
 

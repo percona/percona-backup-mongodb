@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
@@ -28,6 +29,102 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/storage/oss"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/s3"
 )
+
+func TestLifecycleConfDefaultsAndClone(t *testing.T) {
+	cfg := &LifecycleConf{Strategy: "CALENDAR"}
+	require.Equal(t, LifecycleStrategyCalendar, cfg.GetStrategy())
+	require.Equal(t, DefaultLifecycleMinKeep, cfg.GetMinKeep())
+	require.Nil(t, cfg.MinKeep)
+
+	minKeep := DefaultLifecycleMinKeep
+	cfg.MinKeep = &minKeep
+	clone := cfg.Clone()
+	require.NotSame(t, cfg, clone)
+	require.NotSame(t, cfg.MinKeep, clone.MinKeep)
+	*clone.MinKeep = 0
+	assert.Equal(t, DefaultLifecycleMinKeep, *cfg.MinKeep)
+
+	minKeep = 0
+	cfg = &LifecycleConf{MinKeep: &minKeep}
+	assert.Zero(t, cfg.GetMinKeep())
+
+	clonedConfig := (&Config{Lifecycle: cfg}).Clone()
+	require.NotSame(t, cfg.MinKeep, clonedConfig.Lifecycle.MinKeep)
+}
+
+func TestValidateLifecycle(t *testing.T) {
+	negative := -1
+	tests := []struct {
+		name    string
+		cfg     LifecycleConf
+		wantErr string
+	}{
+		{name: "defaults"},
+		{name: "rolling", cfg: LifecycleConf{Strategy: LifecycleStrategyRolling}},
+		{
+			name: "calendar",
+			cfg: LifecycleConf{
+				Strategy:         LifecycleStrategyCalendar,
+				WeeklyRetention:  1,
+				WeeklyDay:        int(time.Saturday),
+				MonthlyRetention: 1,
+				MonthlyDay:       31,
+			},
+		},
+		{name: "unknown strategy", cfg: LifecycleConf{Strategy: "unknown"}, wantErr: "lifecycle.strategy"},
+		{name: "negative daily", cfg: LifecycleConf{DailyRetention: -1}, wantErr: "lifecycle.dailyRetention"},
+		{name: "negative weekly", cfg: LifecycleConf{WeeklyRetention: -1}, wantErr: "lifecycle.weeklyRetention"},
+		{name: "negative monthly", cfg: LifecycleConf{MonthlyRetention: -1}, wantErr: "lifecycle.monthlyRetention"},
+		{name: "negative minKeep", cfg: LifecycleConf{MinKeep: &negative}, wantErr: "lifecycle.minKeep"},
+		{
+			name: "invalid weekly day",
+			cfg: LifecycleConf{
+				Strategy:        LifecycleStrategyCalendar,
+				WeeklyRetention: 1,
+				WeeklyDay:       7,
+			},
+			wantErr: "lifecycle.weeklyDay",
+		},
+		{
+			name: "invalid monthly day",
+			cfg: LifecycleConf{
+				Strategy:         LifecycleStrategyCalendar,
+				MonthlyRetention: 1,
+			},
+			wantErr: "lifecycle.monthlyDay",
+		},
+		{
+			name: "rolling ignores target days",
+			cfg: LifecycleConf{
+				Strategy:         LifecycleStrategyRolling,
+				WeeklyRetention:  1,
+				WeeklyDay:        7,
+				MonthlyRetention: 1,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateLifecycle(&tt.cfg)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestParseValidatesLifecycle(t *testing.T) {
+	_, err := Parse(strings.NewReader(`
+storage:
+  type: blackhole
+lifecycle:
+  strategy: unknown
+`))
+	require.ErrorContains(t, err, "lifecycle.strategy")
+}
 
 func TestIsSameStorage(t *testing.T) {
 	t.Run("S3", func(t *testing.T) {
@@ -406,8 +503,10 @@ func TestConfig(t *testing.T) {
 						ClientEmail: "ce1",
 						PrivateKey:  "pk1",
 					},
-					ChunkSize:    100,
-					MaxObjSizeGB: floatPtr(1.1),
+					ClientType:                gcs.ClientTypeJSON,
+					ChunkSize:                 100,
+					ParallelUploadConcurrency: 4,
+					MaxObjSizeGB:              floatPtr(1.1),
 					Retryer: &gcs.Retryer{
 						BackoffInitial:     11 * time.Minute,
 						BackoffMax:         111 * time.Minute,
@@ -448,6 +547,11 @@ func TestConfig(t *testing.T) {
 				desc:  "chunkSize",
 				param: "storage.gcs.chunkSize",
 				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.ChunkSize),
+			},
+			{
+				desc:  "parallelUploadConcurrency",
+				param: "storage.gcs.parallelUploadConcurrency",
+				val:   fmt.Sprintf("%d", wantCfg.Storage.GCS.ParallelUploadConcurrency),
 			},
 			{
 				desc:  "maxObjSizeGB",
@@ -512,6 +616,56 @@ func TestConfig(t *testing.T) {
 		})
 	})
 
+	t.Run("gcs parallel upload config", func(t *testing.T) {
+		emptyCfg := &Config{
+			Storage: StorageConf{Type: storage.GCS, GCS: &gcs.Config{}},
+		}
+		err := SetConfig(ctx, connClient, emptyCfg)
+		if err != nil {
+			t.Fatalf("setup: initial SetConfig failed: %v", err)
+		}
+
+		testCases := []struct {
+			desc  string
+			param string
+			val   string
+		}{
+			{
+				desc:  "clientType",
+				param: "storage.gcs.clientType",
+				val:   string(gcs.ClientTypeGRPC),
+			},
+			{
+				desc:  "parallelUploadConcurrency",
+				param: "storage.gcs.parallelUploadConcurrency",
+				val:   "4",
+			},
+		}
+
+		for _, tt := range testCases {
+			t.Run(tt.desc, func(t *testing.T) {
+				err := SetConfigVar(ctx, connClient, tt.param, tt.val)
+				if err != nil {
+					t.Fatalf("SetConfigVar failed for %s with value %s: %v",
+						tt.param, tt.val, err)
+				}
+			})
+		}
+
+		gotCfg, err := GetConfig(ctx, connClient)
+		if err != nil {
+			t.Fatalf("GetConfig failed: %v", err)
+		}
+
+		gotGCS := gotCfg.Storage.GCS
+		if gotGCS.ClientType != gcs.ClientTypeGRPC {
+			t.Fatalf("clientType: got=%q, want=%q", gotGCS.ClientType, gcs.ClientTypeGRPC)
+		}
+		if gotGCS.ParallelUploadConcurrency != 4 {
+			t.Fatalf("parallelUploadConcurrency: got=%d, want=4", gotGCS.ParallelUploadConcurrency)
+		}
+	})
+
 	t.Run("restore config", func(t *testing.T) {
 		emptyCfg := &Config{
 			Storage: StorageConf{Type: storage.Blackhole},
@@ -561,6 +715,119 @@ func TestConfig(t *testing.T) {
 		})
 		require.Error(t, err)
 	})
+}
+
+func TestS3DebugLogLevelValidation(t *testing.T) {
+	ctx := context.Background()
+	newConfig := func(levels string) *Config {
+		return &Config{
+			Storage: StorageConf{
+				Type: storage.S3,
+				S3: &s3.Config{
+					Bucket:         "bucket",
+					DebugLogLevels: levels,
+				},
+			},
+		}
+	}
+
+	const validLevels = "Signing,Retries"
+	require.NoError(t, SetConfig(ctx, connClient, newConfig(validLevels)))
+	require.NoError(t, SetConfigVar(ctx, connClient, "storage.s3.debugLogLevels", "Request,Response"))
+
+	err := SetConfigVar(ctx, connClient, "storage.s3.debugLogLevels", "RequestEventMessage")
+	require.ErrorContains(t, err, "set s3 debug log")
+
+	err = SetConfig(ctx, connClient, newConfig("LogDebug"))
+	require.Error(t, err)
+
+	profile := newConfig("Unknown")
+	profile.Name = "invalid-debug-log-level"
+	profile.IsProfile = true
+	err = AddProfile(ctx, connClient, profile)
+	require.Error(t, err)
+
+	_, err = connClient.ConfigCollection().UpdateOne(ctx,
+		bson.D{{"profile", nil}},
+		bson.M{"$set": bson.M{"storage.s3.debugLogLevels": "Unknown"}},
+	)
+	require.NoError(t, err)
+
+	persisted, err := GetConfig(ctx, connClient)
+	require.NoError(t, err)
+	require.ErrorContains(t, persisted.Storage.Cast(), "validate s3 debug log")
+
+	require.NoError(t, SetConfigVar(ctx, connClient, "storage.s3.debugLogLevels", "Signing"))
+	got, err := GetConfigVar(ctx, connClient, "storage.s3.debugLogLevels")
+	require.NoError(t, err)
+	assert.Equal(t, "Signing", got)
+}
+
+func TestLifecycleConfigPersistenceValidation(t *testing.T) {
+	ctx := context.Background()
+	minKeep := 0
+	cfg := &Config{
+		Storage: StorageConf{Type: storage.Blackhole},
+		Lifecycle: &LifecycleConf{
+			Enabled:        true,
+			Strategy:       "ROLLING",
+			MinKeep:        &minKeep,
+			DailyRetention: 7,
+		},
+	}
+	require.NoError(t, SetConfig(ctx, connClient, cfg))
+	assert.Equal(t, "ROLLING", cfg.Lifecycle.Strategy)
+
+	invalid := cfg.Clone()
+	invalid.Lifecycle.DailyRetention = -1
+	require.ErrorContains(t, SetConfig(ctx, connClient, invalid), "lifecycle.dailyRetention")
+
+	persisted, err := GetConfig(ctx, connClient)
+	require.NoError(t, err)
+	assert.Equal(t, 7, persisted.Lifecycle.DailyRetention)
+	assert.Zero(t, *persisted.Lifecycle.MinKeep)
+
+	require.NoError(t, SetConfigVar(ctx, connClient, "lifecycle.strategy", "CALENDAR"))
+	strategy, err := GetConfigVar(ctx, connClient, "lifecycle.strategy")
+	require.NoError(t, err)
+	assert.Equal(t, "CALENDAR", strategy)
+
+	require.ErrorContains(t,
+		SetConfigVar(ctx, connClient, "lifecycle.minKeep", "-1"),
+		"lifecycle.minKeep",
+	)
+	persisted, err = GetConfig(ctx, connClient)
+	require.NoError(t, err)
+	assert.Zero(t, *persisted.Lifecycle.MinKeep)
+
+	const profileName = "lifecycle-validation"
+	t.Cleanup(func() {
+		_ = RemoveProfile(context.Background(), connClient, profileName)
+	})
+	profile := &Config{
+		Name:      profileName,
+		IsProfile: true,
+		Storage:   StorageConf{Type: storage.Blackhole},
+		Lifecycle: &LifecycleConf{
+			MinKeep:        &minKeep,
+			DailyRetention: 5,
+		},
+	}
+	require.NoError(t, AddProfile(ctx, connClient, profile))
+
+	invalidProfile := profile.Clone()
+	invalidProfile.Lifecycle.Strategy = "unknown"
+	require.ErrorContains(t, AddProfile(ctx, connClient, invalidProfile), "lifecycle.strategy")
+
+	persistedProfile, err := GetProfile(ctx, connClient, profileName)
+	require.NoError(t, err)
+	assert.Nil(t, persistedProfile.PITR)
+	assert.Nil(t, persistedProfile.Backup)
+	assert.Nil(t, persistedProfile.Restore)
+	require.NotNil(t, persistedProfile.Lifecycle)
+	assert.Equal(t, LifecycleStrategyRolling, persistedProfile.Lifecycle.GetStrategy())
+	assert.Equal(t, 5, persistedProfile.Lifecycle.DailyRetention)
+	assert.Zero(t, *persistedProfile.Lifecycle.MinKeep)
 }
 
 func TestRestoreConfGetIndexCommitQuorum(t *testing.T) {

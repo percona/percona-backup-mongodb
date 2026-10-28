@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 )
@@ -66,7 +67,11 @@ func (d *mDB) ensureCollExists(dbName string) error {
 // applyOps is a wrapper for the applyOps database command, we pass in
 // a session to avoid opening a new connection for a few inserts at a time.
 func (d *mDB) applyOps(entries []interface{}) error {
-	singleRes := d.m.Database("admin").RunCommand(context.TODO(), bson.D{{"applyOps", entries}})
+	// Intermediate replay states may not satisfy the collection's current validator.
+	singleRes := d.m.Database("admin").RunCommand(context.TODO(), bson.D{
+		{"applyOps", entries},
+		{"bypassDocumentValidation", true},
+	})
 	if err := singleRes.Err(); err != nil {
 		return errors.Wrap(err, "applyOps")
 	}
@@ -80,4 +85,19 @@ func (d *mDB) applyOps(entries []interface{}) error {
 	}
 
 	return nil
+}
+
+// documentExists checks for a document by _id in ns, projecting only its _id.
+// An absent document returns false, nil; other query failures return an error.
+func (d *mDB) documentExists(ctx context.Context, ns string, id any) (bool, error) {
+	dbName, collName, _ := strings.Cut(ns, ".")
+	err := d.m.Database(dbName).Collection(collName).FindOne(ctx,
+		bson.D{{"_id", id}}, options.FindOne().SetProjection(bson.D{{"_id", 1}})).Err()
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrap(err, "find document")
+	}
+	return true, nil
 }

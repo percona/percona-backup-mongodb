@@ -53,7 +53,15 @@ type Options struct {
 
 	AdditionalHeaders []string
 
+	DefaultRequestHeaders map[string]string
+
 	EndpointProvider EndpointProvider
+
+	EndpointProviderE EndpointProviderE
+
+	BucketNameResolver BucketNameResolver
+
+	AccountId *string
 }
 
 func (c Options) Copy() Options {
@@ -80,6 +88,8 @@ type innerOptions struct {
 
 	// UserAgent
 	UserAgent string
+
+	InitError error
 }
 
 type Client struct {
@@ -110,6 +120,8 @@ func NewClient(cfg *Config, optFns ...func(*Options)) *Client {
 	resolveUrlStyle(cfg, &options)
 	resolveFeatureFlags(cfg, &options)
 	resolveCloudBox(cfg, &options)
+	resolveAccountId(cfg, &options, &inner)
+	resolveDefaultRequestHeaders(cfg, &options)
 
 	for _, fn := range optFns {
 		fn(&options)
@@ -180,6 +192,10 @@ func resolveHTTPClient(cfg *Config, o *Options, inner *innerOptions) {
 		}
 	}
 
+	if cfg.MaxConnections != nil {
+		custom = append(custom, transport.MaxConnections(*cfg.MaxConnections))
+	}
+
 	//config in transport  package
 	tcfg := &transport.Config{}
 	if cfg.ConnectTimeout != nil {
@@ -237,6 +253,8 @@ func resolveUrlStyle(cfg *Config, o *Options) {
 		o.UrlStyle = UrlStyleCName
 	} else if cfg.UsePathStyle != nil && *cfg.UsePathStyle {
 		o.UrlStyle = UrlStylePath
+	} else if cfg.UseVirtualHostedAlias != nil && *cfg.UseVirtualHostedAlias {
+		o.UrlStyle = UrlStyleVirtualHostedAlias
 	} else {
 		o.UrlStyle = UrlStyleVirtualHosted
 	}
@@ -292,6 +310,38 @@ func resolveCloudBox(cfg *Config, o *Options) {
 	o.Product = CloudBoxProduct
 }
 
+func resolveAccountId(cfg *Config, o *Options, inner *innerOptions) {
+	if cfg.AccountId == nil {
+		return
+	}
+
+	o.AccountId = cfg.AccountId
+
+	accountId := ToString(cfg.AccountId)
+	if accountId == "" {
+		return
+	}
+	if !isValidAccountId(accountId) {
+		inner.InitError = fmt.Errorf("invalid account id: %s, must be pure digits", accountId)
+	}
+}
+
+func resolveDefaultRequestHeaders(cfg *Config, o *Options) {
+	if len(cfg.DefaultRequestHeaders) == 0 {
+		return
+	}
+
+	// Copy it, so that mutating the config's map after NewClient can not race
+	// with the requests reading it.
+	headers := make(map[string]string, len(cfg.DefaultRequestHeaders))
+	for k, v := range cfg.DefaultRequestHeaders {
+		if len(k) > 0 && len(v) > 0 {
+			headers[k] = v
+		}
+	}
+	o.DefaultRequestHeaders = headers
+}
+
 func buildUserAgent(cfg *Config) string {
 	if cfg.UserAgent == nil {
 		return defaultUserAgent
@@ -310,6 +360,11 @@ func (c *Client) invokeOperation(ctx context.Context, input *OperationInput, opt
 				input, input.OpName,
 				c.dumpOperationOutput(output), err)
 		}()
+	}
+
+	if c.inner.InitError != nil {
+		err = c.inner.InitError
+		return
 	}
 
 	options := c.options.Copy()
@@ -360,7 +415,12 @@ func (c *Client) sendRequest(ctx context.Context, input *OperationInput, opts *O
 	}
 	// host & path
 	var strUrl string
-	if opts.EndpointProvider != nil {
+	if opts.EndpointProviderE != nil {
+		strUrl, err = opts.EndpointProviderE.BuildURL(input)
+		if err != nil {
+			return output, err
+		}
+	} else if opts.EndpointProvider != nil {
 		strUrl = opts.EndpointProvider.BuildURL(input)
 	} else {
 		host, path := buildURL(input, opts)
@@ -413,13 +473,30 @@ func (c *Client) sendRequest(ctx context.Context, input *OperationInput, opts *O
 	}
 	request.Body = TeeReadNopCloser(body, writers...)
 
+	// default headers, only fill in what the operation and the SDK left unset.
+	for k, v := range opts.DefaultRequestHeaders {
+		if request.Header.Get(k) == "" {
+			request.Header.Set(k, v)
+		}
+	}
+
 	//signing context
+	signingBucket := input.Bucket
+	if opts.BucketNameResolver != nil && input.Bucket != nil {
+		var resolved string
+		resolved, err = opts.BucketNameResolver.BuildBucketName(input)
+		if err != nil {
+			return
+		}
+		signingBucket = &resolved
+	}
+
 	subResource, _ := input.OpMetadata.Get(signer.SubResource).([]string)
 	clockOffset := c.inner.ClockOffset
 	signingCtx := &signer.SigningContext{
 		Product:           Ptr(opts.Product),
 		Region:            Ptr(opts.Region),
-		Bucket:            input.Bucket,
+		Bucket:            signingBucket,
 		Key:               input.Key,
 		Request:           request,
 		SubResource:       subResource,
@@ -649,13 +726,28 @@ func tryConvertServiceError(response *http.Response) (err error) {
 	}
 	var tag string
 	if strings.EqualFold(contentTypeJSON, response.Header.Get(HTTPHeaderContentType)) {
-		type ErrorRoot struct {
-			Root json.RawMessage `json:"Error"`
+		var rawMap map[string]json.RawMessage
+		if err = json.Unmarshal(body, &rawMap); err == nil {
+			if errorData, ok := rawMap["Error"]; ok && len(errorData) > 0 {
+				type ErrorRoot struct {
+					Root json.RawMessage `json:"Error"`
+				}
+				var root ErrorRoot
+				if err = json.Unmarshal(body, &root); err == nil {
+					err = json.Unmarshal(root.Root, &se)
+				}
+			} else {
+				se.EC = response.Header.Get(HeaderOssEC)
+				code := extractStatusCode(response.Status)
+				if code != "" {
+					se.Code = code
+				}
+				if err = json.Unmarshal(body, &se); err == nil {
+					err = json.Unmarshal(body, &se)
+				}
+			}
 		}
-		var root ErrorRoot
-		if err = json.Unmarshal(body, &root); err == nil {
-			err = json.Unmarshal(root.Root, &se)
-		}
+
 		tag = "json"
 	} else {
 		err = xml.Unmarshal(body, &se)
@@ -730,6 +822,10 @@ func applyOperationOpt(c *Options, op *Options) {
 		c.AuthMethod = op.AuthMethod
 	}
 
+	if op.BucketNameResolver != nil {
+		c.BucketNameResolver = op.BucketNameResolver
+	}
+
 	//response handler
 	handlers := []func(*http.Response) error{
 		serviceErrorResponseHandler,
@@ -790,8 +886,15 @@ func validateInput(input *OperationInput) error {
 		return NewErrParamNull("OperationInput")
 	}
 
-	if input.Bucket != nil && !isValidBucketName(input.Bucket) {
-		return NewErrParamInvalid("OperationInput.Bucket")
+	if input.Bucket != nil {
+		if input.OpMetadata.Get(OpMetaKeyIsBucketArn) == true {
+			return AssertValidateArnBucket(ToString(input.Bucket))
+		} else {
+			if !IsValidBucketName(input.Bucket) {
+				return NewErrParamInvalid("OperationInput.Bucket")
+			}
+		}
+
 	}
 
 	if input.Key != nil && !isValidObjectName(input.Key) {
@@ -1572,4 +1675,19 @@ func MarshalUpdateContentMd5(request any, input *OperationInput) error {
 
 func UnmarshalDiscardBody(result any, output *OperationOutput) error {
 	return discardBody(result, output)
+}
+
+// MarshalInput marshals the request into operation input (exposed to external modules)
+func (c *Client) MarshalInput(request any, input *OperationInput, handlers ...func(any, *OperationInput) error) error {
+	return c.marshalInput(request, input, handlers...)
+}
+
+// UnmarshalOutput unmarshals the operation output into the result (exposed to external modules)
+func (c *Client) UnmarshalOutput(result any, output *OperationOutput, handlers ...func(any, *OperationOutput) error) error {
+	return c.unmarshalOutput(result, output, handlers...)
+}
+
+// ToClientError converts an error to a client error (exposed to external modules)
+func (c *Client) ToClientError(err error, opName string, output *OperationOutput) error {
+	return c.toClientError(err, opName, output)
 }

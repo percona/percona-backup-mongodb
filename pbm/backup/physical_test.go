@@ -12,14 +12,40 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
+	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
 )
+
+func TestIsMissingIncrementalHistory(t *testing.T) {
+	const message = "2: No such file or directory"
+	unknown := errors.Wrap(mongo.CommandError{Code: 8, Message: message}, "create backupCursor")
+	noSuchKey := mongo.CommandError{Code: 4, Message: message + " - source identifier not found"}
+	for _, tc := range []struct {
+		name string
+		typ  defs.BackupType
+		err  error
+		want bool
+	}{
+		{"UnknownError", defs.IncrementalBackup, unknown, true},
+		{"NoSuchKey", defs.IncrementalBackup, noSuchKey, true},
+		{"other message", defs.IncrementalBackup, mongo.CommandError{Code: 4, Message: "metadata not found"}, false},
+		{"other code", defs.IncrementalBackup, mongo.CommandError{Code: 26, Message: message}, false},
+		{"physical backup", defs.PhysicalBackup, noSuchKey, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &Backup{typ: tc.typ}
+			assert.Equal(t, tc.want, b.isMissingIncrementalHistory(tc.err))
+		})
+	}
+}
 
 func TestBackupCursor(t *testing.T) {
 	conn := TestEnv.Client.MongoClient()

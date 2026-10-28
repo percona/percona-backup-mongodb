@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -14,12 +15,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/storage/fs"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 func TestNodeStatus(t *testing.T) {
@@ -813,3 +817,93 @@ func TestPlanCopyFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestPhysicalRestoreLogBufferUsesDedicatedStorage(t *testing.T) {
+	logger := log.NewWithOpts(nil, "rs0", "node0", &log.Opts{
+		LogPath: filepath.Join(t.TempDir(), "pbm-agent.log"),
+	})
+	stg := &physicalLogStorage{}
+	logStg := &physicalLogStorage{}
+	r := &PhysRestore{
+		name:     "restore1",
+		rsConf:   &topo.RSConfig{ID: "rs0"},
+		nodeInfo: &topo.NodeInfo{Me: "node0"},
+		stg:      stg,
+		newStorage: func() (storage.Storage, error) {
+			return logStg, nil
+		},
+	}
+	r.log = logger.NewDefaultEvent()
+
+	require.NoError(t, r.enableLogBuff(logger))
+	r.log.Info("restore on node succeed")
+
+	r.closeStorages()
+	require.Equal(t, 1, stg.closeCount)
+	require.Nil(t, r.stg)
+	require.Equal(t, 0, logStg.closeCount)
+
+	r.log.Info("recovery successfully finished")
+	logger.Close()
+	require.Equal(t, 1, logStg.closeCount)
+	require.Len(t, logStg.ops, 2)
+	require.Equal(t, "close", logStg.ops[1])
+
+	logger.Close()
+	require.Equal(t, 1, logStg.closeCount)
+	require.Len(t, logStg.ops, 2)
+
+	savedLogs := logStg.saved.String()
+	for _, msg := range []string{"restore on node succeed", "recovery successfully finished"} {
+		require.Contains(t, savedLogs, msg)
+	}
+}
+
+type physicalLogStorage struct {
+	closed     bool
+	closeCount int
+	saved      bytes.Buffer
+	ops        []string
+}
+
+func (*physicalLogStorage) Type() storage.Type { return storage.Filesystem }
+
+func (s *physicalLogStorage) Save(name string, data io.Reader, _ ...storage.Option) error {
+	if s.closed {
+		return fmt.Errorf("save after close")
+	}
+
+	buf, err := io.ReadAll(data)
+	if err != nil {
+		return err
+	}
+
+	s.ops = append(s.ops, "save:"+name)
+	s.saved.Write(buf)
+	return nil
+}
+
+func (s *physicalLogStorage) Close() error {
+	s.closeCount++
+	s.ops = append(s.ops, "close")
+	s.closed = true
+	return nil
+}
+
+func (*physicalLogStorage) SourceReader(string) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(nil)), nil
+}
+
+func (*physicalLogStorage) FileStat(string) (storage.FileInfo, error) {
+	return storage.FileInfo{}, nil
+}
+
+func (*physicalLogStorage) List(string, string) ([]storage.FileInfo, error) {
+	return nil, nil
+}
+
+func (*physicalLogStorage) Delete(string) error { return nil }
+
+func (*physicalLogStorage) Copy(string, string) error { return nil }
+
+func (*physicalLogStorage) DownloadStat() storage.DownloadStat { return storage.DownloadStat{} }

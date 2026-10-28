@@ -207,6 +207,7 @@ func UnsafeClient(m *mongo.Client) *clientImpl {
 // Connect resolves MongoDB connection to Primary member and wraps it within Client object.
 // In case of replica set it returns connection to Primary member,
 // while in case of sharded cluster it returns connection to Config RS Primary member.
+// Connections through mongos are not supported.
 func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 	client, opts, err := MongoConnectWithOpts(ctx, uri, AppName(appName))
 	if err != nil {
@@ -219,10 +220,8 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 		return nil, errors.Wrap(err, "get NodeInfo")
 	}
 	if inf.isMongos() {
-		return &clientImpl{
-			client:  client,
-			options: opts,
-		}, nil
+		_ = client.Disconnect(ctx)
+		return nil, ErrMongosUnsupported
 	}
 
 	inf.Opts, err = getMongodOpts(ctx, client, nil)
@@ -271,24 +270,6 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 		client:  client,
 		options: opts,
 	}, nil
-}
-
-func (l *clientImpl) HasValidConnection(ctx context.Context) error {
-	err := l.client.Ping(ctx, readpref.Primary())
-	if err != nil {
-		return err
-	}
-
-	info, err := getNodeInfo(ctx, l.client)
-	if err != nil {
-		return errors.Wrap(err, "get node info ext")
-	}
-
-	if !info.isMongos() && !info.isClusterLeader() {
-		return ErrInvalidConnection
-	}
-
-	return nil
 }
 
 func (l *clientImpl) Disconnect(ctx context.Context) error {
@@ -385,7 +366,7 @@ func (l *clientImpl) applyOptonsFromConnString(cmd bson.D) bson.D {
 	return cmd
 }
 
-var ErrInvalidConnection = errors.New("invalid mongo connection")
+var ErrMongosUnsupported = errors.New("mongos connection is not supported")
 
 type Client interface {
 	Disconnect(ctx context.Context) error

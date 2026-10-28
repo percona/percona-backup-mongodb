@@ -76,6 +76,7 @@ func listAllFiles(confFilepath string) ([]storage.FileInfo, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "storage from config")
 	}
+	defer storage.Close(stg, nil)
 
 	files, err := stg.List("", "")
 	if err != nil {

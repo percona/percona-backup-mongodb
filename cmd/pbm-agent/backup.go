@@ -45,6 +45,7 @@ func (a *Agent) CancelBackup() {
 // Backup starts backup
 func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID, ep config.Epoch) {
 	logger := log.FromContext(ctx)
+	startTime := time.Now().Unix()
 
 	if cmd == nil {
 		l := logger.NewEvent(string(ctrl.CmdBackup), "", opid.String(), ep.TS())
@@ -144,7 +145,7 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 				balancer = topo.BalancerModeOn
 			}
 		}
-		err = bcp.Init(ctx, cmd, opid, balancer)
+		err = bcp.Init(ctx, cmd, opid, balancer, startTime)
 		if err != nil {
 			l.Error("init meta: %v", err)
 			return
@@ -261,6 +262,17 @@ func (a *Agent) Backup(ctx context.Context, cmd *ctrl.BackupCmd, opid ctrl.OPID,
 		}
 	} else {
 		l.Info("backup finished")
+	}
+
+	if nodeInfo.IsLeader() {
+		finishTime := backup.GetFinishTime(ctx, a.leadConn, cmd.Name)
+
+		start := time.Unix(startTime, 0).UTC()
+		finish := time.Unix(finishTime, 0).UTC()
+		if finish.After(start) {
+			l.Info("backup: %s, start: %v, finish: %v, duration: %v",
+				cmd.Name, start.Format(time.RFC3339), finish.Format(time.RFC3339), finish.Sub(start))
+		}
 	}
 }
 

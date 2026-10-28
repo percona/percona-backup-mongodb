@@ -119,7 +119,7 @@ type StatsSinkMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StatsSinkMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -331,6 +331,35 @@ func (m *StatsConfig) validate(all bool) error {
 
 	}
 
+	if all {
+		switch v := interface{}(m.GetAllowDefaultTagOverrides()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, StatsConfigValidationError{
+					field:  "AllowDefaultTagOverrides",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, StatsConfigValidationError{
+					field:  "AllowDefaultTagOverrides",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetAllowDefaultTagOverrides()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return StatsConfigValidationError{
+				field:  "AllowDefaultTagOverrides",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return StatsConfigMultiError(errors)
 	}
@@ -344,7 +373,7 @@ type StatsConfigMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StatsConfigMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -556,7 +585,7 @@ type StatsMatcherMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StatsMatcherMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -697,7 +726,7 @@ type TagSpecifierMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m TagSpecifierMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -883,7 +912,7 @@ type HistogramBucketSettingsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m HistogramBucketSettingsMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1057,7 +1086,7 @@ type StatsdSinkMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StatsdSinkMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1232,7 +1261,7 @@ type DogStatsdSinkMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m DogStatsdSinkMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1333,7 +1362,7 @@ type HystrixSinkMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m HystrixSinkMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}

@@ -37,7 +37,9 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
+	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/topo"
@@ -92,15 +94,16 @@ type PhysRestore struct {
 	startTS int64
 	secOpts *topo.MongodOptsSec
 
-	name      string
-	opid      string
-	nodeInfo  *topo.NodeInfo
-	stg       storage.Storage
-	bcpStg    storage.Storage
-	bcp       *backup.BackupMeta
-	files     []files
-	bcpSizeRS int64 // total uncompressed size of the backup for RS (including all increments)
-	restoreTS bson.Timestamp
+	name       string
+	opid       string
+	nodeInfo   *topo.NodeInfo
+	stg        storage.Storage
+	bcpStg     storage.Storage
+	bcp        *backup.BackupMeta
+	files      []files
+	bcpSizeRS  int64 // total uncompressed size of the backup for RS (including all increments)
+	restoreTS  bson.Timestamp
+	newStorage func() (storage.Storage, error)
 
 	confOpts *config.RestoreConf
 
@@ -212,6 +215,14 @@ func NewPhysical(
 	}, nil
 }
 
+func (r *PhysRestore) closeStorages() {
+	storage.Close(r.bcpStg, r.log)
+	r.bcpStg = nil
+
+	storage.Close(r.stg, r.log)
+	r.stg = nil
+}
+
 // peeks a random free port in a range [minPort, maxPort]
 func peekTmpPort(current int) (int, error) {
 	const (
@@ -254,6 +265,10 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 		}
 	}
 
+	if r.stopHB != nil {
+		close(r.stopHB)
+	}
+
 	r.log.Debug("wait for cluster status")
 	cStatus, err := r.waitClusterStatus()
 	if err != nil {
@@ -274,9 +289,7 @@ func (r *PhysRestore) close(noerr bool, progress nodeStatus) (err error) {
 		if r.stopCleanupHB != nil {
 			close(r.stopCleanupHB)
 		}
-		if r.stopHB != nil {
-			close(r.stopHB)
-		}
+		r.closeStorages()
 	}()
 
 	// resolve and exec cleanup
@@ -1075,9 +1088,9 @@ func (n nodeStatus) isFailed() bool {
 // and reset buffer when logs size hist the limit.
 type logBuff struct {
 	buf   *bytes.Buffer
+	stg   storage.Storage
 	path  string
 	cnt   int
-	write func(name string, data io.Reader) error
 	limit int64
 	mx    sync.Mutex
 }
@@ -1098,7 +1111,7 @@ func (l *logBuff) Write(p []byte) (int, error) {
 
 func (l *logBuff) flush() error {
 	fname := fmt.Sprintf("%s.%d.log", l.path, l.cnt)
-	err := l.write(fname, l.buf)
+	err := l.stg.Save(fname, l.buf, storage.UseLogger(false))
 	if err != nil {
 		return errors.Wrapf(err, "write logs buffer to %s", fname)
 	}
@@ -1110,32 +1123,43 @@ func (l *logBuff) flush() error {
 
 func (l *logBuff) Flush() error {
 	l.mx.Lock()
-	defer l.mx.Unlock()
+	err := l.flush()
+	stg := l.stg
+	l.mx.Unlock()
 
-	return l.flush()
+	storage.Close(stg, nil)
+	return err
 }
 
 // enableLogBuff enables log buffer with start ordinal number: 0.
-func (r *PhysRestore) enableLogBuff(logger log.Logger) {
-	r.enableLogBuffWithOrdinal(logger, 0)
+func (r *PhysRestore) enableLogBuff(logger log.Logger) error {
+	return r.enableLogBuffWithOrdinal(logger, 0)
 }
 
 // enableLogBufferWithOrdinal enables log buffer property for the logger instance.
 // With log buffer, PBM dumps it to the storage once the buffer is full.
 // Ordinal is log number suffix that's added after the buffer is full.
-func (r *PhysRestore) enableLogBuffWithOrdinal(logger log.Logger, ordinal int) {
+func (r *PhysRestore) enableLogBuffWithOrdinal(logger log.Logger, ordinal int) error {
+	if r.newStorage == nil {
+		return errors.New("new storage is not configured")
+	}
+
+	stg, err := r.newStorage()
+	if err != nil {
+		return errors.Wrap(err, "get log storage")
+	}
+
 	r.logBuff = &logBuff{
 		buf:   &bytes.Buffer{},
+		stg:   stg,
 		path:  fmt.Sprintf("%s/%s/rs.%s/log/%s", defs.PhysRestoresDir, r.name, r.rsConf.ID, r.nodeInfo.Me),
 		limit: 1 << 20, // 1Mb
 		cnt:   ordinal,
-		write: func(name string, data io.Reader) error {
-			// Logger should be disabled due to: PBM-1531
-			return r.stg.Save(name, data, storage.UseLogger(false))
-		},
 	}
 	logger.SefBuffer(r.logBuff)
 	logger.PauseMgo()
+
+	return nil
 }
 
 // Snapshot restores data from the physical snapshot.
@@ -1196,6 +1220,7 @@ func (r *PhysRestore) Snapshot(
 	defer func() {
 		if cmd.Exit && err == nil {
 			// nothing to cleanup in case of successful ext restore with exit
+			r.closeStorages()
 			return
 		}
 		if err != nil && !errors.Is(err, ErrNoDataForShard) {
@@ -1240,12 +1265,18 @@ func (r *PhysRestore) Snapshot(
 
 	var oplogRanges []oplogRange
 	if !pitr.IsZero() {
+		pitrStg, err := r.newStorage()
+		if err != nil {
+			return errors.Wrap(err, "pitr storage")
+		}
+		defer storage.Close(pitrStg, r.log)
+
 		chunks, err := chunks(ctx, r.leadConn, r.stg, r.restoreTS, pitr, r.rsConf.ID, r.rsMap)
 		if err != nil {
 			return err
 		}
 
-		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: r.stg})
+		oplogRanges = append(oplogRanges, oplogRange{chunks: chunks, storage: pitrStg})
 	}
 
 	if meta.Type == defs.IncrementalBackup {
@@ -1267,7 +1298,9 @@ func (r *PhysRestore) Snapshot(
 	l.Debug("%s", defs.StatusStarting)
 
 	logger := log.FromContext(ctx)
-	r.enableLogBuff(logger)
+	if err = r.enableLogBuff(logger); err != nil {
+		return errors.Wrap(err, "enable log buffer")
+	}
 
 	_, err = r.toState(defs.StatusRunning)
 	if err != nil {
@@ -1934,7 +1967,7 @@ func (r *PhysRestore) replayPITROnStandalone(
 	oplogRanges []oplogRange,
 	stat *phys.RestoreShardStat,
 ) error {
-	ctx := context.Background()
+	ctx := log.SetLogEventToContext(context.Background(), r.log)
 	flags := []string{
 		"--dbpath", r.dbpath,
 		"--setParameter", "disableLogicalSessionCacheRefresh=true",
@@ -1960,19 +1993,18 @@ func (r *PhysRestore) replayPITROnStandalone(
 		end:    &to,
 		unsafe: true,
 	}
-	partial, err := applyOplog(ctx,
+	partial, err := r.replayOplogWithIndexes(
+		ctx,
 		nodeConn,
 		oplogRanges,
 		&oplogOption,
-		r.nodeInfo,
-		nil,
-		r.setcommittedTxn,
-		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+	)
 	if err != nil {
-		return errors.Wrap(err, "replay oplog")
+		return err
 	}
+
 	if len(partial) > 0 {
 		tops := []db.Oplog{}
 		for _, t := range partial {
@@ -1990,6 +2022,66 @@ func (r *PhysRestore) replayPITROnStandalone(
 	}
 
 	return r.shutdown(nodeConn)
+}
+
+// replayOplogWithIndexes replays oplog ranges and builds the indexes after.
+func (r *PhysRestore) replayOplogWithIndexes(
+	ctx context.Context,
+	nodeConn *mongo.Client,
+	oplogRanges []oplogRange,
+	oplogOption *applyOplogOption,
+	stat *phys.DistTxnStat,
+	mgoV *version.MongoVersion,
+) ([]oplog.Txn, error) {
+	indexCatalog := idx.NewCatalog(mgoV)
+	partial, err := applyOplog(
+		ctx,
+		nodeConn,
+		oplogRanges,
+		oplogOption,
+		r.nodeInfo,
+		indexCatalog,
+		r.setcommittedTxn,
+		r.getcommittedTxn,
+		stat,
+		mgoV,
+		defs.PhysicalBackup,
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "replay oplog")
+	}
+
+	err = r.restoreIndexes(ctx, nodeConn, indexCatalog)
+	if err != nil {
+		return nil, errors.Wrap(err, "restore index")
+	}
+
+	return partial, nil
+}
+
+// restoreIndexes builds all the indexes collected in the index catalog
+// during the oplog replay of the physical PITR.
+func (r *PhysRestore) restoreIndexes(ctx context.Context, nodeConn *mongo.Client, idxc *idx.Catalog) error {
+	r.log.Debug("building indexes created during PITR")
+	for _, ns := range idxc.Namespaces() {
+		for _, group := range idxc.BuildGroups(ns.DB, ns.Collection) {
+			var indexNames []string
+			for _, index := range group.Indexes {
+				indexNames = append(indexNames, index.Options["name"].(string))
+			}
+
+			rawCommand := createIndexesCommand(group, nil)
+
+			r.log.Info("restoring indexes for %s.%s: %s",
+				ns.DB, group.Collection, strings.Join(indexNames, ", "))
+			err := nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			if err != nil {
+				return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, group.Collection)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *PhysRestore) resetRS() error {
@@ -2358,6 +2450,9 @@ func tryConn(port int, logpath string) (*mongo.Client, error) {
 }
 
 func (r *PhysRestore) startMongo(opts ...string) error {
+	// PBM-1779: disable TTL Monitor during restore (all mongod restarts)
+	opts = append(opts, []string{"--setParameter", "ttlMonitorEnabled=false"}...)
+
 	if r.tmpConf != nil {
 		opts = append(opts, []string{"-f", r.tmpConf.Name()}...)
 	}
@@ -2401,7 +2496,12 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 		return errors.Wrap(err, "get pbm config")
 	}
 
-	r.stg, err = util.StorageFromConfig(&cfg.Storage, r.nodeInfo.Me, l)
+	storageConf := cfg.Storage
+	r.newStorage = func() (storage.Storage, error) {
+		return util.StorageFromConfig(&storageConf, r.nodeInfo.Me, l)
+	}
+
+	r.stg, err = r.newStorage()
 	if err != nil {
 		return errors.Wrap(err, "get storage")
 	}
@@ -2455,7 +2555,13 @@ func (r *PhysRestore) init(ctx context.Context, name string, opid ctrl.OPID, l l
 
 // startHB starts heartbeats in separate go routine.
 func (r *PhysRestore) startHB(l log.LogEvent) {
-	err := r.hb()
+	stg, err := r.newStorage()
+	if err != nil {
+		l.Error("get heartbeat storage: %v", err)
+		return
+	}
+
+	err = r.hb(stg)
 	if err != nil {
 		l.Error("send init heartbeat: %v", err)
 	}
@@ -2465,6 +2571,7 @@ func (r *PhysRestore) startHB(l log.LogEvent) {
 		tk := time.NewTicker(time.Second * hbFrameSec)
 		defer func() {
 			tk.Stop()
+			storage.Close(stg, l)
 			r.stopHB = nil
 			l.Debug("heartbeats stopped")
 		}()
@@ -2472,7 +2579,7 @@ func (r *PhysRestore) startHB(l log.LogEvent) {
 		for {
 			select {
 			case <-tk.C:
-				err := r.hb()
+				err := r.hb(stg)
 				if err != nil {
 					l.Warning("send heartbeat: %v", err)
 				}
@@ -2483,20 +2590,20 @@ func (r *PhysRestore) startHB(l log.LogEvent) {
 	}()
 }
 
-func (r *PhysRestore) hb() error {
+func (r *PhysRestore) hb(stg storage.Storage) error {
 	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
 
-	err := storage.RetryableWrite(r.stg, r.syncPathNode+"."+syncHbSuffix, now)
+	err := storage.RetryableWrite(stg, r.syncPathNode+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write node hb")
 	}
 
-	err = storage.RetryableWrite(r.stg, r.syncPathRS+"."+syncHbSuffix, now)
+	err = storage.RetryableWrite(stg, r.syncPathRS+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write rs hb")
 	}
 
-	err = storage.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbSuffix, now)
+	err = storage.RetryableWrite(stg, r.syncPathCluster+"."+syncHbSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write cluster hb")
 	}
@@ -2504,10 +2611,10 @@ func (r *PhysRestore) hb() error {
 	return nil
 }
 
-func (r *PhysRestore) hbCleanup() error {
+func (r *PhysRestore) hbCleanup(stg storage.Storage) error {
 	now := []byte(strconv.FormatInt(time.Now().Unix(), 10))
 
-	err := storage.RetryableWrite(r.stg, r.syncPathCluster+"."+syncHbCleanupSuffix, now)
+	err := storage.RetryableWrite(stg, r.syncPathCluster+"."+syncHbCleanupSuffix, now)
 	if err != nil {
 		return errors.Wrap(err, "write cleanup hb")
 	}
@@ -2518,7 +2625,13 @@ func (r *PhysRestore) hbCleanup() error {
 // startCleanupHb generates cleanup hb for the purpose of detecting physical restore
 // cleanup activity.
 func (r *PhysRestore) startCleanupHb() {
-	err := r.hbCleanup()
+	stg, err := r.newStorage()
+	if err != nil {
+		r.log.Warning("get cleanup heartbeat storage: %v", err)
+		return
+	}
+
+	err = r.hbCleanup(stg)
 	if err != nil {
 		r.log.Warning("send init cleanup heartbeat: %v", err)
 	}
@@ -2528,6 +2641,7 @@ func (r *PhysRestore) startCleanupHb() {
 		tk := time.NewTicker(hbCleanupFrame)
 		defer func() {
 			tk.Stop()
+			storage.Close(stg, r.log)
 			r.stopCleanupHB = nil
 			r.log.Debug("cleanup heartbeats stopped")
 		}()
@@ -2535,7 +2649,7 @@ func (r *PhysRestore) startCleanupHb() {
 		for {
 			select {
 			case <-tk.C:
-				err := r.hbCleanup()
+				err := r.hbCleanup(stg)
 				if err != nil {
 					r.log.Warning("send cleanup heartbeat: %v", err)
 				}
@@ -3169,6 +3283,8 @@ func PhysRestoreFinish(l log.LogEvent, cmd *ExtFinishCmd) error {
 		return errors.Wrap(err, "creating restore object from storage dump")
 	}
 
+	defer r.closeStorages()
+
 	r.startHB(l)
 	defer func() {
 		if r.stopHB != nil {
@@ -3253,6 +3369,12 @@ func physRestoreFromExtDump(
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get storage")
 	}
+	closeStorage := true
+	defer func() {
+		if closeStorage {
+			storage.Close(stg, l)
+		}
+	}()
 
 	extDumpF := fmt.Sprintf("%s/%s/rs.%s/node.%s.%s",
 		defs.PhysRestoresDir, cmd.RestoreName, cmd.RS, cmd.Node, extDumpSuffix)
@@ -3271,6 +3393,9 @@ func physRestoreFromExtDump(
 	physRestore := PhysRestore{
 		stg: stg,
 		log: l,
+		newStorage: func() (storage.Storage, error) {
+			return GetRestoreMetaStg(cmd.CfgPath, cmd.Node)
+		},
 
 		dbpath:             extDump.DBpath,
 		tmpPort:            extDump.TmpPort,
@@ -3296,7 +3421,9 @@ func physRestoreFromExtDump(
 	restoreMeta := extDump.RestoreMeta
 
 	logger := l.GetLogger()
-	physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal+1)
+	if err := physRestore.enableLogBuffWithOrdinal(logger, extDump.LogOrdinal+1); err != nil {
+		return nil, nil, errors.Wrap(err, "enable log buffer")
+	}
 
 	// set security opts
 	if cmd.DBCfgPath != "" {
@@ -3307,6 +3434,7 @@ func physRestoreFromExtDump(
 		physRestore.secOpts = mongodCfg.Security
 	}
 
+	closeStorage = false
 	return &physRestore, restoreMeta, nil
 }
 

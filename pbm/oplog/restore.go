@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongo-tools/common/db"
 	"github.com/mongodb/mongo-tools/common/dumprestore"
 	"github.com/mongodb/mongo-tools/common/idx"
+	"github.com/mongodb/mongo-tools/common/options"
 	"github.com/mongodb/mongo-tools/common/txn"
 	"github.com/mongodb/mongo-tools/mongorestore/ns"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -33,6 +34,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	pbmidx "github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/restore/phys"
 	"github.com/percona/percona-backup-mongodb/pbm/snapshot"
 	"github.com/percona/percona-backup-mongodb/pbm/version"
@@ -145,16 +147,18 @@ type mDBCl interface {
 	getUUIDForNS(ctx context.Context, ns string) (bson.Binary, error)
 	ensureCollExists(dbName string) error
 	applyOps(entries []interface{}) error
+	documentExists(ctx context.Context, ns string, id any) (bool, error)
 }
 
 // OplogRestore is the oplog applyer
 type OplogRestore struct {
 	mdb               mDBCl
 	ver               *db.Version
+	backupType        defs.BackupType
 	needIdxWorkaround bool
 	startTS           bson.Timestamp
 	endTS             bson.Timestamp
-	indexCatalog      *idx.IndexCatalog
+	indexCatalog      *pbmidx.Catalog
 	excludeNS         *ns.Matcher
 	includeNS         map[string]map[string]bool
 	noUUIDns          *ns.Matcher
@@ -188,8 +192,9 @@ const saveLastDistTxns = 100
 // NewOplogRestore creates an object for an oplog applying
 func NewOplogRestore(
 	m *mongo.Client,
-	ic *idx.IndexCatalog,
+	ic *pbmidx.Catalog,
 	sv *version.MongoVersion,
+	backupType defs.BackupType,
 	nodeInfo *topo.NodeInfo,
 	log log.LogEvent,
 ) (*OplogRestore, error) {
@@ -209,12 +214,13 @@ func NewOplogRestore(
 		}
 	}
 	if ic == nil {
-		ic = idx.NewIndexCatalog()
+		ic = pbmidx.NewCatalog(sv)
 	}
 	ver := &db.Version{v[0], v[1], v[2]}
 	return &OplogRestore{
 		mdb:               newMDB(m),
 		ver:               ver,
+		backupType:        backupType,
 		preserveUUID:      true,
 		needIdxWorkaround: needsCreateIndexWorkaround(ver),
 		indexCatalog:      ic,
@@ -1059,6 +1065,12 @@ func (o *OplogRestore) cloneEntry(op *db.Oplog) {
 	op.Namespace = fmt.Sprintf("%s.$cmd", o.cloneNS.toDB)
 	op.Object[0].Value = o.cloneNS.toColl
 	op.UI = nil
+	if cmdName == "create" {
+		// MongoDB 8.3 create oplog entries may include physical local-catalog
+		// metadata in o2. Do not carry source storage idents into the cloned
+		// namespace; let MongoDB allocate fresh target metadata.
+		op.Query = nil
+	}
 }
 
 func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
@@ -1082,6 +1094,8 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 	o.cloneEntry(&op)
 
 	dbName, collName, _ := strings.Cut(op.Namespace, ".")
+	var rename bool
+	var renameFrom, renameTo options.Namespace
 	if op.Operation == "c" {
 		if len(op.Object) == 0 {
 			return errors.Errorf("empty object value for op: %v", op)
@@ -1093,6 +1107,13 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		}
 
 		switch cmdName {
+		case "renameCollection":
+			from := op.Object[0].Value.(string)
+			to := op.Object[1].Value.(string)
+			renameFrom.DB, renameFrom.Collection, _ = strings.Cut(from, ".")
+			renameTo.DB, renameTo.Collection, _ = strings.Cut(to, ".")
+			rename = true
+
 		case "commitIndexBuild":
 			// commitIndexBuild was introduced in 4.4, one "commitIndexBuild" command can contain several
 			// indexes, we need to convert the command to "createIndexes" command for each single index and apply
@@ -1106,7 +1127,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndexes(dbName, collName, indexes)
+			o.indexCatalog.AddOplogIndexes(dbName, collName, indexes)
 			return nil
 
 		case "createIndexes":
@@ -1122,7 +1143,7 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 
-			o.indexCatalog.AddIndex(dbName, collName, index)
+			o.indexCatalog.AddOplogIndex(dbName, collName, index)
 			return nil
 
 		case "dropDatabase":
@@ -1166,25 +1187,40 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
 			_ = o.indexCatalog.DeleteIndexes(dbName, collName, op.Object)
-			return nil
+			if o.backupType == defs.LogicalBackup {
+				// for logical backup index still doesn't exist
+				return nil
+			}
+			// for physical backup index will be dropped
+
 		case "collMod":
 			if o.ver.GTE(db.Version{4, 1, 11}) {
 				bsonutil.RemoveKey("noPadding", &op.Object)
 				bsonutil.RemoveKey("usePowerOf2Sizes", &op.Object)
 			}
 
-			indexModValue, found := bsonutil.RemoveKey("index", &op.Object)
-			if !found {
+			indexModValue, err := bsonutil.FindValueByKey("index", &op.Object)
+			if err != nil {
 				break
 			}
 			collName, ok := op.Object[0].Value.(string)
 			if !ok {
 				return errors.Errorf("could not parse collection name from op: %v", op)
 			}
-			err := o.indexCatalog.CollMod(dbName, collName, indexModValue)
-			if err != nil {
+			if err := o.indexCatalog.CollMod(dbName, collName, indexModValue); err != nil {
+				if o.backupType == defs.PhysicalBackup &&
+					strings.Contains(err.Error(), "cannot find index in indexCatalog for collMod") {
+					// For physical backup, missing index means that it already exists on the node.
+					// The command keeps its index modifier, so it's applied on the node.
+					break
+				}
+
 				return err
 			}
+
+			// The index modification is done on the index catalog,
+			// so it's stripped from the command.
+			bsonutil.RemoveKey("index", &op.Object)
 			// Don't apply the collMod if the only modification was for an index.
 			if len(op.Object) == 1 {
 				return nil
@@ -1230,6 +1266,22 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 
 	err = o.mdb.applyOps([]interface{}{op})
 	if err != nil {
+		// TTL can delete a bucket during the dump, leaving updates without their pre-image.
+		// MongoDB 8.0 applyOps defaults to upserting missing documents; a bucket delta can
+		// then fail with 6781400 (missing control). MongoDB 8.3 disables forced upserts:
+		// the missing document produces UpdateOperationFailed (218), which applyOps logs
+		// server-side but reports to the driver as a generic UnknownError.
+		// Check bucket/collection existence instead of matching version-specific errors.
+		missing, lookupErr := o.isMissingBucketUpdate(op)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if missing {
+			o.log.Debug("skipping update to missing time-series bucket in %s matching %v at %v: %v",
+				op.Namespace, op.Query, op.Timestamp, err)
+			return nil
+		}
+
 		// https://jira.percona.com/browse/PBM-818
 		if o.unsafe && op.Namespace == "config.chunks" {
 			if mongo.IsDuplicateKeyError(err) {
@@ -1241,7 +1293,56 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 		return errors.Wrapf(err, "op: %s | merr %v", opb, errm)
 	}
 
+	if rename {
+		o.indexCatalog.RenameCollection(renameFrom.DB, renameFrom.Collection, renameTo.DB, renameTo.Collection)
+	}
+
 	return nil
+}
+
+// isMissingBucketUpdate reports whether a legacy bucket delta targets a missing
+// document in an existing collection. Used after replay fails, it checks state
+// rather than the error cause. Lookup failures are returned to the caller.
+func (o *OplogRestore) isMissingBucketUpdate(op db.Oplog) (bool, error) {
+	id, ok := bucketDeltaID(op)
+	if !ok {
+		return false, nil
+	}
+	exists, err := o.mdb.documentExists(context.TODO(), op.Namespace, id)
+	if err != nil {
+		return false, errors.Wrapf(err, "check time-series bucket %s/%v", op.Namespace, id)
+	}
+	if exists {
+		return false, nil
+	}
+	// A find on an absent collection also returns no documents. Do not hide that failure.
+	uuid, err := o.mdb.getUUIDForNS(context.TODO(), op.Namespace)
+	if err != nil {
+		return false, errors.Wrapf(err, "check time-series bucket collection %s", op.Namespace)
+	}
+	return !uuid.IsZero(), nil
+}
+
+// bucketDeltaID extracts the target _id from a $v:2 delta update to a legacy
+// time-series bucket namespace. It returns false for other operations or when
+// the required delta-update fields are missing or have unexpected types.
+func bucketDeltaID(op db.Oplog) (any, bool) {
+	if op.Operation != "u" {
+		return nil, false
+	}
+	_, collName, _ := strings.Cut(op.Namespace, ".")
+	if !strings.HasPrefix(collName, "system.buckets.") {
+		return nil, false
+	}
+	v, err := bsonutil.FindIntByKey("$v", &op.Object)
+	if err != nil || v != 2 {
+		return nil, false
+	}
+	if _, err := bsonutil.FindSubdocumentByKey("diff", &op.Object); err != nil {
+		return nil, false
+	}
+	id, err := bsonutil.FindValueByKey("_id", &op.Query)
+	return id, err == nil && id != nil
 }
 
 type cqueue struct {

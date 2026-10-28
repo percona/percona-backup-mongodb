@@ -24,7 +24,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/internal/driverutil"
 	"go.mongodb.org/mongo-driver/v2/internal/handshake"
 	"go.mongodb.org/mongo-driver/v2/internal/logger"
-	"go.mongodb.org/mongo-driver/v2/internal/ptrutil"
 	"go.mongodb.org/mongo-driver/v2/internal/randutil"
 	"go.mongodb.org/mongo-driver/v2/internal/serverselector"
 	"go.mongodb.org/mongo-driver/v2/mongo/address"
@@ -65,8 +64,6 @@ var (
 const (
 	// maximum BSON object size when in-use encryption is enabled
 	cryptMaxBsonObjectSize int = 2097152
-	// minimum wire version necessary to use automatic encryption
-	cryptMinWireVersion int32 = 8
 	// minimum wire version necessary to use read snapshots
 	readSnapshotMinWireVersion int32 = 13
 
@@ -85,6 +82,27 @@ type labeledError interface {
 	error
 	HasErrorLabel(string) bool
 }
+
+// retryBudget is a retry cap for an operation's retry loop. The zero value
+// is "unlimited" (no cap). Use capped(n) to construct a finite budget of n.
+//
+// TODO(GODRIVER-3650): Consider using the internal Optional type for this
+// instead of a custom struct.
+type retryBudget struct {
+	finite bool
+	max    uint
+}
+
+// allows reports whether the given retry attempt is within the budget.
+func (b retryBudget) allows(attempt uint) bool {
+	return !b.finite || attempt < b.max
+}
+
+// cappedRetryBudget returns a retry budget of n attempts.
+func cappedRetryBudget(n uint) retryBudget { return retryBudget{finite: true, max: n} }
+
+// unlimitedRetryBudget is the zero-valued, uncapped retry budget.
+func unlimitedRetryBudget() retryBudget { return retryBudget{} }
 
 // InvalidOperationError is returned from Validate and indicates that a required field is missing
 // from an instance of Operation.
@@ -366,6 +384,10 @@ type Operation struct {
 	// required.
 	Authenticator Authenticator
 
+	// SendAfterClusterTime enables sending "readConcern.afterClusterTime" for
+	// operations if they're run in causally-consistent sessions.
+	SendAfterClusterTime bool
+
 	// omitReadPreference is a boolean that indicates whether to omit the
 	// read preference from the command. This omition includes the case
 	// where a default read preference is used when the operation
@@ -507,7 +529,7 @@ func (op Operation) Execute(ctx context.Context) error {
 		}
 	}
 
-	defaultRetries := ptrutil.Ptr(uint(0))
+	defaultBudget := cappedRetryBudget(0)
 	if op.RetryMode != nil {
 		switch op.Type {
 		case Write:
@@ -516,23 +538,23 @@ func (op Operation) Execute(ctx context.Context) error {
 			}
 			switch *op.RetryMode {
 			case RetryOnce, RetryOncePerCommand:
-				defaultRetries = ptrutil.Ptr(uint(1))
+				defaultBudget = cappedRetryBudget(1)
 			case RetryContext:
-				defaultRetries = nil
+				defaultBudget = unlimitedRetryBudget()
 			}
 		case Read:
 			switch *op.RetryMode {
 			case RetryOnce, RetryOncePerCommand:
-				defaultRetries = ptrutil.Ptr(uint(1))
+				defaultBudget = cappedRetryBudget(1)
 			case RetryContext:
-				defaultRetries = nil
+				defaultBudget = unlimitedRetryBudget()
 			}
 		}
 
-		// If context is a Timeout context, automatically set retries to infinite (nil) if retrying is
-		// enabled.
+		// If context is a Timeout context, automatically set retries to
+		// unlimited if retrying is enabled.
 		if csot.IsTimeoutContext(ctx) && op.RetryMode.Enabled() {
-			defaultRetries = nil
+			defaultBudget = unlimitedRetryBudget()
 		}
 	}
 
@@ -542,14 +564,14 @@ func (op Operation) Execute(ctx context.Context) error {
 	var operationErr WriteCommandError
 	var prevErr error
 	var prevIndefiniteErr error
-	var expDur time.Duration
+	var overloadAttempt uint
 	var transactionState session.TransactionState
 	var isOverloadedError bool
 	var attempt uint
 	retrySupported := false
 	first := true
 	currIndex := 0
-	retries := defaultRetries
+	nextBudget := defaultBudget
 
 	// deprioritizedServers are a running list of servers that should be
 	// deprioritized during server selection. Servers are accumulated across
@@ -604,15 +626,16 @@ func (op Operation) Execute(ctx context.Context) error {
 
 		if isOverloadedError {
 			isOverloadedError = false
-			if expDur == 0 {
-				expDur = backoffInitial
-			} else {
-				expDur *= 2
-				if expDur > backoffMax {
-					expDur = backoffMax
-				}
+			overloadAttempt++
+
+			// A positive "baseBackoffMS" on the error is a server-supplied base
+			// backoff that replaces the driver's default.
+			base := backoffInitial
+			if serverBase := serverBaseBackoff(err); serverBase > 0 {
+				base = serverBase
 			}
-			backoff := expDur * time.Duration(randutil.JitterInt63n(512)) / 512
+
+			backoff := randutil.JitterDuration(overloadBackoff(base, overloadAttempt))
 			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < backoff {
 				return err
 			}
@@ -649,8 +672,8 @@ func (op Operation) Execute(ctx context.Context) error {
 			return prevErr
 		}
 
-		allowedRetries := retries
-		retries = defaultRetries
+		currentBudget := nextBudget
+		nextBudget = defaultBudget
 
 		requestID := wiremessage.NextRequestID()
 
@@ -662,10 +685,10 @@ func (op Operation) Execute(ctx context.Context) error {
 		if srvr == nil || conn == nil {
 			srvr, conn, err = op.getServerAndConnection(ctx, requestID, deprioritizedServers)
 			if err != nil {
-				// If the returned error is retryable and there are retries remaining (nil
-				// means retry indefinitely), then retry the operation. Set the server and
-				// connection to nil to request a new server and connection.
-				if rerr, ok := err.(RetryablePoolError); ok && rerr.Retryable() && (allowedRetries == nil || attempt < *allowedRetries) {
+				// If the returned error is retryable and the budget allows another
+				// attempt, retry the operation. Set the server and connection to
+				// nil to request a new server and connection.
+				if rerr, ok := err.(RetryablePoolError); ok && rerr.Retryable() && currentBudget.allows(attempt) {
 					if err = resetForRetry(err); err != nil {
 						return err
 					}
@@ -835,8 +858,10 @@ func (op Operation) Execute(ctx context.Context) error {
 
 			isOverloadedError = tt.HasErrorLabel(ErrSystemOverloadedError)
 			if isOverloadedError && op.MaxAdaptiveRetries != 0 {
-				retries = ptrutil.Ptr(op.MaxAdaptiveRetries)
-				allowedRetries = ptrutil.Ptr(op.MaxAdaptiveRetries)
+				// If maxAdaptiveRetries is set, we want to retry overload errors until
+				// we hit that max.
+				nextBudget = cappedRetryBudget(op.MaxAdaptiveRetries)
+				currentBudget = nextBudget
 			}
 			connDesc := conn.Description()
 			retryableErr := tt.Retryable(connDesc.Kind, connDesc.WireVersion)
@@ -852,9 +877,9 @@ func (op Operation) Execute(ctx context.Context) error {
 			needRetry := (retrySupported && retryEnabled && retryableErr) || (op.MaxAdaptiveRetries != 0 && olRetryErr)
 
 			// If retries are supported for the current operation on the first server description,
-			// the error is considered retryable, and there are retries remaining (nil means retry
-			// indefinitely), then retry the operation.
-			if needRetry && (allowedRetries == nil || attempt < *allowedRetries) {
+			// the error is considered retryable, and the budget allows another
+			// attempt, retry the operation.
+			if needRetry && currentBudget.allows(attempt) {
 				if op.Client != nil && op.Client.Committing && !olRetryErr {
 					// Apply majority write concern for retries
 					op.Client.UpdateCommitTransactionWriteConcern()
@@ -960,8 +985,10 @@ func (op Operation) Execute(ctx context.Context) error {
 
 			isOverloadedError = tt.HasErrorLabel(ErrSystemOverloadedError)
 			if isOverloadedError && op.MaxAdaptiveRetries != 0 {
-				retries = ptrutil.Ptr(op.MaxAdaptiveRetries)
-				allowedRetries = ptrutil.Ptr(op.MaxAdaptiveRetries)
+				// If maxAdaptiveRetries is set, we want to retry overload errors until
+				// we hit that max.
+				nextBudget = cappedRetryBudget(op.MaxAdaptiveRetries)
+				currentBudget = nextBudget
 			}
 			connDesc := conn.Description()
 			var retryableErr bool
@@ -983,9 +1010,9 @@ func (op Operation) Execute(ctx context.Context) error {
 			needRetry := (retrySupported && retryEnabled && retryableErr) || (op.MaxAdaptiveRetries != 0 && olRetryErr)
 
 			// If retries are supported for the current operation on the first server description,
-			// the error is considered retryable, and there are retries remaining (nil means retry
-			// indefinitely), then retry the operation.
-			if needRetry && (allowedRetries == nil || attempt < *allowedRetries) {
+			// the error is considered retryable, and the budget allows another
+			// attempt, retry the operation.
+			if needRetry && currentBudget.allows(attempt) {
 				if op.Client != nil && op.Client.Committing && !olRetryErr {
 					// Apply majority write concern for retries
 					op.Client.UpdateCommitTransactionWriteConcern()
@@ -1069,11 +1096,11 @@ func (op Operation) Execute(ctx context.Context) error {
 				// Reset the retries number for RetryOncePerCommand unless context is a Timeout context, in
 				// which case retries should remain as nil (as many times as possible).
 				if *op.RetryMode == RetryOncePerCommand && !csot.IsTimeoutContext(ctx) {
-					retries = ptrutil.Ptr(uint(1))
+					nextBudget = cappedRetryBudget(1)
 				}
 			}
 			isOverloadedError = false
-			expDur = 0
+			overloadAttempt = 0
 			attempt = 0
 			currIndex += startedInfo.processedBatches
 			op.Batches.AdvanceBatches(startedInfo.processedBatches)
@@ -1409,9 +1436,6 @@ func (op Operation) createWireMessage(
 		wmindex, dst = wiremessage.AppendHeaderStart(dst, requestID, 0, wiremessage.OpQuery)
 		info.processedBatches, dst, info.cmd, err = op.createLegacyHandshakeWireMessage(ctx, maxTimeMS, dst, desc)
 	case op.shouldEncrypt():
-		if desc.WireVersion.Max < cryptMinWireVersion {
-			return dst, false, info, errors.New("auto-encryption requires a MongoDB version of 4.2")
-		}
 		cmdFn := func(dst []byte, desc description.SelectedServer) ([]byte, error) {
 			info.processedBatches, dst, err = op.addEncryptCommandFields(ctx, dst, desc)
 			return dst, err
@@ -1580,6 +1604,15 @@ func (op Operation) addReadConcern(dst []byte, desc description.SelectedServer) 
 
 	// start transaction must append afterclustertime IF causally consistent and operation time exists
 	if rc == nil && client != nil && client.TransactionStarting() && client.Consistent && client.OperationTime != nil {
+		rc = &readconcern.ReadConcern{}
+	}
+
+	// If this is a write operation, then we add an empty read concern so the
+	// following code can set "afterClusterTime". That avoids a data correctness
+	// problem that can happen when there is a network partition in a sharded
+	// cluster. See DRIVERS-3274 for more details.
+	if rc == nil && op.SendAfterClusterTime && client != nil &&
+		client.Consistent && client.OperationTime != nil && !client.TransactionRunning() {
 		rc = &readconcern.ReadConcern{}
 	}
 
@@ -2247,6 +2280,33 @@ func (op Operation) publishFinishedEvent(ctx context.Context, info finishedInfor
 		CommandFinishedEvent: finished,
 	}
 	op.CommandMonitor.Failed(ctx, failedEvent)
+}
+
+// overloadBackoff returns the exponential backoff duration for the given overload retry attempt.
+func overloadBackoff(base time.Duration, attempt uint) time.Duration {
+	d := base
+	for i := uint(0); i < attempt && d < backoffMax; i++ {
+		d *= 2
+	}
+	if d > backoffMax {
+		d = backoffMax
+	}
+	return d
+}
+
+// serverBaseBackoff returns the server-supplied base backoff attached to err.
+func serverBaseBackoff(err error) time.Duration {
+	var cerr Error
+	if errors.As(err, &cerr) {
+		return cerr.BaseBackoff
+	}
+
+	var wce WriteCommandError
+	if errors.As(err, &wce) {
+		return wce.BaseBackoff
+	}
+
+	return 0
 }
 
 // sessionsSupported returns true of the given server version indicates that it supports sessions.

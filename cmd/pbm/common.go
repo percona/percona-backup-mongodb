@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +22,10 @@ var errWaitTimeout = errors.New("Operation is in progress. Check pbm status and 
 var errUserCanceled = errors.New("canceled")
 
 func askConfirmation(question string) error {
+	return askConfirmationTo(os.Stdout, question)
+}
+
+func askConfirmationTo(w io.Writer, question string) error {
 	fi, err := os.Stdin.Stat()
 	if err != nil {
 		return errors.Wrap(err, "stat stdin")
@@ -29,7 +34,7 @@ func askConfirmation(question string) error {
 		return errors.New("no tty")
 	}
 
-	fmt.Printf("%s [y/N] ", question)
+	fmt.Fprintf(w, "%s [y/N] ", question)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()

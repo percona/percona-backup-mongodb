@@ -23,6 +23,9 @@ type PutBucketRequest struct {
 	// The configuration information for the bucket.
 	CreateBucketConfiguration *CreateBucketConfiguration `input:"body,CreateBucketConfiguration,xml"`
 
+	// The agentic bucket name.
+	AgenticBucket *string `input:"header,x-oss-agentic-bucket"`
+
 	RequestCommon
 }
 
@@ -616,6 +619,12 @@ type BucketInfo struct {
 	// Indicates whether Block Public Access is enabled for the bucket.
 	// true: Block Public Access is enabled. false: Block Public Access is disabled.
 	BlockPublicAccess *bool `xml:"BlockPublicAccess"`
+
+	// The resource type of the bucket.
+	BucketResourceType *string `xml:"BucketResourceType"`
+
+	// The agentic bucket name associated with this bucket.
+	AgenticBucketName *string `xml:"AgenticBucketName"`
 }
 
 type SSERule struct {

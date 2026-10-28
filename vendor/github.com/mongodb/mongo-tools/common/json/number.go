@@ -15,7 +15,7 @@ import (
 // Adapted from encoding/json/scanner.go.
 
 // stateUpperNu is the state after reading `Nu`.
-func stateUpperNu(s *scanner, c int) int {
+func stateUpperNu(s *scanner, c byte) int {
 	if c == 'm' {
 		s.step = generateState("Number", []byte("ber"), stateUpperNumber)
 		return scanContinue
@@ -24,7 +24,7 @@ func stateUpperNu(s *scanner, c int) int {
 }
 
 // stateUpperNumber is the state after reading `Number`.
-func stateUpperNumber(s *scanner, c int) int {
+func stateUpperNumber(s *scanner, c byte) int {
 	if c == 'I' {
 		s.step = generateState("NumberInt", []byte("nt"), stateConstructor)
 		return scanContinue
@@ -77,7 +77,13 @@ func (d *decodeState) getNumberInt() any {
 	case string:
 		number = Number(v)
 	default:
-		d.error(fmt.Errorf("expected int32 for first argument of NumberInt constructor, got %T (value was %v)", v, v))
+		d.error(
+			fmt.Errorf(
+				"expected int32 for first argument of NumberInt constructor, got %T (value was %v)",
+				v,
+				v,
+			),
+		)
 	}
 
 	d.useNumber = useNumber
@@ -136,7 +142,13 @@ func (d *decodeState) getNumberLong() any {
 		number = Number(v)
 
 	default:
-		d.error(fmt.Errorf("expected int64 for first argument of NumberLong constructor, got %T (value was %v)", v, v))
+		d.error(
+			fmt.Errorf(
+				"expected int64 for first argument of NumberLong constructor, got %T (value was %v)",
+				v,
+				v,
+			),
+		)
 	}
 
 	d.useNumber = useNumber

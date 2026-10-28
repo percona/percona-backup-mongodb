@@ -12,7 +12,6 @@ import (
 
 	"github.com/mongodb/mongo-tools/common/bsonutil"
 	"github.com/mongodb/mongo-tools/common/db"
-	"github.com/mongodb/mongo-tools/common/idx"
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -25,6 +24,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/ctrl"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/pbm/idx"
 	"github.com/percona/percona-backup-mongodb/pbm/lock"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
@@ -76,7 +76,7 @@ type Restore struct {
 	log  log.LogEvent
 	opid string
 
-	indexCatalog *idx.IndexCatalog
+	indexCatalog *idx.Catalog
 
 	db mDBCl
 }
@@ -85,6 +85,22 @@ type oplogRange struct {
 	chunks []oplog.OplogChunk
 
 	storage storage.Storage
+}
+
+type storageReadCloser struct {
+	r   io.ReadCloser
+	stg storage.Storage
+	l   log.LogEvent
+}
+
+func (rc storageReadCloser) Read(p []byte) (int, error) {
+	return rc.r.Read(p)
+}
+
+func (rc storageReadCloser) Close() error {
+	err := rc.r.Close()
+	storage.Close(rc.stg, rc.l)
+	return err
 }
 
 // configDatabasesDoc represents document in config.databases collection
@@ -124,7 +140,7 @@ func New(
 		numParallelColls:          numParallelColls,
 		numInsertionWorkersPerCol: numInsertionWorkersPerCol,
 		indexCommitQuorum:         indexCommitQuorum,
-		indexCatalog:              idx.NewIndexCatalog(),
+		indexCatalog:              idx.NewCatalog(&brief.Version),
 	}
 }
 
@@ -134,6 +150,12 @@ func (r *Restore) Close() {
 	if r.stopHB != nil {
 		close(r.stopHB)
 	}
+
+	storage.Close(r.bcpStg, r.log)
+	r.bcpStg = nil
+
+	storage.Close(r.oplogStg, r.log)
+	r.oplogStg = nil
 }
 
 func (r *Restore) exit(ctx context.Context, err error) {
@@ -752,11 +774,13 @@ func LookupBackupMeta(
 		return nil, errors.Wrap(err, "get backup metadata from db")
 	}
 
+	l := log.LogEventFromContext(ctx)
 	var stg storage.Storage
-	stg, err = util.GetStorage(ctx, conn, node, log.LogEventFromContext(ctx))
+	stg, err = util.GetStorage(ctx, conn, node, l)
 	if err != nil {
 		return nil, errors.Wrap(err, "get storage")
 	}
+	defer storage.Close(stg, l)
 
 	bcp, err = GetMetaFromStore(stg, backupName)
 	if err != nil {
@@ -1075,11 +1099,14 @@ func (r *Restore) RunSnapshot(
 			// we have to use mapping passed by --replset-mapping option
 			rdr, err := stg.SourceReader(path.Join(bcp.Name, mapRS(r.brief.SetName), ns))
 			if err != nil {
+				storage.Close(stg, r.log)
 				return nil, err
 			}
 
 			if ns == archive.MetaFile {
 				data, err := io.ReadAll(rdr)
+				_ = rdr.Close()
+				storage.Close(stg, r.log)
 				if err != nil {
 					return nil, err
 				}
@@ -1089,10 +1116,10 @@ func (r *Restore) RunSnapshot(
 					return nil, errors.Wrap(err, "load indexes")
 				}
 
-				rdr = io.NopCloser(bytes.NewReader(data))
+				return io.NopCloser(bytes.NewReader(data)), nil
 			}
 
-			return rdr, nil
+			return storageReadCloser{r: rdr, stg: stg, l: r.log}, nil
 		},
 		bcp.Compression,
 		util.MakeSelectedPred(nss),
@@ -1296,59 +1323,41 @@ func (r *Restore) restoreIndexes(ctx context.Context, nss []string) error {
 			continue
 		}
 
-		indexes := r.indexCatalog.GetIndexes(ns.DB, ns.Collection)
-		for i, index := range indexes {
-			if len(index.Key) == 1 && index.Key[0].Key == "_id" {
-				// The _id index is already created with the collection
-				indexes = append(indexes[:i], indexes[i+1:]...)
-				break
-			}
-		}
-
-		if len(indexes) == 0 {
+		groups := r.indexCatalog.BuildGroups(ns.DB, ns.Collection)
+		if len(groups) == 0 {
 			r.log.Debug("no indexes for %s.%s", ns.DB, ns.Collection)
 			continue
 		}
 
-		var indexNames []string
-		for _, index := range indexes {
-			index.Options["ns"] = ns.DB + "." + ns.Collection
-			indexNames = append(indexNames, index.Options["name"].(string))
-			// remove the index version, forcing an update
-			delete(index.Options, "v")
-		}
+		for _, group := range groups {
+			var indexNames []string
+			for _, index := range group.Indexes {
+				indexNames = append(indexNames, index.Options["name"].(string))
+			}
 
-		commitQuorum := r.indexCommitQuorum.CommandValue()
-		rawCommand := createIndexesCommand(ns.Collection, indexes, commitQuorum)
+			commitQuorum := r.indexCommitQuorum.CommandValue()
+			rawCommand := createIndexesCommand(group, commitQuorum)
 
-		r.log.Info("restoring indexes for %s.%s: %s",
-			ns.DB, ns.Collection, strings.Join(indexNames, ", "))
-		err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
-		if shouldRetryWithDefaultIndexCommitQuorum(err, commitQuorum) {
-			commitQuorum = config.DefaultRestoreIndexCommitQuorum.CommandValue()
-			r.log.Debug("createIndexes for %s.%s failed with MongoDB error: %v", ns.DB, ns.Collection, err)
-			r.log.Warning(
-				"index commit quorum cannot be satisfied for %s.%s, retrying with %s",
-				ns.DB, ns.Collection, commitQuorum,
-			)
-			rawCommand = createIndexesCommand(ns.Collection, indexes, commitQuorum)
-			err = r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
-		}
-		if err != nil {
-			return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, ns.Collection)
+			r.log.Info("restoring indexes for %s.%s: %s",
+				ns.DB, group.Collection, strings.Join(indexNames, ", "))
+			err := r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			if shouldRetryWithDefaultIndexCommitQuorum(err, commitQuorum) {
+				commitQuorum = config.DefaultRestoreIndexCommitQuorum.CommandValue()
+				r.log.Debug("createIndexes for %s.%s failed with MongoDB error: %v", ns.DB, group.Collection, err)
+				r.log.Warning(
+					"index commit quorum cannot be satisfied for %s.%s, retrying with %s",
+					ns.DB, group.Collection, commitQuorum,
+				)
+				rawCommand = createIndexesCommand(group, commitQuorum)
+				err = r.nodeConn.Database(ns.DB).RunCommand(ctx, rawCommand).Err()
+			}
+			if err != nil {
+				return errors.Wrapf(err, "createIndexes for %s.%s", ns.DB, group.Collection)
+			}
 		}
 	}
 
 	return nil
-}
-
-func createIndexesCommand(collection string, indexes []*idx.IndexDocument, commitQuorum any) bson.D {
-	return bson.D{
-		{"createIndexes", collection},
-		{"indexes", indexes},
-		{"ignoreUnknownIndexOptions", true},
-		{"commitQuorum", commitQuorum},
-	}
 }
 
 func shouldRetryWithDefaultIndexCommitQuorum(err error, commitQuorum any) bool {
@@ -1567,7 +1576,9 @@ func (r *Restore) applyOplog(ctx context.Context, ranges []oplogRange, options *
 		r.setcommittedTxn,
 		r.getcommittedTxn,
 		&stat.Txn,
-		&mgoV)
+		&mgoV,
+		defs.LogicalBackup,
+	)
 	if err != nil {
 		return errors.Wrap(err, "reply oplog")
 	}

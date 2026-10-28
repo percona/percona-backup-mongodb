@@ -34,6 +34,9 @@ type InventoryDestination struct {
 type InventorySchedule struct {
 	// The frequency at which the inventory list is exported. Valid values:- Daily: The inventory list is exported on a daily basis. - Weekly: The inventory list is exported on a weekly basis.
 	Frequency InventoryFrequencyType `xml:"Frequency"`
+
+	// The day of the month on which the inventory list is exported. This parameter is required if the Frequency is Monthly.
+	DayOfMonth *int `xml:"DayOfMonth"`
 }
 
 type InventoryFilter struct {
@@ -90,6 +93,9 @@ type InventoryConfiguration struct {
 
 	// The container that stores the configuration fields in inventory lists.
 	OptionalFields *OptionalFields `xml:"OptionalFields"`
+
+	// IncrementalInventory Configuration container for incremental inventory.
+	IncrementalInventory *IncrementalInventory `xml:"IncrementalInventory"`
 }
 
 type ListInventoryConfigurationsResult struct {
@@ -119,6 +125,28 @@ type PutBucketInventoryRequest struct {
 	InventoryConfiguration *InventoryConfiguration `input:"body,InventoryConfiguration,xml,required"`
 
 	RequestCommon
+}
+
+// IncrementalInventory Configuration container for incremental inventory.
+type IncrementalInventory struct {
+	// IsEnabled Specifies whether incremental inventory is enabled.
+	IsEnabled *bool `xml:"IsEnabled"`
+
+	// Schedule Container for incremental inventory export cycle.
+	Schedule *IncrementInventorySchedule `xml:"Schedule"`
+
+	// OptionalFields Configuration container for incremental inventory file attributes.
+	OptionalFields *IncrementalInventoryOptionalFields `xml:"OptionalFields"`
+}
+
+type IncrementalInventoryOptionalFields struct {
+	Fields []IncrementalInventoryOptionalFieldType `xml:"Field"`
+}
+
+// IncrementInventorySchedule Container for incremental inventory export cycle information.
+type IncrementInventorySchedule struct {
+	// Frequency Describes the frequency at which incremental inventory files are exported.
+	Frequency *int64 `xml:"Frequency"`
 }
 
 type PutBucketInventoryResult struct {

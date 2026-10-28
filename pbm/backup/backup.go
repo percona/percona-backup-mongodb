@@ -121,6 +121,7 @@ func (b *Backup) Init(
 	bcp *ctrl.BackupCmd,
 	opid ctrl.OPID,
 	balancer topo.BalancerMode,
+	startTime int64,
 ) error {
 	ts, err := topo.GetClusterTime(ctx, b.leadConn)
 	if err != nil {
@@ -151,6 +152,7 @@ func (b *Backup) Init(
 		Nomination:     []BackupRsNomination{},
 		BalancerStatus: balancer,
 		Hb:             ts,
+		StartTime:      startTime,
 	}
 
 	fcv, err := version.GetFCV(ctx, b.nodeConn)
@@ -220,6 +222,7 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 	if err != nil {
 		return errors.Wrap(err, "unable to get PBM storage configuration settings")
 	}
+	defer storage.Close(stg, l)
 
 	bcpm, err := NewDBManager(b.leadConn).GetBackupByName(ctx, bcp.Name)
 	if err != nil {
@@ -234,12 +237,17 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 				status = defs.StatusCancelled
 			}
 
-			ferr := ChangeRSState(b.leadConn, bcp.Name, rsMeta.Name, status, err.Error())
+			ferr := ChangeRSStateOrAdd(b.leadConn, bcp.Name, rsMeta, status, err.Error())
 			l.Info("mark RS as %s `%v`: %v", status, err, ferr)
 
 			if inf.IsLeader() {
 				ferr := ChangeBackupState(b.leadConn, bcp.Name, status, err.Error())
 				l.Info("mark backup as %s `%v`: %v", status, err, ferr)
+
+				// set finish time in case of error/canceled
+				if ferr = SetFinishTime(context.Background(), b.leadConn, bcp.Name, time.Now().Unix()); ferr != nil {
+					l.Info("set finish time: %v", ferr)
+				}
 			}
 		}
 
@@ -382,13 +390,14 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 		}
 
 		// PBM-1114: update file metadata with the same values as in database
-		unix := time.Now().Unix()
+		now := time.Now().Unix()
 		bcpm.Status = defs.StatusDone
-		bcpm.LastTransitionTS = unix
+		bcpm.LastTransitionTS = now
 		bcpm.Conditions = append(bcpm.Conditions, Condition{
-			Timestamp: unix,
+			Timestamp: now,
 			Status:    defs.StatusDone,
 		})
+		bcpm.FinishTime = now
 
 		err = writeMeta(stg, bcpm)
 		if err != nil {
@@ -400,9 +409,17 @@ func (b *Backup) Run(ctx context.Context, bcp *ctrl.BackupCmd, opid ctrl.OPID, l
 			return errors.Wrap(err, "check backup files")
 		}
 
-		err = ChangeBackupStateWithUnixTime(ctx, b.leadConn, bcp.Name, defs.StatusDone, unix, "")
-		return errors.Wrapf(err, "check cluster for backup done: update backup meta with %s",
-			defs.StatusDone)
+		err = ChangeBackupStateWithUnixTime(ctx, b.leadConn, bcp.Name, defs.StatusDone, now, "")
+		if err != nil {
+			return errors.Wrapf(err, "check cluster for backup done: update backup meta with %s",
+				defs.StatusDone)
+		}
+
+		if err := SetFinishTime(ctx, b.leadConn, bcp.Name, now); err != nil {
+			// backup reached done status, so we'll not fail the whole backup in this case
+			l.Warning("set finish time: %v", err)
+		}
+		return nil
 	} else {
 		// to be sure the locks released only after the "done" status had written
 		err = b.waitForStatus(ctx, bcp.Name, defs.StatusDone, nil)
@@ -545,6 +562,7 @@ func (b *Backup) converged(
 		return false, errors.Wrap(err, "read cluster time")
 	}
 
+	backupErr := bmeta.Error()
 	for _, sh := range shards {
 		for _, shard := range bmeta.Replsets {
 			if shard.Name == sh.RS {
@@ -575,12 +593,19 @@ func (b *Backup) converged(
 				case defs.StatusCancelled:
 					return false, storage.ErrCancelled
 				case defs.StatusError:
-					if shard.Error == "" {
+					switch {
+					case shard.Error != "" && backupErr != nil:
+						return false, errors.Errorf("backup on shard %s failed with %s: %v",
+							shard.Name, shard.Error, backupErr)
+					case shard.Error != "":
+						return false, errors.Errorf("backup on shard %s failed: %s",
+							shard.Name, shard.Error)
+					case backupErr != nil:
 						return false, errors.Errorf("backup on shard %s failed: %v",
-							shard.Name, bmeta.Error())
+							shard.Name, backupErr)
+					default:
+						return false, errors.Errorf("backup on shard %s failed", shard.Name)
 					}
-					return false, errors.Errorf("backup on shard %s failed with %s: %v",
-						shard.Name, shard.Error, bmeta.Error())
 				}
 			}
 		}

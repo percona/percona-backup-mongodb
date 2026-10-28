@@ -403,6 +403,9 @@ type bcpDesc struct {
 	HSize              string          `json:"size_h" yaml:"size_h"`
 	HSizeUncompressed  string          `json:"size_uncompressed_h" yaml:"size_uncompressed_h"`
 	Err                *string         `json:"error,omitempty" yaml:"error,omitempty"`
+	StartTime          *string         `json:"start,omitempty" yaml:"start,omitempty"`
+	FinishTime         *string         `json:"finish,omitempty" yaml:"finish,omitempty"`
+	Duration           string          `json:"duration,omitempty" yaml:"duration,omitempty"`
 	Replsets           []bcpReplDesc   `json:"replsets" yaml:"replsets"`
 }
 
@@ -435,6 +438,51 @@ func (b *bcpDesc) String() string {
 	return string(data)
 }
 
+// setDurationInfo fills in when the backup has started and ended, and how long it took.
+func (b *bcpDesc) setDurationInfo(bcp *backup.BackupMeta) {
+	if startTime := bcpStartTime(bcp); startTime > 0 {
+		b.StartTime = util.Ref(time.Unix(startTime, 0).UTC().Format(time.RFC3339))
+	}
+	if finishTime := bcpFinishTime(bcp); finishTime > 0 {
+		b.FinishTime = util.Ref(time.Unix(finishTime, 0).UTC().Format(time.RFC3339))
+	}
+	b.Duration = bcpDuration(bcp)
+}
+
+// bcpStartTime returns the time when the backup has started.
+func bcpStartTime(bcp *backup.BackupMeta) int64 {
+	if bcp.StartTime == 0 {
+		// handling for backups <= v2.15
+		return bcp.StartTS
+	}
+	return bcp.StartTime
+}
+
+// bcpFinishTime returns the time when the backup has ended,
+// or zero in case the backup is still running.
+func bcpFinishTime(bcp *backup.BackupMeta) int64 {
+	if bcp.FinishTime == 0 && !bcp.Status.IsRunning() {
+		// handling for backups <= v2.15
+		return bcp.LastTransitionTS
+	}
+	return bcp.FinishTime
+}
+
+// bcpDuration renders how long the backup took,
+// or an empty string if it cannot be told.
+func bcpDuration(bcp *backup.BackupMeta) string {
+	startTime := bcpStartTime(bcp)
+	finishTime := bcpFinishTime(bcp)
+
+	// check if backup is still running or the timestamps come from the different nodes with a skewed clock
+	if startTime <= 0 || finishTime <= startTime {
+		return ""
+	}
+
+	d := time.Duration(finishTime-startTime) * time.Second
+	return d.String()
+}
+
 func byteCountIEC(b int64) string {
 	const unit = 1024
 
@@ -463,13 +511,13 @@ func describeBackup(
 	}
 
 	var stg storage.Storage
-	if b.coll || bcp.Size == 0 {
+	if b.coll {
 		// to read backed up collection names
-		// or calculate size of files for legacy backups
-		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, node, log.LogEventFromContext(ctx))
+		stg, err = util.StorageFromConfig(&bcp.Store.StorageConf, node, log.DiscardEvent)
 		if err != nil {
 			return nil, errors.Wrap(err, "get storage")
 		}
+		defer storage.Close(stg, log.DiscardEvent)
 
 		err = storage.HasReadAccess(ctx, stg)
 		if err != nil && !errors.Is(err, storage.ErrUninitialized) {
@@ -506,16 +554,7 @@ func describeBackup(
 		rv.Err = &bcp.Err
 	}
 
-	if bcp.Size == 0 {
-		switch bcp.Status {
-		case defs.StatusDone, defs.StatusCancelled, defs.StatusError:
-			rv.Size, err = getLegacySnapshotSize(bcp, stg)
-			if errors.Is(err, errMissedFile) && bcp.Status != defs.StatusDone {
-				// canceled/failed backup can be incomplete. ignore
-				return nil, errors.Wrap(err, "get snapshot size")
-			}
-		}
-	}
+	rv.setDurationInfo(bcp)
 
 	rv.Replsets = make([]bcpReplDesc, len(bcp.Replsets))
 	for i, r := range bcp.Replsets {

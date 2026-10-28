@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/oplog"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
+	"github.com/percona/percona-backup-mongodb/pbm/topo"
 )
 
 type chunk struct {
@@ -81,6 +83,85 @@ func (ts *TestStorage) DownloadStat() storage.DownloadStat {
 
 func NewTestStorage(stgType storage.Type) *TestStorage {
 	return &TestStorage{stgType: stgType}
+}
+
+func TestCanDeleteBackupHeartbeat(t *testing.T) {
+	TestEnv.Reset(t)
+
+	fresh, err := topo.GetClusterTime(t.Context(), TestEnv.Client)
+	require.NoError(t, err)
+	stale := bson.Timestamp{T: fresh.T - 2*defs.StaleFrameSec}
+	future := bson.Timestamp{T: fresh.T + 2*defs.StaleFrameSec}
+
+	tests := []struct {
+		name      string
+		status    defs.Status
+		heartbeat bson.Timestamp
+		wantErr   error
+	}{
+		{"starting/fresh", defs.StatusStarting, fresh, ErrBackupInProgress},
+		{"starting/stale", defs.StatusStarting, stale, nil},
+		{"running/fresh", defs.StatusRunning, fresh, ErrBackupInProgress},
+		{"running/stale", defs.StatusRunning, stale, nil},
+		{"dumpDone/fresh", defs.StatusDumpDone, fresh, ErrBackupInProgress},
+		{"dumpDone/stale", defs.StatusDumpDone, stale, nil},
+		{"starting/future", defs.StatusStarting, future, ErrBackupInProgress},
+		{"starting/missing", defs.StatusStarting, bson.Timestamp{}, nil},
+		// Terminal statuses permit deletion even with a fresh heartbeat.
+		{"done/fresh", defs.StatusDone, fresh, nil},
+		{"error/fresh", defs.StatusError, fresh, nil},
+		{"canceled/fresh", defs.StatusCancelled, fresh, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			physical := &BackupMeta{Type: defs.PhysicalBackup, Status: tt.status, Hb: tt.heartbeat}
+			err := CanDeleteBackup(t.Context(), TestEnv.Client, physical)
+			require.ErrorIs(t, err, tt.wantErr, "physical backup")
+
+			incremental := &BackupMeta{Type: defs.IncrementalBackup, Status: tt.status, Hb: tt.heartbeat}
+			err = CanDeleteIncrementalChain(t.Context(), TestEnv.Client, incremental, nil)
+			require.ErrorIs(t, err, tt.wantErr, "incremental chain")
+		})
+	}
+}
+
+func TestCanDeleteBackupClusterTimeError(t *testing.T) {
+	TestEnv.Reset(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	physical := &BackupMeta{Type: defs.PhysicalBackup, Status: defs.StatusRunning}
+	err := CanDeleteBackup(ctx, TestEnv.Client, physical)
+	require.ErrorIs(t, err, context.Canceled, "physical backup")
+
+	incremental := &BackupMeta{Type: defs.IncrementalBackup, Status: defs.StatusRunning}
+	err = CanDeleteIncrementalChain(ctx, TestEnv.Client, incremental, nil)
+	require.ErrorIs(t, err, context.Canceled, "incremental chain")
+}
+
+func TestCanDeleteStaleIncrementalChainRestrictions(t *testing.T) {
+	TestEnv.Reset(t)
+	ts, err := topo.GetClusterTime(t.Context(), TestEnv.Client)
+	require.NoError(t, err)
+	stale := bson.Timestamp{T: ts.T - 2*defs.StaleFrameSec}
+
+	t.Run("not incremental", func(t *testing.T) {
+		base := &BackupMeta{Type: defs.PhysicalBackup, Status: defs.StatusStarting, Hb: stale}
+		err := CanDeleteIncrementalChain(t.Context(), TestEnv.Client, base, nil)
+		require.ErrorIs(t, err, ErrNonIncrementalBackup)
+	})
+
+	t.Run("not a base increment", func(t *testing.T) {
+		base := &BackupMeta{
+			Type:      defs.IncrementalBackup,
+			Status:    defs.StatusStarting,
+			Hb:        stale,
+			SrcBackup: "base",
+		}
+		err := CanDeleteIncrementalChain(t.Context(), TestEnv.Client, base, nil)
+		require.ErrorIs(t, err, ErrNotBaseIncrement)
+	})
 }
 
 func TestIsRequiredForOplogSlicing(t *testing.T) {

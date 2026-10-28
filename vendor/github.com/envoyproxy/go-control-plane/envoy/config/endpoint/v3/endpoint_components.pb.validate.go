@@ -156,6 +156,8 @@ func (m *Endpoint) validate(all bool) error {
 
 	}
 
+	// no validation rules for ObservabilityName
+
 	if len(errors) > 0 {
 		return EndpointMultiError(errors)
 	}
@@ -169,7 +171,7 @@ type EndpointMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m EndpointMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -372,7 +374,7 @@ type LbEndpointMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m LbEndpointMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -458,33 +460,38 @@ func (m *LbEndpointCollection) validate(all bool) error {
 
 	var errors []error
 
-	if all {
-		switch v := interface{}(m.GetEntries()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, LbEndpointCollectionValidationError{
-					field:  "Entries",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
+	for idx, item := range m.GetEntries() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, LbEndpointCollectionValidationError{
+						field:  fmt.Sprintf("Entries[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, LbEndpointCollectionValidationError{
+						field:  fmt.Sprintf("Entries[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
 			}
-		case interface{ Validate() error }:
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				errors = append(errors, LbEndpointCollectionValidationError{
-					field:  "Entries",
+				return LbEndpointCollectionValidationError{
+					field:  fmt.Sprintf("Entries[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
-				})
+				}
 			}
 		}
-	} else if v, ok := interface{}(m.GetEntries()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return LbEndpointCollectionValidationError{
-				field:  "Entries",
-				reason: "embedded message failed validation",
-				cause:  err,
-			}
-		}
+
 	}
 
 	if len(errors) > 0 {
@@ -501,7 +508,7 @@ type LbEndpointCollectionMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m LbEndpointCollectionMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -634,7 +641,7 @@ type LedsClusterLocalityConfigMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m LedsClusterLocalityConfigMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -970,7 +977,7 @@ type LocalityLbEndpointsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m LocalityLbEndpointsMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1116,7 +1123,7 @@ type Endpoint_HealthCheckConfigMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Endpoint_HealthCheckConfigMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1247,7 +1254,7 @@ type Endpoint_AdditionalAddressMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Endpoint_AdditionalAddressMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1385,7 +1392,7 @@ type LocalityLbEndpoints_LbEndpointListMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m LocalityLbEndpoints_LbEndpointListMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}

@@ -39,6 +39,7 @@ func Resync(
 	if err != nil {
 		return errors.Wrap(err, "unable to get backup store")
 	}
+	defer storage.Close(stg, l)
 
 	err = storage.HasReadAccess(ctx, stg)
 	if err != nil {
@@ -116,6 +117,7 @@ func SyncBackupList(
 	if err != nil {
 		return errors.Wrap(err, "storage from config")
 	}
+	defer storage.Close(stg, l)
 
 	err = ClearBackupList(ctx, conn, profile)
 	if err != nil {

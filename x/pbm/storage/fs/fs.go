@@ -1,0 +1,232 @@
+// PBM 2.x package
+package fs
+
+import (
+	"io"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/config/fs"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
+	"github.com/percona/percona-backup-mongodb/x/pbm/storage"
+)
+
+const (
+	defaultMaxObjSizeGB = 5018 // 4.9 TB
+
+	tmpFileSuffix = ".tmp"
+)
+
+type FS struct {
+	root string
+}
+
+func New(opts *fs.Config) (storage.Storage, error) {
+	info, err := os.Lstat(opts.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(opts.Path, os.ModeDir|0o755); err != nil {
+				return nil, errors.Wrapf(err, "mkdir %s", opts.Path)
+			}
+
+			return &FS{root: opts.Path}, nil
+		}
+
+		return nil, errors.Wrapf(err, "stat %s", opts.Path)
+	}
+
+	root := opts.Path
+	if info.Mode()&os.ModeSymlink != 0 {
+		root, err = filepath.EvalSymlinks(opts.Path)
+		if err != nil {
+			return nil, errors.Wrapf(err, "resolve link: %s", opts.Path)
+		}
+		info, err = os.Lstat(root)
+		if err != nil {
+			return nil, errors.Wrapf(err, "stat %s", root)
+		}
+	}
+	if !info.Mode().IsDir() {
+		return nil, errors.Errorf("%s is not directory", root)
+	}
+
+	return &FS{root: root}, nil
+}
+
+func (*FS) Type() storage.Type {
+	return storage.Filesystem
+}
+
+//nolint:nonamedreturns
+func (fs *FS) writeSync(name string, data io.Reader, cpBuf []byte) (err error) {
+	finalpath := path.Join(fs.root, name)
+	filepath := finalpath + tmpFileSuffix
+
+	err = os.MkdirAll(path.Dir(filepath), os.ModeDir|0o755)
+	if err != nil {
+		return errors.Wrapf(err, "create path %s", path.Dir(filepath))
+	}
+
+	fw, err := os.Create(filepath)
+	if err != nil {
+		return errors.Wrapf(err, "create destination file <%s>", filepath)
+	}
+	defer func() {
+		if err != nil {
+			if fw != nil {
+				fw.Close()
+			}
+
+			if os.IsNotExist(err) {
+				err = &storage.RetryableError{Err: err}
+			} else {
+				os.Remove(filepath)
+			}
+
+		}
+	}()
+
+	err = os.Chmod(filepath, 0o644)
+	if err != nil {
+		return errors.Wrapf(err, "change permissions for file <%s>", filepath)
+	}
+	if len(cpBuf) == 0 {
+		_, err = io.Copy(fw, data)
+		if err != nil {
+			return errors.Wrapf(err, "copy file <%s>", filepath)
+		}
+	} else {
+		_, err = io.CopyBuffer(
+			struct{ io.Writer }{fw},
+			struct{ io.Reader }{data},
+			cpBuf,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "copy file <%s>, using buffer size: %d", filepath, len(cpBuf))
+		}
+	}
+
+	err = fw.Sync()
+	if err != nil {
+		return errors.Wrapf(err, "sync file <%s>", filepath)
+	}
+
+	err = fw.Close()
+	if err != nil {
+		return errors.Wrapf(err, "close file <%s>", filepath)
+	}
+	fw = nil
+
+	err = os.Rename(filepath, finalpath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fs *FS) Save(name string, data io.Reader, options ...storage.Option) error {
+	opts := storage.GetDefaultOpts()
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return errors.Wrap(err, "processing options for save")
+		}
+	}
+	cpBuf := opts.FSSaveBuf
+	return fs.writeSync(name, data, cpBuf)
+}
+
+func (fs *FS) SourceReader(name string) (io.ReadCloser, error) {
+	filepath := path.Join(fs.root, name)
+	fr, err := os.Open(filepath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, storage.ErrNotExist
+	}
+	return fr, errors.Wrapf(err, "open file '%s'", filepath)
+}
+
+func (fs *FS) FileStat(name string) (storage.FileInfo, error) {
+	inf := storage.FileInfo{}
+
+	f, err := os.Stat(path.Join(fs.root, name))
+	if errors.Is(err, os.ErrNotExist) {
+		return inf, storage.ErrNotExist
+	}
+	if err != nil {
+		return inf, err
+	}
+	if f.Size() == 0 {
+		return inf, storage.ErrEmpty
+	}
+
+	inf.Name = name
+	inf.Size = f.Size()
+
+	return inf, nil
+}
+
+func (fs *FS) List(prefix, suffix string) ([]storage.FileInfo, error) {
+	var files []storage.FileInfo
+
+	base := filepath.Join(fs.root, prefix)
+	err := filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return errors.Wrap(err, "walking the path")
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// file was removed in the meantime, and that's fine
+				return nil
+			}
+			return errors.Wrap(err, "getting file info")
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		f := filepath.ToSlash(strings.TrimPrefix(path, base))
+		if len(f) == 0 {
+			return nil
+		}
+		if f[0] == '/' {
+			f = f[1:]
+		}
+
+		// ignore temp file unless it is not requested explicitly
+		if suffix == "" && strings.HasSuffix(f, tmpFileSuffix) {
+			return nil
+		}
+		if strings.HasSuffix(f, suffix) {
+			files = append(files, storage.FileInfo{Name: f, Size: info.Size()})
+		}
+		return nil
+	})
+
+	return files, err
+}
+
+func (fs *FS) Copy(src, dst string) error {
+	from, err := os.Open(path.Join(fs.root, src))
+	if err != nil {
+		return errors.Wrap(err, "open src")
+	}
+
+	return fs.writeSync(dst, from, nil)
+}
+
+// Delete deletes given file from FS.
+// It returns storage.ErrNotExist if a file isn't exists
+func (fs *FS) Delete(name string) error {
+	err := os.RemoveAll(path.Join(fs.root, name))
+	if os.IsNotExist(err) {
+		return storage.ErrNotExist
+	}
+	return err
+}

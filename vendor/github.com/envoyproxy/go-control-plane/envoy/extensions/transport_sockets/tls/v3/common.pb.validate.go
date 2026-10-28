@@ -105,7 +105,7 @@ type TlsParametersMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m TlsParametersMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -264,7 +264,7 @@ type PrivateKeyProviderMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m PrivateKeyProviderMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -603,7 +603,7 @@ type TlsCertificateMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m TlsCertificateMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -748,7 +748,7 @@ type TlsSessionTicketKeysMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m TlsSessionTicketKeysMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -865,7 +865,7 @@ type CertificateProviderPluginInstanceMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m CertificateProviderPluginInstanceMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1032,7 +1032,7 @@ type SubjectAltNameMatcherMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m SubjectAltNameMatcherMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1479,6 +1479,8 @@ func (m *CertificateValidationContext) validate(all bool) error {
 
 	}
 
+	// no validation rules for SuppressClientCaList
+
 	if len(errors) > 0 {
 		return CertificateValidationContextMultiError(errors)
 	}
@@ -1493,7 +1495,7 @@ type CertificateValidationContextMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m CertificateValidationContextMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1599,7 +1601,7 @@ type CertificateValidationContext_SystemRootCertsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m CertificateValidationContext_SystemRootCertsMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
