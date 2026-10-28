@@ -218,6 +218,18 @@
 #    namespace:
 #    bucket:
 
+## Optional full OCI Object Storage endpoint URL, including https://.
+## When undefined, the OCI SDK derives the endpoint from the region.
+## The region must still identify the actual bucket region, including for server-side copy.
+#    endpointUrl:
+
+## Enable OCI SDK region-to-realm mapping lookup through the instance metadata service (IMDS).
+## IMDS supplies the mapping only for the instance's region.
+## Independent of authentication type; does not disable instancePrincipal identity metadata access when false.
+## Applied on first OCI client initialization; restart agents to change this setting.
+## Cached mappings are process-wide.
+#    enableIMDS: false
+
 ## The data directory to store backups in.
 ## When undefined, backups are saved at the root of the bucket.
 #    prefix:
