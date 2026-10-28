@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.uber.org/zap"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/compress"
 	"github.com/percona/percona-backup-mongodb/x/pbm/defs"
@@ -152,4 +153,13 @@ func TestResolveFirstLastWriteForCluster(t *testing.T) {
 			t.Errorf("got %v, %v, want zero timestamps", fw, lw)
 		}
 	})
+}
+
+func TestRunNotAttached(t *testing.T) {
+	s := NewPhysSvc(zap.NewNop(), nil, nil, nil, nil, nil, nil, "agent", nil)
+
+	err := s.Run(context.Background(), "backup", 1, true, nil)
+	if !errors.Is(err, ErrNotAttached) {
+		t.Errorf("Run() error = %v, want %v", err, ErrNotAttached)
+	}
 }
