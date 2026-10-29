@@ -88,8 +88,9 @@ func TestCast(t *testing.T) {
 		t.Fatalf("got error during Cast: %v", err)
 	}
 	want := &Config{
-		Endpoint: "url",
-		PartSize: defaultPartSize,
+		Endpoint:          "url",
+		PartSize:          defaultPartSize,
+		UploadConcurrency: defaultUploadConcurrency,
 		Retryer: &Retryer{
 			NumMaxRetries: defaultMaxRetries,
 		},
@@ -97,6 +98,24 @@ func TestCast(t *testing.T) {
 
 	if !c.Equal(want) {
 		t.Fatalf("wrong config after Cast, diff=%s", cmp.Diff(*c, *want))
+	}
+
+	for _, tt := range []struct {
+		value int
+		want  int
+	}{
+		{-1, defaultUploadConcurrency},
+		{0, defaultUploadConcurrency},
+		{1, 1},
+		{4, 4},
+	} {
+		c.UploadConcurrency = tt.value
+		if err := c.Cast(); err != nil {
+			t.Fatalf("Cast with uploadConcurrency %d: %v", tt.value, err)
+		}
+		if c.UploadConcurrency != tt.want {
+			t.Fatalf("uploadConcurrency %d: got %d, want %d", tt.value, c.UploadConcurrency, tt.want)
+		}
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"path"
-	"runtime"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
@@ -22,6 +21,8 @@ const (
 	maxUploadParts        = 10000
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 	minPartSize     int64 = 1024 * 1024 * 5  // 5Mb
+
+	defaultUploadConcurrency = 2
 
 	// minio allows 50TiB, sensible default is aligned with S3
 	defaultMaxObjSizeGB = 5018 // 4.9 TB
@@ -182,7 +183,7 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 
 	putOpts := minio.PutObjectOptions{
 		PartSize:              uint64(partSize),
-		NumThreads:            uint(max(runtime.NumCPU()/2, 1)),
+		NumThreads:            uint(m.cfg.UploadConcurrency),
 		ConcurrentStreamParts: true,
 	}
 	if opts.Size > 0 && opts.Size <= partSize {
