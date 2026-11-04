@@ -12,6 +12,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/x/pbm/version"
 )
 
 const (
@@ -52,6 +53,7 @@ type AgentInfo struct {
 	Port      int
 	APIPort   int
 	Role      Role
+	Version   string
 	IsLeader  bool
 	Alive     bool
 	MongoInfo MongoInfo
@@ -85,6 +87,7 @@ type agentDoc struct {
 	Role        Role         `json:"role"`
 	IsLeader    bool         `json:"isLeader"`
 	APIPort     int          `json:"apiPort"`
+	Version     string       `json:"version"`
 	MongoInfo   MongoInfo    `json:"mongoInfo"`
 	AgentStatus SubsysStatus `json:"agentStatus"`
 }
@@ -94,6 +97,7 @@ func (d *agentDoc) applyTo(m *AgentInfo) {
 	m.Role = d.Role
 	m.IsLeader = d.IsLeader
 	m.APIPort = d.APIPort
+	m.Version = d.Version
 	m.MongoInfo = d.MongoInfo
 	m.AgentStatus = d.AgentStatus
 }
@@ -407,6 +411,7 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	self.Name = s.name
 	self.Role = s.role
 	self.APIPort = s.apiPort
+	self.Version = version.Current().Version
 	self.IsLeader = isLeader
 	self.Alive = true
 	self.MongoInfo = mi
@@ -418,6 +423,7 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 		Role:        s.role,
 		IsLeader:    isLeader,
 		APIPort:     s.apiPort,
+		Version:     version.Current().Version,
 		MongoInfo:   mi,
 		AgentStatus: self.AgentStatus,
 	})
@@ -476,6 +482,7 @@ func (s *Svc) handleMongoErr(ctx context.Context, mongoErr error) {
 	s.mu.Lock()
 	self := s.mems[s.name]
 	self.MongoInfo.IsPrimary = false
+	self.Version = version.Current().Version
 	self.AgentStatus = SubsysStatus{Err: mongoErr.Error()}
 	s.mems[s.name] = self
 	s.mu.Unlock()
@@ -483,6 +490,7 @@ func (s *Svc) handleMongoErr(ctx context.Context, mongoErr error) {
 	s.publish(ctx, agentDoc{
 		Role:        s.role,
 		APIPort:     s.apiPort,
+		Version:     version.Current().Version,
 		MongoInfo:   self.MongoInfo,
 		AgentStatus: self.AgentStatus,
 	})
