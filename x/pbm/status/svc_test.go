@@ -503,6 +503,91 @@ func TestWorkerNeverLeader(t *testing.T) {
 	}
 }
 
+func TestCheckQueue(t *testing.T) {
+	const (
+		warnMsg    = "too many queued events, discovery may be blocked"
+		drainedMsg = "queued events drained"
+	)
+
+	// newSvc returns a svc with queued events and its info logs recorded.
+	newSvc := func(queued int) (*Svc, *observer.ObservedLogs) {
+		core, logs := observer.New(zap.InfoLevel)
+		s := New(zap.New(core), "self", RoleWorker, nil, 0)
+		fillQueue(s, queued)
+		return s, logs
+	}
+
+	t.Run("not congested", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			queued  int
+			want    bool
+			wantMsg string
+		}{
+			{name: "empty", queued: 0, want: false},
+			{name: "below high", queued: queueHigh - 1, want: false},
+			{name: "at high", queued: queueHigh, want: true, wantMsg: warnMsg},
+			{name: "full", queued: DiscoChannelSize, want: true, wantMsg: warnMsg},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				s, logs := newSvc(tt.queued)
+
+				if got := s.checkQueue(false); got != tt.want {
+					t.Fatalf("checkQueue(false) = %v, want %v", got, tt.want)
+				}
+				assertLogged(t, logs, tt.wantMsg, tt.queued)
+			})
+		}
+	})
+
+	t.Run("congested", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			queued  int
+			want    bool
+			wantMsg string
+		}{
+			{name: "still at high", queued: DiscoChannelSize, want: true},
+			{name: "at low", queued: queueLow, want: true},
+			{name: "below low", queued: queueLow - 1, want: false, wantMsg: drainedMsg},
+			{name: "empty", queued: 0, want: false, wantMsg: drainedMsg},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				s, logs := newSvc(tt.queued)
+
+				if got := s.checkQueue(true); got != tt.want {
+					t.Fatalf("checkQueue(true) = %v, want %v", got, tt.want)
+				}
+				assertLogged(t, logs, tt.wantMsg, tt.queued)
+			})
+		}
+	})
+
+	t.Run("logs once per congestion episode", func(t *testing.T) {
+		s, logs := newSvc(DiscoChannelSize)
+
+		congested := false
+		for len(s.recv) > 0 {
+			congested = s.checkQueue(congested)
+			<-s.recv
+		}
+		fillQueue(s, DiscoChannelSize)
+		congested = s.checkQueue(congested)
+
+		if !congested {
+			t.Fatal("expected the second episode to be congested")
+		}
+		if n := logs.FilterMessage(warnMsg).Len(); n != 2 {
+			t.Fatalf("expected 2 warnings, got %d", n)
+		}
+		if n := logs.FilterMessage(drainedMsg).Len(); n != 1 {
+			t.Fatalf("expected 1 drained message, got %d", n)
+		}
+	})
+}
+
 const retryMsg = "etcd failed during storing agent info, retrying"
 
 var errDown = errors.New("etcd down")
@@ -617,4 +702,31 @@ func (b *blockingLeadership) IsLeader() bool {
 	b.once.Do(func() { close(b.entered) })
 	<-b.release
 	return false
+}
+
+// fillQueue queues n events on the svc's receive channel.
+func fillQueue(s *Svc, n int) {
+	for range n {
+		s.recv <- StatusEvent{}
+	}
+}
+
+// assertLogged checks that exactly msg was logged with the queued count,
+// or that nothing was logged when msg is empty.
+func assertLogged(t *testing.T, logs *observer.ObservedLogs, msg string, queued int) {
+	t.Helper()
+
+	all := logs.All()
+	if msg == "" {
+		if len(all) != 0 {
+			t.Fatalf("expected no logs, got %d: %+v", len(all), all)
+		}
+		return
+	}
+	if len(all) != 1 || all[0].Message != msg {
+		t.Fatalf("expected a single %q log, got %+v", msg, all)
+	}
+	if got := all[0].ContextMap()["queued"]; got != int64(queued) {
+		t.Fatalf("logged queued = %v, want %d", got, queued)
+	}
 }

@@ -24,10 +24,15 @@ const (
 	ccDBAttempts = 3
 	// ccDBRetryDelay is the pause between ccDB call attempts.
 	ccDBRetryDelay = 500 * time.Millisecond
-)
 
-// tagRev is the only serf tag that agent publishes: the etcd revision of its agent doc.
-const tagRev = "rev"
+	// tagRev is the only serf tag that agent publishes: the etcd revision of its agent doc.
+	tagRev = "rev"
+
+	// to overload serf, agent will report congestion in logs
+	DiscoChannelSize = 100
+	queueHigh        = DiscoChannelSize * 8 / 10
+	queueLow         = queueHigh / 2
+)
 
 // ErrNotFound is returned by GetMember when no member is cached under the name.
 var ErrNotFound = errors.New("member not found")
@@ -149,7 +154,7 @@ func New(lg *zap.Logger, name string, role Role, localMongo *mongo.Client, apiPo
 		role:     role,
 		nodeConn: localMongo,
 		apiPort:  apiPort,
-		recv:     make(ReceiveChannel, 64), // todo: improve
+		recv:     make(ReceiveChannel, DiscoChannelSize),
 		mems:     map[string]AgentInfo{},
 	}
 }
@@ -205,15 +210,33 @@ func (s *Svc) Run(ctx context.Context) {
 
 // runEvents applies membership events.
 func (s *Svc) runEvents(ctx context.Context) {
+	congested := false
 	for {
 		select {
 		case ev := <-s.recv:
+			congested = s.checkQueue(congested)
 			s.apply(ctx, ev)
 		case <-ctx.Done():
 			s.lg.Info("stoping applying agents related events")
 			return
 		}
 	}
+}
+
+// checkQueue reports whether the receive queue is congested.
+func (s *Svc) checkQueue(congested bool) bool {
+	n := len(s.recv)
+	switch {
+	case !congested && n >= queueHigh:
+		s.lg.Warn("too many queued events, discovery may be blocked",
+			zap.Int("queued", n), zap.Int("capacity", cap(s.recv)))
+		return true
+	case congested && n < queueLow:
+		s.lg.Info("queued events drained",
+			zap.Int("queued", n), zap.Int("capacity", cap(s.recv)))
+		return false
+	}
+	return congested
 }
 
 // runRefresh periodically refreshes and publishes local info.

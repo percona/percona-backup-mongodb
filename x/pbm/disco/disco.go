@@ -43,9 +43,8 @@ func Start(
 	cfg Config,
 	sync chan<- status.StatusEvent,
 ) (*Discovery, error) {
-	// todo: improve
 	// buffered so a momentarily slow consumer can't block serf's dispatcher
-	eventCh := make(chan serf.Event, 64)
+	eventCh := make(chan serf.Event, status.DiscoChannelSize)
 
 	sc := serf.DefaultConfig()
 	sc.NodeName = name
@@ -175,7 +174,6 @@ func classifyEvent(t serf.EventType) (kind status.EventKind, alive, ok bool) {
 	case serf.EventMemberFailed:
 		return status.MemberFailed, false, true
 	case serf.EventMemberLeave, serf.EventMemberReap:
-		// todo: improve this
 		return status.MemberGone, false, true
 	default:
 		return 0, false, false
