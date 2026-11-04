@@ -18,6 +18,10 @@ import (
 const (
 	// refreshInterval is how often an agent re-reads its local mongod for change monitoring purpose.
 	refreshInterval = 5 * time.Second
+	// mongoInfoTimeout bounds reading the local mongod's node info (hello command)
+	mongoInfoTimeout = 4 * time.Second
+	// mongoFailsLogEvery is how often failed log entry is logged.
+	mongoFailsLogEvery = 50
 
 	// ccDBTimeout bounds a single ccDB call attempt.
 	ccDBTimeout = 2 * time.Second
@@ -92,6 +96,18 @@ type agentDoc struct {
 	AgentStatus SubsysStatus `json:"agentStatus"`
 }
 
+// newAgentDoc builds the doc to persist from m. It is the inverse of applyTo.
+func newAgentDoc(m AgentInfo) agentDoc {
+	return agentDoc{
+		Role:        m.Role,
+		IsLeader:    m.IsLeader,
+		APIPort:     m.APIPort,
+		Version:     m.Version,
+		MongoInfo:   m.MongoInfo,
+		AgentStatus: m.AgentStatus,
+	}
+}
+
 // applyTo copies the doc's fields into m, leaving serf-owned fields intact.
 func (d *agentDoc) applyTo(m *AgentInfo) {
 	m.Role = d.Role
@@ -126,6 +142,9 @@ type Svc struct {
 
 	// lastPub is the last agent doc successfully published, used for change detection
 	lastPub *agentDoc
+
+	// mongoFails counts consecutive failed reads of the local mongod, used to throttle logging
+	mongoFails int
 
 	mu   sync.RWMutex
 	mems clusterMembers
@@ -397,11 +416,8 @@ func (s *Svc) applySelf(ev StatusEvent) {
 // refreshLocal reads the local mongod, caches the local AgentInfo, and broadcasts
 // it to the cluster.
 func (s *Svc) refreshLocal(ctx context.Context) {
-	mi, err := s.localMongoInfo(ctx)
-	if err != nil {
-		s.handleMongoErr(ctx, err)
-		return
-	}
+	mi, mongoErr := s.localMongoInfo(ctx)
+	s.logMongoErr(mongoErr)
 
 	isLeader := s.IsLeader()
 
@@ -414,19 +430,43 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	self.Version = version.Current().Version
 	self.IsLeader = isLeader
 	self.Alive = true
-	self.MongoInfo = mi
-	self.AgentStatus = SubsysStatus{OK: true}
+	if mongoErr != nil {
+		// keep the last-known identity so the agent stays listed under its original replica set,
+		self.MongoInfo = MongoInfo{
+			SetName:   self.MongoInfo.SetName,
+			Me:        self.MongoInfo.Me,
+			Sharded:   self.MongoInfo.Sharded,
+			ConfigSvr: self.MongoInfo.ConfigSvr,
+		}
+		self.AgentStatus = SubsysStatus{Err: "mongod is not reachable"}
+	} else {
+		self.MongoInfo = mi
+		self.AgentStatus = SubsysStatus{OK: true}
+	}
 	s.mems[s.name] = self
 	s.mu.Unlock()
 
-	s.publish(ctx, agentDoc{
-		Role:        s.role,
-		IsLeader:    isLeader,
-		APIPort:     s.apiPort,
-		Version:     version.Current().Version,
-		MongoInfo:   mi,
-		AgentStatus: self.AgentStatus,
-	})
+	s.publish(ctx, newAgentDoc(self))
+}
+
+// logMongoErr logs a failed read of the local mongod without flooding the log.
+func (s *Svc) logMongoErr(err error) {
+	if err == nil {
+		if s.mongoFails > 0 {
+			s.lg.Info("local mongo info read again", zap.Int("failures", s.mongoFails))
+			s.mongoFails = 0
+		}
+		return
+	}
+
+	s.mongoFails++
+	switch {
+	case s.mongoFails == 1:
+		s.lg.Warn("read local mongo info", zap.Error(err))
+	case s.mongoFails%mongoFailsLogEvery == 0:
+		s.lg.Debug("read local mongo info",
+			zap.Int("failures", s.mongoFails), zap.Error(err))
+	}
 }
 
 // publish stores the agent doc in ccDB and advertises its revision over serf,
@@ -456,6 +496,9 @@ func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
 		return MongoInfo{}, nil
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, mongoInfoTimeout)
+	defer cancel()
+
 	// GetNodeInfoExt also reads the parsed command line, so IsSharded reflects the
 	// node's clusterRole even before hello gossips $configServerState.
 	ni, err := topo.GetNodeInfoExt(ctx, s.nodeConn)
@@ -474,26 +517,6 @@ func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
 		Passive:     ni.Passive,
 		ArbiterOnly: ni.ArbiterOnly,
 	}, nil
-}
-
-func (s *Svc) handleMongoErr(ctx context.Context, mongoErr error) {
-	s.lg.Warn("read local mongo info", zap.Error(mongoErr))
-
-	s.mu.Lock()
-	self := s.mems[s.name]
-	self.MongoInfo.IsPrimary = false
-	self.Version = version.Current().Version
-	self.AgentStatus = SubsysStatus{Err: mongoErr.Error()}
-	s.mems[s.name] = self
-	s.mu.Unlock()
-
-	s.publish(ctx, agentDoc{
-		Role:        s.role,
-		APIPort:     s.apiPort,
-		Version:     version.Current().Version,
-		MongoInfo:   self.MongoInfo,
-		AgentStatus: self.AgentStatus,
-	})
 }
 
 // GetAllMembers returns all agents within PBM's cluster.

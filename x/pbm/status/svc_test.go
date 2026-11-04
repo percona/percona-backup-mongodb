@@ -3,12 +3,16 @@ package status
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
 
@@ -220,13 +224,79 @@ func TestPublishRetriedAfterFailure(t *testing.T) {
 
 func TestMongoErrPropagates(t *testing.T) {
 	cli := newEtcdClient(t)
-	s, _ := newTestSvc(t, "self", RoleWorker, 0, NewRepo(cli))
+	s, _ := newTestSvc(t, "self", RoleCtrl, 9000, NewRepo(cli))
+	s.nodeConn = newUnreachableMongo(t)
+	s.SetLeaderChecker(fakeLeadership(true))
+	s.mems["self"] = AgentInfo{MongoInfo: MongoInfo{SetName: "rs0", Me: "rs0-0:27017", IsPrimary: true}}
 
-	s.handleMongoErr(t.Context(), errors.New("mongo down"))
+	s.refreshLocal(t.Context())
 
-	if doc, _ := storedDoc(t, cli, "self"); doc.AgentStatus.OK || doc.AgentStatus.Err != "mongo down" {
+	doc, _ := storedDoc(t, cli, "self")
+	if doc.AgentStatus.OK || doc.AgentStatus.Err != "mongod is not reachable" {
 		t.Fatalf("mongo error should be stored: %+v", doc.AgentStatus)
 	}
+	if !doc.IsLeader || doc.Role != RoleCtrl {
+		t.Fatalf("leadership and role should be stored: %+v", doc)
+	}
+	wantMI := MongoInfo{SetName: "rs0", Me: "rs0-0:27017"}
+	if doc.MongoInfo != wantMI {
+		t.Fatalf("stored mongo info = %+v, want identity only %+v", doc.MongoInfo, wantMI)
+	}
+
+	self, _ := s.GetMember("self")
+	if self.Name != "self" || self.Role != RoleCtrl || !self.IsLeader || self.MongoInfo != wantMI {
+		t.Fatalf("cached self should keep name, role, leadership and identity: %+v", self)
+	}
+}
+
+func TestLogMongoErr(t *testing.T) {
+	newSvc := func() (*Svc, *observer.ObservedLogs) {
+		core, logs := observer.New(zap.DebugLevel)
+		s, _ := newTestSvcWithLogger(zap.New(core), "self", RoleWorker, 0, nil)
+		return s, logs
+	}
+	levels := func(logs *observer.ObservedLogs) []zapcore.Level {
+		var out []zapcore.Level
+		for _, e := range logs.TakeAll() {
+			out = append(out, e.Level)
+		}
+		return out
+	}
+	mongoErr := errors.New("mongo down")
+
+	t.Run("consecutive failures", func(t *testing.T) {
+		s, logs := newSvc()
+		for range 2*mongoFailsLogEvery + 1 {
+			s.logMongoErr(mongoErr)
+		}
+
+		want := []zapcore.Level{zapcore.WarnLevel, zapcore.DebugLevel, zapcore.DebugLevel}
+		if got := levels(logs); !slices.Equal(got, want) {
+			t.Fatalf("logged levels = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("recovery", func(t *testing.T) {
+		s, logs := newSvc()
+		s.logMongoErr(mongoErr)
+		s.logMongoErr(nil)
+		s.logMongoErr(nil)
+		s.logMongoErr(mongoErr)
+
+		want := []zapcore.Level{zapcore.WarnLevel, zapcore.InfoLevel, zapcore.WarnLevel}
+		if got := levels(logs); !slices.Equal(got, want) {
+			t.Fatalf("logged levels = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("no failures", func(t *testing.T) {
+		s, logs := newSvc()
+		s.logMongoErr(nil)
+
+		if got := levels(logs); len(got) != 0 {
+			t.Fatalf("logged levels = %v, want none", got)
+		}
+	})
 }
 
 func TestPeerFetchFailure(t *testing.T) {
@@ -668,6 +738,20 @@ func newTestSvcWithLogger(lg *zap.Logger, name string, role Role, apiPort int, r
 	s.SetPublisher(fp)
 	s.SetRepo(repo)
 	return s, fp
+}
+
+// newUnreachableMongo returns a client for a closed port.
+func newUnreachableMongo(t *testing.T) *mongo.Client {
+	t.Helper()
+
+	cli, err := mongo.Connect(options.Client().
+		ApplyURI("mongodb://127.0.0.1:1").
+		SetServerSelectionTimeout(100 * time.Millisecond))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cli.Disconnect(context.Background()) })
+	return cli
 }
 
 // fakePublisher captures the last published tags.
