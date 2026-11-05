@@ -240,7 +240,7 @@ func (s *Svc) runEvents(ctx context.Context) {
 			congested = s.checkQueue(congested)
 			s.apply(ctx, ev)
 		case <-ctx.Done():
-			s.lg.Info("stoping applying agents related events")
+			s.lg.Info("stopping applying agents related events")
 			return
 		}
 	}
@@ -273,7 +273,7 @@ func (s *Svc) runRefresh(ctx context.Context) {
 		case <-t.C:
 			s.refreshLocal(ctx)
 		case <-ctx.Done():
-			s.lg.Info("stoping refreshing mongodb info")
+			s.lg.Info("stopping refreshing mongodb info")
 			return
 		}
 	}
@@ -356,7 +356,7 @@ func (s *Svc) loadPeer(ctx context.Context, name string, rev int64) {
 // putAgentDoc stores this agent's doc in the repo and returns its revision.
 func (s *Svc) putAgentDoc(ctx context.Context, lg *zap.Logger, doc agentDoc) (int64, error) {
 	var rev int64
-	err := s.retry(ctx, lg, func(ctx context.Context) error {
+	err := s.retry(ctx, lg, "store agent info", func(ctx context.Context) error {
 		var err error
 		rev, err = s.repo.Put(ctx, s.name, doc)
 		return err
@@ -367,7 +367,7 @@ func (s *Svc) putAgentDoc(ctx context.Context, lg *zap.Logger, doc agentDoc) (in
 // getAgentDoc fetches the named agent's doc at the given revision from the repo.
 func (s *Svc) getAgentDoc(ctx context.Context, lg *zap.Logger, name string, rev int64) (agentDoc, error) {
 	var doc agentDoc
-	err := s.retry(ctx, lg, func(ctx context.Context) error {
+	err := s.retry(ctx, lg, "fetch agent info", func(ctx context.Context) error {
 		var err error
 		doc, err = s.repo.Get(ctx, name, rev)
 		return err
@@ -375,7 +375,7 @@ func (s *Svc) getAgentDoc(ctx context.Context, lg *zap.Logger, name string, rev 
 	return doc, err
 }
 
-func (s *Svc) retry(ctx context.Context, lg *zap.Logger, fn func(ctx context.Context) error) error {
+func (s *Svc) retry(ctx context.Context, lg *zap.Logger, op string, fn func(ctx context.Context) error) error {
 	for attempt := 1; ; attempt++ {
 		actx, cancel := context.WithTimeout(ctx, ccDBTimeout)
 		err := fn(actx)
@@ -384,7 +384,8 @@ func (s *Svc) retry(ctx context.Context, lg *zap.Logger, fn func(ctx context.Con
 			return err
 		}
 
-		lg.Warn("etcd failed during storing agent info, retrying",
+		lg.Warn("etcd call failed, retrying",
+			zap.String("op", op),
 			zap.Int("attempt", attempt),
 			zap.Int("max_attempts", ccDBAttempts),
 			zap.Duration("retry_in", ccDBRetryDelay),

@@ -21,10 +21,6 @@ func RunWorkerAgent(
 	lg, etcdLg, serfLg *zap.Logger,
 	cfg *WorkerAgentConfig,
 ) error {
-	if cfg.MongoURI == "" {
-		return errors.New("worker agent requires MongoDB connection string")
-	}
-
 	ac, err := connect.ConnectAgent(ctx, lg, cfg.MongoURI, cfg.Name)
 	if err != nil {
 		return errors.Wrap(err, "resolve agent")

@@ -431,6 +431,9 @@ func TestCCDBRetry(t *testing.T) {
 		if n := retryLogs(logs); n != 2 {
 			t.Fatalf("expected 2 retry warnings, got %d", n)
 		}
+		if n := logs.FilterField(zap.String("op", "store agent info")).Len(); n != 2 {
+			t.Fatalf("expected 2 retry warnings for storing, got %d", n)
+		}
 	})
 
 	t.Run("fetch is retried and logged", func(t *testing.T) {
@@ -449,7 +452,9 @@ func TestCCDBRetry(t *testing.T) {
 		if repo.getCalls != 3 {
 			t.Fatalf("expected 3 get calls, got %d", repo.getCalls)
 		}
-		retries := logs.FilterMessage(retryMsg).FilterField(zap.String("member", "fetch-peer"))
+		retries := logs.FilterMessage(retryMsg).
+			FilterField(zap.String("member", "fetch-peer")).
+			FilterField(zap.String("op", "fetch agent info"))
 		if retries.Len() != 2 {
 			t.Fatalf("expected 2 retry warnings for the member, got %d", retries.Len())
 		}
@@ -658,7 +663,7 @@ func TestCheckQueue(t *testing.T) {
 	})
 }
 
-const retryMsg = "etcd failed during storing agent info, retrying"
+const retryMsg = "etcd call failed, retrying"
 
 var errDown = errors.New("etcd down")
 
