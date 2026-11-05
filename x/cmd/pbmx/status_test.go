@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
+
 	"github.com/percona/percona-backup-mongodb/x/pbm/apiclient"
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
@@ -168,6 +170,9 @@ func TestPrintStatus(t *testing.T) {
 					if i < pos {
 						t.Errorf("%q is out of display order in output:\n%s", h, out)
 					}
+					if pos >= 0 && !strings.Contains(out, "\n\n"+h) {
+						t.Errorf("%q isn't separated by an empty line in output:\n%s", h, out)
+					}
 					pos = i
 				}
 				for _, h := range tc.wantAbsent {
@@ -299,6 +304,41 @@ func TestAgentHealth(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := agentHealth(tc.m); got != tc.want {
 				t.Errorf("agentHealth = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFmtRestoreTime(t *testing.T) {
+	// placeholder set by PhysSvc.initMeta before write timestamps are recorded
+	placeholder := bson.Timestamp{T: 1, I: 1}
+	lastWrite := bson.Timestamp{T: 1793829894}
+
+	tests := []struct {
+		name string
+		meta backup.BackupMeta
+		want string
+	}{
+		{
+			name: "done",
+			meta: backup.BackupMeta{Status: backup.StatusDone, LastWriteTS: lastWrite},
+			want: "2026-11-04T22:04:54",
+		},
+		{
+			name: "in progress with placeholder",
+			meta: backup.BackupMeta{Status: backup.StatusInProgress, LastWriteTS: placeholder},
+			want: "",
+		},
+		{
+			name: "error",
+			meta: backup.BackupMeta{Status: backup.StatusError, LastWriteTS: lastWrite},
+			want: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fmtRestoreTime(&tc.meta); got != tc.want {
+				t.Errorf("fmtRestoreTime = %q, want %q", got, tc.want)
 			}
 		})
 	}

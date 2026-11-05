@@ -109,8 +109,8 @@ func printStatus(ctx context.Context, w io.Writer, cli *apiclient.Client, sectio
 		}
 		if !first {
 			fmt.Fprintln(w)
-			first = false
 		}
+		first = false
 
 		switch name {
 		case sectionCluster:
@@ -265,7 +265,7 @@ func formatBackupsSection(w io.Writer, cfg *config.Config, metas []*backup.Backu
 			"", // profiles are not part of the backup metadata yet
 			yesNo(isSelective(m)),
 			yesNo(isBase(m)),
-			fmtBSONTS(m.LastWriteTS),
+			fmtRestoreTime(m),
 			fmtDuration(m),
 			string(m.Status),
 		})
@@ -326,6 +326,13 @@ func renderPlainTable(w io.Writer, header []string, rows [][]string, gaps []stri
 		fmt.Fprintf(w, "  %s\n", strings.TrimRight(line, " "))
 	}
 	return nil
+}
+
+func fmtRestoreTime(m *backup.BackupMeta) string {
+	if m.Status != backup.StatusDone {
+		return ""
+	}
+	return fmtBSONTS(m.LastWriteTS)
 }
 
 // formatStorage renders the storage type and its location.
