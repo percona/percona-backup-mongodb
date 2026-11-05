@@ -17,7 +17,7 @@ import (
 )
 
 // current PBM version
-const version = "2.14.0"
+const version = "3.0.0"
 
 var (
 	platform  string
