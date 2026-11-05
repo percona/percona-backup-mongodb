@@ -131,7 +131,7 @@ func (d *Discovery) eventLoop(ctx context.Context, eventCh <-chan serf.Event) {
 func (d *Discovery) handleMemberEvent(ctx context.Context, mEvt serf.MemberEvent) {
 	kind, alive, ok := classifyEvent(mEvt.Type)
 	if !ok {
-		d.lg.Warn("recived invalid serf event",
+		d.lg.Warn("received invalid serf event",
 			zap.Stringer("type", mEvt.Type),
 			zap.Any("member-event", mEvt),
 		)

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	tcetcd "github.com/testcontainers/testcontainers-go/modules/etcd"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
-	tcetcd "github.com/testcontainers/testcontainers-go/modules/etcd"
 )
 
 const etcdImage = "gcr.io/etcd-development/etcd:v3.6.12"
