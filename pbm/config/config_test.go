@@ -1016,6 +1016,64 @@ func TestSetConfigVarTrimsSlashes(t *testing.T) {
 	}
 }
 
+func TestOCIEndpointNormalization(t *testing.T) {
+	ctx := context.Background()
+	const (
+		endpoint    = "https://storage.example.com"
+		profileName = "oci-endpoint-normalization"
+	)
+	t.Cleanup(func() {
+		_ = RemoveProfile(context.Background(), connClient, profileName)
+	})
+
+	for _, tt := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"unset", "", ""},
+		{"clean", endpoint, endpoint},
+		{"trailing slash", endpoint + "/", endpoint},
+		{"multiple trailing slashes", endpoint + "///", endpoint},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Storage: StorageConf{
+				Type: storage.OCI,
+				OCI: &ocistorage.Config{
+					Region:      "test-region-1",
+					Namespace:   "testns",
+					Bucket:      "testbucket",
+					EndpointURL: tt.input,
+				},
+			}}
+			expectedStorage := cfg.Storage.Clone()
+			expectedStorage.OCI.EndpointURL = tt.want
+
+			require.NoError(t, SetConfig(ctx, connClient, cfg))
+			persisted, err := GetConfig(ctx, connClient)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, persisted.Storage.OCI.EndpointURL)
+			assert.True(t, expectedStorage.IsSameStorage(&persisted.Storage))
+
+			require.NoError(t, SetConfigVar(ctx, connClient, "storage.oci.endpointUrl", tt.input))
+			persisted, err = GetConfig(ctx, connClient)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, persisted.Storage.OCI.EndpointURL)
+			assert.True(t, expectedStorage.IsSameStorage(&persisted.Storage))
+
+			profile := cfg.Clone()
+			profile.Name = profileName
+			profile.IsProfile = true
+			profile.Storage.OCI.EndpointURL = tt.input
+			require.NoError(t, AddProfile(ctx, connClient, profile))
+			persisted, err = GetProfile(ctx, connClient, profileName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, persisted.Storage.OCI.EndpointURL)
+			assert.True(t, expectedStorage.IsSameStorage(&persisted.Storage))
+		})
+	}
+}
+
 func TestBackupConfGetNumParallelFiles(t *testing.T) {
 	tests := []struct {
 		name string
