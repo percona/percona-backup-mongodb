@@ -2,6 +2,7 @@ package mio
 
 import (
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -87,10 +88,11 @@ func TestCast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got error during Cast: %v", err)
 	}
+	defaultConcurrency := defaultUploadConcurrency(runtime.NumCPU())
 	want := &Config{
 		Endpoint:          "url",
 		PartSize:          defaultPartSize,
-		UploadConcurrency: defaultUploadConcurrency,
+		UploadConcurrency: defaultConcurrency,
 		Retryer: &Retryer{
 			NumMaxRetries: defaultMaxRetries,
 		},
@@ -104,10 +106,11 @@ func TestCast(t *testing.T) {
 		value int
 		want  int
 	}{
-		{-1, defaultUploadConcurrency},
-		{0, defaultUploadConcurrency},
+		{-1, defaultConcurrency},
+		{0, defaultConcurrency},
 		{1, 1},
 		{4, 4},
+		{8, 8},
 	} {
 		c.UploadConcurrency = tt.value
 		if err := c.Cast(); err != nil {
@@ -115,6 +118,26 @@ func TestCast(t *testing.T) {
 		}
 		if c.UploadConcurrency != tt.want {
 			t.Fatalf("uploadConcurrency %d: got %d, want %d", tt.value, c.UploadConcurrency, tt.want)
+		}
+	}
+}
+
+func TestDefaultUploadConcurrency(t *testing.T) {
+	for _, tt := range []struct {
+		numCPU int
+		want   int
+	}{
+		{1, 1},
+		{2, 1},
+		{3, 1},
+		{4, 2},
+		{5, 2},
+		{6, 2},
+		{12, 2},
+		{128, 2},
+	} {
+		if got := defaultUploadConcurrency(tt.numCPU); got != tt.want {
+			t.Errorf("default concurrency for %d CPUs: got %d, want %d", tt.numCPU, got, tt.want)
 		}
 	}
 }

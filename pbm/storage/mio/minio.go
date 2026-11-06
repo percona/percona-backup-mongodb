@@ -22,8 +22,6 @@ const (
 	defaultPartSize int64 = 10 * 1024 * 1024 // 10Mb
 	minPartSize     int64 = 1024 * 1024 * 5  // 5Mb
 
-	defaultUploadConcurrency = 2
-
 	// minio allows 50TiB, sensible default is aligned with S3
 	defaultMaxObjSizeGB = 5018 // 4.9 TB
 

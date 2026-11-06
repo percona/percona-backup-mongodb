@@ -4,6 +4,7 @@ import (
 	"errors"
 	"maps"
 	"reflect"
+	"runtime"
 
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 )
@@ -108,7 +109,7 @@ func (cfg *Config) Cast() error {
 		cfg.PartSize = defaultPartSize
 	}
 	if cfg.UploadConcurrency <= 0 {
-		cfg.UploadConcurrency = defaultUploadConcurrency
+		cfg.UploadConcurrency = defaultUploadConcurrency(runtime.NumCPU())
 	}
 
 	if cfg.Retryer == nil {
@@ -122,6 +123,13 @@ func (cfg *Config) Cast() error {
 	}
 
 	return nil
+}
+
+func defaultUploadConcurrency(numCPU int) int {
+	if numCPU < 4 {
+		return 1
+	}
+	return 2
 }
 
 // resolveEndpointURL returns endpoint url based on provided
