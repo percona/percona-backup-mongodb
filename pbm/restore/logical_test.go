@@ -45,6 +45,24 @@ func TestResolveNamespace(t *testing.T) {
 				want:       []string{},
 			},
 			{
+				desc:       "full backup -> wildcard restore",
+				nssBackup:  []string{},
+				nssRestore: []string{"*.*"},
+				want:       []string{},
+			},
+			{
+				desc:       "selective database backup -> wildcard restore",
+				nssBackup:  []string{"d.*"},
+				nssRestore: []string{"*.*"},
+				want:       []string{"d.*"},
+			},
+			{
+				desc:       "selective collection backup -> wildcard restore",
+				nssBackup:  []string{"d.a", "d.b"},
+				nssRestore: []string{"*.*"},
+				want:       []string{"d.a", "d.b"},
+			},
+			{
 				desc:       "full backup -> selective restore",
 				nssBackup:  []string{},
 				nssRestore: []string{"d.c"},
@@ -378,7 +396,7 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 	})
 }
 
-func TestSelRestoreDBCleanup(t *testing.T) {
+func TestSelRestoreShardedCleanup(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("drop single database", func(t *testing.T) {
@@ -390,9 +408,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db.*"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -415,9 +433,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db.coll"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropCollectionCalls) != 1 {
@@ -447,9 +465,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.*", "db2.*"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {
@@ -479,9 +497,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.c1", "db2.c2", "db2.c3", "db1.*"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -508,9 +526,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
 		nss := []string{defs.DB + ".*", defs.ConfigDB + ".*"}
-		err := r.selRestoreDBCleanup(ctx, nss)
+		err := r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -525,9 +543,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
 		nss := []string{"nonexistent.*"}
-		err := r.selRestoreDBCleanup(ctx, nss)
+		err := r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -547,9 +565,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db.*"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -569,9 +587,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db.coll"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -595,9 +613,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.*", "db2.coll"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -627,9 +645,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db.*", "db.c"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -656,9 +674,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.*", "db2.*", "db1.c1", "db1.c2", "db2.c2"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {
@@ -682,9 +700,9 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.c1", "db2.c1", "db1.*", "db2.*", "db1.c2", "db2.c2"}
-		err = r.selRestoreDBCleanup(ctx, nss)
+		err = r.selRestoreShardedCleanup(ctx, nss)
 		if err != nil {
-			t.Fatalf("selRestoreDBCleanup: %v", err)
+			t.Fatalf("selRestoreShardedCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {
@@ -699,16 +717,15 @@ func TestSelRestoreDBCleanup(t *testing.T) {
 func TestFullRestoreDBCleanup(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("drop single database", func(t *testing.T) {
+	t.Run("drop destination database with custom shard ID", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		err := createConfigDatabasesDoc(t, "db1", "rs0")
+		err := createConfigDatabasesDoc(t, "destinationOnly", "custom-shard")
 		if err != nil {
 			t.Fatalf("create config.databases doc: %v", err)
 		}
 
-		bcp := &backup.BackupMeta{Name: "backup1"}
-		err = r.fullRestoreDBCleanup(ctx, bcp)
+		err = r.fullRestoreDBCleanup(ctx, "custom-shard")
 		if err != nil {
 			t.Fatalf("fullRestoreDBCleanup: %v", err)
 		}
@@ -716,8 +733,8 @@ func TestFullRestoreDBCleanup(t *testing.T) {
 		if len(db.dropDatabaseCalls) != 1 {
 			t.Fatalf("expected 1 dropDatabase call, got %d", len(db.dropDatabaseCalls))
 		}
-		if db.dropDatabaseCalls[0] != "db1" {
-			t.Fatalf("expected dropDatabase to be called with %q, got %q", "db", db.dropDatabaseCalls[0])
+		if db.dropDatabaseCalls[0] != "destinationOnly" {
+			t.Fatalf("expected dropDatabase to be called with %q, got %q", "destinationOnly", db.dropDatabaseCalls[0])
 		}
 	})
 
@@ -733,8 +750,7 @@ func TestFullRestoreDBCleanup(t *testing.T) {
 			t.Fatalf("create config.databases doc 2: %v", err)
 		}
 
-		bcp := &backup.BackupMeta{Name: "backup1"}
-		err = r.fullRestoreDBCleanup(ctx, bcp)
+		err = r.fullRestoreDBCleanup(ctx, "rs0")
 		if err != nil {
 			t.Fatalf("fullRestoreDBCleanup: %v", err)
 		}
@@ -753,8 +769,7 @@ func TestFullRestoreDBCleanup(t *testing.T) {
 	t.Run("skip database not in config.databases", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		bcp := &backup.BackupMeta{Name: "backup1"}
-		err := r.fullRestoreDBCleanup(ctx, bcp)
+		err := r.fullRestoreDBCleanup(ctx, "rs0")
 		if err != nil {
 			t.Fatalf("fullRestoreDBCleanup: %v", err)
 		}
@@ -767,13 +782,12 @@ func TestFullRestoreDBCleanup(t *testing.T) {
 	t.Run("skip database with different primary shard", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		err := createConfigDatabasesDoc(t, "db1", "rs1")
+		err := createConfigDatabasesDoc(t, "db1", "rs0")
 		if err != nil {
 			t.Fatalf("create config.databases doc: %v", err)
 		}
 
-		bcp := &backup.BackupMeta{Name: "backup1"}
-		err = r.fullRestoreDBCleanup(ctx, bcp)
+		err = r.fullRestoreDBCleanup(ctx, "custom-shard")
 		if err != nil {
 			t.Fatalf("fullRestoreDBCleanup: %v", err)
 		}
@@ -859,8 +873,6 @@ func createCleanupRestoreTest(t *testing.T, setName string) (*Restore, *mockMDB)
 		}{},
 	}
 	restore.db = dbMock
-
-	restore.bcpStg = &mockBcpStg{}
 
 	t.Cleanup(func() {
 		cleanupTestData(t)
