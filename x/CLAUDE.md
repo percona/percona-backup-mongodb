@@ -108,13 +108,10 @@ Rule: dependency flows one way, `cmd/pbmx/` → `pbm/`. `pbm/` must not import `
     - per operation, derive a child logger (`lg := s.lg.With(zap.String("backup", name))`) and pass it to helpers;
       don't log via `s.lg` inside them or the operation fields get lost. Don't carry the logger in `ctx`.
     - constant messages, values as fields: `lg.Info("phase reached", zap.Duration("total", d))`, errors via `zap.Error(err)`.
+- tests: one root test per function, named exactly after it (`TestConnectAgent` for `ConnectAgent`).
+    - group main scenarios as top-level `t.Run` (e.g. "mongod is down", "rs is running"); nest individual cases inside them.
+    - put test helpers and mocks at the end of the test file, after all tests, so the file opens with the tests.
 - git
     - never create git commits or pr requests automatically.
 - never modify anything out of x directory. If it's necessary ask for confirmation.
-<!-- How you want me to behave specifically in x/. These override defaults.
-     Examples to replace:
-     - "Prototype phase: prefer concrete implementations over interfaces until a second use case appears."
-     - "Don't add tests for code I'm still iterating on; ask before writing test files."
-     - "When in doubt, ask before adding a new top-level package."
--->
 

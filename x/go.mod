@@ -16,6 +16,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/testcontainers/testcontainers-go/modules/etcd v0.42.0
+	github.com/testcontainers/testcontainers-go/modules/mongodb v0.42.0
 	go.etcd.io/etcd/client/v3 v3.6.12
 	go.etcd.io/etcd/server/v3 v3.6.12
 	go.mongodb.org/mongo-driver/v2 v2.9.1

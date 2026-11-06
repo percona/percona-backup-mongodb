@@ -31,6 +31,10 @@ import (
 
 var ErrInvalidOptions = errors.New("invalid backup options")
 
+// ErrNotAttached is returned when an agent without MongoDB connections is
+// asked to run its part of a backup.
+var ErrNotAttached = errors.New("agent is not attached to mongod")
+
 type Options struct {
 	Type             defs.BackupType          `json:"type"`
 	Compression      compress.CompressionType `json:"compression,omitempty"`
@@ -166,6 +170,10 @@ func (s *PhysSvc) Run(
 	isLeader bool,
 	rawOpts json.RawMessage,
 ) (err error) {
+	if s.nodeConn == nil || s.leadConn == nil {
+		return ErrNotAttached
+	}
+
 	lg := s.lg.With(zap.String("backup", name), zap.Bool("leader", isLeader))
 	lg.Info("running backup")
 	startTime := time.Now().UTC()

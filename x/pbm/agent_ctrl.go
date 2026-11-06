@@ -2,8 +2,6 @@ package pbm
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"go.uber.org/zap"
 
@@ -12,6 +10,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 	"github.com/percona/percona-backup-mongodb/x/pbm/task"
@@ -25,25 +24,19 @@ func RunCtrlAgent(
 	lg, etcdLg, serfLg *zap.Logger,
 	cfg *CtrlAgentConfig,
 ) error {
-	lg = lg.With(zap.String("agent", cfg.Name))
-
-	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
+	ac, err := connect.ConnectAgent(ctx, lg, cfg.MongoURI, cfg.Name)
 	if err != nil {
-		return fmt.Errorf("connect local mongod: %w", err)
+		return errors.Wrap(err, "resolve agent")
 	}
-	defer connect.Disconnect(lg, nodeConn)
+	defer ac.Disconnect(context.Background(), lg)
 
-	leadConn, err := connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
+	lg = lg.With(zap.String("agent", ac.Name))
+
+	statusSvc := status.NewForCtrlAgent(lg, ac.Name, ac.NodeConn, cfg.APISrvPort)
+
+	d, err := disco.Start(ctx, lg, serfLg, ac.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
 	if err != nil {
-		return fmt.Errorf("connect cluster leader: %w", err)
-	}
-	defer leadConn.Disconnect(ctx)
-
-	statusSvc := status.NewForCtrlAgent(lg, cfg.Name, nodeConn, cfg.APISrvPort)
-
-	d, err := disco.Start(ctx, lg, serfLg, cfg.Name, cfg.WorkerAgentConfig.Config, statusSvc.DiscoSync())
-	if err != nil {
-		return fmt.Errorf("start pbm cluster: %w", err)
+		return errors.Wrap(err, "start pbm cluster")
 	}
 	defer func() {
 		if err := d.Stop(); err != nil {
@@ -52,12 +45,12 @@ func RunCtrlAgent(
 	}()
 	lg.Info("added to PBM cluster")
 
-	etcdSrv, err := etcd.Start(ctx, etcdLg, cfg.Name, cfg.Config)
+	etcdSrv, err := etcd.Start(ctx, etcdLg, ac.Name, cfg.Config)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil
 		}
-		return fmt.Errorf("start etcd: %w", err)
+		return errors.Wrap(err, "start etcd")
 	}
 	defer etcdSrv.Close()
 	lg.Info("started control collection db")
@@ -69,15 +62,15 @@ func RunCtrlAgent(
 		lg,
 		etcdSrv.Client(),
 		backupRepo,
-		nodeConn,
-		leadConn,
+		ac.NodeConn,
+		ac.LeadConn,
 		statusSvc,
 		configSvc,
-		cfg.Name,
+		ac.Name,
 		task.NewComposer(lg, etcdSrv.Client(), task.NewScheduler(statusSvc, configSvc)),
 	)
 
-	inbox := task.NewInbox(lg, etcdSrv.Client(), cfg.Name, physSvc)
+	inbox := task.NewInbox(lg, etcdSrv.Client(), ac.Name, physSvc)
 	go func() {
 		lg.Info("run inbox")
 		if err := inbox.Run(ctx); err != nil {
@@ -87,6 +80,7 @@ func RunCtrlAgent(
 
 	// wire the status service before starting its loop
 	statusSvc.SetPublisher(d)
+	statusSvc.SetRepo(status.NewRepo(etcdSrv.Client()))
 	statusSvc.SetLeaderChecker(etcdSrv)
 	go statusSvc.Run(ctx)
 
@@ -101,8 +95,8 @@ func RunCtrlAgent(
 		lg.Info("agent is shutdown")
 		return nil
 	case err := <-etcdSrv.Err():
-		return fmt.Errorf("embedded etcd stopped: %w", err)
+		return errors.Wrap(err, "embedded etcd stopped")
 	case err := <-apiSrv.Err():
-		return fmt.Errorf("api server stopped: %w", err)
+		return errors.Wrap(err, "api server stopped")
 	}
 }

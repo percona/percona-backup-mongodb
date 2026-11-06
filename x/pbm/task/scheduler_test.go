@@ -1,11 +1,11 @@
 package task
 
 import (
-	"errors"
 	"slices"
 	"testing"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
