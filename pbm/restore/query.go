@@ -315,6 +315,30 @@ func (d *mDB) runCmdShardsvrDropCollection(
 	)
 }
 
+// getConfigDatabasesForShard returns user-database catalog documents owned by shardID.
+// shardID is the destination shard ID, not its replica-set name.
+func getConfigDatabasesForShard(
+	ctx context.Context,
+	conn connect.Client,
+	shardID string,
+) ([]configDatabasesDoc, error) {
+	filter := bson.D{
+		{"primary", shardID},
+		{"_id", bson.D{{"$nin", bson.A{defs.DB, defs.ConfigDB, "local"}}}},
+	}
+	cur, err := conn.ConfigDatabase().Collection("databases").Find(ctx, filter)
+	if err != nil {
+		return nil, errors.Wrap(err, "find config.databases")
+	}
+
+	var docs []configDatabasesDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, errors.Wrap(err, "read config.databases")
+	}
+
+	return docs, nil
+}
+
 // getConfigDatabasesDoc fetches database doc from config.databases collection
 // based on db key.
 func (d *mDB) getConfigDatabasesDoc(

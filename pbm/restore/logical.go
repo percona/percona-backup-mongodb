@@ -15,6 +15,8 @@ import (
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -342,19 +344,9 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		if util.IsSelective(nss) {
-			err = r.selRestoreDBCleanup(ctx, nss)
-			if err != nil {
-				return errors.Wrap(err, "selective restore cleanup")
-			}
-		} else {
-			err = r.fullRestoreDBCleanup(ctx, bcp)
-			if err != nil {
-				return errors.Wrap(err, "full restore cleanup")
-			}
-		}
+	err = r.cleanupDatabases(ctx, nss)
+	if err != nil {
+		return err
 	}
 
 	err = r.toState(ctx, defs.StatusRunning, nil)
@@ -516,19 +508,9 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		if util.IsSelective(nss) {
-			err = r.selRestoreDBCleanup(ctx, nss)
-			if err != nil {
-				return errors.Wrap(err, "selective restore cleanup")
-			}
-		} else {
-			err = r.fullRestoreDBCleanup(ctx, bcp)
-			if err != nil {
-				return errors.Wrap(err, "full restore cleanup")
-			}
-		}
+	err = r.cleanupDatabases(ctx, nss)
+	if err != nil {
+		return err
 	}
 
 	err = r.toState(ctx, defs.StatusRunning, nil)
@@ -947,34 +929,93 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-// fullRestoreDBCleanup drops all databases present in the backup.
-// Backup is specified with bcp parameter.
-// For each database present in the backup _shardsvrDropDatabase command
-// is used to drop the database from the config srv and all shards.
-func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMeta) error {
-	dbsInBcp, err := r.getDBsFromBackup(bcp)
-	if err != nil {
-		return errors.Wrap(err, "get dbs from backup")
+// cleanupDatabases selects cleanup for the effective namespaces and node topology.
+func (r *Restore) cleanupDatabases(ctx context.Context, nss []string) error {
+	var err error
+
+	if util.IsSelective(nss) {
+		if r.nodeInfo.IsSharded() {
+			err = r.selRestoreShardedCleanup(ctx, nss)
+		} else {
+			err = r.selRestoreRSCleanup(ctx, nss)
+		}
+		if err != nil {
+			return errors.Wrap(err, "selective restore cleanup")
+		}
+		return nil
 	}
 
-	// make cluster-wide drop for each db from the backup
-	for _, db := range dbsInBcp {
-		configDBDoc, err := r.db.getConfigDatabasesDoc(ctx, db)
-		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				continue
-			}
-			return errors.Wrapf(err, "get config.databases for %q", db)
-		}
+	if r.nodeInfo.IsSharded() {
+		err = r.fullRestoreShardedCleanup(ctx)
+	} else {
+		err = r.fullRestoreRSCleanup(ctx)
+	}
+	if err != nil {
+		return errors.Wrap(err, "full restore cleanup")
+	}
+	return nil
+}
 
-		if configDBDoc.Primary != r.nodeInfo.SetName {
-			// this shard is not primary shard for this db, so ignore it
-			continue
-		}
+// fullRestoreShardedCleanup resolves this shard and drops its assigned user databases.
+func (r *Restore) fullRestoreShardedCleanup(ctx context.Context) error {
+	shardID, err := r.getShardID(ctx)
+	if err != nil {
+		return errors.Wrap(err, "resolve destination shard ID")
+	}
+	err = r.fullRestoreDBCleanup(ctx, shardID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
-		err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
+// getShardID resolves this replica set against the live destination topology.
+func (r *Restore) getShardID(ctx context.Context) (string, error) {
+	shards, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
+	if err != nil {
+		return "", errors.Wrap(err, "get cluster members")
+	}
+	for _, shard := range shards {
+		if shard.RS == r.nodeInfo.SetName {
+			return shard.ID, nil
+		}
+	}
+
+	return "", errors.Errorf("replica set %q not found in destination cluster", r.nodeInfo.SetName)
+}
+
+// fullRestoreDBCleanup drops destination user databases owned by shardID cluster-wide.
+func (r *Restore) fullRestoreDBCleanup(ctx context.Context, shardID string) error {
+	dbs, err := getConfigDatabasesForShard(ctx, r.leadConn, shardID)
+	if err != nil {
+		return errors.Wrap(err, "get destination databases")
+	}
+
+	for i := range dbs {
+		db := &dbs[i]
+		err = r.db.runCmdShardsvrDropDatabase(ctx, db.ID, db)
 		if err != nil {
-			return errors.Wrap(err, "run cmd")
+			return errors.Wrapf(err, "drop database %q", db.ID)
+		}
+		r.log.Debug("drop %q", db.ID)
+	}
+
+	return nil
+}
+
+// fullRestoreRSCleanup drops all destination user databases on a non-sharded replica set.
+func (r *Restore) fullRestoreRSCleanup(ctx context.Context) error {
+	filter := bson.D{{"name", bson.D{{"$nin", bson.A{defs.DB, defs.ConfigDB, "local"}}}}}
+	dbs, err := r.nodeConn.ListDatabaseNames(ctx, filter,
+		options.ListDatabases().SetAuthorizedDatabases(false))
+	if err != nil {
+		return errors.Wrap(err, "get destination databases")
+	}
+
+	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
+	for _, db := range dbs {
+		if err := r.nodeConn.Database(db, dbOpts).Drop(ctx); err != nil {
+			return errors.Wrapf(err, "drop database %q", db)
 		}
 		r.log.Debug("drop %q", db)
 	}
@@ -982,11 +1023,22 @@ func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMe
 	return nil
 }
 
-// selRestoreDBCleanup drops all databases and/or collections specified in
+// selRestoreRSCleanup intentionally leaves cleanup to mongorestore,
+// which drops the selected collections during import.
+func (r *Restore) selRestoreRSCleanup(ctx context.Context, nss []string) error {
+	return nil
+}
+
+// selRestoreShardedCleanup drops all databases and/or collections specified in
 // selective restore namespaces.
 // For each namespace listed within selective restore _shardsvrDropDatabase or
-// _shardsvrDropCollection is used for the purpose of clister-wide cleanup.
-func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
+// _shardsvrDropCollection is used for the purpose of cluster-wide cleanup.
+func (r *Restore) selRestoreShardedCleanup(ctx context.Context, nss []string) error {
+	if r.nodeInfo.IsConfigSrv() {
+		// Preserve the existing selective config-server behavior.
+		return nil
+	}
+
 	droppedDBs := []string{}
 	for _, ns := range nss {
 		db, coll := util.ParseNS(ns)
@@ -1031,34 +1083,6 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 	}
 
 	return nil
-}
-
-// getDBsFromBackup returns all databases present in backup metadata file
-// for each replicaset.
-func (r *Restore) getDBsFromBackup(bcp *backup.BackupMeta) ([]string, error) {
-	rsName := util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName)
-	filepath := path.Join(bcp.Name, rsName, archive.MetaFile)
-	rdr, err := r.bcpStg.SourceReader(filepath)
-	if err != nil {
-		return nil, errors.Wrap(err, "read metadata file")
-	}
-	defer rdr.Close()
-
-	meta, err := archive.ReadMetadata(rdr)
-	if err != nil {
-		return nil, errors.Wrap(err, "get metadata")
-	}
-
-	uniqueDbs := map[string]bool{}
-	for _, ns := range meta.Namespaces {
-		uniqueDbs[ns.Database] = true
-	}
-	dbs := []string{}
-	for db := range uniqueDbs {
-		dbs = append(dbs, db)
-	}
-
-	return dbs, nil
 }
 
 func (r *Restore) RunSnapshot(
