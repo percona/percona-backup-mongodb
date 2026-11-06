@@ -344,7 +344,7 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	err = r.cleanupDatabases(ctx, nss)
+	err = r.cleanupDatabases(ctx, nss, cloneNS)
 	if err != nil {
 		return err
 	}
@@ -508,7 +508,7 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	err = r.cleanupDatabases(ctx, nss)
+	err = r.cleanupDatabases(ctx, nss, cloneNS)
 	if err != nil {
 		return err
 	}
@@ -929,8 +929,12 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-// cleanupDatabases selects cleanup for the effective namespaces and node topology.
-func (r *Restore) cleanupDatabases(ctx context.Context, nss []string) error {
+// cleanupDatabases skips cloning and selects cleanup for the namespaces and topology.
+func (r *Restore) cleanupDatabases(ctx context.Context, nss []string, cloneNS snapshot.CloneNS) error {
+	if cloneNS.IsSpecified() {
+		return nil
+	}
+
 	var err error
 
 	if util.IsSelective(nss) {
@@ -1023,9 +1027,39 @@ func (r *Restore) fullRestoreRSCleanup(ctx context.Context) error {
 	return nil
 }
 
-// selRestoreRSCleanup intentionally leaves cleanup to mongorestore,
-// which drops the selected collections during import.
+// selRestoreRSCleanup drops selected databases and collections by name.
 func (r *Restore) selRestoreRSCleanup(ctx context.Context, nss []string) error {
+	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
+	droppedDBs := make(map[string]bool)
+	for _, ns := range nss {
+		db, coll := util.ParseNS(ns)
+		if db == "" {
+			continue
+		}
+		if db == defs.DB || db == defs.ConfigDB || db == "local" {
+			continue
+		}
+		if droppedDBs[db] {
+			continue
+		}
+
+		database := r.nodeConn.Database(db, dbOpts)
+		if coll == "" {
+			err := database.Drop(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "drop database %q", db)
+			}
+			droppedDBs[db] = true
+			r.log.Debug("drop db: %q", db)
+		} else {
+			err := database.Collection(coll).Drop(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "drop collection %q", ns)
+			}
+			r.log.Debug("drop ns: %q", ns)
+		}
+	}
+
 	return nil
 }
 

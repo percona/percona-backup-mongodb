@@ -392,6 +392,16 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 	})
 }
 
+func TestCleanupDatabasesCloning(t *testing.T) {
+	// Cloning must return immediately, before accessing topology or database clients.
+	// Leave Restore uninitialized so the test fails if cleanup reaches those dependencies.
+	r := &Restore{}
+	cloneNS := snapshot.CloneNS{FromNS: "db.a", ToNS: "db.b"}
+
+	err := r.cleanupDatabases(context.Background(), []string{cloneNS.FromNS}, cloneNS)
+	require.NoError(t, err)
+}
+
 func TestSelRestoreShardedCleanup(t *testing.T) {
 	ctx := context.Background()
 
