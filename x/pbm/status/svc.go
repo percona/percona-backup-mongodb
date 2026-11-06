@@ -2,8 +2,6 @@ package status
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"sort"
 	"strconv"
 	"sync"
@@ -12,12 +10,34 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
 
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/topo"
+	"github.com/percona/percona-backup-mongodb/x/pbm/version"
 )
 
-// refreshInterval is how often an agent re-reads its local mongod and
-// re-broadcasts its own AgentInfo so peers' caches stay converged.
-const refreshInterval = 5 * time.Second
+const (
+	// refreshInterval is how often an agent re-reads its local mongod for change monitoring purpose.
+	refreshInterval = 5 * time.Second
+	// mongoInfoTimeout bounds reading the local mongod's node info (hello command)
+	mongoInfoTimeout = 4 * time.Second
+	// mongoFailsLogEvery is how often failed log entry is logged.
+	mongoFailsLogEvery = 50
+
+	// ccDBTimeout bounds a single ccDB call attempt.
+	ccDBTimeout = 2 * time.Second
+	// ccDBAttempts is how many times a failed ccDB call is tried in total.
+	ccDBAttempts = 3
+	// ccDBRetryDelay is the pause between ccDB call attempts.
+	ccDBRetryDelay = 500 * time.Millisecond
+
+	// tagRev is the only serf tag that agent publishes: the etcd revision of its agent doc.
+	tagRev = "rev"
+
+	// to overload serf, agent will report congestion in logs
+	DiscoChannelSize = 100
+	queueHigh        = DiscoChannelSize * 8 / 10
+	queueLow         = queueHigh / 2
+)
 
 // ErrNotFound is returned by GetMember when no member is cached under the name.
 var ErrNotFound = errors.New("member not found")
@@ -37,6 +57,7 @@ type AgentInfo struct {
 	Port      int
 	APIPort   int
 	Role      Role
+	Version   string
 	IsLeader  bool
 	Alive     bool
 	MongoInfo MongoInfo
@@ -64,27 +85,66 @@ type SubsysStatus struct {
 	Err string
 }
 
+// agentDoc is the agent's info persisted in etcd.
+// Name, Addr, Port, and Alive are owned by serf, so they aren't stored.
+type agentDoc struct {
+	Role        Role         `json:"role"`
+	IsLeader    bool         `json:"isLeader"`
+	APIPort     int          `json:"apiPort"`
+	Version     string       `json:"version"`
+	MongoInfo   MongoInfo    `json:"mongoInfo"`
+	AgentStatus SubsysStatus `json:"agentStatus"`
+}
+
+// newAgentDoc builds the doc to persist from m. It is the inverse of applyTo.
+func newAgentDoc(m AgentInfo) agentDoc {
+	return agentDoc{
+		Role:        m.Role,
+		IsLeader:    m.IsLeader,
+		APIPort:     m.APIPort,
+		Version:     m.Version,
+		MongoInfo:   m.MongoInfo,
+		AgentStatus: m.AgentStatus,
+	}
+}
+
+// applyTo copies the doc's fields into m, leaving serf-owned fields intact.
+func (d *agentDoc) applyTo(m *AgentInfo) {
+	m.Role = d.Role
+	m.IsLeader = d.IsLeader
+	m.APIPort = d.APIPort
+	m.Version = d.Version
+	m.MongoInfo = d.MongoInfo
+	m.AgentStatus = d.AgentStatus
+}
+
 // Svc is the status service. It caches every cluster member's AgentInfo (built from
 // StatusEvents received over the discovery layer). Periodically, it reads its own local mongod
 // and broadcasts the local AgentInfo to all other peers.
 type Svc struct {
 	lg   *zap.Logger
-	name string // this agent's serf node name
-	role Role
-
-	// mc is a direct connection to this agent's local mongod.
-	// It's nil when the agent has no attached.
-	mc *mongo.Client
-
+	repo agentRepo
+	// nodeConn is a direct connection to this agent's local mongod.
+	// It's nil when the agent is not attached.
+	nodeConn *mongo.Client
 	// leader reports whether this agent is the cluster leader
 	leader LeaderChecker
+	pub    Publisher
+
+	name string // this agent's serf node name
+	role Role
 
 	// apiPort is this agent's web API port, advertised to peers so a non-leader
 	// can return the leader's API endpoint. Zero for agents with no API (workers).
 	apiPort int
 
 	recv ReceiveChannel
-	pub  Publisher
+
+	// lastPub is the last agent doc successfully published, used for change detection
+	lastPub *agentDoc
+
+	// mongoFails counts consecutive failed reads of the local mongod, used to throttle logging
+	mongoFails int
 
 	mu   sync.RWMutex
 	mems clusterMembers
@@ -92,6 +152,12 @@ type Svc struct {
 
 // clusterMembers is the in-memory store of cluster members keyed by node name
 type clusterMembers map[string]AgentInfo
+
+// agentRepo persists agents' docs. It's implemented by Repo.
+type agentRepo interface {
+	Put(ctx context.Context, name string, doc agentDoc) (int64, error)
+	Get(ctx context.Context, name string, rev int64) (agentDoc, error)
+}
 
 // ReceiveChannel carries StatusEvents from discovery
 type ReceiveChannel chan StatusEvent
@@ -106,13 +172,13 @@ type LeaderChecker interface {
 // with no API (workers).
 func New(lg *zap.Logger, name string, role Role, localMongo *mongo.Client, apiPort int) *Svc {
 	return &Svc{
-		lg:      lg.Named("status"),
-		name:    name,
-		role:    role,
-		mc:      localMongo,
-		apiPort: apiPort,
-		recv:    make(ReceiveChannel, 64), // todo: improve
-		mems:    map[string]AgentInfo{},
+		lg:       lg.Named("status"),
+		name:     name,
+		role:     role,
+		nodeConn: localMongo,
+		apiPort:  apiPort,
+		recv:     make(ReceiveChannel, DiscoChannelSize),
+		mems:     map[string]AgentInfo{},
 	}
 }
 
@@ -136,6 +202,11 @@ func (s *Svc) SetPublisher(p Publisher) {
 	s.pub = p
 }
 
+// SetRepo wires the repository where agents' docs are stored.
+func (s *Svc) SetRepo(r agentRepo) {
+	s.repo = r
+}
+
 // SetLeaderChecker inject leader checker from etcd server.
 func (s *Svc) SetLeaderChecker(l LeaderChecker) {
 	s.leader = l
@@ -150,130 +221,181 @@ func (s *Svc) IsLeader() bool {
 // Run drains membership events into the cache and periodically refreshes and
 // broadcasts local node info until ctx is canceled.
 func (s *Svc) Run(ctx context.Context) {
+	// Separate goroutines, so a slow local mongod or etcd write doesn't block
+	// draining of membership events
+	var wg sync.WaitGroup
+	wg.Go(func() { s.runEvents(ctx) })
+	wg.Go(func() { s.runRefresh(ctx) })
+	wg.Wait()
+
+	s.lg.Info("service stopped")
+}
+
+// runEvents applies membership events.
+func (s *Svc) runEvents(ctx context.Context) {
+	congested := false
+	for {
+		select {
+		case ev := <-s.recv:
+			congested = s.checkQueue(congested)
+			s.apply(ctx, ev)
+		case <-ctx.Done():
+			s.lg.Info("stopping applying agents related events")
+			return
+		}
+	}
+}
+
+// checkQueue reports whether the receive queue is congested.
+func (s *Svc) checkQueue(congested bool) bool {
+	n := len(s.recv)
+	switch {
+	case !congested && n >= queueHigh:
+		s.lg.Warn("too many queued events, discovery may be blocked",
+			zap.Int("queued", n), zap.Int("capacity", cap(s.recv)))
+		return true
+	case congested && n < queueLow:
+		s.lg.Info("queued events drained",
+			zap.Int("queued", n), zap.Int("capacity", cap(s.recv)))
+		return false
+	}
+	return congested
+}
+
+// runRefresh periodically refreshes and publishes local info.
+func (s *Svc) runRefresh(ctx context.Context) {
 	t := time.NewTicker(refreshInterval)
 	defer t.Stop()
 
 	s.refreshLocal(ctx)
 	for {
 		select {
-		case ev := <-s.recv:
-			s.apply(ev)
 		case <-t.C:
 			s.refreshLocal(ctx)
 		case <-ctx.Done():
-			s.lg.Info("service stopped")
+			s.lg.Info("stopping refreshing mongodb info")
 			return
 		}
 	}
 }
 
-// serf tag keys carrying the domain payload. Name, Addr, Port, and Alive are
-// recovered from the serf Member, so only role and MongoInfo travel as tags.
-const (
-	tagRole      = "role"
-	tagLeader    = "leader"
-	tagAPIPort   = "apiport"
-	tagSet       = "set"
-	tagMe        = "me"
-	tagSharded   = "sharded"
-	tagConfigSvr = "configsvr"
-	tagPrimary   = "primary"
-	tagSecondary = "secondary"
-	tagHidden    = "hidden"
-	tagPassive   = "passive"
-	tagArbiter   = "arbiter"
-)
-
-// encodeTags renders role and MongoInfo as serf tags. Booleans are emitted only
-// when true and strings only when non-empty, keeping the tag map small (serf caps
-// the encoded set at 512 bytes) and the `serf members -tags` output readable.
-func encodeTags(role Role, mi MongoInfo, isLeader bool, apiPort int) map[string]string {
-	t := make(map[string]string)
-	putStr(t, tagRole, string(role))
-	putBool(t, tagLeader, isLeader)
-	putInt(t, tagAPIPort, apiPort)
-	putStr(t, tagSet, mi.SetName)
-	putStr(t, tagMe, mi.Me)
-	putBool(t, tagSharded, mi.Sharded)
-	putBool(t, tagConfigSvr, mi.ConfigSvr)
-	putBool(t, tagPrimary, mi.IsPrimary)
-	putBool(t, tagSecondary, mi.Secondary)
-	putBool(t, tagHidden, mi.Hidden)
-	putBool(t, tagPassive, mi.Passive)
-	putBool(t, tagArbiter, mi.ArbiterOnly)
-	return t
+// encodeRev renders the agent doc revision as serf tags.
+func encodeRev(rev int64) map[string]string {
+	return map[string]string{tagRev: strconv.FormatInt(rev, 10)}
 }
 
-// decodeTags is the inverse of encodeTags. A missing bool tag means false and a
-// missing apiport means zero.
-func decodeTags(t map[string]string) (role Role, isLeader bool, apiPort int, mi MongoInfo) {
-	apiPort, _ = strconv.Atoi(t[tagAPIPort])
-	return Role(t[tagRole]), t[tagLeader] != "", apiPort, MongoInfo{
-		SetName:     t[tagSet],
-		Me:          t[tagMe],
-		Sharded:     t[tagSharded] != "",
-		ConfigSvr:   t[tagConfigSvr] != "",
-		IsPrimary:   t[tagPrimary] != "",
-		Secondary:   t[tagSecondary] != "",
-		Hidden:      t[tagHidden] != "",
-		Passive:     t[tagPassive] != "",
-		ArbiterOnly: t[tagArbiter] != "",
-	}
-}
-
-func putStr(t map[string]string, k, v string) {
-	if v != "" {
-		t[k] = v
-	}
-}
-
-func putBool(t map[string]string, k string, v bool) {
-	if v {
-		t[k] = "1"
-	}
-}
-
-func putInt(t map[string]string, k string, v int) {
-	if v > 0 {
-		t[k] = strconv.Itoa(v)
-	}
+// decodeRev is the inverse of encodeRev. A missing or malformed tag means zero.
+func decodeRev(t map[string]string) int64 {
+	rev, _ := strconv.ParseInt(t[tagRev], 10, 64)
+	return rev
 }
 
 // apply merges a transport event into the cache.
-func (s *Svc) apply(ev StatusEvent) {
+func (s *Svc) apply(ctx context.Context, ev StatusEvent) {
 	if ev.Name == s.name {
 		s.applySelf(ev)
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	switch ev.Kind {
 	case MemberGone:
+		s.mu.Lock()
 		delete(s.mems, ev.Name)
+		s.mu.Unlock()
 		return
 	case MemberFailed:
 		// Keep the last-known info but flag the agent unreachable.
+		s.mu.Lock()
 		m := s.mems[ev.Name]
 		m.Name, m.Addr, m.Port = ev.Name, ev.Addr, ev.Port
 		m.Alive = false
 		m.AgentStatus = SubsysStatus{Err: "agent unreachable (health check failed)"}
 		s.mems[ev.Name] = m
+		s.mu.Unlock()
 		return
 	}
 
-	role, isLeader, apiPort, mi := decodeTags(ev.Payload)
-	s.mems[ev.Name] = AgentInfo{
+	// MemberUp and MemberUpdate: refresh serf-owned fields and load the doc
+	// for the advertised revision.
+	m := AgentInfo{
 		Name:        ev.Name,
 		Addr:        ev.Addr,
 		Port:        ev.Port,
-		APIPort:     apiPort,
-		Role:        role,
-		IsLeader:    isLeader,
 		Alive:       ev.Alive,
-		MongoInfo:   mi,
-		AgentStatus: SubsysStatus{OK: true},
+		AgentStatus: SubsysStatus{Err: "agent info not loaded yet"},
+	}
+	s.mu.Lock()
+	s.mems[ev.Name] = m
+	s.mu.Unlock()
+
+	rev := decodeRev(ev.Payload)
+	if rev == 0 {
+		return
+	}
+	s.loadPeer(ctx, ev.Name, rev)
+}
+
+// loadPeer fetches the peer's agent doc at the advertised revision from ccDB and applies it to the cached member.
+func (s *Svc) loadPeer(ctx context.Context, name string, rev int64) {
+	lg := s.lg.With(zap.String("member", name), zap.Int64("rev", rev))
+
+	doc, err := s.getAgentDoc(ctx, lg, name, rev)
+	if err != nil {
+		lg.Warn("fetch agent info", zap.Error(err))
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.mems[name]
+	doc.applyTo(&m)
+	s.mems[name] = m
+	lg.Debug("upload agent info", zap.Any("agent-info", s.mems[name]))
+}
+
+// putAgentDoc stores this agent's doc in the repo and returns its revision.
+func (s *Svc) putAgentDoc(ctx context.Context, lg *zap.Logger, doc agentDoc) (int64, error) {
+	var rev int64
+	err := s.retry(ctx, lg, "store agent info", func(ctx context.Context) error {
+		var err error
+		rev, err = s.repo.Put(ctx, s.name, doc)
+		return err
+	})
+	return rev, err
+}
+
+// getAgentDoc fetches the named agent's doc at the given revision from the repo.
+func (s *Svc) getAgentDoc(ctx context.Context, lg *zap.Logger, name string, rev int64) (agentDoc, error) {
+	var doc agentDoc
+	err := s.retry(ctx, lg, "fetch agent info", func(ctx context.Context) error {
+		var err error
+		doc, err = s.repo.Get(ctx, name, rev)
+		return err
+	})
+	return doc, err
+}
+
+func (s *Svc) retry(ctx context.Context, lg *zap.Logger, op string, fn func(ctx context.Context) error) error {
+	for attempt := 1; ; attempt++ {
+		actx, cancel := context.WithTimeout(ctx, ccDBTimeout)
+		err := fn(actx)
+		cancel()
+		if err == nil || errors.Is(err, ErrDocNotFound) || attempt == ccDBAttempts {
+			return err
+		}
+
+		lg.Warn("etcd call failed, retrying",
+			zap.String("op", op),
+			zap.Int("attempt", attempt),
+			zap.Int("max_attempts", ccDBAttempts),
+			zap.Duration("retry_in", ccDBRetryDelay),
+			zap.Error(err))
+
+		select {
+		case <-time.After(ccDBRetryDelay):
+		case <-ctx.Done():
+			return err
+		}
 	}
 }
 
@@ -295,11 +417,8 @@ func (s *Svc) applySelf(ev StatusEvent) {
 // refreshLocal reads the local mongod, caches the local AgentInfo, and broadcasts
 // it to the cluster.
 func (s *Svc) refreshLocal(ctx context.Context) {
-	mi, err := s.localMongoInfo(ctx)
-	if err != nil {
-		s.handleMongoErr(err)
-		return
-	}
+	mi, mongoErr := s.localMongoInfo(ctx)
+	s.logMongoErr(mongoErr)
 
 	isLeader := s.IsLeader()
 
@@ -309,37 +428,83 @@ func (s *Svc) refreshLocal(ctx context.Context) {
 	self.Name = s.name
 	self.Role = s.role
 	self.APIPort = s.apiPort
+	self.Version = version.Current().Version
 	self.IsLeader = isLeader
 	self.Alive = true
-	self.MongoInfo = mi
-	self.AgentStatus = SubsysStatus{OK: true}
+	if mongoErr != nil {
+		// keep the last-known identity so the agent stays listed under its original replica set,
+		self.MongoInfo = MongoInfo{
+			SetName:   self.MongoInfo.SetName,
+			Me:        self.MongoInfo.Me,
+			Sharded:   self.MongoInfo.Sharded,
+			ConfigSvr: self.MongoInfo.ConfigSvr,
+		}
+		self.AgentStatus = SubsysStatus{Err: "mongod is not reachable"}
+	} else {
+		self.MongoInfo = mi
+		self.AgentStatus = SubsysStatus{OK: true}
+	}
 	s.mems[s.name] = self
 	s.mu.Unlock()
 
-	//todo as part of PBM-1748:
-	//- change detection
-	//- introduce agent's meta doc, instead of broadcasting every property
-	//- improve error handling: db down, storage down, agent down
+	s.publish(ctx, newAgentDoc(self))
+}
 
-	if s.pub != nil {
-		if err := s.pub.Publish(encodeTags(s.role, mi, isLeader, s.apiPort)); err != nil {
-			s.lg.Warn("publish local info", zap.Error(err))
+// logMongoErr logs a failed read of the local mongod without flooding the log.
+func (s *Svc) logMongoErr(err error) {
+	if err == nil {
+		if s.mongoFails > 0 {
+			s.lg.Info("local mongo info read again", zap.Int("failures", s.mongoFails))
+			s.mongoFails = 0
 		}
+		return
 	}
+
+	s.mongoFails++
+	switch {
+	case s.mongoFails == 1:
+		s.lg.Warn("read local mongo info", zap.Error(err))
+	case s.mongoFails%mongoFailsLogEvery == 0:
+		s.lg.Debug("read local mongo info",
+			zap.Int("failures", s.mongoFails), zap.Error(err))
+	}
+}
+
+// publish stores the agent doc in ccDB and advertises its revision over serf,
+// unless the doc is identical to the last successfully published one.
+func (s *Svc) publish(ctx context.Context, doc agentDoc) {
+	if s.lastPub != nil && *s.lastPub == doc {
+		// nothing has changed since last time
+		return
+	}
+
+	rev, err := s.putAgentDoc(ctx, s.lg, doc)
+	if err != nil {
+		s.lg.Warn("store local info", zap.Error(err))
+		return
+	}
+	if err := s.pub.Publish(encodeRev(rev)); err != nil {
+		s.lg.Warn("publish local info", zap.Error(err))
+		return
+	}
+	s.lastPub = &doc
 }
 
 // localMongoInfo reads this agent's own mongod and maps its node info into MongoInfo.
 // When the agent has no MongoDB attached, it is a no-op and returns the zero MongoInfo.
 func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
-	if s.mc == nil {
+	if s.nodeConn == nil {
 		return MongoInfo{}, nil
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, mongoInfoTimeout)
+	defer cancel()
+
 	// GetNodeInfoExt also reads the parsed command line, so IsSharded reflects the
 	// node's clusterRole even before hello gossips $configServerState.
-	ni, err := topo.GetNodeInfoExt(ctx, s.mc)
+	ni, err := topo.GetNodeInfoExt(ctx, s.nodeConn)
 	if err != nil {
-		return MongoInfo{}, fmt.Errorf("get local node info: %w", err)
+		return MongoInfo{}, errors.Wrap(err, "get local node info")
 	}
 
 	return MongoInfo{
@@ -353,23 +518,6 @@ func (s *Svc) localMongoInfo(ctx context.Context) (MongoInfo, error) {
 		Passive:     ni.Passive,
 		ArbiterOnly: ni.ArbiterOnly,
 	}, nil
-}
-
-func (s *Svc) handleMongoErr(mongoErr error) {
-	s.lg.Warn("read local mongo info", zap.Error(mongoErr))
-
-	s.mu.Lock()
-	self := s.mems[s.name]
-	self.MongoInfo.IsPrimary = false
-	self.AgentStatus = SubsysStatus{Err: mongoErr.Error()}
-	s.mems[s.name] = self
-	s.mu.Unlock()
-
-	if s.pub != nil {
-		if err := s.pub.Publish(encodeTags(s.role, self.MongoInfo, false, s.apiPort)); err != nil {
-			s.lg.Warn("publish local info", zap.Error(err))
-		}
-	}
 }
 
 // GetAllMembers returns all agents within PBM's cluster.

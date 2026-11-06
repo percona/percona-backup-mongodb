@@ -11,6 +11,8 @@ import (
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3client"
 	"go.uber.org/zap"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 // Config holds embedded etcd server configuration.
@@ -46,7 +48,7 @@ type Server struct {
 // blocks until it is ready, ctx is canceled, or readyTimeout elapses.
 func Start(ctx context.Context, lg *zap.Logger, name string, cfg Config) (*Server, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create etcd data dir: %w", err)
+		return nil, errors.Wrap(err, "create etcd data dir")
 	}
 
 	ecfg := embed.NewConfig()
@@ -68,14 +70,14 @@ func Start(ctx context.Context, lg *zap.Logger, name string, cfg Config) (*Serve
 	if cfg.AdvertiseClientURL != "" {
 		u, err := url.Parse(cfg.AdvertiseClientURL)
 		if err != nil {
-			return nil, fmt.Errorf("parse advertise client url: %w", err)
+			return nil, errors.Wrap(err, "parse advertise client url")
 		}
 		ecfg.AdvertiseClientUrls = []url.URL{*u}
 	}
 	if cfg.AdvertisePeerURL != "" {
 		u, err := url.Parse(cfg.AdvertisePeerURL)
 		if err != nil {
-			return nil, fmt.Errorf("parse advertise peer url: %w", err)
+			return nil, errors.Wrap(err, "parse advertise peer url")
 		}
 		ecfg.AdvertisePeerUrls = []url.URL{*u}
 	}
@@ -90,7 +92,7 @@ func Start(ctx context.Context, lg *zap.Logger, name string, cfg Config) (*Serve
 
 	srv, err := embed.StartEtcd(ecfg)
 	if err != nil {
-		return nil, fmt.Errorf("start embedded etcd: %w", err)
+		return nil, errors.Wrap(err, "start embedded etcd")
 	}
 
 	select {
@@ -102,7 +104,7 @@ func Start(ctx context.Context, lg *zap.Logger, name string, cfg Config) (*Serve
 		return nil, ctx.Err()
 	case <-time.After(readyTimeout):
 		srv.Close()
-		return nil, fmt.Errorf("embedded etcd not ready within %s", readyTimeout)
+		return nil, errors.Errorf("embedded etcd not ready within %s", readyTimeout)
 	}
 }
 

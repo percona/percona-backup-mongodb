@@ -5,13 +5,12 @@ package disco
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/hashicorp/serf/serf"
 	"go.uber.org/zap"
 
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 )
 
@@ -44,9 +43,8 @@ func Start(
 	cfg Config,
 	sync chan<- status.StatusEvent,
 ) (*Discovery, error) {
-	// todo: improve
 	// buffered so a momentarily slow consumer can't block serf's dispatcher
-	eventCh := make(chan serf.Event, 64)
+	eventCh := make(chan serf.Event, status.DiscoChannelSize)
 
 	sc := serf.DefaultConfig()
 	sc.NodeName = name
@@ -61,10 +59,15 @@ func Start(
 
 	s, err := serf.Create(sc)
 	if err != nil {
-		return nil, fmt.Errorf("create serf: %w", err)
+		return nil, errors.Wrap(err, "create serf")
 	}
 
-	d := &Discovery{lg: lg.Named("discovery"), serf: s, sync: sync, done: make(chan struct{})}
+	d := &Discovery{
+		lg:   lg.Named("discovery"),
+		serf: s,
+		sync: sync,
+		done: make(chan struct{}),
+	}
 	go d.eventLoop(ctx, eventCh)
 
 	if len(cfg.SerfJoin) > 0 {
@@ -125,18 +128,21 @@ func (d *Discovery) eventLoop(ctx context.Context, eventCh <-chan serf.Event) {
 	}
 }
 
-func (d *Discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) {
-	kind, alive, ok := classifyEvent(me.Type)
+func (d *Discovery) handleMemberEvent(ctx context.Context, mEvt serf.MemberEvent) {
+	kind, alive, ok := classifyEvent(mEvt.Type)
 	if !ok {
-		return // just ignore it for now, but improve it
+		d.lg.Warn("received invalid serf event",
+			zap.Stringer("type", mEvt.Type),
+			zap.Any("member-event", mEvt),
+		)
+		return
 	}
 
-	for _, m := range me.Members {
-		d.lg.Debug("membership",
-			zap.Stringer("event", me.Type),
-			zap.String("member", m.Name),
-			zap.Stringer("addr", m.Addr),
-			zap.Uint16("port", m.Port))
+	for _, m := range mEvt.Members {
+		d.lg.Debug("member event",
+			zap.Stringer("type", mEvt.Type),
+			zap.Any("event", m),
+		)
 
 		ev := status.StatusEvent{
 			Kind:  kind,
@@ -151,7 +157,7 @@ func (d *Discovery) handleMemberEvent(ctx context.Context, me serf.MemberEvent) 
 
 		select {
 		case d.sync <- ev:
-			// todo: turn on logging here
+			// pass event one by one to status svc
 		case <-ctx.Done():
 			return
 		}
@@ -168,7 +174,6 @@ func classifyEvent(t serf.EventType) (kind status.EventKind, alive, ok bool) {
 	case serf.EventMemberFailed:
 		return status.MemberFailed, false, true
 	case serf.EventMemberLeave, serf.EventMemberReap:
-		// todo: improve this
 		return status.MemberGone, false, true
 	default:
 		return 0, false, false

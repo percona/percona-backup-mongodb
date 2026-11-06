@@ -3,9 +3,9 @@ package apiclient
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/backup"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/task"
 )
 
@@ -23,7 +23,7 @@ func (c *Client) ListBackups(ctx context.Context) ([]*backup.BackupMeta, error) 
 func (c *Client) StartBackup(ctx context.Context, opts backup.Options) (*task.BackupTask, error) {
 	body, err := json.Marshal(opts)
 	if err != nil {
-		return nil, fmt.Errorf("marshal backup options: %w", err)
+		return nil, errors.Wrap(err, "marshal backup options")
 	}
 
 	t := &task.BackupTask{}

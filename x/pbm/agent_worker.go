@@ -2,7 +2,6 @@ package pbm
 
 import (
 	"context"
-	"fmt"
 
 	"go.uber.org/zap"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
 	"github.com/percona/percona-backup-mongodb/x/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/x/pbm/disco"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/x/pbm/etcd"
 	"github.com/percona/percona-backup-mongodb/x/pbm/status"
 	"github.com/percona/percona-backup-mongodb/x/pbm/task"
@@ -21,25 +21,19 @@ func RunWorkerAgent(
 	lg, etcdLg, serfLg *zap.Logger,
 	cfg *WorkerAgentConfig,
 ) error {
-	lg = lg.With(zap.String("agent", cfg.Name))
-
-	nodeConn, err := connect.ConnectDirect(ctx, cfg.MongoURI)
+	ac, err := connect.ConnectAgent(ctx, lg, cfg.MongoURI, cfg.Name)
 	if err != nil {
-		return fmt.Errorf("connect local mongod: %w", err)
+		return errors.Wrap(err, "resolve agent")
 	}
-	defer connect.Disconnect(lg, nodeConn)
+	defer ac.Disconnect(context.Background(), lg)
 
-	leadConn, err := connect.Connect(ctx, cfg.MongoURI, "pbmx-agent")
+	lg = lg.With(zap.String("agent", ac.Name))
+
+	statusSvc := status.NewForWorkerAgent(lg, ac.Name, ac.NodeConn)
+
+	d, err := disco.Start(ctx, lg, serfLg, ac.Name, cfg.Config, statusSvc.DiscoSync())
 	if err != nil {
-		return fmt.Errorf("connect cluster leader: %w", err)
-	}
-	defer leadConn.Disconnect(ctx)
-
-	statusSvc := status.NewForWorkerAgent(lg, cfg.Name, nodeConn)
-
-	d, err := disco.Start(ctx, lg, serfLg, cfg.Name, cfg.Config, statusSvc.DiscoSync())
-	if err != nil {
-		return fmt.Errorf("start pbm cluster: %w", err)
+		return errors.Wrap(err, "start pbm cluster")
 	}
 	defer func() {
 		if err := d.Stop(); err != nil {
@@ -48,14 +42,15 @@ func RunWorkerAgent(
 	}()
 	lg.Info("added to PBM cluster")
 
-	statusSvc.SetPublisher(d)
-	go statusSvc.Run(ctx)
-
 	ccDB, err := etcd.NewClient(etcdLg, cfg.EtcdEndpoints)
 	if err != nil {
-		return fmt.Errorf("connect control state: %w", err)
+		return errors.Wrap(err, "connect control state")
 	}
 	defer ccDB.Close()
+
+	statusSvc.SetPublisher(d)
+	statusSvc.SetRepo(status.NewRepo(ccDB))
+	go statusSvc.Run(ctx)
 
 	backupRepo := backup.New(ccDB)
 	configSvc := config.New(ccDB, backup.NewStorageResyncer(lg, backupRepo))
@@ -63,14 +58,14 @@ func RunWorkerAgent(
 		lg,
 		ccDB,
 		backupRepo,
-		nodeConn,
-		leadConn,
+		ac.NodeConn,
+		ac.LeadConn,
 		statusSvc,
 		configSvc,
-		cfg.Name,
+		ac.Name,
 		task.NewComposer(lg, ccDB, task.NewScheduler(statusSvc, configSvc)),
 	)
-	inbox := task.NewInbox(lg, ccDB, cfg.Name, physSvc)
+	inbox := task.NewInbox(lg, ccDB, ac.Name, physSvc)
 	go func() {
 		lg.Info("run inbox")
 		if err := inbox.Run(ctx); err != nil {

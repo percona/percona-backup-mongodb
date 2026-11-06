@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"path"
-	"runtime"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
@@ -182,7 +181,7 @@ func (m *Minio) Save(name string, data io.Reader, options ...storage.Option) err
 
 	putOpts := minio.PutObjectOptions{
 		PartSize:              uint64(partSize),
-		NumThreads:            uint(max(runtime.NumCPU()/2, 1)),
+		NumThreads:            uint(m.cfg.UploadConcurrency),
 		ConcurrentStreamParts: true,
 	}
 	if opts.Size > 0 && opts.Size <= partSize {
