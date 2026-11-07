@@ -935,10 +935,21 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-// cleanupDatabases skips cloning and selects cleanup for the namespaces and topology.
+// cleanupDatabases skips cloning and dedicated config servers, then dispatches
+// cleanup by namespace selection and topology.
 func (r *Restore) cleanupDatabases(ctx context.Context, nss []string, cloneNS snapshot.CloneNS) error {
 	if cloneNS.IsSpecified() {
 		return nil
+	}
+
+	if r.nodeInfo.IsConfigSrv() {
+		hasConfigShard, err := topo.HasConfigShard(ctx, r.leadConn)
+		if err != nil {
+			return errors.Wrap(err, "check config-shard role")
+		}
+		if !hasConfigShard {
+			return nil
+		}
 	}
 
 	var err error
