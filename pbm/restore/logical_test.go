@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/connect"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
@@ -392,6 +393,46 @@ func TestShouldRestoreUsersAndRoles(t *testing.T) {
 	})
 }
 
+func TestCheckSnapshotRejectsLegacySelectiveRestore(t *testing.T) {
+	tests := []struct {
+		name      string
+		backupNS  []string
+		restoreNS []string
+		fcv       string
+	}{
+		{
+			name:      "database selection",
+			restoreNS: []string{"db.*"},
+		},
+		{
+			name:      "collection selection with FCV metadata",
+			restoreNS: []string{"db.col"},
+			fcv:       "8.0",
+		},
+		{
+			name:     "selective backup",
+			backupNS: []string{"db.col"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reject unsupported selections before accessing database clients.
+			// Leave Restore uninitialized to enforce that ordering.
+			r := &Restore{}
+			bcp := &backup.BackupMeta{
+				Type:       defs.LogicalBackup,
+				Status:     defs.StatusDone,
+				PBMVersion: "1.8.0",
+				FCV:        tt.fcv,
+				Namespaces: tt.backupNS,
+			}
+
+			err := r.checkSnapshot(context.Background(), bcp, tt.restoreNS)
+			require.EqualError(t, err, "selective restore is not supported from legacy backup")
+		})
+	}
+}
+
 func TestCleanupDatabasesCloning(t *testing.T) {
 	// Cloning must return immediately, before accessing topology or database clients.
 	// Leave Restore uninitialized so the test fails if cleanup reaches those dependencies.
@@ -402,21 +443,21 @@ func TestCleanupDatabasesCloning(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestSelRestoreShardedCleanup(t *testing.T) {
+func TestSelRestoreDBCleanup(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("drop single database", func(t *testing.T) {
+	t.Run("drop single database with custom shard ID", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		err := createConfigDatabasesDoc(t, "db", "rs0")
+		err := createConfigDatabasesDoc(t, "db", "custom-shard")
 		if err != nil {
 			t.Fatalf("create config.databases doc: %v", err)
 		}
 
 		nss := []string{"db.*"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "custom-shard")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -430,18 +471,18 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 	})
 
-	t.Run("drop single collection", func(t *testing.T) {
+	t.Run("drop single collection with custom shard ID", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		err := createConfigDatabasesDoc(t, "db", "rs0")
+		err := createConfigDatabasesDoc(t, "db", "custom-shard")
 		if err != nil {
 			t.Fatalf("create config.databases doc: %v", err)
 		}
 
 		nss := []string{"db.coll"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "custom-shard")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropCollectionCalls) != 1 {
@@ -458,22 +499,23 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 	})
 
-	t.Run("drop multiple databases", func(t *testing.T) {
-		r, db := createCleanupRestoreTest(t, "rs0")
+	t.Run("drop multiple databases owned by config shard", func(t *testing.T) {
+		r, db := createCleanupRestoreTest(t, "cfg")
+		r.nodeInfo.ConfigSvr = 2
 
-		err := createConfigDatabasesDoc(t, "db1", "rs0")
+		err := createConfigDatabasesDoc(t, "db1", "config")
 		if err != nil {
 			t.Fatalf("create config.databases doc 1: %v", err)
 		}
-		err = createConfigDatabasesDoc(t, "db2", "rs0")
+		err = createConfigDatabasesDoc(t, "db2", "config")
 		if err != nil {
 			t.Fatalf("create config.databases doc 2: %v", err)
 		}
 
 		nss := []string{"db1.*", "db2.*"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "config")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {
@@ -503,9 +545,9 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.c1", "db2.c2", "db2.c3", "db1.*"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "rs0")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -528,13 +570,18 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 	})
 
-	t.Run("skip admin and config databases", func(t *testing.T) {
+	t.Run("skip protected databases", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		nss := []string{defs.DB + ".*", defs.ConfigDB + ".*"}
-		err := r.selRestoreShardedCleanup(ctx, nss)
+		for _, name := range []string{defs.DB, defs.ConfigDB, "local"} {
+			err := createConfigDatabasesDoc(t, name, "rs0")
+			require.NoError(t, err)
+		}
+
+		nss := []string{defs.DB + ".*", defs.ConfigDB + ".*", "local.*"}
+		err := r.selRestoreDBCleanup(ctx, nss, "rs0")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -549,9 +596,9 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
 		nss := []string{"nonexistent.*"}
-		err := r.selRestoreShardedCleanup(ctx, nss)
+		err := r.selRestoreDBCleanup(ctx, nss, "rs0")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -565,15 +612,15 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 	t.Run("skip database with different primary shard", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		err := createConfigDatabasesDoc(t, "db", "rs1")
+		err := createConfigDatabasesDoc(t, "db", "rs0")
 		if err != nil {
 			t.Fatalf("create config.databases doc: %v", err)
 		}
 
 		nss := []string{"db.*"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "custom-shard")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -587,15 +634,15 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 	t.Run("skip collection with different primary shard", func(t *testing.T) {
 		r, db := createCleanupRestoreTest(t, "rs0")
 
-		err := createConfigDatabasesDoc(t, "db", "rs1")
+		err := createConfigDatabasesDoc(t, "db", "rs0")
 		if err != nil {
 			t.Fatalf("create config.databases doc: %v", err)
 		}
 
 		nss := []string{"db.coll"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "custom-shard")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 0 {
@@ -619,9 +666,9 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.*", "db2.coll"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "rs0")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -651,9 +698,9 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db.*", "db.c"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "rs0")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 1 {
@@ -680,9 +727,9 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.*", "db2.*", "db1.c1", "db1.c2", "db2.c2"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "rs0")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {
@@ -706,9 +753,9 @@ func TestSelRestoreShardedCleanup(t *testing.T) {
 		}
 
 		nss := []string{"db1.c1", "db2.c1", "db1.*", "db2.*", "db1.c2", "db2.c2"}
-		err = r.selRestoreShardedCleanup(ctx, nss)
+		err = r.selRestoreDBCleanup(ctx, nss, "rs0")
 		if err != nil {
-			t.Fatalf("selRestoreShardedCleanup: %v", err)
+			t.Fatalf("selRestoreDBCleanup: %v", err)
 		}
 
 		if len(db.dropDatabaseCalls) != 2 {

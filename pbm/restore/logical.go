@@ -881,6 +881,12 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 			bcp.Status, bcp.Error())
 	}
 
+	if version.IsLegacyArchive(bcp.PBMVersion) {
+		if util.IsSelective(bcp.Namespaces) || util.IsSelective(nss) {
+			return errors.New("selective restore is not supported from legacy backup")
+		}
+	}
+
 	if !version.CompatibleWith(version.Current().Version, version.BreakingChangesMap[bcp.Type]) {
 		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s",
 			bcp.PBMVersion, version.Current().Version)
@@ -1063,25 +1069,31 @@ func (r *Restore) selRestoreRSCleanup(ctx context.Context, nss []string) error {
 	return nil
 }
 
-// selRestoreShardedCleanup drops all databases and/or collections specified in
-// selective restore namespaces.
-// For each namespace listed within selective restore _shardsvrDropDatabase or
-// _shardsvrDropCollection is used for the purpose of cluster-wide cleanup.
+// selRestoreShardedCleanup resolves this shard and cleans selected namespaces it owns.
 func (r *Restore) selRestoreShardedCleanup(ctx context.Context, nss []string) error {
-	if r.nodeInfo.IsConfigSrv() {
-		// Preserve the existing selective config-server behavior.
-		return nil
+	shardID, err := r.getShardID(ctx)
+	if err != nil {
+		return errors.Wrap(err, "resolve destination shard ID")
 	}
+	err = r.selRestoreDBCleanup(ctx, nss, shardID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
-	droppedDBs := []string{}
+// selRestoreDBCleanup drops selected databases and collections owned by shardID cluster-wide.
+func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string, shardID string) error {
+	droppedDBs := make(map[string]bool)
 	for _, ns := range nss {
 		db, coll := util.ParseNS(ns)
-		if db == "" || db == defs.DB || db == defs.ConfigDB {
-			// not allowed dbs for sel restore
+		if db == "" {
 			continue
 		}
-		if slices.Contains(droppedDBs, db) {
-			// db is already dropped
+		if db == defs.DB || db == defs.ConfigDB || db == "local" {
+			continue
+		}
+		if droppedDBs[db] {
 			continue
 		}
 
@@ -1093,24 +1105,22 @@ func (r *Restore) selRestoreShardedCleanup(ctx context.Context, nss []string) er
 			return errors.Wrapf(err, "get config.databases doc for %q", db)
 		}
 
-		if configDBDoc.Primary != r.nodeInfo.SetName {
+		if configDBDoc.Primary != shardID {
 			// this shard is not primary shard for this db, so ignore it
 			continue
 		}
 
 		if coll == "" {
-			// do db cleanup
 			err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
 			if err != nil {
-				return errors.Wrapf(err, "db cleanup %s", db)
+				return errors.Wrapf(err, "drop database %q", db)
 			}
-			droppedDBs = append(droppedDBs, db)
+			droppedDBs[db] = true
 			r.log.Debug("drop db: %q", db)
 		} else {
-			// do collection cleanup
 			err = r.db.runCmdShardsvrDropCollection(ctx, db, coll, configDBDoc)
 			if err != nil {
-				return errors.Wrapf(err, "collection cleanup %s", ns)
+				return errors.Wrapf(err, "drop collection %q", ns)
 			}
 			r.log.Debug("drop ns: %q", ns)
 		}
@@ -1128,10 +1138,6 @@ func (r *Restore) RunSnapshot(
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) (string, error) {
 	if version.IsLegacyArchive(bcp.PBMVersion) {
-		if util.IsSelective(bcp.Namespaces) || util.IsSelective(nss) {
-			return "", errors.New("selective restore is not supported from legacy backup")
-		}
-
 		return "", r.restoreLegacyArchive(ctx, dump, bcp)
 	}
 
