@@ -966,73 +966,6 @@ func (r *Restore) cleanupDatabases(ctx context.Context, nss []string, cloneNS sn
 	return nil
 }
 
-// fullRestoreShardedCleanup resolves this shard and drops its assigned user databases.
-func (r *Restore) fullRestoreShardedCleanup(ctx context.Context) error {
-	shardID, err := r.getShardID(ctx)
-	if err != nil {
-		return errors.Wrap(err, "resolve destination shard ID")
-	}
-	err = r.fullRestoreDBCleanup(ctx, shardID)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// getShardID resolves this replica set against the live destination topology.
-func (r *Restore) getShardID(ctx context.Context) (string, error) {
-	shards, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
-	if err != nil {
-		return "", errors.Wrap(err, "get cluster members")
-	}
-	for _, shard := range shards {
-		if shard.RS == r.nodeInfo.SetName {
-			return shard.ID, nil
-		}
-	}
-
-	return "", errors.Errorf("replica set %q not found in destination cluster", r.nodeInfo.SetName)
-}
-
-// fullRestoreDBCleanup drops destination user databases owned by shardID cluster-wide.
-func (r *Restore) fullRestoreDBCleanup(ctx context.Context, shardID string) error {
-	dbs, err := getConfigDatabasesForShard(ctx, r.leadConn, shardID)
-	if err != nil {
-		return errors.Wrap(err, "get destination databases")
-	}
-
-	for i := range dbs {
-		db := &dbs[i]
-		err = r.db.runCmdShardsvrDropDatabase(ctx, db.ID, db)
-		if err != nil {
-			return errors.Wrapf(err, "drop database %q", db.ID)
-		}
-		r.log.Debug("drop %q", db.ID)
-	}
-
-	return nil
-}
-
-// fullRestoreRSCleanup drops all destination user databases on a non-sharded replica set.
-func (r *Restore) fullRestoreRSCleanup(ctx context.Context) error {
-	filter := bson.D{{"name", bson.D{{"$nin", bson.A{defs.DB, defs.ConfigDB, "local"}}}}}
-	dbs, err := r.nodeConn.ListDatabaseNames(ctx, filter,
-		options.ListDatabases().SetAuthorizedDatabases(false))
-	if err != nil {
-		return errors.Wrap(err, "get destination databases")
-	}
-
-	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
-	for _, db := range dbs {
-		if err := r.nodeConn.Database(db, dbOpts).Drop(ctx); err != nil {
-			return errors.Wrapf(err, "drop database %q", db)
-		}
-		r.log.Debug("drop %q", db)
-	}
-
-	return nil
-}
-
 // selRestoreRSCleanup drops selected databases and collections by name.
 func (r *Restore) selRestoreRSCleanup(ctx context.Context, nss []string) error {
 	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
@@ -1127,6 +1060,73 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string, shardID
 	}
 
 	return nil
+}
+
+// fullRestoreRSCleanup drops all destination user databases on a non-sharded replica set.
+func (r *Restore) fullRestoreRSCleanup(ctx context.Context) error {
+	filter := bson.D{{"name", bson.D{{"$nin", bson.A{defs.DB, defs.ConfigDB, "local"}}}}}
+	dbs, err := r.nodeConn.ListDatabaseNames(ctx, filter,
+		options.ListDatabases().SetAuthorizedDatabases(false))
+	if err != nil {
+		return errors.Wrap(err, "get destination databases")
+	}
+
+	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
+	for _, db := range dbs {
+		if err := r.nodeConn.Database(db, dbOpts).Drop(ctx); err != nil {
+			return errors.Wrapf(err, "drop database %q", db)
+		}
+		r.log.Debug("drop %q", db)
+	}
+
+	return nil
+}
+
+// fullRestoreShardedCleanup resolves this shard and drops its assigned user databases.
+func (r *Restore) fullRestoreShardedCleanup(ctx context.Context) error {
+	shardID, err := r.getShardID(ctx)
+	if err != nil {
+		return errors.Wrap(err, "resolve destination shard ID")
+	}
+	err = r.fullRestoreDBCleanup(ctx, shardID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// fullRestoreDBCleanup drops destination user databases owned by shardID cluster-wide.
+func (r *Restore) fullRestoreDBCleanup(ctx context.Context, shardID string) error {
+	dbs, err := getConfigDatabasesForShard(ctx, r.leadConn, shardID)
+	if err != nil {
+		return errors.Wrap(err, "get destination databases")
+	}
+
+	for i := range dbs {
+		db := &dbs[i]
+		err = r.db.runCmdShardsvrDropDatabase(ctx, db.ID, db)
+		if err != nil {
+			return errors.Wrapf(err, "drop database %q", db.ID)
+		}
+		r.log.Debug("drop %q", db.ID)
+	}
+
+	return nil
+}
+
+// getShardID resolves this replica set against the live destination topology.
+func (r *Restore) getShardID(ctx context.Context) (string, error) {
+	shards, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
+	if err != nil {
+		return "", errors.Wrap(err, "get cluster members")
+	}
+	for _, shard := range shards {
+		if shard.RS == r.nodeInfo.SetName {
+			return shard.ID, nil
+		}
+	}
+
+	return "", errors.Errorf("replica set %q not found in destination cluster", r.nodeInfo.SetName)
 }
 
 func (r *Restore) RunSnapshot(
