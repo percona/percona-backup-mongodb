@@ -362,6 +362,14 @@
 #  mongodLocationMap:
 #    "node-name:port":"path"
 
+## Timeouts (in seconds) for restore operations.
+## balancerStop: time to wait for the balancer to stop. 0 means wait indefinitely (default).
+## mongodShutdown: time to wait for mongod to shut down (incl. the final checkpoint)
+## during physical restore. Default is 1800 (30 minutes).
+#  timeouts:
+#    balancerStop: 0
+#    mongodShutdown: 1800
+
 #=========================Logging Configuration==============================
 
 ## Options to adjust logging configuration for starting pbm-agents
