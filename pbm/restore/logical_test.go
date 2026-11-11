@@ -436,6 +436,20 @@ func TestCheckSnapshotRejectsLegacySelectiveRestore(t *testing.T) {
 	}
 }
 
+func TestCheckSnapshotRejectsIncompatiblePBMVersion(t *testing.T) {
+	// Use full restore to reach the version check, not the legacy-selective guard.
+	// Leave clients uninitialized: rejection must happen before database access.
+	r := &Restore{}
+	bcp := &backup.BackupMeta{
+		Type:       defs.LogicalBackup,
+		Status:     defs.StatusDone,
+		PBMVersion: "1.4.1",
+	}
+
+	err := r.checkSnapshot(context.Background(), bcp, nil)
+	require.ErrorContains(t, err, "backup PBM v1.4.1 is incompatible")
+}
+
 func TestCleanupDatabasesCloning(t *testing.T) {
 	// Cloning must return immediately, before accessing topology or database clients.
 	// Leave Restore uninitialized so the test fails if cleanup reaches those dependencies.

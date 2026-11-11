@@ -898,7 +898,7 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 		}
 	}
 
-	if !version.CompatibleWith(version.Current().Version, version.BreakingChangesMap[bcp.Type]) {
+	if !version.CompatibleWith(bcp.PBMVersion, version.BreakingChangesMap[bcp.Type]) {
 		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s",
 			bcp.PBMVersion, version.Current().Version)
 	}
