@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/apiclient"
 	"github.com/percona/percona-backup-mongodb/x/pbm/config"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 func configCommand() *cobra.Command {
@@ -65,7 +65,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		}
 		if err := cli.ResyncConfig(ctx, name); err != nil {
 			if errors.Is(err, apiclient.ErrNotFound) {
-				return fmt.Errorf("configuration %q not found", name)
+				return errors.Errorf("configuration %q not found", name)
 			}
 			return err
 		}
@@ -80,7 +80,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		cfg, err := cli.GetConfig(ctx, name)
 		if err != nil {
 			if errors.Is(err, apiclient.ErrNotFound) {
-				return fmt.Errorf("configuration %q not found", name)
+				return errors.Errorf("configuration %q not found", name)
 			}
 			return err
 		}
@@ -102,7 +102,7 @@ func upsertConfig(ctx context.Context, cli *apiclient.Client, out io.Writer, fil
 		cfg, err = readConfigFromFile(file)
 	}
 	if err != nil {
-		return fmt.Errorf("read config: %w", err)
+		return errors.Wrap(err, "read config")
 	}
 
 	if err := cli.SetConfig(ctx, cfg); err != nil {
@@ -120,7 +120,7 @@ func upsertConfig(ctx context.Context, cli *apiclient.Client, out io.Writer, fil
 func readConfigFromFile(filename string) (*config.Config, error) {
 	f, err := os.Open(filename)
 	if err != nil {
-		return nil, fmt.Errorf("open %q: %w", filename, err)
+		return nil, errors.Wrapf(err, "open %q", filename)
 	}
 	defer func() {
 		if err := f.Close(); err != nil {

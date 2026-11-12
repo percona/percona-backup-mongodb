@@ -42,7 +42,8 @@ permissions: read-all
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # pinned: MongoDB 8.0 refuses to start on Linux kernels >= 6.19 (SERVER-121912)
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       checks: write
@@ -59,6 +60,14 @@ jobs:
       PR_NUMBER: ${{ github.event.number|| github.event.inputs.pr_ver }}
       MAKE_TARGET: 'build-cover'
     steps:
+      - name: Show runner kernel
+        run: |
+          uname -r
+          KMAJ=$(uname -r | cut -d. -f1); KMIN=$(uname -r | cut -d. -f2)
+          if [ "$KMAJ" -gt 6 ] || { [ "$KMAJ" -eq 6 ] && [ "$KMIN" -ge 19 ]; }; then
+            echo "::warning::Runner kernel $(uname -r) is >= 6.19; PSMDB 8.0 mongod will refuse to start (SERVER-121912)"
+          fi
+
       - name: Cleanup unnecessary software
         run: |
           sudo rm -rf /usr/share/dotnet

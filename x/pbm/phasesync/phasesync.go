@@ -5,7 +5,6 @@ package phasesync
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -131,7 +130,7 @@ func (b *Barrier) Close() error {
 func (b *Barrier) Advance(ctx context.Context, phase Phase) error {
 	target, ok := b.rank[phase]
 	if !ok {
-		return fmt.Errorf("unknown phase %q", phase)
+		return errors.Errorf("unknown phase %q", phase)
 	}
 	if target <= b.reached {
 		return errors.Errorf("phase %q is not ahead of %q", phase, b.phases[b.reached])
@@ -184,7 +183,7 @@ func (b *Barrier) Advance(ctx context.Context, phase Phase) error {
 					if target == len(b.phases)-1 && state[id] >= target {
 						continue
 					}
-					return fmt.Errorf("%w: %s", ErrMemberLost, id)
+					return errors.Wrapf(ErrMemberLost, "for member id %s", id)
 				}
 			}
 			if b.allReached(state, target) {

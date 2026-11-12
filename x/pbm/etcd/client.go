@@ -1,11 +1,12 @@
 package etcd
 
 import (
-	"fmt"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
+
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 const dialTimeout = 5 * time.Second
@@ -13,7 +14,7 @@ const dialTimeout = 5 * time.Second
 // NewClient connects to the ctrl-agents' etcd as a remote client.
 func NewClient(lg *zap.Logger, endpoints []string) (*clientv3.Client, error) {
 	if len(endpoints) == 0 {
-		return nil, fmt.Errorf("no etcd endpoints configured")
+		return nil, errors.New("no etcd endpoints configured")
 	}
 
 	return clientv3.New(clientv3.Config{

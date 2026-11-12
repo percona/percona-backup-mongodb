@@ -5,14 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/percona/percona-backup-mongodb/x/pbm/api"
+	"github.com/percona/percona-backup-mongodb/x/pbm/errors"
 )
 
 // requestTimeout bounds a single HTTP request to a ctrl-agent.
@@ -68,12 +67,12 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 		if errors.Is(err, ErrBadRequest) {
 			return err
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", ep, err))
+		errs = append(errs, errors.Wrapf(err, "%s", ep))
 	}
 	if len(errs) == 0 {
 		return errors.New("no api endpoints configured")
 	}
-	return fmt.Errorf("all api endpoints failed: %w", errors.Join(errs...))
+	return errors.Wrap(errors.Join(errs...), "all api endpoints failed")
 }
 
 // doFrom issues method base+path. On 421 it follows the leader redirect once
@@ -109,7 +108,7 @@ func (c *Client) doFrom(
 	case http.StatusOK, http.StatusAccepted:
 		if out != nil {
 			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-				return fmt.Errorf("decode response: %w", err)
+				return errors.Wrap(err, "decode response")
 			}
 		}
 		return nil
@@ -123,7 +122,7 @@ func (c *Client) doFrom(
 		}
 		var rr api.RoutingResponse
 		if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
-			return fmt.Errorf("decode leader routing: %w", err)
+			return errors.Wrap(err, "decode leader routing")
 		}
 		if rr.Leader.Address == "" {
 			return errors.New("leader routing response missing address")
@@ -141,10 +140,10 @@ func (c *Client) doFrom(
 		if err != nil {
 			return ErrBadRequest
 		}
-		return fmt.Errorf("%w: %s", ErrBadRequest, strings.TrimSpace(string(reason)))
+		return errors.Wrapf(ErrBadRequest, "%s", strings.TrimSpace(string(reason)))
 
 	default:
-		return fmt.Errorf("unexpected status %s", resp.Status)
+		return errors.Errorf("unexpected status %s", resp.Status)
 	}
 }
 
