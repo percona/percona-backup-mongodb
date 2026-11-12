@@ -22,8 +22,10 @@ type Config struct {
 	MaxObjSizeGB   *float64          `bson:"maxObjSizeGB,omitempty" json:"maxObjSizeGB,omitempty" yaml:"maxObjSizeGB,omitempty"`
 }
 
+//nolint:lll
 type Credentials struct {
-	Key storage.MaskedString `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
+	Key              storage.MaskedString `bson:"key" json:"key,omitempty" yaml:"key,omitempty"`
+	WorkloadIdentity bool                 `bson:"workloadIdentity" json:"workloadIdentity,omitempty" yaml:"workloadIdentity,omitempty"`
 }
 
 // Retryer is configuration for retry behavior described:
@@ -84,6 +86,10 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 func (cfg *Config) Cast() error {
 	if cfg == nil {
 		return errors.New("missing azure configuration with azure storage type")
+	}
+
+	if cfg.Credentials.WorkloadIdentity && cfg.Account == "" && cfg.EndpointURL == "" {
+		return errors.New("endpointUrl or account is required when using workload identity")
 	}
 
 	if cfg.Retryer == nil {
