@@ -464,7 +464,8 @@ func (cfg *RestoreConf) Clone() *RestoreConf {
 	}
 	if cfg.Timeouts != nil {
 		rv.Timeouts = &RestoreTimeouts{
-			BalancerStopSec: cfg.Timeouts.BalancerStopSec,
+			BalancerStopSec:   cfg.Timeouts.BalancerStopSec,
+			MongodShutdownSec: cfg.Timeouts.MongodShutdownSec,
 		}
 	}
 
@@ -476,7 +477,13 @@ type RestoreTimeouts struct {
 	// BalancerStopSec is timeout (in seconds) to wait for the balancer to stop.
 	// 0 means wait indefinitely (default).
 	BalancerStopSec uint32 `bson:"balancerStop,omitempty" json:"balancerStop,omitempty" yaml:"balancerStop,omitempty"`
+	// MongodShutdownSec is timeout to wait for mongod to shut down.
+	// 0 means default timeout, which is 30 minutes .
+	MongodShutdownSec uint32 `bson:"mongodShutdown,omitempty" json:"mongodShutdown,omitempty" yaml:"mongodShutdown,omitempty"`
 }
+
+// DefaultMongodShutdownTimeout is the default time to wait for mongod to shut down during physical/external restore.
+const DefaultMongodShutdownTimeout = 30 * time.Minute
 
 // BalancerStop returns timeout duration for waiting for the balancer to stop.
 // Returns 0 if not set, meaning PBM will wait indefinitely.
@@ -486,6 +493,15 @@ func (t *RestoreTimeouts) BalancerStop() time.Duration {
 	}
 
 	return time.Duration(t.BalancerStopSec) * time.Second
+}
+
+// MongodShutdown returns timeout duration for waiting for mongod to shut down during physical/external restore.
+func (t *RestoreTimeouts) MongodShutdown() time.Duration {
+	if t == nil || t.MongodShutdownSec == 0 {
+		return DefaultMongodShutdownTimeout
+	}
+
+	return time.Duration(t.MongodShutdownSec) * time.Second
 }
 
 // GetFallbackEnabled gets config's or default value for fallbackEnabled

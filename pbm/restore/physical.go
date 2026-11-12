@@ -59,7 +59,6 @@ const (
 
 	tryConnCount      = 5
 	tryConnTimeout    = 5 * time.Minute
-	mongodLockTimeout = 30 * time.Minute
 	mongodPortTimeout = 5 * time.Minute
 
 	internalMongodLog = "pbm.restore.log"
@@ -467,7 +466,7 @@ func (r *PhysRestore) flush(ctx context.Context) error {
 	}
 
 	r.log.Debug("waiting for the node to shutdown")
-	err = waitMgoShutdown(r.dbpath)
+	err = waitMgoShutdown(r.dbpath, r.mongodShutdownTimeout())
 	if err != nil {
 		return errors.Wrap(err, "shutdown")
 	}
@@ -659,13 +658,23 @@ func isNonRecoverableShutdownErr(err error) bool {
 	return false
 }
 
+// mongodShutdownTimeout returns configured (restore.timeouts.mongodShutdown)
+// or default timeout to wait for mongod shutdown.
+func (r *PhysRestore) mongodShutdownTimeout() time.Duration {
+	if r.confOpts == nil {
+		return config.DefaultMongodShutdownTimeout
+	}
+
+	return r.confOpts.Timeouts.MongodShutdown()
+}
+
 // waitMgoShutdown waits until mongod releases mongod.lock file within dbpath dir.
 // In case of timeout or unexpected error it'll return error.
-func waitMgoShutdown(dbpath string) error {
+func waitMgoShutdown(dbpath string, timeout time.Duration) error {
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 
-	to := time.After(mongodLockTimeout)
+	to := time.After(timeout)
 
 	for {
 		select {
@@ -680,7 +689,10 @@ func waitMgoShutdown(dbpath string) error {
 			}
 
 		case <-to:
-			return errors.Errorf("timeout during waiting for lock file %s", path.Join(dbpath, mongofslock))
+			return errors.Errorf("timeout (%s) during waiting for lock file %s",
+				timeout,
+				path.Join(dbpath, mongofslock),
+			)
 		}
 	}
 }
@@ -1911,11 +1923,12 @@ func (r *PhysRestore) prepareData() error {
 }
 
 func (r *PhysRestore) shutdown(c *mongo.Client) error {
-	err := shutdownImpl(c, r.dbpath, false, r.tmpPort)
+	timeout := r.mongodShutdownTimeout()
+	err := shutdownImpl(c, r.dbpath, false, r.tmpPort, timeout)
 	if err != nil {
 		if strings.Contains(err.Error(), "ConflictingOperationInProgress") {
 			r.log.Warning("try force shutdown. reason: %v", err)
-			err = shutdownImpl(c, r.dbpath, true, r.tmpPort)
+			err = shutdownImpl(c, r.dbpath, true, r.tmpPort, timeout)
 			return errors.Wrap(err, "force shutdown mongo")
 		}
 
@@ -1925,7 +1938,7 @@ func (r *PhysRestore) shutdown(c *mongo.Client) error {
 	return nil
 }
 
-func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
+func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int, timeout time.Duration) error {
 	res := c.Database("admin").RunCommand(context.TODO(),
 		bson.D{{"shutdown", 1}, {"force", force}})
 	err := res.Err()
@@ -1933,7 +1946,7 @@ func shutdownImpl(c *mongo.Client, dbpath string, force bool, port int) error {
 		return errors.Wrapf(err, "run shutdown (force: %v)", force)
 	}
 
-	err = waitMgoShutdown(dbpath)
+	err = waitMgoShutdown(dbpath, timeout)
 	if err != nil {
 		return errors.Wrap(err, "wait mongod shutdown")
 	}
