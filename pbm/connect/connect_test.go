@@ -27,10 +27,11 @@ func TestClientOptionsWithOtherHosts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts, err := clientOptions(tt.uri, NoRS(), Hosts("cfg01:27019", "cfg02:27019"))
+			// The members as MongoDB lists them, e.g. in getShardMap: comma-separated.
+			opts, err := clientOptions(tt.uri, NoRS(), Hosts("cfg01:27019,cfg02:27019", "cfg03:27019"))
 			require.NoError(t, err)
 
-			assert.Equal(t, []string{"cfg01:27019", "cfg02:27019"}, opts.Hosts)
+			assert.Equal(t, []string{"cfg01:27019", "cfg02:27019", "cfg03:27019"}, opts.Hosts)
 			require.NotNil(t, opts.ReplicaSet)
 			assert.Empty(t, *opts.ReplicaSet)
 			require.NotNil(t, opts.Auth)

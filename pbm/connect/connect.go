@@ -106,11 +106,16 @@ func ServerSelectionTimeout(d time.Duration) MongoOption {
 }
 
 // Hosts option replaces the hosts of the connection string, keeping its other
-// options. Use it instead of editing the mongo-uri as a URL: a unix socket
-// host is percent-encoded there, which a URL host can't be.
+// options. An argument can hold comma-separated hosts, as MongoDB lists the
+// members of a replset. Use it instead of editing the mongo-uri as a URL: a
+// unix socket host is percent-encoded there, which a URL host can't be.
 func Hosts(hosts ...string) MongoOption {
 	return func(opts *options.ClientOptions) error {
-		opts.SetHosts(hosts)
+		var all []string
+		for _, h := range hosts {
+			all = append(all, strings.Split(h, ",")...)
+		}
+		opts.SetHosts(all)
 		return nil
 	}
 }
@@ -275,7 +280,7 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 
 	// Preserving the `replicaSet` parameter will cause an error
 	// while connecting to the ConfigServer (mismatched replicaset names)
-	client, err = MongoConnect(ctx, uri, AppName(appName), NoRS(), Hosts(strings.Split(chost[1], ",")...))
+	client, err = MongoConnect(ctx, uri, AppName(appName), NoRS(), Hosts(chost[1]))
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection to configsvr")
 	}
