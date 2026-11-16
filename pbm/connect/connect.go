@@ -2,7 +2,6 @@ package connect
 
 import (
 	"context"
-	"net/url"
 	"strings"
 	"time"
 
@@ -106,6 +105,16 @@ func ServerSelectionTimeout(d time.Duration) MongoOption {
 	}
 }
 
+// Hosts option replaces the hosts of the connection string, keeping its other
+// options. Use it instead of editing the mongo-uri as a URL: a unix socket
+// host is percent-encoded there, which a URL host can't be.
+func Hosts(hosts ...string) MongoOption {
+	return func(opts *options.ClientOptions) error {
+		opts.SetHosts(hosts)
+		return nil
+	}
+}
+
 // ensureMongoScheme ensures the URI has a mongodb:// scheme prefix.
 // Returns an error if mongodb+srv:// scheme is used.
 func ensureMongoScheme(uri string) (string, error) {
@@ -122,32 +131,9 @@ func MongoConnectWithOpts(ctx context.Context,
 	uri string,
 	mongoOptions ...MongoOption,
 ) (*mongo.Client, *options.ClientOptions, error) {
-	uri, err := ensureMongoScheme(uri)
+	mopts, err := clientOptions(uri, mongoOptions...)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	// default options
-	mopts := options.Client().
-		SetAppName("pbm").
-		SetReadPreference(readpref.Primary()).
-		SetReadConcern(readconcern.Majority()).
-		SetWriteConcern(writeconcern.Majority()).
-		SetDirect(false)
-
-	// apply and override using end-user options from conn string
-	mopts.ApplyURI(uri)
-	if err := validateConnStringOpts(mopts); err != nil {
-		return nil, nil, errors.Wrap(err, "invalid connection string option")
-	}
-
-	// override with explicit options from the code
-	for _, opt := range mongoOptions {
-		if opt != nil {
-			if err := opt(mopts); err != nil {
-				return nil, nil, errors.Wrap(err, "invalid mongo option")
-			}
-		}
 	}
 
 	conn, err := mongo.Connect(mopts)
@@ -162,6 +148,40 @@ func MongoConnectWithOpts(ctx context.Context,
 	}
 
 	return conn, mopts, nil
+}
+
+// clientOptions builds the client options: PBM defaults, then the options of
+// the connection string, then the explicit options from the code.
+func clientOptions(uri string, mongoOptions ...MongoOption) (*options.ClientOptions, error) {
+	uri, err := ensureMongoScheme(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	// default options
+	mopts := options.Client().
+		SetAppName("pbm").
+		SetReadPreference(readpref.Primary()).
+		SetReadConcern(readconcern.Majority()).
+		SetWriteConcern(writeconcern.Majority()).
+		SetDirect(false)
+
+	// apply and override using end-user options from conn string
+	mopts.ApplyURI(uri)
+	if err := validateConnStringOpts(mopts); err != nil {
+		return nil, errors.Wrap(err, "invalid connection string option")
+	}
+
+	// override with explicit options from the code
+	for _, opt := range mongoOptions {
+		if opt != nil {
+			if err := opt(mopts); err != nil {
+				return nil, errors.Wrap(err, "invalid mongo option")
+			}
+		}
+	}
+
+	return mopts, nil
 }
 
 func validateConnStringOpts(opts *options.ClientOptions) error {
@@ -253,15 +273,9 @@ func Connect(ctx context.Context, uri, appName string) (*clientImpl, error) {
 		return nil, errors.Wrapf(err, "define config server connection URI from %s", csvr)
 	}
 
-	curi, err := url.Parse(uri)
-	if err != nil {
-		return nil, errors.Wrap(err, "parse mongo-uri")
-	}
-
 	// Preserving the `replicaSet` parameter will cause an error
 	// while connecting to the ConfigServer (mismatched replicaset names)
-	curi.Host = chost[1]
-	client, err = MongoConnect(ctx, curi.String(), AppName(appName), NoRS())
+	client, err = MongoConnect(ctx, uri, AppName(appName), NoRS(), Hosts(strings.Split(chost[1], ",")...))
 	if err != nil {
 		return nil, errors.Wrap(err, "create mongo connection to configsvr")
 	}
