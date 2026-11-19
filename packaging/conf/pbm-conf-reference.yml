@@ -226,8 +226,8 @@
 ## Enable OCI SDK region-to-realm mapping lookup through the instance metadata service (IMDS).
 ## IMDS supplies the mapping only for the instance's region.
 ## Independent of authentication type; does not disable instancePrincipal identity metadata access when false.
-## Applied on first OCI client initialization; restart agents to change this setting.
-## Cached mappings are process-wide.
+## Can be enabled after a configuration reload. Opt-in and cached mappings are process-wide;
+## restart agents to reset them. Setting this option to false does not revoke an earlier opt-in.
 #    enableIMDS: false
 
 ## The data directory to store backups in.

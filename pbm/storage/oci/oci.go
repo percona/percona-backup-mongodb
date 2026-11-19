@@ -22,10 +22,7 @@ import (
 
 var _ storage.Storage = (*OCI)(nil)
 
-var (
-	configureClientMu sync.Mutex
-	configureSDKOnce  sync.Once
-)
+var configureClientMu sync.Mutex
 
 const (
 	defaultCopyWorkRequestPollDelay = 2 * time.Second
@@ -132,11 +129,9 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 }
 
 func configureSDK(cfg *Config) {
-	configureSDKOnce.Do(func() {
-		if cfg.EnableIMDS {
-			common.EnableInstanceMetadataServiceLookup()
-		}
-	})
+	if cfg.EnableIMDS {
+		common.EnableInstanceMetadataServiceLookup()
+	}
 }
 
 func configurationProvider(cfg *Config) (common.ConfigurationProvider, error) {
