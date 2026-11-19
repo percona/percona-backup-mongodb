@@ -2,6 +2,7 @@ package restore
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -15,10 +16,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/mongodb"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/config"
 	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/log"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
@@ -232,6 +241,228 @@ func TestWaitMgoFreePort(t *testing.T) {
 			t.Logf("finish %d round, with duration %s", i+1, time.Since(start))
 		}
 	})
+}
+
+func TestMongodShutdownTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		confOpts *config.RestoreConf
+		want     time.Duration
+	}{
+		{name: "nil restore config", confOpts: nil, want: config.DefaultMongodShutdownTimeout},
+		{name: "no timeouts", confOpts: &config.RestoreConf{}, want: config.DefaultMongodShutdownTimeout},
+		{
+			name:     "zero timeout",
+			confOpts: &config.RestoreConf{Timeouts: &config.RestoreTimeouts{}},
+			want:     config.DefaultMongodShutdownTimeout,
+		},
+		{
+			name:     "configured timeout",
+			confOpts: &config.RestoreConf{Timeouts: &config.RestoreTimeouts{MongodShutdownSec: 5400}},
+			want:     90 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &PhysRestore{confOpts: tt.confOpts}
+			if got := r.mongodShutdownTimeout(); got != tt.want {
+				t.Errorf("want=%v, got=%v", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestWaitMgoShutdown(t *testing.T) {
+	t.Run("times out after given timeout while mongod shutdown is prolonged", func(t *testing.T) {
+		dbpath, c := startMongodWithHostDBPath(t)
+
+		// hangs the shutdown (with mongod.lock held) until the failpoint is off
+		err := c.Database("admin").RunCommand(t.Context(), bson.D{
+			{"configureFailPoint", "hangBeforeShutdown"},
+			{"mode", "alwaysOn"},
+		}).Err()
+		if err != nil {
+			t.Fatalf("set failpoint: %v", err)
+		}
+		// the shutdown cmd doesn't return while the shutdown hangs,
+		// it's canceled at the end of the test
+		go func() {
+			_ = c.Database("admin").RunCommand(t.Context(), bson.D{{"shutdown", 1}}).Err()
+		}()
+		waitFailPointEntered(t, c, "hangBeforeShutdown")
+
+		timeout := 3 * time.Second
+		start := time.Now()
+		err = waitMgoShutdown(dbpath, timeout)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			t.Fatal("want timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "timeout (3s)") {
+			t.Errorf("want timeout (3s) error, got: %v", err)
+		}
+		if elapsed < timeout || elapsed > timeout+2*time.Second {
+			t.Errorf("wrong duration, want~=%v, got=%v", timeout, elapsed)
+		}
+		checkMongodLockHeld(t, dbpath)
+	})
+
+	t.Run("returns once mongod releases the lock", func(t *testing.T) {
+		dbpath, c := startMongodWithHostDBPath(t)
+
+		// the shutdown closes the connection, so the error is expected
+		_ = c.Database("admin").RunCommand(t.Context(), bson.D{{"shutdown", 1}}).Err()
+
+		timeout := time.Minute
+		start := time.Now()
+		err := waitMgoShutdown(dbpath, timeout)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Fatalf("wait for mongod shutdown: %v", err)
+		}
+		if elapsed >= timeout {
+			t.Errorf("want shutdown within %v, got=%v", timeout, elapsed)
+		}
+		checkMongodLockReleased(t, dbpath)
+	})
+}
+
+func TestShutdown(t *testing.T) {
+	t.Run("shuts down mongod within configured timeout", func(t *testing.T) {
+		dbpath, c := startMongodWithHostDBPath(t)
+
+		r := &PhysRestore{
+			dbpath:  dbpath,
+			tmpPort: freeLocalPort(t),
+			log:     log.DiscardEvent,
+			confOpts: &config.RestoreConf{
+				Timeouts: &config.RestoreTimeouts{MongodShutdownSec: 60},
+			},
+		}
+
+		err := r.shutdown(c)
+		if err != nil {
+			t.Fatalf("shutdown: %v", err)
+		}
+		checkMongodLockReleased(t, dbpath)
+	})
+}
+
+// startMongodWithHostDBPath starts a standalone mongod with its dbpath
+// bind-mounted to a host temp dir, so mongod.lock can be checked.
+func startMongodWithHostDBPath(t *testing.T) (string, *mongo.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	dbpath := t.TempDir()
+
+	ctr, err := mongodb.Run(
+		ctx,
+		"perconalab/percona-server-mongodb:8.0.4-multi",
+		mongodb.WithUsername("dba"),
+		mongodb.WithPassword("pass"),
+		testcontainers.WithCmdArgs("--setParameter", "enableTestCommands=1"),
+		testcontainers.WithHostConfigModifier(func(hc *container.HostConfig) {
+			hc.Binds = append(hc.Binds, dbpath+":/data/db")
+		}),
+		testcontainers.WithConfigModifier(func(c *container.Config) {
+			c.User = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+		}),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("Waiting for connections").WithOccurrence(2),
+			wait.ForListeningPort("27017/tcp"),
+		),
+	)
+	// no graceful stop: mongod might be hanging in shutdown on a failpoint
+	testcontainers.CleanupContainer(t, ctr, testcontainers.StopTimeout(0))
+	if err != nil {
+		t.Fatalf("start mongod container: %v", err)
+	}
+
+	connStr, err := ctr.ConnectionString(ctx)
+	if err != nil {
+		t.Fatalf("connection string: %v", err)
+	}
+
+	c, err := mongo.Connect(options.Client().ApplyURI(connStr).SetDirect(true))
+	if err != nil {
+		t.Fatalf("connect to mongod: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+
+	if err := c.Ping(ctx, nil); err != nil {
+		t.Fatalf("ping mongod: %v", err)
+	}
+	checkMongodLockHeld(t, dbpath)
+
+	return dbpath, c
+}
+
+// waitFailPointEntered waits until mongod enters the failpoint fp.
+func waitFailPointEntered(t *testing.T, c *mongo.Client, fp string) {
+	t.Helper()
+
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		// re-setting the failpoint returns the number of times it was entered
+		res := struct {
+			Count int `bson:"count"`
+		}{}
+		err := c.Database("admin").RunCommand(t.Context(), bson.D{
+			{"configureFailPoint", fp},
+			{"mode", "alwaysOn"},
+		}).Decode(&res)
+		if err != nil {
+			t.Fatalf("check failpoint %s: %v", fp, err)
+		}
+		if res.Count > 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("failpoint %s wasn't entered", fp)
+}
+
+func freeLocalPort(t *testing.T) int {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+
+	return port
+}
+
+func checkMongodLockHeld(t *testing.T, dbpath string) {
+	t.Helper()
+
+	f, err := os.Stat(filepath.Join(dbpath, mongofslock))
+	if err != nil {
+		t.Fatalf("stat mongod.lock: %v", err)
+	}
+	if f.Size() == 0 {
+		t.Error("mongod.lock should be held by running mongod, got empty lock file")
+	}
+}
+
+func checkMongodLockReleased(t *testing.T, dbpath string) {
+	t.Helper()
+
+	f, err := os.Stat(filepath.Join(dbpath, mongofslock))
+	if err != nil {
+		t.Fatalf("stat mongod.lock: %v", err)
+	}
+	if f.Size() != 0 {
+		t.Errorf("mongod.lock should be released after shutdown, got size %d", f.Size())
+	}
 }
 
 func TestResolveCleanupStrategy(t *testing.T) {

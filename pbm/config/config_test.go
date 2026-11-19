@@ -853,6 +853,38 @@ func TestRestoreConfGetIndexCommitQuorum(t *testing.T) {
 	}
 }
 
+func TestRestoreTimeoutsMongodShutdown(t *testing.T) {
+	tests := []struct {
+		name string
+		t    *RestoreTimeouts
+		want time.Duration
+	}{
+		{name: "nil timeouts", t: nil, want: DefaultMongodShutdownTimeout},
+		{name: "zero value", t: &RestoreTimeouts{}, want: DefaultMongodShutdownTimeout},
+		{name: "configured value", t: &RestoreTimeouts{MongodShutdownSec: 7200}, want: 2 * time.Hour},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.t.MongodShutdown())
+		})
+	}
+
+	t.Run("parsed from yaml and cloned", func(t *testing.T) {
+		cfg, err := Parse(strings.NewReader(`
+storage:
+  type: blackhole
+restore:
+  timeouts:
+    mongodShutdown: 3600
+`))
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Restore)
+		assert.Equal(t, time.Hour, cfg.Restore.Timeouts.MongodShutdown())
+		assert.Equal(t, time.Hour, cfg.Restore.Clone().Timeouts.MongodShutdown())
+	})
+}
+
 func TestParseRestoreIndexCommitQuorum(t *testing.T) {
 	cfg, err := Parse(strings.NewReader(`
 storage:
