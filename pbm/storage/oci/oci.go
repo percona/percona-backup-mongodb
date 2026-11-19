@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -21,8 +20,6 @@ import (
 )
 
 var _ storage.Storage = (*OCI)(nil)
-
-var configureClientMu sync.Mutex
 
 const (
 	defaultCopyWorkRequestPollDelay = 2 * time.Second
@@ -92,10 +89,6 @@ func configureClient(cfg *Config) (*objectstorage.ObjectStorageClient, error) {
 		return nil, errors.New("bucket is required")
 	}
 
-	// Client configuration can mutate unsynchronized OCI SDK global state, including region/realm
-	// mappings and instance-principal metadata URLs, so concurrent configuration must be serialized.
-	configureClientMu.Lock()
-	defer configureClientMu.Unlock()
 	configureSDK(cfg)
 
 	provider, err := configurationProvider(cfg)
