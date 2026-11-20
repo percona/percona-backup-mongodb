@@ -42,11 +42,12 @@ If the bug hasn’t been reported / addressed, or we’ve agreed on the enhancem
 1. [Fork](https://docs.github.com/en/github/getting-started-with-github/fork-a-repo) this repository
 2. Clone this repository on your machine.
 3. Create a separate branch for your changes. If you work on a Jira issue, please  include the issue number in the branch name so it reads as ``<JIRAISSUE>-my_branch``. This makes it easier to track your contribution.
-4. Make your changes. Please follow the guidelines outlined in the [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments) to improve code readability.
-5. Test your changes locally. See the [Running tests locally](#running-tests-locally) section for more information
-6. Commit the changes. Add the Jira issue number at the beginning of your  message subject so that is reads as `<JIRAISSUE> -  My subject`. The [commit message guidelines](https://gist.github.com/robertpainsi/b632364184e70900af4ab688decf6f53) will help you with writing great commit messages
-7. Open a PR to Percona
-8. Our team will review your code and if everything is correct, will merge it.
+4. Follow the project's [accessibility contributor requirements](ACCESSIBILITY.md#submitting-a-pull-request).
+5. Make your changes. Please follow the guidelines outlined in the [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments) to improve code readability.
+6. Test your changes locally. See the [Running tests locally](#running-tests-locally) section for more information
+7. Commit the changes. Add the Jira issue number at the beginning of your  message subject so that is reads as `<JIRAISSUE> -  My subject`. The [commit message guidelines](https://gist.github.com/robertpainsi/b632364184e70900af4ab688decf6f53) will help you with writing great commit messages
+8. Open a PR to Percona
+9. Our team will review your code and if everything is correct, will merge it.
 Otherwise, we will contact you for additional information or with the request to make changes.
 
 ### Building Percona Backup for MongoDB
