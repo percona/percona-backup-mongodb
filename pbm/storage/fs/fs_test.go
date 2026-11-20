@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -321,6 +322,38 @@ func TestList(t *testing.T) {
 				[]int64{fSize3},
 			)
 		})
+	})
+
+	t.Run("split-merge middleware lists files in alphabetical order", func(t *testing.T) {
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		partSize := int64(1024)
+		smMW := storage.NewSplitMergeMW(fs, BytesToGB(partSize))
+
+		wantNames := []string{}
+		wantSizes := []int64{}
+		for i := range 20 {
+			fName := fmt.Sprintf("oplog/file_%02d", i)
+			fSize := int64(512)
+			if i%2 == 0 {
+				fSize = 3*partSize + int64(i)
+			}
+			createFileWithParts(t, fName, fSize, smMW, tmpDir)
+			wantNames = append(wantNames, removeParentDir(fName, 1))
+			wantSizes = append(wantSizes, fSize)
+		}
+
+		// map iteration order is random, so repeat to catch unordered result
+		for range 5 {
+			fInfo, err := smMW.List("oplog", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+			if len(fInfo) != len(wantNames) {
+				t.Fatalf("expected %d files, got=%d", len(wantNames), len(fInfo))
+			}
+			checkFileSizeAndName(t, fInfo, wantNames, wantSizes)
+		}
 	})
 }
 

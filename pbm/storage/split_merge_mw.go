@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -192,6 +193,7 @@ func (sm *SplitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) 
 		res[i] = FileInfo{Name: f, Size: s}
 		i++
 	}
+	slices.SortFunc(res, func(a, b FileInfo) int { return strings.Compare(a.Name, b.Name) })
 
 	return res, nil
 }

@@ -188,3 +188,62 @@ func TestGetBasePart(t *testing.T) {
 		})
 	}
 }
+
+func TestList(t *testing.T) {
+	t.Run("result is sorted by name with parts aggregated", func(t *testing.T) {
+		stg := NewSplitMergeMW(&listStorage{files: []FileInfo{
+			{Name: "c.zst", Size: 3},
+			{Name: "a.zst", Size: 1},
+			{Name: "d.zst", Size: 4},
+			{Name: "b.zst.pbmpart.1", Size: 20},
+			{Name: "b.zst", Size: 2},
+		}}, 1)
+		want := []FileInfo{
+			{Name: "a.zst", Size: 1},
+			{Name: "b.zst", Size: 22},
+			{Name: "c.zst", Size: 3},
+			{Name: "d.zst", Size: 4},
+		}
+
+		// map iteration order is random, so repeat to catch nondeterminism
+		for range 10 {
+			got, err := stg.List("", "")
+			if err != nil {
+				t.Fatalf("got error: %v", err)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("want=%v, got=%v", want, got)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("want=%v, got=%v", want, got)
+				}
+			}
+		}
+	})
+
+	t.Run("suffix filter", func(t *testing.T) {
+		stg := NewSplitMergeMW(&listStorage{files: []FileInfo{
+			{Name: "b.json", Size: 2},
+			{Name: "x.zst", Size: 9},
+			{Name: "a.json", Size: 1},
+		}}, 1)
+
+		got, err := stg.List("", ".json")
+		if err != nil {
+			t.Fatalf("got error: %v", err)
+		}
+		if len(got) != 2 || got[0].Name != "a.json" || got[1].Name != "b.json" {
+			t.Fatalf("want=[a.json b.json], got=%v", got)
+		}
+	})
+}
+
+type listStorage struct {
+	Storage
+	files []FileInfo
+}
+
+func (s *listStorage) List(_, _ string) ([]FileInfo, error) {
+	return s.files, nil
+}
