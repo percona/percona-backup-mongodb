@@ -15,6 +15,8 @@ import (
 	"github.com/mongodb/mongo-tools/mongorestore"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -342,19 +344,9 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
-	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		if util.IsSelective(nss) {
-			err = r.selRestoreDBCleanup(ctx, nss)
-			if err != nil {
-				return errors.Wrap(err, "selective restore cleanup")
-			}
-		} else {
-			err = r.fullRestoreDBCleanup(ctx, bcp)
-			if err != nil {
-				return errors.Wrap(err, "full restore cleanup")
-			}
-		}
+	err = r.cleanupDatabases(ctx, nss, cloneNS)
+	if err != nil {
+		return err
 	}
 
 	err = r.toState(ctx, defs.StatusRunning, nil)
@@ -516,19 +508,9 @@ func (r *Restore) PITR(
 		return err
 	}
 
-	// drop databases on the sharded cluster as part of cleanup phase, on each shard (not CSRS)
-	if r.nodeInfo.IsSharded() && !r.nodeInfo.IsConfigSrv() {
-		if util.IsSelective(nss) {
-			err = r.selRestoreDBCleanup(ctx, nss)
-			if err != nil {
-				return errors.Wrap(err, "selective restore cleanup")
-			}
-		} else {
-			err = r.fullRestoreDBCleanup(ctx, bcp)
-			if err != nil {
-				return errors.Wrap(err, "full restore cleanup")
-			}
-		}
+	err = r.cleanupDatabases(ctx, nss, cloneNS)
+	if err != nil {
+		return err
 	}
 
 	err = r.toState(ctx, defs.StatusRunning, nil)
@@ -899,6 +881,12 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 			bcp.Status, bcp.Error())
 	}
 
+	if version.IsLegacyArchive(bcp.PBMVersion) {
+		if util.IsSelective(bcp.Namespaces) || util.IsSelective(nss) {
+			return errors.New("selective restore is not supported from legacy backup")
+		}
+	}
+
 	if !version.CompatibleWith(version.Current().Version, version.BreakingChangesMap[bcp.Type]) {
 		return errors.Errorf("backup PBM v%s is incompatible with the running PBM v%s",
 			bcp.PBMVersion, version.Current().Version)
@@ -947,55 +935,109 @@ func (r *Restore) toState(ctx context.Context, status defs.Status, wait *time.Du
 	return toState(ctx, r.leadConn, status, r.name, r.nodeInfo, r.reconcileStatus, wait)
 }
 
-// fullRestoreDBCleanup drops all databases present in the backup.
-// Backup is specified with bcp parameter.
-// For each database present in the backup _shardsvrDropDatabase command
-// is used to drop the database from the config srv and all shards.
-func (r *Restore) fullRestoreDBCleanup(ctx context.Context, bcp *backup.BackupMeta) error {
-	dbsInBcp, err := r.getDBsFromBackup(bcp)
-	if err != nil {
-		return errors.Wrap(err, "get dbs from backup")
+// cleanupDatabases skips cloning and dedicated config servers, then dispatches
+// cleanup by namespace selection and topology.
+func (r *Restore) cleanupDatabases(ctx context.Context, nss []string, cloneNS snapshot.CloneNS) error {
+	if cloneNS.IsSpecified() {
+		return nil
 	}
 
-	// make cluster-wide drop for each db from the backup
-	for _, db := range dbsInBcp {
-		configDBDoc, err := r.db.getConfigDatabasesDoc(ctx, db)
+	if r.nodeInfo.IsConfigSrv() {
+		hasConfigShard, err := topo.HasConfigShard(ctx, r.leadConn)
 		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				continue
-			}
-			return errors.Wrapf(err, "get config.databases for %q", db)
+			return errors.Wrap(err, "check config-shard role")
 		}
+		if !hasConfigShard {
+			return nil
+		}
+	}
 
-		if configDBDoc.Primary != r.nodeInfo.SetName {
-			// this shard is not primary shard for this db, so ignore it
+	var err error
+
+	if util.IsSelective(nss) {
+		if r.nodeInfo.IsSharded() {
+			err = r.selRestoreShardedCleanup(ctx, nss)
+		} else {
+			err = r.selRestoreRSCleanup(ctx, nss)
+		}
+		if err != nil {
+			return errors.Wrap(err, "selective restore cleanup")
+		}
+		return nil
+	}
+
+	if r.nodeInfo.IsSharded() {
+		err = r.fullRestoreShardedCleanup(ctx)
+	} else {
+		err = r.fullRestoreRSCleanup(ctx)
+	}
+	if err != nil {
+		return errors.Wrap(err, "full restore cleanup")
+	}
+	return nil
+}
+
+// selRestoreRSCleanup drops selected databases and collections by name.
+func (r *Restore) selRestoreRSCleanup(ctx context.Context, nss []string) error {
+	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
+	droppedDBs := make(map[string]bool)
+	for _, ns := range nss {
+		db, coll := util.ParseNS(ns)
+		if db == "" {
+			continue
+		}
+		if db == defs.DB || db == defs.ConfigDB || db == "local" {
+			continue
+		}
+		if droppedDBs[db] {
 			continue
 		}
 
-		err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
-		if err != nil {
-			return errors.Wrap(err, "run cmd")
+		database := r.nodeConn.Database(db, dbOpts)
+		if coll == "" {
+			err := database.Drop(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "drop database %q", db)
+			}
+			droppedDBs[db] = true
+			r.log.Debug("drop db: %q", db)
+		} else {
+			err := database.Collection(coll).Drop(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "drop collection %q", ns)
+			}
+			r.log.Debug("drop ns: %q", ns)
 		}
-		r.log.Debug("drop %q", db)
 	}
 
 	return nil
 }
 
-// selRestoreDBCleanup drops all databases and/or collections specified in
-// selective restore namespaces.
-// For each namespace listed within selective restore _shardsvrDropDatabase or
-// _shardsvrDropCollection is used for the purpose of clister-wide cleanup.
-func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
-	droppedDBs := []string{}
+// selRestoreShardedCleanup resolves this shard and cleans selected namespaces it owns.
+func (r *Restore) selRestoreShardedCleanup(ctx context.Context, nss []string) error {
+	shardID, err := r.getShardID(ctx)
+	if err != nil {
+		return errors.Wrap(err, "resolve destination shard ID")
+	}
+	err = r.selRestoreDBCleanup(ctx, nss, shardID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// selRestoreDBCleanup drops selected databases and collections owned by shardID cluster-wide.
+func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string, shardID string) error {
+	droppedDBs := make(map[string]bool)
 	for _, ns := range nss {
 		db, coll := util.ParseNS(ns)
-		if db == "" || db == defs.DB || db == defs.ConfigDB {
-			// not allowed dbs for sel restore
+		if db == "" {
 			continue
 		}
-		if slices.Contains(droppedDBs, db) {
-			// db is already dropped
+		if db == defs.DB || db == defs.ConfigDB || db == "local" {
+			continue
+		}
+		if droppedDBs[db] {
 			continue
 		}
 
@@ -1007,24 +1049,22 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 			return errors.Wrapf(err, "get config.databases doc for %q", db)
 		}
 
-		if configDBDoc.Primary != r.nodeInfo.SetName {
+		if configDBDoc.Primary != shardID {
 			// this shard is not primary shard for this db, so ignore it
 			continue
 		}
 
 		if coll == "" {
-			// do db cleanup
 			err = r.db.runCmdShardsvrDropDatabase(ctx, db, configDBDoc)
 			if err != nil {
-				return errors.Wrapf(err, "db cleanup %s", db)
+				return errors.Wrapf(err, "drop database %q", db)
 			}
-			droppedDBs = append(droppedDBs, db)
+			droppedDBs[db] = true
 			r.log.Debug("drop db: %q", db)
 		} else {
-			// do collection cleanup
 			err = r.db.runCmdShardsvrDropCollection(ctx, db, coll, configDBDoc)
 			if err != nil {
-				return errors.Wrapf(err, "collection cleanup %s", ns)
+				return errors.Wrapf(err, "drop collection %q", ns)
 			}
 			r.log.Debug("drop ns: %q", ns)
 		}
@@ -1033,32 +1073,71 @@ func (r *Restore) selRestoreDBCleanup(ctx context.Context, nss []string) error {
 	return nil
 }
 
-// getDBsFromBackup returns all databases present in backup metadata file
-// for each replicaset.
-func (r *Restore) getDBsFromBackup(bcp *backup.BackupMeta) ([]string, error) {
-	rsName := util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName)
-	filepath := path.Join(bcp.Name, rsName, archive.MetaFile)
-	rdr, err := r.bcpStg.SourceReader(filepath)
+// fullRestoreRSCleanup drops all destination user databases on a non-sharded replica set.
+func (r *Restore) fullRestoreRSCleanup(ctx context.Context) error {
+	filter := bson.D{{"name", bson.D{{"$nin", bson.A{defs.DB, defs.ConfigDB, "local"}}}}}
+	dbs, err := r.nodeConn.ListDatabaseNames(ctx, filter,
+		options.ListDatabases().SetAuthorizedDatabases(false))
 	if err != nil {
-		return nil, errors.Wrap(err, "read metadata file")
+		return errors.Wrap(err, "get destination databases")
 	}
-	defer rdr.Close()
 
-	meta, err := archive.ReadMetadata(rdr)
+	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
+	for _, db := range dbs {
+		if err := r.nodeConn.Database(db, dbOpts).Drop(ctx); err != nil {
+			return errors.Wrapf(err, "drop database %q", db)
+		}
+		r.log.Debug("drop %q", db)
+	}
+
+	return nil
+}
+
+// fullRestoreShardedCleanup resolves this shard and drops its assigned user databases.
+func (r *Restore) fullRestoreShardedCleanup(ctx context.Context) error {
+	shardID, err := r.getShardID(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "get metadata")
+		return errors.Wrap(err, "resolve destination shard ID")
+	}
+	err = r.fullRestoreDBCleanup(ctx, shardID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// fullRestoreDBCleanup drops destination user databases owned by shardID cluster-wide.
+func (r *Restore) fullRestoreDBCleanup(ctx context.Context, shardID string) error {
+	dbs, err := getConfigDatabasesForShard(ctx, r.leadConn, shardID)
+	if err != nil {
+		return errors.Wrap(err, "get destination databases")
 	}
 
-	uniqueDbs := map[string]bool{}
-	for _, ns := range meta.Namespaces {
-		uniqueDbs[ns.Database] = true
-	}
-	dbs := []string{}
-	for db := range uniqueDbs {
-		dbs = append(dbs, db)
+	for i := range dbs {
+		db := &dbs[i]
+		err = r.db.runCmdShardsvrDropDatabase(ctx, db.ID, db)
+		if err != nil {
+			return errors.Wrapf(err, "drop database %q", db.ID)
+		}
+		r.log.Debug("drop %q", db.ID)
 	}
 
-	return dbs, nil
+	return nil
+}
+
+// getShardID resolves this replica set against the live destination topology.
+func (r *Restore) getShardID(ctx context.Context) (string, error) {
+	shards, err := topo.ClusterMembers(ctx, r.leadConn.MongoClient())
+	if err != nil {
+		return "", errors.Wrap(err, "get cluster members")
+	}
+	for _, shard := range shards {
+		if shard.RS == r.nodeInfo.SetName {
+			return shard.ID, nil
+		}
+	}
+
+	return "", errors.Errorf("replica set %q not found in destination cluster", r.nodeInfo.SetName)
 }
 
 func (r *Restore) RunSnapshot(
@@ -1070,10 +1149,6 @@ func (r *Restore) RunSnapshot(
 	usersAndRolesOpt restoreUsersAndRolesOption,
 ) (string, error) {
 	if version.IsLegacyArchive(bcp.PBMVersion) {
-		if util.IsSelective(bcp.Namespaces) || util.IsSelective(nss) {
-			return "", errors.New("selective restore is not supported from legacy backup")
-		}
-
 		return "", r.restoreLegacyArchive(ctx, dump, bcp)
 	}
 
