@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 	"sync"
 
@@ -171,22 +170,10 @@ func (g RSConfGetter) Get(ctx context.Context, host string) (*topo.RSConfig, err
 		host = rsName
 	}
 
-	if !strings.HasPrefix(string(g), "mongodb://") {
-		g = "mongodb://" + g
-	}
-	curi, err := url.Parse(string(g))
-	if err != nil {
-		return nil, errors.Wrapf(err, "parse mongo-uri '%s'", g)
-	}
-
 	// Preserving the `replicaSet` parameter will cause an error
 	// while connecting to the ConfigServer (mismatched replicaset names)
-	query := curi.Query()
-	query.Del("replicaSet")
-	curi.RawQuery = query.Encode()
-	curi.Host = host
-
-	conn, err := connect.MongoConnect(ctx, curi.String(), connect.AppName("pbm-sdk"))
+	conn, err := connect.MongoConnect(ctx, string(g),
+		connect.AppName("pbm-sdk"), connect.NoRS(), connect.Hosts(host))
 	if err != nil {
 		return nil, errors.Wrap(err, "connect")
 	}
