@@ -19,6 +19,7 @@ func TestCastSetsDefaults(t *testing.T) {
 	require.NoError(t, cfg.Cast())
 
 	assert.Equal(t, AuthTypeUserPrincipal, cfg.Credentials.Type)
+	assert.False(t, cfg.EnableIMDS)
 	assert.Equal(t, defaultUploadPartSize, cfg.UploadPartSize)
 	assert.Equal(t, defaultUploadConcurrency, cfg.UploadConcurrency)
 	assert.Equal(t, float64(defaultMaxObjSizeGB), cfg.GetMaxObjSizeGB())
@@ -218,10 +219,11 @@ func TestCloneCopiesUserPrincipal(t *testing.T) {
 
 func TestIsSameStorage(t *testing.T) {
 	cfg := &Config{
-		Region:    "eu-frankfurt-1",
-		Namespace: "ns1",
-		Bucket:    "b1",
-		Prefix:    "p1",
+		Region:      "eu-frankfurt-1",
+		EndpointURL: "https://objectstorage.eu-frankfurt-1.example.com",
+		Namespace:   "ns1",
+		Bucket:      "b1",
+		Prefix:      "p1",
 		Credentials: Credentials{
 			Type: AuthTypeUserPrincipal,
 			UserPrincipal: &UserPrincipalCredentials{
@@ -235,16 +237,18 @@ func TestIsSameStorage(t *testing.T) {
 		UploadConcurrency: 2,
 	}
 	eq := &Config{
-		Region:    cfg.Region,
-		Namespace: cfg.Namespace,
-		Bucket:    cfg.Bucket,
-		Prefix:    cfg.Prefix,
+		Region:      cfg.Region,
+		EndpointURL: cfg.EndpointURL,
+		Namespace:   cfg.Namespace,
+		Bucket:      cfg.Bucket,
+		Prefix:      cfg.Prefix,
 	}
 
 	require.True(t, cfg.IsSameStorage(eq))
 
 	for name, mutate := range map[string]func(*Config){
 		"region":    func(c *Config) { c.Region = "us-ashburn-1" },
+		"endpoint":  func(c *Config) { c.EndpointURL = "https://objectstorage.eu-frankfurt-1.other.example.com" },
 		"namespace": func(c *Config) { c.Namespace = "ns2" },
 		"bucket":    func(c *Config) { c.Bucket = "b2" },
 		"prefix":    func(c *Config) { c.Prefix = "p2" },

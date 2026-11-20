@@ -755,6 +755,8 @@ func SetConfigVar(ctx context.Context, m connect.Client, key, val string) error 
 		if err := s3.ValidateDebugLogLevels(v.(string)); err != nil {
 			return errors.Wrap(err, "set s3 debug log")
 		}
+	case "storage.oci.endpointUrl":
+		v = strings.TrimRight(v.(string), "/")
 	}
 
 	_, err = m.ConfigCollection().UpdateOne(ctx,
@@ -794,6 +796,7 @@ func applyLifecycleConfigVar(cfg *LifecycleConf, key string, value any) {
 // sanitizeStoragePaths trims leading/trailing slashes from bucket, container,
 // and prefix values in the storage config. Extra slashes in these values cause
 // S3-compatible API signature errors or backup discovery failures.
+// It also trims trailing slashes from OCI endpoint URLs before persistence.
 func sanitizeStoragePaths(s *StorageConf) {
 	switch s.Type {
 	case storage.S3:
@@ -825,6 +828,7 @@ func sanitizeStoragePaths(s *StorageConf) {
 		if s.OCI != nil {
 			s.OCI.Bucket = storage.TrimSlashes(s.OCI.Bucket)
 			s.OCI.Prefix = storage.TrimSlashes(s.OCI.Prefix)
+			s.OCI.EndpointURL = strings.TrimRight(s.OCI.EndpointURL, "/")
 		}
 	}
 }

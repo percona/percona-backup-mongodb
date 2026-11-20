@@ -37,6 +37,8 @@ const (
 //nolint:lll
 type Config struct {
 	Region      string      `bson:"region" json:"region" yaml:"region"`
+	EndpointURL string      `bson:"endpointUrl,omitempty" json:"endpointUrl,omitempty" yaml:"endpointUrl,omitempty"`
+	EnableIMDS  bool        `bson:"enableIMDS,omitempty" json:"enableIMDS,omitempty" yaml:"enableIMDS,omitempty"`
 	Namespace   string      `bson:"namespace,omitempty" json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Bucket      string      `bson:"bucket" json:"bucket" yaml:"bucket"`
 	Prefix      string      `bson:"prefix,omitempty" json:"prefix,omitempty" yaml:"prefix,omitempty"`
@@ -123,6 +125,9 @@ func (cfg *Config) IsSameStorage(other *Config) bool {
 	}
 
 	if cfg.Region != other.Region {
+		return false
+	}
+	if cfg.EndpointURL != other.EndpointURL {
 		return false
 	}
 	if cfg.Namespace != other.Namespace {
