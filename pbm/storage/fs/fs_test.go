@@ -324,6 +324,18 @@ func TestList(t *testing.T) {
 		})
 	})
 
+	t.Run("List order", func(t *testing.T) {
+		fs := &FS{root: setupTestDir(t)}
+
+		t.Run("without split-merge middleware", func(t *testing.T) {
+			storage.RunListOrderTest(t, fs)
+		})
+
+		t.Run("with split-merge middleware", func(t *testing.T) {
+			storage.RunListOrderTest(t, storage.NewSplitMergeMW(fs, BytesToGB(1024)))
+		})
+	})
+
 	t.Run("split-merge middleware lists files in alphabetical order", func(t *testing.T) {
 		tmpDir := setupTestDir(t)
 		fs := &FS{root: tmpDir}

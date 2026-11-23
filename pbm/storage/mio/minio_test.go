@@ -85,6 +85,22 @@ func TestMinio(t *testing.T) {
 		storage.RunStorageAPITests(t, stg)
 		storage.RunSplitMergeMWTests(t, stg)
 	})
+
+	t.Run("List order", func(t *testing.T) {
+		m, err := newMinio(cfg, "", nil)
+		if err != nil {
+			t.Fatalf("minio storage creation: %v", err)
+		}
+
+		t.Run("without split-merge middleware", func(t *testing.T) {
+			storage.RunListOrderTest(t, m)
+		})
+
+		t.Run("with split-merge middleware", func(t *testing.T) {
+			partSizeGB := float64(storage.KiB) / float64(storage.GiB)
+			storage.RunListOrderTest(t, storage.NewSplitMergeMW(m, partSizeGB))
+		})
+	})
 }
 
 func TestUploadAWSSigV2(t *testing.T) {

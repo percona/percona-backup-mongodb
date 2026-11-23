@@ -114,6 +114,22 @@ func TestGCS(t *testing.T) {
 		storage.RunSplitMergeMWTests(t, stg)
 	})
 
+	t.Run("List order", func(t *testing.T) {
+		g := &GCS{cfg: opts}
+		if err := g.initClient(); err != nil {
+			t.Fatalf("failed to create gcs client: %s", err)
+		}
+
+		t.Run("without split-merge middleware", func(t *testing.T) {
+			storage.RunListOrderTest(t, g)
+		})
+
+		t.Run("with split-merge middleware", func(t *testing.T) {
+			partSizeGB := float64(storage.KiB) / float64(storage.GiB)
+			storage.RunListOrderTest(t, storage.NewSplitMergeMW(g, partSizeGB))
+		})
+	})
+
 	t.Run("Delete fails", func(t *testing.T) {
 		name := "not_found.txt"
 		err := stg.Delete(name)
