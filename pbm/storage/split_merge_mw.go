@@ -165,6 +165,7 @@ func (sm *SplitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 
 // List returns a list of FileInfo for all files specified with prefix,
 // aggregating information for files split into pbm parts.
+// Result is sorted lexicographically by name.
 func (sm *SplitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 	var fi []FileInfo
 	var err error

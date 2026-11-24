@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"path"
 	"runtime"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,6 +101,44 @@ func TestMinio(t *testing.T) {
 		t.Run("with split-merge middleware", func(t *testing.T) {
 			partSizeGB := float64(storage.KiB) / float64(storage.GiB)
 			storage.RunListOrderTest(t, storage.NewSplitMergeMW(m, partSizeGB))
+		})
+
+		// Documents that object storages compare full keys ('.' < '/'),
+		// so a file is listed before a sibling dir whose name is its prefix.
+		t.Run("nested paths", func(t *testing.T) {
+			d := "list-order-nested"
+			files := []string{
+				"2026-11-24T10:00:00Z.pbm.json",
+				"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+			}
+			for _, f := range files {
+				if err := m.Save(path.Join(d, f), strings.NewReader("data")); err != nil {
+					t.Fatalf("save %s: %v", f, err)
+				}
+			}
+			t.Cleanup(func() {
+				for _, f := range files {
+					_ = m.Delete(path.Join(d, f))
+				}
+			})
+
+			want := []string{
+				"2026-11-24T10:00:00Z.pbm.json",
+				"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+			}
+
+			t.Run("without split-merge middleware", func(t *testing.T) {
+				if got := storage.ListNames(t, m, d); !slices.Equal(got, want) {
+					t.Errorf("want %v, got %v", want, got)
+				}
+			})
+
+			t.Run("with split-merge middleware", func(t *testing.T) {
+				partSizeGB := float64(storage.KiB) / float64(storage.GiB)
+				if got := storage.ListNames(t, storage.NewSplitMergeMW(m, partSizeGB), d); !slices.Equal(got, want) {
+					t.Errorf("want %v, got %v", want, got)
+				}
+			})
 		})
 	})
 }

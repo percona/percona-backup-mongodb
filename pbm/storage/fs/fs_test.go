@@ -334,6 +334,41 @@ func TestList(t *testing.T) {
 		t.Run("with split-merge middleware", func(t *testing.T) {
 			storage.RunListOrderTest(t, storage.NewSplitMergeMW(fs, BytesToGB(1024)))
 		})
+
+		// Documents that the raw FS order differs from object storages
+		// (see TestMinio) when a dir name is a prefix of a sibling file name.
+		t.Run("nested paths", func(t *testing.T) {
+			fs := &FS{root: setupTestDir(t)}
+			files := []string{
+				"2026-11-24T10:00:00Z.pbm.json",
+				"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+			}
+			for _, f := range files {
+				if err := fs.Save(f, strings.NewReader("data")); err != nil {
+					t.Fatalf("save %s: %v", f, err)
+				}
+			}
+
+			t.Run("without split-merge middleware", func(t *testing.T) {
+				want := []string{
+					"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+					"2026-11-24T10:00:00Z.pbm.json",
+				}
+				if got := storage.ListNames(t, fs, ""); !slices.Equal(got, want) {
+					t.Errorf("want %v, got %v", want, got)
+				}
+			})
+
+			t.Run("with split-merge middleware", func(t *testing.T) {
+				want := []string{
+					"2026-11-24T10:00:00Z.pbm.json",
+					"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+				}
+				if got := storage.ListNames(t, storage.NewSplitMergeMW(fs, BytesToGB(1024)), ""); !slices.Equal(got, want) {
+					t.Errorf("want %v, got %v", want, got)
+				}
+			})
+		})
 	})
 
 	t.Run("split-merge middleware lists files in alphabetical order", func(t *testing.T) {

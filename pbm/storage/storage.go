@@ -56,7 +56,6 @@ type Storage interface {
 	FileStat(name string) (FileInfo, error)
 	// List scans path with prefix and returns all files with given suffix.
 	// Both prefix and suffix can be omitted.
-	// Result is sorted lexicographically by name.
 	List(prefix, suffix string) ([]FileInfo, error)
 	// Delete deletes given file.
 	// It returns storage.ErrNotExist if a file doesn't exists.

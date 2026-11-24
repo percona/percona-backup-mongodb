@@ -362,6 +362,21 @@ func RunListOrderTest(t *testing.T, stg Storage) {
 	}
 }
 
+// ListNames returns names of files listed under prefix, in List order.
+func ListNames(t *testing.T, stg Storage, prefix string) []string {
+	t.Helper()
+
+	fis, err := stg.List(prefix, "")
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	names := make([]string, len(fis))
+	for i, fi := range fis {
+		names[i] = fi.Name
+	}
+	return names
+}
+
 type splitMergeMWTestSize string
 
 const (
