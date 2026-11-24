@@ -339,6 +339,11 @@ func (r *Restore) Snapshot(
 		return err
 	}
 
+	err = r.checkSnapshotManifest(dump, bcp.PBMVersion)
+	if err != nil {
+		return err
+	}
+
 	err = r.toState(ctx, defs.StatusCleanupCluster, &defs.WaitActionStart)
 	if err != nil {
 		return err
@@ -499,6 +504,11 @@ func (r *Restore) PITR(
 	}
 
 	err = r.checkForCompatibility(ctx, util.MakeReverseRSMapFunc(r.rsMap)(r.brief.SetName), bcp)
+	if err != nil {
+		return err
+	}
+
+	err = r.checkSnapshotManifest(dump, bcp.PBMVersion)
 	if err != nil {
 		return err
 	}
@@ -938,6 +948,20 @@ func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss
 		}
 	}
 
+	return nil
+}
+
+// checkSnapshotManifest checks that the manifest can be read and parsed before cleanup.
+// Legacy archives do not have a separate manifest.
+func (r *Restore) checkSnapshotManifest(dump, pbmVersion string) error {
+	if version.IsLegacyArchive(pbmVersion) {
+		return nil
+	}
+
+	_, err := backup.ReadArchiveNamespaces(r.bcpStg, dump)
+	if err != nil {
+		return errors.Wrap(err, "validate snapshot manifest before cleanup")
+	}
 	return nil
 }
 
