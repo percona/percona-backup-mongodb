@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -164,6 +165,7 @@ func (sm *SplitMergeMiddleware) FileStat(name string) (FileInfo, error) {
 
 // List returns a list of FileInfo for all files specified with prefix,
 // aggregating information for files split into pbm parts.
+// Result is sorted lexicographically by name.
 func (sm *SplitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) {
 	var fi []FileInfo
 	var err error
@@ -192,6 +194,7 @@ func (sm *SplitMergeMiddleware) List(prefix, suffix string) ([]FileInfo, error) 
 		res[i] = FileInfo{Name: f, Size: s}
 		i++
 	}
+	slices.SortFunc(res, func(a, b FileInfo) int { return strings.Compare(a.Name, b.Name) })
 
 	return res, nil
 }

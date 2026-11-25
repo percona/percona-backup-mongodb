@@ -874,6 +874,9 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 	if err != nil {
 		return "", nil, errors.Wrap(err, "failed to list oplog files")
 	}
+	// files will be already sorted by SplitMergeMiddleware,
+	// this is just additional protection in case if middleware is turned off in the future
+	sortChunksForReplay(files)
 
 	chunks := make([]oplog.OplogChunk, len(files))
 	for i := range files {
@@ -891,6 +894,14 @@ func (r *Restore) snapshotObjects(bcp *backup.BackupMeta) (string, []oplog.Oplog
 	}
 
 	return rsMeta.DumpName, chunks, nil
+}
+
+// sortChunksForReplay sorts backup oplog chunk files
+// in the order they must be replayed.
+// Chunk file names start with the chunk's start time,
+// so sorting by name gives chronological order.
+func sortChunksForReplay(files []storage.FileInfo) {
+	slices.SortFunc(files, func(a, b storage.FileInfo) int { return strings.Compare(a.Name, b.Name) })
 }
 
 func (r *Restore) checkSnapshot(ctx context.Context, bcp *backup.BackupMeta, nss []string) error {

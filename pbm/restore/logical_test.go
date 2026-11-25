@@ -784,6 +784,53 @@ func TestFullRestoreDBCleanup(t *testing.T) {
 	})
 }
 
+func TestSnapshotObjects(t *testing.T) {
+	t.Run("oplog chunks are in chronological order", func(t *testing.T) {
+		names := []string{
+			"20261112003335-23398.20261112003711-3.zst",
+			"20261112003711-3.20261112003810-10024.zst",
+			"20261112003810-10024.20261112003911-2.zst",
+			"20261112003911-2.20261112004010-47216.zst",
+			"20261112004010-47216.20261112004047-5.zst",
+		}
+		// rotate files to not have cronological order
+		listed := []storage.FileInfo{}
+		for _, i := range []int{3, 4, 0, 1, 2} {
+			listed = append(listed, storage.FileInfo{Name: names[i], Size: 1})
+		}
+
+		r := &Restore{
+			nodeInfo: &topo.NodeInfo{SetName: "rs0"},
+			bcpStg:   &mockBcpStg{files: listed},
+		}
+		bcp := &backup.BackupMeta{
+			PBMVersion: "2.17.0",
+			Replsets: []backup.BackupReplset{{
+				Name:      "rs0",
+				DumpName:  "bcp/rs0/dump",
+				OplogName: "bcp/rs0/oplog",
+			}},
+		}
+
+		_, chunks, err := r.snapshotObjects(bcp)
+		if err != nil {
+			t.Fatalf("snapshotObjects: %v", err)
+		}
+		if len(chunks) != len(names) {
+			t.Fatalf("want %d chunks, got=%d", len(names), len(chunks))
+		}
+		for i, c := range chunks {
+			want := "bcp/rs0/oplog/" + names[i]
+			if c.FName != want {
+				t.Errorf("chunk %d: want=%s, got=%s", i, want, c.FName)
+			}
+			if i > 0 && c.StartTS != chunks[i-1].EndTS {
+				t.Errorf("chunk %d: start_ts %v doesn't follow previous end_ts %v", i, c.StartTS, chunks[i-1].EndTS)
+			}
+		}
+	})
+}
+
 func createCleanupRestoreTest(t *testing.T, setName string) (*Restore, *mockMDB) {
 	t.Helper()
 
@@ -889,7 +936,9 @@ func (m *mockMDB) getConfigDatabasesDoc(
 	return m.mDB.getConfigDatabasesDoc(ctx, db)
 }
 
-type mockBcpStg struct{}
+type mockBcpStg struct {
+	files []storage.FileInfo
+}
 
 func (m *mockBcpStg) Type() storage.Type {
 	return storage.Filesystem
@@ -900,7 +949,7 @@ func (m *mockBcpStg) Save(_ string, _ io.Reader, _ ...storage.Option) error {
 }
 
 func (m *mockBcpStg) List(_, _ string) ([]storage.FileInfo, error) {
-	return nil, nil
+	return slices.Clone(m.files), nil
 }
 
 func (m *mockBcpStg) Delete(_ string) error {

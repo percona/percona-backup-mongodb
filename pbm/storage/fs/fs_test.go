@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -321,6 +322,85 @@ func TestList(t *testing.T) {
 				[]int64{fSize3},
 			)
 		})
+	})
+
+	t.Run("List order", func(t *testing.T) {
+		fs := &FS{root: setupTestDir(t)}
+
+		t.Run("without split-merge middleware", func(t *testing.T) {
+			storage.RunListOrderTest(t, fs)
+		})
+
+		t.Run("with split-merge middleware", func(t *testing.T) {
+			storage.RunListOrderTest(t, storage.NewSplitMergeMW(fs, BytesToGB(1024)))
+		})
+
+		// Documents that the raw FS order differs from object storages
+		// (see TestMinio) when a dir name is a prefix of a sibling file name.
+		t.Run("nested paths", func(t *testing.T) {
+			fs := &FS{root: setupTestDir(t)}
+			files := []string{
+				"2026-11-24T10:00:00Z.pbm.json",
+				"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+			}
+			for _, f := range files {
+				if err := fs.Save(f, strings.NewReader("data")); err != nil {
+					t.Fatalf("save %s: %v", f, err)
+				}
+			}
+
+			t.Run("without split-merge middleware", func(t *testing.T) {
+				want := []string{
+					"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+					"2026-11-24T10:00:00Z.pbm.json",
+				}
+				if got := storage.ListNames(t, fs, ""); !slices.Equal(got, want) {
+					t.Errorf("want %v, got %v", want, got)
+				}
+			})
+
+			t.Run("with split-merge middleware", func(t *testing.T) {
+				want := []string{
+					"2026-11-24T10:00:00Z.pbm.json",
+					"2026-11-24T10:00:00Z/rs0/oplog/20261124100000-1.20261124101000-3.zst",
+				}
+				if got := storage.ListNames(t, storage.NewSplitMergeMW(fs, BytesToGB(1024)), ""); !slices.Equal(got, want) {
+					t.Errorf("want %v, got %v", want, got)
+				}
+			})
+		})
+	})
+
+	t.Run("split-merge middleware lists files in alphabetical order", func(t *testing.T) {
+		tmpDir := setupTestDir(t)
+		fs := &FS{root: tmpDir}
+		partSize := int64(1024)
+		smMW := storage.NewSplitMergeMW(fs, BytesToGB(partSize))
+
+		wantNames := []string{}
+		wantSizes := []int64{}
+		for i := range 20 {
+			fName := fmt.Sprintf("oplog/file_%02d", i)
+			fSize := int64(512)
+			if i%2 == 0 {
+				fSize = 3*partSize + int64(i)
+			}
+			createFileWithParts(t, fName, fSize, smMW, tmpDir)
+			wantNames = append(wantNames, removeParentDir(fName, 1))
+			wantSizes = append(wantSizes, fSize)
+		}
+
+		// map iteration order is random, so repeat to catch unordered result
+		for range 5 {
+			fInfo, err := smMW.List("oplog", "")
+			if err != nil {
+				t.Fatalf("list err: %v", err)
+			}
+			if len(fInfo) != len(wantNames) {
+				t.Fatalf("expected %d files, got=%d", len(wantNames), len(fInfo))
+			}
+			checkFileSizeAndName(t, fInfo, wantNames, wantSizes)
+		}
 	})
 }
 

@@ -294,6 +294,89 @@ type SplitMergeMWTestConfig struct {
 	SkipExtraLarge bool
 }
 
+// RunListOrderTest saves backup oplog chunk files in random order and checks
+// that List returns them sorted by name, which is chronological order.
+// Some files are bigger than 1KiB, so they are split into parts
+// when stg is split-merge middleware with a small part size.
+func RunListOrderTest(t *testing.T, stg Storage) {
+	t.Helper()
+
+	d := path.Join("list-order"+randomSuffix(), "rs0", "oplog")
+
+	// in chronological order: each chunk starts where the previous one ends
+	names := []string{
+		"20261112003335-23398.20261112003435-3.zst",
+		"20261112003435-3.20261112003536-10024.zst",
+		"20261112003536-10024.20261112003638-2.zst",
+		"20261112003638-2.20261112003741-47216.zst",
+		"20261112003741-47216.20261112003845-5.zst",
+		"20261112003845-5.20261112003945-1.zst",
+		"20261112003945-1.20261112004046-918.zst",
+		"20261112004046-918.20261112004148-12.zst",
+		"20261112004148-12.20261112004251-30117.zst",
+		"20261112004251-30117.20261112004355-7.zst",
+		"20261112004355-7.20261112004455-45.zst",
+		"20261112004455-45.20261112004556-2604.zst",
+		"20261112004556-2604.20261112004658-1.zst",
+		"20261112004658-1.20261112004801-88.zst",
+		"20261112004801-88.20261112004905-9.zst",
+		"20261112004905-9.20261112005005-14321.zst",
+		"20261112005005-14321.20261112005106-6.zst",
+		"20261112005106-6.20261112005208-731.zst",
+		"20261112005208-731.20261112005311-2.zst",
+		"20261112005311-2.20261112005415-50.zst",
+	}
+	n := len(names)
+
+	sizes := make([]int64, n)
+	for i := range n {
+		sizes[i] = 512
+		if i%2 == 0 {
+			sizes[i] = 3*1024 + int64(i)
+		}
+	}
+
+	for _, i := range rand.Perm(n) {
+		err := stg.Save(path.Join(d, names[i]), bytes.NewReader(make([]byte, sizes[i])), Size(sizes[i]))
+		if err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, name := range names {
+			_ = stg.Delete(path.Join(d, name))
+		}
+	})
+
+	files, err := stg.List(d, "")
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(files) != n {
+		t.Fatalf("expected %d files, got %d: %v", n, len(files), files)
+	}
+	for i, f := range files {
+		if f.Name != names[i] || f.Size != sizes[i] {
+			t.Fatalf("file %d: want name=%s size=%d, got %+v; all files: %v", i, names[i], sizes[i], f, files)
+		}
+	}
+}
+
+// ListNames returns names of files listed under prefix, in List order.
+func ListNames(t *testing.T, stg Storage, prefix string) []string {
+	t.Helper()
+
+	fis, err := stg.List(prefix, "")
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	names := make([]string, len(fis))
+	for i, fi := range fis {
+		names[i] = fi.Name
+	}
+	return names
+}
+
 type splitMergeMWTestSize string
 
 const (
