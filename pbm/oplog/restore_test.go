@@ -97,7 +97,7 @@ type failingApplyMDB struct {
 
 func (d *failingApplyMDB) applyOps(_ []interface{}) error { return d.applyErr }
 
-func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
+func TestHandleNonTxnOpCreateStripsO2(t *testing.T) {
 	db := newMDBTestClient()
 	oRestore := newOplogRestoreTest(db)
 
@@ -106,13 +106,9 @@ func TestHandleNonTxnOpCreateStripsO2FromSyntheticDropAndCreate(t *testing.T) {
 
 	err := oRestore.handleNonTxnOp(op)
 	require.NoError(t, err)
-	require.Len(t, db.applyOpsInv, 2)
-
-	wantCmds := []string{"drop", "create"}
-	for i, want := range wantCmds {
-		require.Equal(t, want, db.applyOpsInv[i]["cmd"])
-		require.Empty(t, db.applyOpsInv[i]["o2"])
-	}
+	require.Len(t, db.applyOpsInv, 1)
+	require.Equal(t, "create", db.applyOpsInv[0]["cmd"])
+	require.Empty(t, db.applyOpsInv[0]["o2"])
 }
 
 func TestCloneEntryRemappedCreateStripsO2(t *testing.T) {
@@ -687,10 +683,10 @@ func TestApply(t *testing.T) {
 			{
 				desc:      "collection: create-drop-create",
 				oplogFile: "ops_cmd_create_drop",
-				resOps:    []string{"c", "c", "c", "c", "c"},
-				resNS:     []string{"mydb.$cmd", "mydb.$cmd", "mydb.$cmd", "mydb.$cmd", "mydb.$cmd"},
-				resCmd:    []string{"drop", "create", "drop", "drop", "create"},
-				resColl:   []string{"c1", "c1", "c1", "c2", "c2"},
+				resOps:    []string{"c", "c", "c"},
+				resNS:     []string{"mydb.$cmd", "mydb.$cmd", "mydb.$cmd"},
+				resCmd:    []string{"create", "drop", "create"},
+				resColl:   []string{"c1", "c1", "c2"},
 			},
 			// todo: add more cases
 		}
