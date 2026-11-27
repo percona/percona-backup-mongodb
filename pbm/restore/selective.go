@@ -12,6 +12,7 @@ import (
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
 	"github.com/percona/percona-backup-mongodb/pbm/compress"
+	"github.com/percona/percona-backup-mongodb/pbm/defs"
 	"github.com/percona/percona-backup-mongodb/pbm/errors"
 	"github.com/percona/percona-backup-mongodb/pbm/storage"
 	"github.com/percona/percona-backup-mongodb/pbm/util"
@@ -83,6 +84,9 @@ func fetchAvailability(bcp *backup.BackupMeta, stg storage.Storage) (map[string]
 
 	rv := make(map[string]bool)
 	for _, ns := range nss {
+		if ns.Database != defs.ConfigDB {
+			continue
+		}
 		switch ns.Collection {
 		case databasesNS, collectionsNS, chunksNS:
 			rv[ns.Collection] = ns.Size != 0

@@ -1242,18 +1242,9 @@ func (o *OplogRestore) handleNonTxnOp(op db.Oplog) error {
 			}
 
 			// MongoDB 8.3 create oplog entries may include physical local-catalog
-			// metadata in o2, such as storage idents. PBM is about to force a
-			// drop/recreate, so keep logical data in o and ui, and let MongoDB
-			// allocate fresh physical metadata.
+			// metadata in o2, such as storage idents. Keep logical data in o and ui
+			// and let MongoDB allocate its own physical metadata.
 			op.Query = nil
-
-			// This synthetic drop can be removed once PBM-1670 adds RS
-			// pre-restore cleanup matching sharded restores.
-			op2 := op
-			op2.Object = bson.D{{"drop", collName}}
-			if err := o.handleNonTxnOp(op2); err != nil {
-				return errors.Wrap(err, "oplog: drop collection before create")
-			}
 		}
 	} else if op.Operation == "i" && collName == "system.views" {
 		// PBM-921: ensure the collection exists before "creating" views or timeseries
