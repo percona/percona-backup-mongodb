@@ -315,7 +315,8 @@ func (d *mDB) runCmdShardsvrDropCollection(
 	)
 }
 
-// getConfigDatabasesForShard returns user-database catalog documents owned by shardID.
+// getConfigDatabasesForShard returns user-database documents from the config.databases
+// collection for databases owned by shardID.
 // shardID is the destination shard ID, not its replica-set name.
 func getConfigDatabasesForShard(
 	ctx context.Context,

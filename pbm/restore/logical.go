@@ -16,7 +16,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/percona/percona-backup-mongodb/pbm/archive"
 	"github.com/percona/percona-backup-mongodb/pbm/backup"
@@ -1014,7 +1013,6 @@ func (r *Restore) cleanupDatabases(ctx context.Context, nss []string, cloneNS sn
 
 // selRestoreRSCleanup drops selected databases and collections by name.
 func (r *Restore) selRestoreRSCleanup(ctx context.Context, nss []string) error {
-	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
 	droppedDBs := make(map[string]bool)
 	for _, ns := range nss {
 		db, coll := util.ParseNS(ns)
@@ -1028,7 +1026,7 @@ func (r *Restore) selRestoreRSCleanup(ctx context.Context, nss []string) error {
 			continue
 		}
 
-		database := r.nodeConn.Database(db, dbOpts)
+		database := r.nodeConn.Database(db)
 		if coll == "" {
 			err := database.Drop(ctx)
 			if err != nil {
@@ -1117,9 +1115,9 @@ func (r *Restore) fullRestoreRSCleanup(ctx context.Context) error {
 		return errors.Wrap(err, "get destination databases")
 	}
 
-	dbOpts := options.Database().SetWriteConcern(writeconcern.Majority())
 	for _, db := range dbs {
-		if err := r.nodeConn.Database(db, dbOpts).Drop(ctx); err != nil {
+		err = r.nodeConn.Database(db).Drop(ctx)
+		if err != nil {
 			return errors.Wrapf(err, "drop database %q", db)
 		}
 		r.log.Debug("drop %q", db)
